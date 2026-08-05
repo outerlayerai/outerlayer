@@ -42,7 +42,7 @@ jobs:
   spectral:
     name: Spectral lint
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 4
 
     steps:

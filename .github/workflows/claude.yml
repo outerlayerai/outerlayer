@@ -38,7 +38,7 @@ jobs:
           (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
           contains(fromJSON('["OWNER","MEMBER"]'), github.event.issue.author_association))
       )
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # id-token: write dropped — the action authenticates
     # with ANTHROPIC_API_KEY, not OIDC, so no cloud-federation token is needed.
     permissions:

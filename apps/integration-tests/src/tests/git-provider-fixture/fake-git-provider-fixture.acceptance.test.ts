@@ -24,6 +24,7 @@ import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest';
 import { randomUUID } from 'crypto';
 import { createSupabaseAdminClient, createSupabaseAdminClientUntyped } from '../../lib/supabase-admin';
 import { createTenantWithOwner, type SameTenantUser } from '../app-level-roles/helpers';
+import { uniqueInstallationId } from '../../lib/app-test-utils';
 import { actAsInOrg, resetRequestScope } from '../../lib/session-cookie';
 import {
   installFakeGitProvider,
@@ -69,12 +70,17 @@ describe('fake GitProvider fixture', () => {
     // is that this needs no schema change (git_connection.provider stays
     // CHECK-constrained to 'github' | 'gitlab'); the registry override, not
     // the row, is what routes it to the fake.
+    //
+    // installation_id must be unique per run:
+    // excl_git_connection_installation_one_tenant binds an installation to a
+    // single tenant, so a literal shared with another suite's tenant raises
+    // 23P01 whenever the two overlap. The fake ignores the value.
     const { error: connError } = await admin.from('git_connection').insert({
       app_id: appId,
       tenant_id: owner.tenantId,
       provider: 'github',
       repository,
-      installation_id: 999999,
+      installation_id: uniqueInstallationId(),
       created_by: owner.id,
     });
     if (connError) throw new Error(`seed git_connection: ${connError.message}`);
