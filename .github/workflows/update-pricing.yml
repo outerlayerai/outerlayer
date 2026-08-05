@@ -17,7 +17,7 @@ permissions:
 jobs:
   sync-model-registry:
     name: Sync Model Registry
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     # create-pull-request opens a PR with the regenerated registry.
     permissions:

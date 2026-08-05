@@ -17,6 +17,7 @@ import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest';
 import { randomUUID } from 'crypto';
 import { createSupabaseAdminClient, createSupabaseAdminClientUntyped } from '../../lib/supabase-admin';
 import { createTenantWithOwner, cleanupTenantAndUsers, type SameTenantUser } from '../custom-roles/helpers';
+import { uniqueInstallationId } from '../../lib/app-test-utils';
 import { actAsInOrg, resetRequestScope } from '../../lib/session-cookie';
 import {
   installFakeGitProvider,
@@ -58,7 +59,10 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
       tenant_id: owner.tenantId,
       provider: 'github',
       repository,
-      installation_id: 999999,
+      // Unique per call: excl_git_connection_installation_one_tenant binds an
+      // installation to one tenant, so a literal shared with the sibling
+      // fake-provider suite's tenant raises 23P01 when both overlap.
+      installation_id: uniqueInstallationId(),
       created_by: owner.id,
     });
     if (connError) throw new Error(`seed git_connection: ${connError.message}`);

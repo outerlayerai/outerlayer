@@ -35,7 +35,7 @@ jobs:
   oasdiff:
     name: Detect breaking API changes
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 4
 
     env:

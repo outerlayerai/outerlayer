@@ -29,7 +29,7 @@
 import { getSupabaseAdmin } from './test-utils';
 import { retryOnTransientError } from './retry';
 import { ensureDefaultEnvironment } from './environment-test-utils';
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 
 // ============================================================================
 // Type Definitions
@@ -236,10 +236,15 @@ export interface TestGitConnection {
  * A `git_connection.installation_id` no other fixture will pick.
  *
  * The column is globally unique — one GitHub App installation belongs to one
- * app in one tenant — so fixtures cannot share a literal. Seeded from the clock
- * and stepped per call so parallel files in one run stay distinct.
+ * app in one tenant (`excl_git_connection_installation_one_tenant`) — so
+ * fixtures cannot share a literal. Seeded randomly rather than from the clock:
+ * vitest runs test files in separate worker processes, and two workers starting
+ * in the same millisecond would otherwise pick the same seed and raise 23P01.
+ * Ids live in [2.0e9, 2.1e9) — inside the column's int4 range but far above
+ * GitHub's real installation ids — and step per call so parallel files in one
+ * worker stay distinct.
  */
-let installationIdSeed = Date.now() % 1_000_000_000;
+let installationIdSeed = 2_000_000_000 + randomInt(0, 100_000_000);
 export function uniqueInstallationId(): number {
   installationIdSeed += 1;
   return installationIdSeed;
