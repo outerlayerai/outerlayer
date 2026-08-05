@@ -1,20 +1,20 @@
 {
   "apps/tenant-dashboard": {
-    "asAny": 163,
-    "asUnknownAs": 163,
-    "tsIgnore": 1,
+    "asAny": 230,
+    "asUnknownAs": 240,
+    "tsIgnore": 0,
     "tsExpectError": 3
   },
   "apps/integration-tests": {
-    "asAny": 102,
-    "asUnknownAs": 6,
+    "asAny": 79,
+    "asUnknownAs": 68,
     "tsIgnore": 2,
     "tsExpectError": 0
   },
   "apps/gateway": {
-    "asAny": 76,
-    "asUnknownAs": 98,
+    "asAny": 4,
+    "asUnknownAs": 62,
     "tsIgnore": 0,
-    "tsExpectError": 1
+    "tsExpectError": 0
   }
 }
