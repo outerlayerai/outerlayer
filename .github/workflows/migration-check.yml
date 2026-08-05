@@ -19,7 +19,7 @@ jobs:
   validate-migrations:
     name: Validate Database Migrations
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
 
     steps:
@@ -107,7 +107,7 @@ jobs:
   migration-tests:
     name: Migration Validator Tests
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
 
     steps:

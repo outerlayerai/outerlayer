@@ -566,7 +566,7 @@ jobs:
     # (~$3/mo on GitHub), so we keep it on the boring proven runner rather
     # than spend canary cycles validating the merge on Blacksmith too.
     name: Coverage Gate
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 8
     needs: [detect-changes, prepare, unit-tests]
     if: needs.detect-changes.outputs.app-code == 'true' || needs.detect-changes.outputs.infra == 'true'
