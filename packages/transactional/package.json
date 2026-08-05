@@ -8,7 +8,7 @@
     "typescript": "^5.5.3"
   },
   "scripts": {
-    "dev": "email dev",
+    "dev:email": "email dev",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "private": true,

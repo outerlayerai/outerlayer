@@ -63,7 +63,11 @@ npx supabase migration up       # bring the local database up to date
 
 Run `supabase start` from `apps/tenant-dashboard` — the project config lives
 there. Paste the values it prints into `apps/tenant-dashboard/.env.local` and
-`apps/gateway/.dev.vars`. See
+`apps/gateway/.dev.vars`.
+
+`supabase/config.toml` moves the local stack off the Supabase defaults: the API
+gateway binds **55501** and Postgres **55502**. The env templates ship those
+values, but `supabase status` is the authority if they ever drift. See
 [the Supabase local-development guide](https://supabase.com/docs/guides/cli/local-development#start-supabase-services)
 for the container setup.
 
@@ -85,6 +89,30 @@ cd .. && yarn clickhouse:migration:dev   # schema + the read/write role users
 yarn dev            # the apps
 yarn dev:analytics  # the apps + ClickHouse
 yarn dev:full       # everything: ClickHouse, Supabase (incl. Studio and Inbucket), apps
+```
+
+`yarn dev` builds the workspace packages first — the gateway bundles its
+`@repo/*` and `@outerlayer/*` dependencies from `dist/`, so without that step
+wrangler fails to resolve them on a fresh clone.
+
+What ends up running, and the variable that moves each one (set in the
+repo-root `.env.local`):
+
+| App | URL | Port variable |
+| --- | --- | --- |
+| Tenant dashboard | <http://localhost:3002> | `PORT` |
+| Gateway (wrangler) | <http://localhost:9001> | `GATEWAY_PORT` |
+| Marketing site | <http://localhost:9010> | `SITE_PORT` |
+
+Every app reads its *own* variable. `yarn dev` exports the whole file, so a
+second app defaulting to `${PORT}` would bind the dashboard's port and one of
+the two would die with `EADDRINUSE`.
+
+Two workspaces are deliberately outside `yarn dev` and start on their own:
+
+```bash
+yarn dev:email      # React Email preview server for packages/transactional
+yarn dev:worker     # the cloud-worker runner; needs WORKER_PARAMS or WORKER_TOKEN
 ```
 
 **Work against local infrastructure only.** Never point a development branch at

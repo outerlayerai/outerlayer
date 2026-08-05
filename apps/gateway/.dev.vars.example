@@ -29,7 +29,7 @@ NODE_ENV=development
 # JWT_SECRET).
 
 # Base URL of the Supabase REST API.
-SUPABASE_API_BASE_URL=http://127.0.0.1:54321
+SUPABASE_API_BASE_URL=http://127.0.0.1:55501
 # Secret (`sb_secret_…`) key — runs as service_role and bypasses RLS.
 SUPABASE_SECRET_KEY=your-supabase-secret-key
 # Publishable (`sb_publishable_…`) key — used for RLS-enforced scoped clients.

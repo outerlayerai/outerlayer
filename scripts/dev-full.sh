@@ -28,5 +28,9 @@ rm -f "$CONFIG.bak"
 npx supabase stop --workdir apps/tenant-dashboard || true
 npx supabase start --workdir apps/tenant-dashboard
 
-# Run dev
+# Run dev — source the port config the same way `yarn dev` does
+set -a
+# shellcheck disable=SC1091
+. "$REPO_ROOT/.env.local" 2>/dev/null || true
+set +a
 turbo dev

@@ -103,7 +103,17 @@
     "dev": {
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["PORT", "GATEWAY_PORT", "FLY_API_TOKEN"]
+      "dependsOn": ["^build"],
+      "passThroughEnv": ["PORT", "GATEWAY_PORT", "SITE_PORT", "FLY_API_TOKEN"]
+    },
+    "dev:email": {
+      "cache": false,
+      "persistent": true
+    },
+    "dev:worker": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["WORKER_PARAMS", "WORKER_PARAMS_FILE", "WORKER_TOKEN"]
     }
   }
 }
