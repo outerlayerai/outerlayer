@@ -10,9 +10,12 @@
 
 # Machine-local hook extensions: an executable in the repo's untracked
 # hooks-local directory (under the git common dir, shared by all worktrees)
-# runs first. Each machine decides what, if anything, lives there.
+# runs first, and a non-zero exit from it aborts the push — a local hook that
+# refuses is refusing for a reason, and a swallowed exit status turns that
+# refusal into a message nobody acts on. Each machine decides what, if
+# anything, lives there.
 _local_hook="$(git rev-parse --git-common-dir)/hooks-local/pre-push"
-[ -x "$_local_hook" ] && "$_local_hook" "$@"
+[ -x "$_local_hook" ] && { "$_local_hook" "$@" || exit 1; }
 
 HUSKY_SHIM="$(dirname "$0")/_/husky.sh"
 if [ ! -f "$HUSKY_SHIM" ]; then
