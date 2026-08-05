@@ -1,0 +1,15 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: mailto:security@outerlayer.ai
+    about: >
+      Never open a public issue for a vulnerability. Email us, or use the
+      Security tab above and choose "Report a vulnerability" — that route is
+      preferred, since it keeps the report, the discussion, and the advisory
+      together. See SECURITY.md for scope and response targets.
+  - name: Documentation
+    url: https://docs.outerlayer.ai
+    about: Setup, configuration, and API reference. Most questions are answered here.
+  - name: Commercial and billing questions
+    url: mailto:hello@outerlayer.ai
+    about: The cloud service, plans, and enterprise licensing for the ee/ directories.

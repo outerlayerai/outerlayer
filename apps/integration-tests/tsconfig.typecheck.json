@@ -1,0 +1,43 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "paths": {
+      "@repo/api-schemas": ["../../packages/api-schemas/src/index.ts"],
+      "@outerlayer/session-schema": ["../../packages/session-schema/src/index.ts"],
+      "@/*": ["./src/*", "../tenant-dashboard/src/*"],
+      "@/test/*": ["./src/test/*"],
+      "@/mocks/*": ["./src/mocks/*"],
+      "@/utils/*": ["./src/utils/*", "../tenant-dashboard/src/utils/*"],
+      "tenant-dashboard/*": ["../tenant-dashboard/*"],
+      "@ee/*": ["../tenant-dashboard/ee/*"],
+      "gateway/openapi/*": ["../gateway/src/openapi/*"],
+      "gateway/services": ["../gateway/src/services/index.ts"],
+      "gateway/services/alerts-service": ["../gateway/src/services/alerts-service.ts"],
+      "gateway/lib/*": ["../gateway/src/lib/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/lib/rbac-test-utils.ts",
+    "src/tests/app-level-roles/**",
+    "src/tests/app-management/app-creation.test.ts",
+    "src/tests/custom-roles/**",
+    "src/tests/dashboard-org-scoping.test.ts",
+    "src/tests/deployment-orchestrator.test.ts",
+    "src/tests/managed-deployment/deployment-env-var.test.ts",
+    "src/tests/membership-service.test.ts",
+    "src/tests/organization-service.test.ts",
+    "src/tests/platform-admin/**",
+    "src/tests/rbac/**",
+    "src/tests/registration-flow.test.ts",
+    "src/tests/tenant-isolation.test.ts",
+    "src/tests/terms/terms-migration.test.ts",
+    "src/tests/webhook-guard.test.ts"
+  ]
+}

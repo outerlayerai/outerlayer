@@ -1,0 +1,7 @@
+#!/bin/sh
+# Machine-local hook extensions: an executable in the repo's untracked
+# hooks-local directory (under the git common dir, shared by all worktrees)
+# runs here. Each machine decides what, if anything, lives there.
+_local_hook="$(git rev-parse --git-common-dir)/hooks-local/post-checkout"
+[ -x "$_local_hook" ] && "$_local_hook" "$@"
+exit 0

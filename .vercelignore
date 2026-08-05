@@ -1,0 +1,21 @@
+# Test artifacts
+**/coverage/
+**/.stryker-tmp/
+**/.nyc_output/
+**/.vitest-reports/
+
+# Playwright / E2E
+**/playwright-report/
+**/test-results/
+
+# Local Supabase data
+supabase/.temp/
+supabase/data/
+
+# Claude agent workspace files
+.claude
+
+# Large generated / cache dirs (node_modules is already excluded by Vercel)
+**/.turbo/
+**/.next/cache/
+**/dist/.cache/

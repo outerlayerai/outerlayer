@@ -1,0 +1,25 @@
+{
+  "name": "@repo/error-reporting-core",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "description": "Dual-runtime / Workers-safe error-reporting port. Holds the ErrorReportingAdapter interface, the runtime-agnostic NoOpAdapter, and resolveErrorReportingConfig (the self-host / no-op toggle that reads the vendor-neutral ERROR_REPORTING_* env vars and falls back to the legacy BetterStack DSN). Pure, runtime-agnostic code — no Node built-ins, no SDK imports — so it bundles into both the Cloudflare Workers gateway and the Next.js dashboard. The Sentry-backed adapter bindings live in each app.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:workers": "tsc --noEmit -p tsconfig.workers.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@repo/adapter-config": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "@repo/typescript-config": "*",
+    "@vitest/coverage-v8": "^4.1.8",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

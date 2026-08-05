@@ -1,0 +1,80 @@
+{
+  "name": "@outerlayer/runner-core",
+  "version": "0.1.0",
+  "description": "SandboxProvider seam for the eval runner: LocalDocker + Fly providers, reaper GC, and the provider conformance suite",
+  "license": "Apache-2.0",
+  "author": "Magu Studios, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outerlayerai/outerlayer.git",
+    "directory": "packages/runner-core"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "sandbox",
+    "docker",
+    "fly-machines",
+    "conformance-testing"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./conformance": {
+      "import": {
+        "types": "./dist/conformance.d.ts",
+        "default": "./dist/conformance.js"
+      },
+      "require": {
+        "types": "./dist/conformance.d.cts",
+        "default": "./dist/conformance.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:conformance": "OUTERLAYER_CONFORMANCE=1 vitest run --testTimeout 180000",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "dockerode": "^5.0.1",
+    "tar-stream": "^3.2.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.44",
+    "@types/tar-stream": "^3.1.4",
+    "tsup": "^8.5.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

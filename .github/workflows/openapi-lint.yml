@@ -1,0 +1,68 @@
+name: OpenAPI Lint
+
+# Lints `docs/openapi.yaml` with Spectral against `.spectral.yaml`.
+#
+# Why a dedicated workflow (parallel to openapi-drift and
+# openapi-breaking-change): drift catches Chanfana<->yaml mismatches,
+# breaking-change catches consumer-visible regressions, and lint catches
+# style/quality issues in the generated spec (missing operationId,
+# malformed enums, naming convention drift). All three run on the same
+# triggers but report independently so a failure in one doesn't mask
+# another.
+#
+# When this fails: the fix belongs in the upstream Zod schemas under
+# packages/gateway-core/src/openapi/routes/, NOT in docs/openapi.yaml. The
+# yaml is generated.
+#
+# Security: no webhook payload fields (PR title, body, head ref, etc.)
+# are interpolated into shell `run:` steps. The only ${{ }} expressions
+# below reference workflow metadata (github.workflow, github.ref) and
+# the typed `pull_request.draft` field, all consumed by GitHub Actions
+# directly rather than evaluated in a shell.
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - 'packages/gateway-core/src/openapi/**'
+      - 'docs/openapi.yaml'
+      - '.spectral.yaml'
+      - '.github/workflows/openapi-lint.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  spectral:
+    name: Spectral lint
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        # Spectral CLI doesn't need the workspace install — it's a one-shot
+        # npx call. Skipping the full yarn install keeps this job <30s.
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Run Spectral
+        # --format github-actions emits ::error and ::warning lines that
+        # GitHub renders inline on the PR diff.
+        # --fail-severity=error means warnings show up on the PR but
+        # don't block merge. Bump to `warn` once the ruleset is tuned.
+        run: |
+          npx --yes @stoplight/spectral-cli@6.15.0 lint docs/openapi.yaml \
+            --ruleset .spectral.yaml \
+            --format github-actions \
+            --fail-severity=error

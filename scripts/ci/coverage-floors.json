@@ -1,0 +1,38 @@
+{
+  "apps/gateway": {
+    "statements": 87.9,
+    "branches": 77.9,
+    "functions": 81,
+    "lines": 88.1
+  },
+  "apps/tenant-dashboard": {
+    "statements": 78.7,
+    "branches": 72.7,
+    "functions": 77.5,
+    "lines": 79.4
+  },
+  "packages/gateway-core": {
+    "statements": 85.8,
+    "branches": 80.2,
+    "functions": 83.1,
+    "lines": 86
+  },
+  "packages/migration-validator": {
+    "statements": 25,
+    "branches": 26,
+    "functions": 28,
+    "lines": 24.5
+  },
+  "packages/observability-service": {
+    "statements": 94.9,
+    "branches": 83.3,
+    "functions": 92.7,
+    "lines": 95.9
+  },
+  "packages/shared-utils": {
+    "statements": 88,
+    "branches": 88.5,
+    "functions": 89.1,
+    "lines": 87.9
+  }
+}

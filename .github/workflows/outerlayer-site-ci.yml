@@ -1,0 +1,91 @@
+name: Outerlayer Site CI
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - "apps/outerlayer-site/**"
+      - "packages/design-tokens/**"
+
+# Cancel in-progress runs when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    if: github.event.pull_request.draft == false
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: "yarn"
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # Runs the same command Vercel runs, so a build that only breaks in
+      # production is caught before merge rather than on the deploy.
+      - name: Build site
+        working-directory: apps/outerlayer-site
+        run: yarn build
+        env:
+          SITE_BUILD_DATE: ${{ github.event.pull_request.updated_at }}
+
+  typecheck:
+    name: Type Check
+    if: github.event.pull_request.draft == false
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: "yarn"
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # next.config.mjs sets typescript.ignoreBuildErrors so deploys aren't
+      # gated on tsc; this job is what actually holds the type contract.
+      - name: Type check
+        working-directory: apps/outerlayer-site
+        run: yarn typecheck
+
+  lint:
+    name: Lint
+    if: github.event.pull_request.draft == false
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: "yarn"
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Lint
+        working-directory: apps/outerlayer-site
+        run: yarn lint

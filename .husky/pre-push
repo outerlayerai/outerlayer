@@ -1,0 +1,35 @@
+# pre-push hook — runs the canonical CI gates locally before push.
+#
+# The `.husky/_/husky.sh` shim is created by `yarn prepare` (which runs
+# `husky`), not by `yarn install --immutable`. In a fresh worktree where
+# prepare hasn't run, the shim is missing. This hook must NOT source it (that
+# sourcing form is deprecated and fails outright as of husky v10), but its
+# presence still stands in for "has `yarn prepare` run", so a missing shim
+# fails loud with the remediation step rather than silently letting the push
+# through. Without this check a broken worktree pushes failing tests to CI.
+
+# Machine-local hook extensions: an executable in the repo's untracked
+# hooks-local directory (under the git common dir, shared by all worktrees)
+# runs first. Each machine decides what, if anything, lives there.
+_local_hook="$(git rev-parse --git-common-dir)/hooks-local/pre-push"
+[ -x "$_local_hook" ] && "$_local_hook" "$@"
+
+HUSKY_SHIM="$(dirname "$0")/_/husky.sh"
+if [ ! -f "$HUSKY_SHIM" ]; then
+  echo ""
+  echo "❌ pre-push: husky shim missing at $HUSKY_SHIM"
+  echo ""
+  echo "   This usually means \`yarn install --immutable\` was run in a"
+  echo "   fresh worktree without the \`prepare\` lifecycle. Yarn 4 skips"
+  echo "   prepare under --immutable to prevent install-time mutations."
+  echo ""
+  echo "   Fix:"
+  echo "       yarn prepare"
+  echo ""
+  echo "   Aborting push to prevent silent CI failures (the hook would"
+  echo "   otherwise be a no-op and unit tests would never run)."
+  echo ""
+  exit 1
+fi
+
+node scripts/git/pre-push-checks.mjs

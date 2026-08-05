@@ -1,0 +1,19 @@
+{
+  "name": "@repo/environments-service",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "description": "Shared Environments domain logic — environment lifecycle and the Fly app client, scoped to lifecycle only. Consumed by both the cloud gateway (Cloudflare Worker) and the tenant dashboard (Next.js). Consumers supply their own Supabase client, Fly client, and entitlement source via constructor DI. Workers-compatible: no Node built-ins.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@supabase/supabase-js": "2.111.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

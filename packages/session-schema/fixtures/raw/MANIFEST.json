@@ -1,0 +1,952 @@
+{
+  "sanitizerVersion": 1,
+  "generatedAt": "2026-07-06T18:26:32.914Z",
+  "sourceRoot": "~/.claude/projects (founder machine)",
+  "totalFiles": 45,
+  "files": [
+    {
+      "name": "s01-small-ee5e9b07.jsonl",
+      "lines": 12,
+      "bytes": 18929,
+      "versions": [
+        "2.1.165"
+      ],
+      "subagent": true,
+      "strata": [
+        "small",
+        "subagent"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s02-small-b5276b1a.jsonl",
+      "lines": 28,
+      "bytes": 33963,
+      "versions": [
+        "2.1.198"
+      ],
+      "subagent": true,
+      "strata": [
+        "small",
+        "subagent"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s03-small-6f07cec6.jsonl",
+      "lines": 15,
+      "bytes": 18993,
+      "versions": [
+        "2.1.198"
+      ],
+      "subagent": true,
+      "strata": [
+        "small",
+        "subagent"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s04-small-820736e1.jsonl",
+      "lines": 23,
+      "bytes": 28213,
+      "versions": [
+        "2.1.185"
+      ],
+      "subagent": true,
+      "strata": [
+        "small",
+        "subagent"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s05-large-0c76305d.jsonl",
+      "lines": 861,
+      "bytes": 908005,
+      "versions": [
+        "2.1.172"
+      ],
+      "subagent": false,
+      "strata": [
+        "compaction"
+      ],
+      "features": {
+        "compaction": true,
+        "apiError": false,
+        "prLink": true,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": true,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s06-large-43526e01.jsonl",
+      "lines": 888,
+      "bytes": 902452,
+      "versions": [
+        "2.1.170"
+      ],
+      "subagent": false,
+      "strata": [
+        "api_error",
+        "compaction"
+      ],
+      "features": {
+        "compaction": true,
+        "apiError": true,
+        "prLink": true,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": true,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s07-large-b2e4caca.jsonl",
+      "lines": 1297,
+      "bytes": 1285254,
+      "versions": [
+        "2.1.172"
+      ],
+      "subagent": false,
+      "strata": [
+        "compaction"
+      ],
+      "features": {
+        "compaction": true,
+        "apiError": false,
+        "prLink": true,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": true,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s08-large-0d346a10.jsonl",
+      "lines": 655,
+      "bytes": 751972,
+      "versions": [
+        "2.1.165"
+      ],
+      "subagent": false,
+      "strata": [
+        "api_error"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": true,
+        "prLink": true,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s09-small-eabfac43.jsonl",
+      "lines": 14,
+      "bytes": 14235,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "small"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s10-small-9d6d6c84.jsonl",
+      "lines": 26,
+      "bytes": 26494,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "small"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s11-small-768a7db1.jsonl",
+      "lines": 14,
+      "bytes": 14159,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "small"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s12-small-36cbdb7b.jsonl",
+      "lines": 29,
+      "bytes": 30177,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "small"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s13-small-d5e458aa.jsonl",
+      "lines": 27,
+      "bytes": 20937,
+      "versions": [
+        "2.1.162"
+      ],
+      "subagent": false,
+      "strata": [
+        "version:2.1.162"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s14-medium-d07f7797.jsonl",
+      "lines": 86,
+      "bytes": 98290,
+      "versions": [
+        "2.1.168"
+      ],
+      "subagent": true,
+      "strata": [
+        "version:2.1.168"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s15-medium-f19d40f7.jsonl",
+      "lines": 78,
+      "bytes": 90876,
+      "versions": [
+        "2.1.186"
+      ],
+      "subagent": true,
+      "strata": [
+        "version:2.1.186"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s16-small-87f32151.jsonl",
+      "lines": 31,
+      "bytes": 23921,
+      "versions": [
+        "2.1.178"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s17-small-785b9416.jsonl",
+      "lines": 25,
+      "bytes": 20867,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s18-medium-b84ed0f0.jsonl",
+      "lines": 243,
+      "bytes": 271799,
+      "versions": [
+        "2.1.177"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s19-small-b0a55c32.jsonl",
+      "lines": 25,
+      "bytes": 28162,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s20-small-613d1368.jsonl",
+      "lines": 33,
+      "bytes": 34791,
+      "versions": [
+        "2.1.197"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s21-small-9bd462f8.jsonl",
+      "lines": 12,
+      "bytes": 18102,
+      "versions": [
+        "2.1.177"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s22-small-a1bb6e6d.jsonl",
+      "lines": 13,
+      "bytes": 12692,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s23-small-f0636f60.jsonl",
+      "lines": 15,
+      "bytes": 21833,
+      "versions": [
+        "2.1.185"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s24-small-89ca4504.jsonl",
+      "lines": 13,
+      "bytes": 12825,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s25-small-f950a9b1.jsonl",
+      "lines": 48,
+      "bytes": 49446,
+      "versions": [
+        "2.1.195"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s26-small-fc21b681.jsonl",
+      "lines": 41,
+      "bytes": 44347,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s27-small-5b189b09.jsonl",
+      "lines": 22,
+      "bytes": 27836,
+      "versions": [
+        "2.1.172"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s28-small-5dba9cdb.jsonl",
+      "lines": 28,
+      "bytes": 33186,
+      "versions": [
+        "2.1.185"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s29-small-4a51deea.jsonl",
+      "lines": 18,
+      "bytes": 23671,
+      "versions": [
+        "2.1.177"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s30-small-b5a76ab8.jsonl",
+      "lines": 21,
+      "bytes": 23307,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s31-small-113c40e2.jsonl",
+      "lines": 23,
+      "bytes": 28402,
+      "versions": [
+        "2.1.177"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s32-small-f5259996.jsonl",
+      "lines": 22,
+      "bytes": 24439,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s33-small-807aa902.jsonl",
+      "lines": 22,
+      "bytes": 24527,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s34-small-c6cd3872.jsonl",
+      "lines": 32,
+      "bytes": 30886,
+      "versions": [
+        "2.1.185"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s35-small-c52c90a6.jsonl",
+      "lines": 18,
+      "bytes": 23734,
+      "versions": [
+        "2.1.177"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s36-small-197ecefd.jsonl",
+      "lines": 14,
+      "bytes": 14224,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s37-small-f8868fa2.jsonl",
+      "lines": 21,
+      "bytes": 20218,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s38-small-67af4f01.jsonl",
+      "lines": 22,
+      "bytes": 21685,
+      "versions": [
+        "2.1.193"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s39-medium-23a62d64.jsonl",
+      "lines": 268,
+      "bytes": 294792,
+      "versions": [
+        "2.1.197"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": true,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s40-small-b9ca94ee.jsonl",
+      "lines": 10,
+      "bytes": 6745,
+      "versions": [
+        "2.1.167"
+      ],
+      "subagent": false,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": true,
+        "sidechain": false,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s41-small-5e9a39d8.jsonl",
+      "lines": 32,
+      "bytes": 37037,
+      "versions": [
+        "2.1.185"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s42-small-f5110bd1.jsonl",
+      "lines": 32,
+      "bytes": 37336,
+      "versions": [
+        "2.1.165"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s43-small-b1c32e5d.jsonl",
+      "lines": 15,
+      "bytes": 21608,
+      "versions": [
+        "2.1.177"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "s44-small-daa940de.jsonl",
+      "lines": 25,
+      "bytes": 30201,
+      "versions": [
+        "2.1.177"
+      ],
+      "subagent": true,
+      "strata": [
+        "fill"
+      ],
+      "features": {
+        "compaction": false,
+        "apiError": false,
+        "prLink": false,
+        "queueOp": false,
+        "sidechain": true,
+        "interrupt": false,
+        "malformed": false
+      }
+    },
+    {
+      "name": "synthetic-future-version.jsonl",
+      "lines": 7,
+      "bytes": 2109,
+      "versions": [
+        "9.9.9"
+      ],
+      "subagent": false,
+      "strata": [
+        "synthetic_future"
+      ],
+      "features": {
+        "malformed": true
+      }
+    }
+  ]
+}

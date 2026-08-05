@@ -1,0 +1,72 @@
+name: Run Dashboard Cron
+
+# Manual trigger for the dashboard's cron routes. The cron bearer secrets are
+# write-only everywhere they are stored (Vercel "sensitive" vars, Actions
+# secrets), so this workflow is the one human-usable path to invoke a cron
+# route out of schedule — e.g. the outcome-score history backfill
+# (`pr-session-reconcile?emitSinceHours=8760`) after a deploy. The secret is
+# only ever sent as the bearer header; run logs show the response body, never
+# the token.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target deployment
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+          - production
+      path:
+        description: Cron route path (must start with /api/cron/)
+        type: string
+        required: true
+        default: /api/cron/pr-session-reconcile
+      query:
+        description: 'Query string, no leading "?" (e.g. emitSinceHours=8760 for the score-history backfill)'
+        type: string
+        required: false
+        default: ''
+
+# One in-flight invocation per environment: the routes are idempotent, but
+# overlapping manual runs would just double the same work.
+concurrency:
+  group: run-dashboard-cron-${{ inputs.environment }}
+
+permissions: {}
+
+jobs:
+  invoke:
+    name: Invoke ${{ inputs.path }} on ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Invoke cron route
+        env:
+          # Hosts are pinned per environment so the bearer can only ever be
+          # presented to our own deployments.
+          HOST: ${{ inputs.environment == 'production' && 'https://app.agentmark.co' || 'https://stg.outerlayer.ai' }}
+          CRON_SECRET: ${{ inputs.environment == 'production' && secrets.CRON_SECRET_PRODUCTION || secrets.CRON_SECRET }}
+          CRON_PATH: ${{ inputs.path }}
+          QUERY: ${{ inputs.query }}
+        run: |
+          set -euo pipefail
+          case "$CRON_PATH" in
+            /api/cron/*) ;;
+            *) echo "::error::path must start with /api/cron/ (got: $CRON_PATH)"; exit 1 ;;
+          esac
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::cron secret for '${{ inputs.environment }}' is not configured in Actions secrets"
+            exit 1
+          fi
+          URL="${HOST}${CRON_PATH}"
+          if [ -n "$QUERY" ]; then URL="${URL}?${QUERY}"; fi
+          echo "GET ${URL}"
+          HTTP_CODE=$(curl -sS -m 540 -o response.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" "$URL")
+          echo "status: ${HTTP_CODE}"
+          echo "response:"
+          cat response.json | python3 -m json.tool 2>/dev/null || cat response.json
+          [ "$HTTP_CODE" = "200" ] || { echo "::error::cron route returned ${HTTP_CODE}"; exit 1; }

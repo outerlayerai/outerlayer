@@ -1,0 +1,4 @@
+{
+  "_comment": "Scoped to apps/gateway/scripts/ — forces tsx to transpile .ts files here as ESM. Required so generate-openapi.ts can use top-level await and so octokit's exports-only package resolves correctly. Not a workspace (no name, no install).",
+  "type": "module"
+}

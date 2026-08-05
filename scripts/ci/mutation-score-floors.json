@@ -1,0 +1,16 @@
+{
+  "apps/gateway": 81,
+  "apps/gateway:shard-floor": 30,
+  "packages/gateway-core": 81,
+  "apps/tenant-dashboard": 71,
+  "apps/tenant-dashboard:money-auth": 78,
+  "packages/cli": 90,
+  "packages/observability-service": 71,
+  "packages/api-key-service": 91,
+  "packages/context-sync": 93.5,
+  "packages/ee-license": null,
+  "packages/entitlements": 73,
+  "packages/llm-costs": 80,
+  "packages/shared-utils": 97,
+  "packages/trace-topics": null
+}

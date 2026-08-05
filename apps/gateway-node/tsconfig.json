@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "es2021",
+    "lib": ["es2021", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    /* No `paths` remap for @outerlayer/*: gateway-node resolves them via
+       node_modules to their built `dist` .d.ts, so `skipLibCheck` skips their
+       source. Those packages ship dist here; if resolution fails with missing
+       exported members, build the package first (a stale or absent dist is the
+       usual cause). */
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

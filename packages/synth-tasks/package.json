@@ -1,0 +1,61 @@
+{
+  "name": "@outerlayer/synth-tasks",
+  "version": "0.1.0",
+  "description": "Synthetic task augmentation (SWE-smith inversion): injects bounded semantic bugs into a repo's passing state so they break existing green tests, making gold_patch the revert and base_commit the injected state. Every task is validated through the task-format execution gate, difficulty-banded, marked with provenance 'synthetic', and never silently merged with mined tasks.",
+  "license": "Apache-2.0",
+  "author": "Magu Studios, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outerlayerai/outerlayer.git",
+    "directory": "packages/synth-tasks"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "evals",
+    "synthetic-data",
+    "swe-bench",
+    "task-generation"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@outerlayer/env-prep": "workspace:*",
+    "@outerlayer/runner-core": "workspace:*",
+    "@outerlayer/task-format": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8",
+    "yaml": "^2.5.0"
+  }
+}

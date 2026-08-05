@@ -1,0 +1,149 @@
+# gitleaks configuration — shared by the local pre-commit hook and the CI
+# "Secret Scan" gate so both agree on what is and isn't a secret.
+#
+# Why this exists: a credential that reaches git history cannot be un-published
+# — rotation is the only remedy — so the gate has to stop it at the commit. This
+# config powers that gate; see .github/workflows and .husky/pre-commit.
+#
+# Philosophy: the gate must be SIGNAL. A noisy scanner trains people to bypass
+# it, which is worse than no scanner. So we start from gitleaks' maintained
+# default ruleset and allowlist ONLY the specific, provably-public strings this
+# repo commits by design (local-dev demo keys, CI fixtures, test literals).
+# Every allowlist entry is scoped as narrowly as possible — a path AND/OR an
+# exact-value regex — never a blanket "ignore all test files", which would let
+# a real pasted secret through.
+
+title = "OuterLayer secret-scan config"
+
+[extend]
+# Inherit gitleaks' full built-in ruleset (AWS, GCP, Stripe live keys, private
+# keys, GitHub tokens, etc.). We only ADD allowlists on top; we never weaken a
+# rule's detection.
+useDefault = true
+
+# The default ruleset keys on token PREFIXES (AKIA, sk_live_, ghp_, ...), so a
+# credential embedded in a URL's userinfo segment — e.g. a monitoring DSN of the
+# form https://<opaque-key>@<host>/<project-id> — carries no keyword any
+# built-in rule recognizes. This rule matches URL SHAPE
+# (scheme://userinfo@host) instead of a prefix: either a long (16+ char) opaque
+# userinfo token, or classic user:pass basic-auth. That distinguishes an
+# embedded credential from a bare hostname URL or a short git username in a URL.
+[[rules]]
+id = "credential-in-url"
+description = "Credential embedded in a URL: long opaque userinfo token (DSN/PAT) or basic-auth user:pass"
+regex = '''(?i)\b(?:https?|postgres(?:ql)?|redis|amqps?|mongodb(?:\+srv)?)://(?:[A-Za-z0-9._~+/=-]{16,}|[^\s/:@"']{1,}:[^\s/@"']{1,})@[^\s"']+'''
+keywords = ["://"]
+
+[allowlist]
+description = "Provably-public strings this repo commits by design"
+# OR semantics: a finding is allowlisted if it matches on path, regex, or
+# stopword.
+#
+# regexTarget must stay at its default ("secret") so the regexes below are
+# tested against the detected secret VALUE only. Setting it to "match" tests
+# them against the whole matched span, which includes the surrounding variable
+# name — a genuine high-entropy credential would then be suppressed purely
+# because it is assigned to something like `example_key` or `test_secret`.
+
+paths = [
+  # Lockfiles + yarn install state: integrity hashes pattern-match as secrets
+  # (the FlatIO/base64 false positives). None are credentials.
+  '''(^|/)yarn\.lock$''',
+  '''(^|/)\.yarn/install-state\.gz$''',
+  '''(^|/)\.yarn/releases/.*\.cjs$''',
+  # Vendored SVG path data (puzzle-backdrop) trips the "TLy" detector.
+  '''\.svg$''',
+  # Committed CI/dev fixtures — placeholders by design. These are the files the
+  # gateway and dashboard boot against in CI; every value in them is a public
+  # demo value that grants nothing outside a throwaway local stack.
+  '''(^|/)\.dev\.vars\.ci$''',
+  '''(^|/)\.dev\.vars\.example$''',
+  '''(^|/)\.env\.example$''',
+  # This config file itself embeds example secret fragments in comments.
+  '''(^|/)\.gitleaks\.toml$''',
+  # Fixture zones. Tests, specs, and docs legitimately embed fake JWTs and API
+  # keys — and a fake JWT is byte-shaped exactly like a real one, so no value
+  # regex can tell them apart without either missing real ones or drowning the
+  # gate in noise (which trains people to bypass it). IMPORTANT: this exempts
+  # these PATHS, not the rules — every rule still fires on all non-fixture
+  # files. An `.env`/`.dev.vars` backup is not a fixture path, so a private key
+  # in one is still caught. Keep this list narrow.
+  '''\.test\.(ts|tsx|js|mjs)$''',
+  '''\.spec\.(ts|tsx)$''',
+  '''^docs/''',
+  '''^specs/''',
+  '''_TESTING\.md$''',
+]
+
+regexes = [
+  # Supabase local-dev demo JWTs. The payload segment
+  # base64(`{"iss":"supabase-demo"`) is a constant prefix; these anon/service
+  # keys are identical on every Supabase install and grant nothing against a
+  # real project. Scoped to the demo issuer only — a real project JWT (any
+  # other issuer) is NOT allowlisted.
+  '''eyJpc3MiOiJzdXBhYmFzZS1kZW1vI[A-Za-z0-9_-]*''',
+  # Known non-secret test/CI literals (exact strings only).
+  '''am-ci-pepper-not-a-secret''',
+  '''ci[-_]placeholder[A-Za-z0-9_-]*''',
+  '''sk_test_integration\b''',
+  # Literal placeholder private key body used in unit tests:
+  # "-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----"
+  '''-----BEGIN[A-Z ]*PRIVATE KEY-----\\ntest-key\\n''',
+  # Obvious placeholder VALUES in docs/specs/tests. These match only fake-looking
+  # secrets (sequential digits, repeated chars, the literal word "example"/
+  # "your-…"), so a REAL AKIA…/private key/live token pasted into a doc is still
+  # caught — we allowlist the shape of a placeholder, never a whole file.
+  '''(?i)1234567890''',
+  '''(?i)a1b2c3d4''',
+  '''(?i)abc123''',
+  '''(?i)legacy-token''',
+  '''(?i)(example|xxxx+|your[-_]|placeholder|dummy|redacted|changeme|test[-_]?(key|token|secret))''',
+  '''(?i)^sk-1234''',
+  '''(?i)am_live_(ab|xx|example|test|1234)''',
+  '''(?i)abcdef''',
+  '''(?i)123456''',
+  # PostHog PUBLIC project keys (phc_ prefix) are client-side by design — they
+  # ship in the browser bundle and grant only event capture, never read access.
+  '''phc_[A-Za-z0-9]{20,}''',
+  # base64("not a key") — a literal ee-license test vector.
+  '''bm90IGEga2V5''',
+  # camelCase code identifiers the generic rule mistakes for keys
+  # (e.g. the analytics date-range enum `from7DaysAgoToNow`).
+  '''from\d+DaysAgoToNow''',
+  # `env.E2B_API_KEY` — a source-code reference to the env var name (the
+  # provider reads the real value from the environment at runtime), not a
+  # literal key value.
+  '''env\.E2B_API_KEY\b''',
+
+  # --- credential-in-url allowlist entries. Each shape below is a public,
+  # unauthenticated URL that happens to match scheme://userinfo@host. ---
+  # jsdelivr's `@<ref>` CDN syntax (npm version / git ref pin) looks like a
+  # URL userinfo credential to the rule (opaque token before `@`) but isn't
+  # one — it's a public, unauthenticated CDN mirror URL.
+  '''https://cdn\.jsdelivr\.net/(?:npm|gh)/[A-Za-z0-9_.\-/]+@[A-Za-z0-9_.\-]+''',
+  # Illustrative `<token>`/`<TOKEN>` placeholders in code comments/docstrings
+  # explaining git's authenticated-clone-URL shape (x-access-token / oauth2)
+  # for redaction logic — never a literal credential value.
+  '''(?i)(?:x-access-token|oauth2):<token>@''',
+  # CI workflow template `x-access-token:${GH_TOKEN}@...` — a shell variable
+  # reference resolved from a GitHub Actions secret at run time, not a
+  # literal credential committed to the file.
+  '''x-access-token:\$\{GH_TOKEN\}@github\.com''',
+  # Local-dev/test-fixture Postgres DSNs using Postgres/Supabase's well-known
+  # default local credentials, always scoped to 127.0.0.1/localhost.
+  '''postgresql://postgres:postgres@(?:127\.0\.0\.1|localhost)''',
+  '''postgresql://test:test@localhost:5432/test''',
+  # npmjs.com's own scoped-package URL shape (`/package/@scope/name`) reads as
+  # `scheme://<opaque-userinfo>@<host>` to the credential-in-url rule — the
+  # path segment before the literal `@` is >=16 chars, and the `@scope/name`
+  # after it looks like a host. It's a public doc link, not a credential.
+  '''https://www\.npmjs\.com/package/@[A-Za-z0-9_.\-/]+''',
+]
+
+stopwords = [
+  "placeholder",
+  "example",
+  "dev_password",       # committed local ClickHouse dev default
+  "test-webhook",
+  "0123456789ab",       # obvious dummy encryption-key fixtures
+]

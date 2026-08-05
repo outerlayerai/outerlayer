@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+
+@layer base {
+  /* The marker: a highlighter swipe over the words that carry evidence.
+     One gesture, used sparingly (hero, autonomy line). Variant A inks the
+     highlight from the brand ramp; data-marker="warm" swaps to the warm
+     ramp so the two candidate accents can be compared on the same page. */
+  /* Marker colors are pinned hex, not theme vars: a highlighter is a
+     physical object and must not re-ink in dark mode (theme ramps flip
+     and turn it gold-on-gold, ~1.2:1). Near-black ink on the warm marker
+     clears 8:1 in both schemes. */
+  :root,
+  :root.dark {
+    --ol-marker: #ff9800;
+    --ol-marker-ink: #1a1a18;
+  }
+
+  .mark-ol {
+    background: var(--ol-marker);
+    color: var(--ol-marker-ink);
+    padding: 0 0.14em;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--am-primary-main);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  html {
+    scrollbar-gutter: stable;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--am-bg-default);
+    color: var(--am-text-primary);
+  }
+}

@@ -1,0 +1,157 @@
+# Hobby-grade self-host stack for OuterLayer.
+#
+#   docker compose -f docker/compose.yml --env-file docker/.env.selfhost up -d
+#
+# or, to have the env file generated for you from a running Supabase:
+#
+#   ./docker/selfhost-up.sh
+#
+# What is here: the three services that have no host-side prerequisite —
+# ClickHouse (trace + score analytics), MinIO (S3-compatible blob store for
+# oversized span payloads), and the Node gateway that reads/writes both.
+#
+# What is NOT here, and why:
+#
+#   Postgres + Auth  — provided by the Supabase CLI on the host (`supabase
+#                      start` in apps/tenant-dashboard). Supabase is ~8
+#                      containers plus a custom access-token hook and 300+
+#                      migrations; the CLI provisions all of it from the
+#                      repo's own config.toml, and reimplementing that here
+#                      would be a second source of truth that drifts.
+#
+#   Dashboard        — runs on the host (see docker/README.md). The Next.js
+#                      app resolves Supabase through a single
+#                      NEXT_PUBLIC_SUPABASE_URL that is read by BOTH the
+#                      browser and the server. On a localhost install those
+#                      two need different hostnames from inside a container
+#                      (127.0.0.1 vs host.docker.internal), so one value
+#                      cannot satisfy both. On a real deployment, where
+#                      Supabase has a DNS name reachable from both sides, that
+#                      constraint disappears.
+#
+# The gateway reaches host-side Supabase over `host.docker.internal`, which
+# Docker Desktop provides natively and the `extra_hosts` entry below supplies
+# on Linux.
+
+name: outerlayer-selfhost
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    ports:
+      - "${CLICKHOUSE_PORT:-8123}:8123"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      # The row-policy read user is provisioned by a script, not a migration,
+      # so the server must allow access management via SQL.
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--password", "${CLICKHOUSE_PASSWORD}", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9300}:9000"
+      - "${MINIO_CONSOLE_PORT:-9301}:9001"
+    environment:
+      MINIO_ROOT_USER: ${BLOB_S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${BLOB_S3_SECRET_ACCESS_KEY}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # One-shot: create the blob bucket so the gateway's first offload has
+  # somewhere to write. `mc` ships in its own image; the until-loop makes this
+  # independent of MinIO's start ordering. Exits 0 once done.
+  minio-createbucket:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 '${BLOB_S3_ACCESS_KEY_ID}' '${BLOB_S3_SECRET_ACCESS_KEY}'; do
+        echo 'waiting for minio...'; sleep 1;
+      done &&
+      mc mb --ignore-existing local/${BLOB_S3_BUCKET} &&
+      echo 'bucket ${BLOB_S3_BUCKET} ready'
+      "
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: apps/gateway-node/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-9001}:9001"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      minio-createbucket:
+        condition: service_completed_successfully
+    extra_hosts:
+      # Docker Desktop resolves this name already; Linux needs it declared.
+      - "host.docker.internal:host-gateway"
+    environment:
+      PORT: 9001
+
+      # Supabase runs on the host under the CLI, so the gateway crosses the
+      # container boundary to reach it.
+      SUPABASE_API_BASE_URL: ${SUPABASE_API_BASE_URL}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY}
+      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+
+      # Service names, not published ports: this traffic never leaves the
+      # compose network.
+      CLICKHOUSE_HOST: http://clickhouse:8123
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_READ_USER: ${CLICKHOUSE_READ_USER}
+      CLICKHOUSE_READ_PASSWORD: ${CLICKHOUSE_READ_PASSWORD}
+
+      BLOB_STORAGE_BACKEND: s3
+      BLOB_S3_ENDPOINT: http://minio:9000
+      BLOB_S3_ACCESS_KEY_ID: ${BLOB_S3_ACCESS_KEY_ID}
+      BLOB_S3_SECRET_ACCESS_KEY: ${BLOB_S3_SECRET_ACCESS_KEY}
+      BLOB_S3_BUCKET: ${BLOB_S3_BUCKET}
+
+      # Unlimited quotas and non-EE features on, without ever reading billing.
+      # The exact lowercase string is required.
+      OUTERLAYER_SELF_HOSTED: "true"
+
+      # Exactly one of these must be set — the boot gate refuses to start
+      # otherwise. See docker/README.md.
+      SELF_HOST_GATEWAY_SECRET: ${SELF_HOST_GATEWAY_SECRET}
+      SELF_HOST_TRUST_PERIMETER: ${SELF_HOST_TRUST_PERIMETER}
+
+      API_KEY_PEPPER: ${API_KEY_PEPPER}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:9001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+volumes:
+  clickhouse_data:
+  minio_data:

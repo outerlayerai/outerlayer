@@ -1,0 +1,91 @@
+/**
+ * Shared test utilities for entitlement tests.
+ *
+ * TIER_FIXTURES are the expected entitlement values for each tier,
+ * matching the pricing page. Tests compare the runtime tier-config
+ * values against these fixtures to catch accidental drift.
+ */
+
+
+// ---------------------------------------------------------------------------
+// Tier fixtures — expected values matching the pricing page
+// ---------------------------------------------------------------------------
+
+export const TIER_FIXTURES = {
+  hobby: {
+    max_apps: 1,
+    max_users: 2,
+    max_api_keys: 25,
+    max_spans_per_month: 20000,
+    max_cdn_requests: 1000,
+    data_retention_days: 7,
+    rate_limit_rpm: 3000,
+    max_storage_gb_per_month: 1,
+    max_environments_per_app: 1,
+    max_concurrent_worker_runs: 1,
+    max_worker_minutes_per_month: 60,
+    max_persistent_worker_environments: 0,
+    app_level_roles: false,
+    custom_metrics_enabled: false,
+    custom_roles: false,
+    workers_enabled: false,
+    persistent_worker_environments: false,
+  },
+  growth: {
+    max_apps: 3,
+    max_users: -1,
+    max_api_keys: 25,
+    max_spans_per_month: -1,
+    max_cdn_requests: -1,
+    data_retention_days: 90,
+    rate_limit_rpm: 3000,
+    max_storage_gb_per_month: 5,
+    max_environments_per_app: 3,
+    max_concurrent_worker_runs: 1,
+    max_worker_minutes_per_month: 300,
+    max_persistent_worker_environments: 1,
+    app_level_roles: false,
+    custom_metrics_enabled: true,
+    custom_roles: false,
+    workers_enabled: true,
+    persistent_worker_environments: true,
+  },
+  team: {
+    max_apps: 10,
+    max_users: -1,
+    max_api_keys: -1,
+    max_spans_per_month: -1,
+    max_cdn_requests: -1,
+    data_retention_days: 90,
+    rate_limit_rpm: 6000,
+    max_storage_gb_per_month: 25,
+    max_environments_per_app: 5,
+    max_concurrent_worker_runs: 3,
+    max_worker_minutes_per_month: 1200,
+    max_persistent_worker_environments: 5,
+    app_level_roles: true,
+    custom_metrics_enabled: true,
+    custom_roles: true,
+    workers_enabled: true,
+    persistent_worker_environments: true,
+  },
+  enterprise: {
+    max_apps: -1,
+    max_users: -1,
+    max_api_keys: -1,
+    max_spans_per_month: -1,
+    max_cdn_requests: -1,
+    data_retention_days: -1,
+    rate_limit_rpm: 12000,
+    max_storage_gb_per_month: -1,
+    max_environments_per_app: -1,
+    max_concurrent_worker_runs: 10,
+    max_worker_minutes_per_month: -1,
+    max_persistent_worker_environments: -1,
+    app_level_roles: true,
+    custom_metrics_enabled: true,
+    custom_roles: true,
+    workers_enabled: true,
+    persistent_worker_environments: true,
+  },
+} as const;

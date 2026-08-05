@@ -1,0 +1,58 @@
+{
+  "name": "@outerlayer/context-format",
+  "version": "0.1.0",
+  "description": "The .outerlayer/ context format: path-based tree classifier, frontmatter parsing, and the emit engine that compiles a classified tree into every coding-agent tool's native files (Claude Code, Cursor, Codex, Copilot, Factory), plus .outerlayer/config.json parsing. Pure library — no I/O, no fs — so it bundles into the dashboard, the CLI, or a future gateway unchanged.",
+  "license": "Apache-2.0",
+  "author": "Magu Studios, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outerlayerai/outerlayer.git",
+    "directory": "packages/context-format"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "agents-md",
+    "context-layer",
+    "outerlayer"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

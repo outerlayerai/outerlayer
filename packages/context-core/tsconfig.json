@@ -1,0 +1,28 @@
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    /* No outDir/rootDir: this package has no build script — its only tsc
+       invocation is `--noEmit`, so both were vestigial, and `rootDir` actively
+       blocked resolving a workspace dep from source (TS6059). */
+    "types": ["vitest/globals"],
+    // This package ships no build step — dashboard, gateway, and tests all
+    // consume src/*.ts directly (see package.json main/exports). NodeNext's
+    // `.js`-extension-on-relative-import convention (from the base config)
+    // requires bundler-specific extensionAlias config to map back to `.ts`,
+    // which webpack needs spelled out and Turbopack doesn't support at all
+    // (`next build` failure). Bundler resolution lets imports be extensionless
+    // and resolves directly against the .ts files on disk everywhere: tsc,
+    // Vitest, webpack, and Turbopack alike.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    /* Resolve the dist-typed workspace dep from source — see the note in
+       packages/cli/tsconfig.json. Without it this package cannot typecheck
+       until context-format has been built, which fails whenever that build
+       cache is cold. */
+    "baseUrl": ".",
+    "paths": {
+      "@outerlayer/context-format": ["../context-format/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,60 @@
+# MinIO — local S3-compatible object storage for the blob-offload seam.
+#
+# Self-host alternative to the Cloudflare R2 binding (`TRACE_BLOBS`). The gateway
+# offloads oversized span payloads to object storage at ingest; hosted uses R2,
+# self-hosters point the S3 adapter (BLOB_STORAGE_BACKEND=s3) at this MinIO. The
+# S3 adapter (createS3BlobStorage) is wired at every offload/rehydrate call site
+# via createBlobStorage(env); this compose provisions the local/CI store + bucket
+# and doubles as the reference object store for the node self-host runtime.
+#
+# Usage:
+#   cd apps/gateway-node/minio && docker compose up -d
+#   cd apps/gateway-node/minio && docker compose down -v
+#
+# Connect:
+#   S3 API:  http://127.0.0.1:9300   (container :9000)
+#   Console: http://127.0.0.1:9301   (container :9001)
+#   Creds:   minioadmin / minioadmin   (dev only)
+#   Bucket:  trace-blobs   (matches the local R2 bucket name; auto-created below)
+#
+# Host ports are remapped off MinIO's defaults on purpose: container :9000 maps
+# to host :9300 because :9000 is taken by other local dev services (e.g. the
+# ClickHouse native port before its own remap), and :9001 is the gateway's own
+# `wrangler dev` port — so the console maps to host :9301.
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: minio-blob-storage
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9300:9000"  # S3 API
+      - "127.0.0.1:9301:9001"  # Web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+
+  # One-shot: wait for the server, then create the trace-blobs bucket so the S3
+  # adapter has somewhere to write on first boot. `mc` lives in its own image
+  # (the server image ships no client), and the until-loop makes this resilient
+  # to start ordering without depending on the server's healthcheck tooling.
+  # Exits 0 once done.
+  createbuckets:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    container_name: minio-createbuckets
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do
+        echo 'waiting for minio...'; sleep 1;
+      done &&
+      mc mb --ignore-existing local/trace-blobs &&
+      echo 'bucket trace-blobs ready'
+      "
+
+volumes:
+  minio_data:
+    driver: local

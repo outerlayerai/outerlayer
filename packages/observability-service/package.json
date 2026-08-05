@@ -1,0 +1,25 @@
+{
+  "name": "@repo/observability-service",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:mutate": "stryker run"
+  },
+  "dependencies": {
+    "@repo/api-types": "workspace:*",
+    "@repo/shared-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@stryker-mutator/core": "^9.5.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

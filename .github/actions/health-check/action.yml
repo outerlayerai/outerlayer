@@ -1,0 +1,152 @@
+name: 'Health Check with Retry'
+description: 'Run health checks against an API with retry logic and failure reporting'
+
+inputs:
+  api_url:
+    description: 'Base URL of the API to check (e.g., https://api.example.com)'
+    required: true
+  check_name:
+    description: 'Name of this health check for logging (e.g., "Gateway Staging")'
+    required: true
+  max_attempts:
+    description: 'Maximum number of retry attempts'
+    required: false
+    default: '3'
+  retry_delay:
+    description: 'Delay between retries in seconds'
+    required: false
+    default: '10'
+  initial_delay:
+    description: 'Initial delay before first check (for propagation)'
+    required: false
+    default: '15'
+  endpoints:
+    description: 'JSON array of endpoints to check (e.g., [{"path":"/health","name":"Basic"}])'
+    required: false
+    default: '[{"path":"/health","name":"Basic health"},{"path":"/v1/health/ingestion","name":"ClickHouse"},{"path":"/v1/health/files","name":"Supabase/Git"}]'
+
+outputs:
+  status:
+    description: 'Final health check status (passed/failed)'
+    value: ${{ steps.health-check.outputs.status }}
+  failed_checks:
+    description: 'List of failed health checks'
+    value: ${{ steps.health-check.outputs.failed_checks }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run health checks
+      id: health-check
+      shell: bash
+      env:
+        API_URL: ${{ inputs.api_url }}
+        CHECK_NAME: ${{ inputs.check_name }}
+        MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+        RETRY_DELAY: ${{ inputs.retry_delay }}
+        INITIAL_DELAY: ${{ inputs.initial_delay }}
+        ENDPOINTS: ${{ inputs.endpoints }}
+      run: |
+        echo "🏥 Health check: $CHECK_NAME"
+        echo "   Target: $API_URL"
+        echo ""
+
+        if [[ "$INITIAL_DELAY" -gt 0 ]]; then
+          echo "Waiting ${INITIAL_DELAY}s for deployment propagation..."
+          sleep "$INITIAL_DELAY"
+        fi
+
+        HEALTH_PASSED=false
+        FAILED_CHECKS=""
+
+        # Health check function.
+        #
+        # Gateway endpoints return an envelope shape:
+        #   { "status": "healthy|degraded|unhealthy",
+        #     "component": "...",
+        #     "dependencies": [
+        #       { "name": "supabase", "status": "unhealthy",
+        #         "latencyMs": 5000, "error": "Connection failed" }, ... ] }
+        #
+        # On failure we print each individual dependency's status + any
+        # error + latency — otherwise the CI log just says "Supabase/Git:
+        # error" when the response body already knows exactly which dep
+        # is wrong. `-sf` is dropped in favor of `-s -w "%{http_code}"` so
+        # we can read the body even when the server returns 503.
+        check_health() {
+          local endpoint=$1
+          local name=$2
+
+          local response http_code body
+          response=$(curl -s --max-time 10 -w '\n%{http_code}' "${API_URL}${endpoint}" 2>/dev/null || printf '\n000')
+          http_code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+
+          local status
+          status=$(echo "$body" | jq -r '.status // "error"' 2>/dev/null || echo "error")
+
+          if [[ "$status" == "healthy" || "$status" == "degraded" ]]; then
+            echo "  ✓ $name: $status"
+            return 0
+          fi
+
+          echo "  ✗ $name: $status (HTTP $http_code)"
+          # Per-dependency detail when the response has the envelope shape.
+          # Fails silently (jq empty output) on older endpoints that don't
+          # include a `dependencies[]` array.
+          local deps
+          deps=$(echo "$body" | jq -r '
+            .dependencies[]?
+            | "      - \(.name): \(.status)"
+              + (if .latencyMs then " (\(.latencyMs)ms)" else "" end)
+              + (if .error then " — \(.error)" else "" end)
+          ' 2>/dev/null || true)
+          if [[ -n "$deps" ]]; then
+            echo "$deps"
+          fi
+          FAILED_CHECKS="${FAILED_CHECKS}${name},"
+          return 1
+        }
+
+        # Retry loop
+        for attempt in $(seq 1 $MAX_ATTEMPTS); do
+          echo ""
+          echo "📍 Health check attempt $attempt/$MAX_ATTEMPTS"
+
+          FAILED=0
+          FAILED_CHECKS=""
+
+          # Parse endpoints into arrays to avoid subshell issues with pipes
+          readarray -t ENDPOINT_PATHS < <(echo "$ENDPOINTS" | jq -r '.[].path')
+          readarray -t ENDPOINT_NAMES < <(echo "$ENDPOINTS" | jq -r '.[].name')
+
+          # Check each endpoint
+          for i in "${!ENDPOINT_PATHS[@]}"; do
+            path="${ENDPOINT_PATHS[$i]}"
+            name="${ENDPOINT_NAMES[$i]}"
+            check_health "$path" "$name" || FAILED=1
+          done
+
+          if [[ $FAILED -eq 0 ]]; then
+            HEALTH_PASSED=true
+            break
+          fi
+
+          if [[ $attempt -lt $MAX_ATTEMPTS ]]; then
+            echo "  ⏳ Retrying in ${RETRY_DELAY}s..."
+            sleep "$RETRY_DELAY"
+          fi
+        done
+
+        if [[ "$HEALTH_PASSED" == "true" ]]; then
+          echo ""
+          echo "✅ All health checks passed for $CHECK_NAME"
+          echo "status=passed" >> $GITHUB_OUTPUT
+          echo "failed_checks=" >> $GITHUB_OUTPUT
+        else
+          echo ""
+          echo "❌ Health checks failed for $CHECK_NAME after $MAX_ATTEMPTS attempts"
+          echo "status=failed" >> $GITHUB_OUTPUT
+          echo "failed_checks=${FAILED_CHECKS%,}" >> $GITHUB_OUTPUT
+          exit 1
+        fi

@@ -1,0 +1,47 @@
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "es2022"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/test/*": ["./src/test/*"],
+      "@/mocks/*": ["./src/mocks/*"],
+      "@/utils/*": ["./src/utils/*"],
+      "@repo/api-schemas": ["../../packages/api-schemas/src/index.ts"],
+      "tenant-dashboard/*": ["../tenant-dashboard/*"],
+      "@ee/*": ["../tenant-dashboard/ee/*"],
+      "gateway/openapi/*": ["../gateway/src/openapi/*"],
+      "gateway/services": ["../gateway/src/services/index.ts"],
+      "gateway/services/span-converter": ["../gateway/src/services/span-converter.ts"],
+      "gateway/services/alerts-service": ["../gateway/src/services/alerts-service.ts"],
+      "gateway/lib/*": ["../gateway/src/lib/*"]
+    },
+    "types": ["vitest/globals", "node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.integration.test.ts",
+    "src/**/*.integration.test.tsx",
+    "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+} 

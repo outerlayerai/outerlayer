@@ -1,0 +1,29 @@
+# Topics clustering service.
+#
+# Usage:
+#   cd apps/topics-clustering && docker compose up
+#
+# Connect:
+#   URL: http://localhost:8080
+#   Health: http://localhost:8080/health
+#
+# Auth: open when TOPICS_CLUSTERING_SECRET is unset (local default).
+# Deployments set it and callers send the value in `x-topics-secret`.
+
+services:
+  topics-clustering:
+    build: .
+    container_name: topics-clustering
+    ports:
+      # Bind loopback only: the service defaults to no auth
+      # (TOPICS_CLUSTERING_SECRET unset), so a 0.0.0.0 bind would expose an
+      # unauthenticated clustering API to the local network during dev runs.
+      - "127.0.0.1:8080:8080"
+    environment:
+      - TOPICS_CLUSTERING_SECRET=${TOPICS_CLUSTERING_SECRET:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

@@ -1,0 +1,107 @@
+name: 'Record DORA Deployment'
+description: >-
+  Push a deployment event to the DORA ingest endpoint
+  (/api/internal/dora/deployments on the central DORA store). Fails the step
+  on any non-2xx response so broken ingestion is VISIBLE in the run — callers
+  should set `continue-on-error: true` so a metrics hiccup never fails a
+  deploy, while the red step annotation still surfaces the problem.
+
+inputs:
+  service:
+    description: 'Service name (e.g., gateway, tenant-dashboard)'
+    required: true
+  environment:
+    description: 'Deployment environment (production | staging | preview)'
+    required: true
+  status:
+    description: 'Deployment outcome (success | failure)'
+    required: true
+  started_at:
+    description: 'ISO-8601 UTC timestamp captured immediately before the deploy step'
+    required: true
+  ingest_url:
+    description: 'Base URL of the DORA store dashboard (vars.DORA_INGEST_URL)'
+    required: true
+  api_key:
+    description: 'DORA ingest API key (secrets.DORA_INGEST_API_KEY)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Record deployment
+      shell: bash
+      env:
+        SERVICE: ${{ inputs.service }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        DEPLOY_STATUS: ${{ inputs.status }}
+        STARTED_AT: ${{ inputs.started_at }}
+        DORA_INGEST_URL: ${{ inputs.ingest_url }}
+        DORA_INGEST_API_KEY: ${{ inputs.api_key }}
+      run: |
+        set -euo pipefail
+
+        # Commit metadata from git, not github.event.head_commit — the event
+        # payload has no head_commit on workflow_dispatch (production deploys),
+        # so reading the event would record empty commit messages there.
+        COMMIT_MSG=$(git log -1 --format=%s "${GITHUB_SHA}" 2>/dev/null | cut -c1-500 || echo "")
+        # Author date approximates when the change was written (squash merges
+        # preserve it), giving commit->deploy lead time. Committer date would
+        # just measure merge->deploy.
+        FIRST_COMMIT_AT=$(git log -1 --format=%aI "${GITHUB_SHA}" 2>/dev/null || echo "")
+        COMPLETED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        # Deploy wall-clock in ms — the lead-time duration PROXY used when a
+        # deploy has no first_commit_at. Without this the proxy is dead code:
+        # such a deploy is silently dropped from lead time instead of falling
+        # back to duration. Emitted only when positive (schema requires > 0).
+        DURATION_MS=""
+        START_EPOCH=$(date -u -d "$STARTED_AT" +%s 2>/dev/null || echo "")
+        END_EPOCH=$(date -u -d "$COMPLETED_AT" +%s 2>/dev/null || echo "")
+        if [[ -n "$START_EPOCH" && -n "$END_EPOCH" && "$END_EPOCH" -gt "$START_EPOCH" ]]; then
+          DURATION_MS=$(( (END_EPOCH - START_EPOCH) * 1000 ))
+        fi
+
+        BODY=$(jq -n \
+          --arg service "$SERVICE" \
+          --arg environment "$ENVIRONMENT" \
+          --arg status "$DEPLOY_STATUS" \
+          --arg commit_sha "$GITHUB_SHA" \
+          --arg commit_message "$COMMIT_MSG" \
+          --arg branch "$GITHUB_REF_NAME" \
+          --arg triggered_by "github-actions" \
+          --arg pipeline_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          --arg external_id "gh-${GITHUB_RUN_ID}-${SERVICE}-${ENVIRONMENT}" \
+          --arg started_at "$STARTED_AT" \
+          --arg completed_at "$COMPLETED_AT" \
+          --arg first_commit_at "$FIRST_COMMIT_AT" \
+          --arg duration_ms "$DURATION_MS" \
+          '{
+            service: $service,
+            environment: $environment,
+            status: $status,
+            commit_sha: $commit_sha,
+            commit_message: $commit_message,
+            branch: $branch,
+            triggered_by: $triggered_by,
+            pipeline_url: $pipeline_url,
+            external_id: $external_id,
+            started_at: $started_at,
+            completed_at: $completed_at
+          }
+          + (if $first_commit_at != "" then { first_commit_at: $first_commit_at } else {} end)
+          + (if $duration_ms != "" and ($duration_ms | tonumber) > 0 then { duration_ms: ($duration_ms | tonumber) } else {} end)')
+
+        HTTP_STATUS=$(curl -sS -o /tmp/dora-response.txt -w "%{http_code}" \
+          --max-time 30 \
+          -X POST "${DORA_INGEST_URL}/api/internal/dora/deployments" \
+          -H "Content-Type: application/json" \
+          -H "x-api-key: ${DORA_INGEST_API_KEY}" \
+          -d "$BODY")
+
+        if [[ "$HTTP_STATUS" != 2* ]]; then
+          echo "::warning::Failed to record DORA deployment for ${SERVICE} (${ENVIRONMENT}): HTTP ${HTTP_STATUS} — $(head -c 300 /tmp/dora-response.txt)"
+          exit 1
+        fi
+
+        echo "✓ Recorded DORA deployment: ${SERVICE} (${ENVIRONMENT}) status=${DEPLOY_STATUS} HTTP ${HTTP_STATUS}"

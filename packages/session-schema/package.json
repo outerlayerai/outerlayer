@@ -1,0 +1,59 @@
+{
+  "name": "@outerlayer/session-schema",
+  "version": "0.1.0",
+  "description": "Agent-agnostic session schema (v1): Zod schemas, capture-tier redaction table, JSON Schema export, and the sanitized transcript fixture corpus",
+  "license": "Apache-2.0",
+  "author": "Magu Studios, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outerlayerai/outerlayer.git",
+    "directory": "packages/session-schema"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "zod",
+    "schema",
+    "observability",
+    "agent-sessions"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "leak-scan": "node scripts/leak-scan.mjs",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

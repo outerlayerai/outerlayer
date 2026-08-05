@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+umap-learn==0.5.7
+hdbscan==0.8.40
+scikit-learn==1.6.1
+numpy==2.2.1
+pydantic==2.10.4
+orjson==3.11.9
+httpx==0.28.1

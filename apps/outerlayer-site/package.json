@@ -1,0 +1,29 @@
+{
+  "name": "outerlayer-site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev --port ${PORT:-9010}",
+    "lint": "eslint .",
+    "start": "next start",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@repo/design-tokens": "workspace:*",
+    "next": "^16.2.12",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "^16.0.8",
+    "postcss": "^8.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5"
+  }
+}

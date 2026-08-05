@@ -1,0 +1,92 @@
+{
+  "actor": {
+    "id": "member-7f3a"
+  },
+  "agent": {
+    "entrypoint": "cli",
+    "type": "claude-code",
+    "version": "2.1.193"
+  },
+  "captureTier": "metrics",
+  "endedAt": "2026-07-01T14:41:52.000Z",
+  "env": {
+    "os": "darwin"
+  },
+  "events": [
+    {
+      "seq": 0,
+      "ts": "2026-07-01T14:30:00.000Z",
+      "type": "compaction"
+    },
+    {
+      "seq": 1,
+      "ts": "2026-07-01T14:41:00.000Z",
+      "type": "pr_linked"
+    }
+  ],
+  "id": "5c3a1b2d-4e6f-4708-9a1b-2c3d4e5f6a7b",
+  "models": [
+    "claude-opus-4-8"
+  ],
+  "schemaVersion": 1,
+  "startedAt": "2026-07-01T14:03:11.000Z",
+  "totals": {
+    "cacheCreationTokens": 2048,
+    "cacheReadTokens": 18230,
+    "costUsd": 0.0389,
+    "inputTokens": 9,
+    "outputTokens": 412,
+    "wallClockMs": 2321000
+  },
+  "turns": [
+    {
+      "index": 0,
+      "role": "user",
+      "toolCalls": [],
+      "ts": "2026-07-01T14:03:11.000Z"
+    },
+    {
+      "costUsd": 0.0389,
+      "durationMs": 152340,
+      "index": 1,
+      "model": "claude-opus-4-8",
+      "role": "assistant",
+      "toolCalls": [
+        {
+          "durationMs": 180,
+          "isEdit": false,
+          "name": "Read",
+          "startTs": "2026-07-01T14:03:24.000Z",
+          "status": "ok"
+        },
+        {
+          "durationMs": 240,
+          "isEdit": true,
+          "name": "Edit",
+          "startTs": "2026-07-01T14:04:02.000Z",
+          "status": "error"
+        },
+        {
+          "durationMs": 220,
+          "isEdit": true,
+          "name": "Edit",
+          "startTs": "2026-07-01T14:04:31.000Z",
+          "status": "ok"
+        }
+      ],
+      "ts": "2026-07-01T14:03:19.000Z",
+      "usage": {
+        "cacheCreate": 2048,
+        "cacheRead": 18230,
+        "in": 9,
+        "out": 412
+      }
+    }
+  ],
+  "warnings": [
+    {
+      "code": "unknown_line_type",
+      "count": 2
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    /* No outDir/rootDir: ships no build step, and rootDir blocks resolving
+       workspace deps from source (TS6059) — see context-core's tsconfig. */
+    "types": ["vitest/globals"],
+    // Ships no build step — consumed as src/*.ts directly (see context-core's
+    // tsconfig note). Bundler resolution keeps imports extensionless across
+    // tsc, Vitest, webpack, and Turbopack.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    /* Reached TRANSITIVELY: this package consumes @repo/context-core from
+       source, and that source imports @outerlayer/context-format. Without the
+       mapping here, tsc compiles context-core's files but cannot resolve its
+       dist-typed dependency. Any source-consuming package inherits its
+       dependencies' resolution needs. */
+    "baseUrl": ".",
+    "paths": {
+      "@outerlayer/context-format": ["../context-format/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

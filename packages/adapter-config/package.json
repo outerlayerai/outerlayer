@@ -1,0 +1,22 @@
+{
+  "name": "@repo/adapter-config",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "description": "Shared deploy-time toggle layer for the OSS-migration adapter seams. Holds the runtime-agnostic primitives every vendor seam reuses to decide whether it is enabled and which backend (hosted vendor / self-host / no-op) to wire: parseEnvBoolean, firstNonEmpty, resolveNeutralValue (vendor-neutral-with-legacy-fallback name resolution), resolveToggle (the enabled/backend decision + clamp invariant), and warnLegacyOnce (one-time deprecation warning per seam). Pure, runtime-agnostic code — no Node built-ins, no SDK imports, no process access — so it bundles into both the Cloudflare Workers gateway and the Next.js dashboard. Each seam's connection config and its app-side facade live with the seam, not here.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:workers": "tsc --noEmit -p tsconfig.workers.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "@repo/typescript-config": "*",
+    "@vitest/coverage-v8": "^4.1.8",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

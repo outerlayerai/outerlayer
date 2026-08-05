@@ -1,0 +1,29 @@
+{
+  "tiers": {
+    "hobby": { "sortOrder": 0 },
+    "growth": { "sortOrder": 1 },
+    "team": { "sortOrder": 2 },
+    "enterprise": { "sortOrder": 3 }
+  },
+  "numericEntitlements": {
+    "max_spans_per_month": { "hobby": 20000, "growth": -1, "team": -1, "enterprise": -1 },
+    "max_apps": { "hobby": 1, "growth": 3, "team": 10, "enterprise": -1 },
+    "max_users": { "hobby": 2, "growth": -1, "team": -1, "enterprise": -1 },
+    "max_api_keys": { "hobby": 25, "growth": 25, "team": -1, "enterprise": -1 },
+    "max_cdn_requests": { "hobby": 1000, "growth": -1, "team": -1, "enterprise": -1 },
+    "data_retention_days": { "hobby": 7, "growth": 90, "team": 90, "enterprise": -1 },
+    "rate_limit_rpm": { "hobby": 3000, "growth": 3000, "team": 6000, "enterprise": 12000 },
+    "max_storage_gb_per_month": { "hobby": 1, "growth": 5, "team": 25, "enterprise": -1 },
+    "max_environments_per_app": { "hobby": 1, "growth": 3, "team": 5, "enterprise": -1 },
+    "max_concurrent_worker_runs": { "hobby": 1, "growth": 1, "team": 3, "enterprise": 10 },
+    "max_worker_minutes_per_month": { "hobby": 60, "growth": 300, "team": 1200, "enterprise": -1 },
+    "max_persistent_worker_environments": { "hobby": 0, "growth": 1, "team": 5, "enterprise": -1 }
+  },
+  "booleanEntitlements": {
+    "app_level_roles": { "hobby": false, "growth": false, "team": true, "enterprise": true },
+    "custom_metrics_enabled": { "hobby": false, "growth": true, "team": true, "enterprise": true },
+    "custom_roles": { "hobby": false, "growth": false, "team": true, "enterprise": true },
+    "workers_enabled": { "hobby": false, "growth": true, "team": true, "enterprise": true },
+    "persistent_worker_environments": { "hobby": false, "growth": true, "team": true, "enterprise": true }
+  }
+}

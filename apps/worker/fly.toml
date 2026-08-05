@@ -1,0 +1,21 @@
+# Fly app that hosts ephemeral cloud-worker machines. Machines are NOT
+# started by this config — the dashboard creates one per run via the Machines
+# API (see @repo/worker-core FlyWorkerAdapter) from this app's registry image.
+# This file exists so `flyctl deploy --build-only --push` publishes
+# registry.fly.io/<app>:latest. The staging deploy job in cd.yml
+# re-pushes with `--app agentmark-workers-stg` on every deploy — Fly's
+# registry garbage-collects images no machine references, and worker machines
+# are destroyed after each run, so an unrefreshed tag eventually disappears.
+app = "agentmark-workers-dev"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Default guest for a worker machine. The dashboard's create call sets the
+# real guest (shared-cpu-2x / 4096 MB — see WORKER_MACHINE_GUEST); this is
+# only the app-level default.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2
+  memory_mb = 4096

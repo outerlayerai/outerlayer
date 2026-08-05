@@ -1,0 +1,586 @@
+{
+  "$id": "https://outerlayer.ai/schemas/agent-session.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "actor": {
+      "additionalProperties": {},
+      "properties": {
+        "email": {
+          "description": "tier:redacted",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent": {
+      "additionalProperties": {},
+      "properties": {
+        "entrypoint": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "captureTier": {
+      "enum": [
+        "metrics",
+        "redacted",
+        "full"
+      ],
+      "type": "string"
+    },
+    "chunk": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "additionalProperties": false,
+          "properties": {
+            "apiErrors": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "errors": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "permissionPrompts": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rejectedToolCalls": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "toolCalls": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "turns": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "userTurns": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "turns",
+            "toolCalls",
+            "errors"
+          ],
+          "type": "object"
+        },
+        "of": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "part": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "part",
+        "of",
+        "counts"
+      ],
+      "type": "object"
+    },
+    "endedAt": {
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "env": {
+      "additionalProperties": {},
+      "properties": {
+        "commitSha": {
+          "description": "tier:redacted",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "tier:redacted",
+          "type": "string"
+        },
+        "gitBranch": {
+          "description": "tier:redacted",
+          "type": "string"
+        },
+        "gitRepo": {
+          "description": "tier:redacted",
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "events": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "data": {
+            "additionalProperties": {},
+            "description": "tier:redacted",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "errorText": {
+            "description": "tier:full",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seq": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "turnIndex": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "seq"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "models": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "outcome": {
+      "additionalProperties": {},
+      "description": "tier:redacted",
+      "properties": {
+        "commitShas": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "prNumber": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "prUrl": {
+          "type": "string"
+        },
+        "prs": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "commitShas": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "prNumber": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "prUrl": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "prNumber"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "type": "number"
+    },
+    "startedAt": {
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "type": "string"
+    },
+    "subagent": {
+      "additionalProperties": {},
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "parentSessionId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "title": {
+      "description": "tier:full",
+      "type": "string"
+    },
+    "totals": {
+      "additionalProperties": {},
+      "properties": {
+        "cacheCreationTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cacheReadTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "costUsd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inputTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outputTokens": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wallClockMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheCreationTokens"
+      ],
+      "type": "object"
+    },
+    "turns": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "costUsd": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "durationMs": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "images": {
+            "description": "tier:full",
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "bytes": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "mediaType": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mediaType",
+                "sha256"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "index": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "human",
+              "peer",
+              "notification"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "tier:full"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "tier:full"
+          },
+          "toolCalls": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "durationMs": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "errorSignature": {
+                  "description": "tier:redacted",
+                  "type": "string"
+                },
+                "file": {
+                  "description": "tier:redacted",
+                  "type": "string"
+                },
+                "input": {
+                  "description": "tier:full"
+                },
+                "isEdit": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "output": {
+                  "description": "tier:full"
+                },
+                "startTs": {
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "ok",
+                    "error",
+                    "rejected"
+                  ],
+                  "type": "string"
+                },
+                "toolUseId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "status",
+                "isEdit"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "ts": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "usage": {
+            "additionalProperties": {},
+            "properties": {
+              "cacheCreate": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "cacheRead": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "in": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "out": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "in",
+              "out",
+              "cacheRead",
+              "cacheCreate"
+            ],
+            "type": "object"
+          },
+          "vendor": {
+            "additionalProperties": {},
+            "description": "tier:full",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "index",
+          "role",
+          "toolCalls"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "vendor": {
+      "additionalProperties": {},
+      "description": "tier:full",
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "warnings": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "code": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "detail": {
+            "description": "tier:redacted",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "count"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "workerKind": {
+      "enum": [
+        "seat",
+        "cloud",
+        "ci",
+        "shared"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "agent",
+    "env",
+    "startedAt",
+    "models",
+    "turns",
+    "events",
+    "totals",
+    "captureTier",
+    "warnings"
+  ],
+  "title": "AgentSession",
+  "type": "object"
+}

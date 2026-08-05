@@ -1,0 +1,25 @@
+{
+  "name": "@repo/ee-license",
+  "private": true,
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "description": "Offline enterprise-license verification + self-host entitlement rules. Open code by design: it must run on unlicensed self-hosted instances to deny EE features. Verifies Ed25519-signed license tokens locally — no network call, ever (the self-host distribution promises zero phone-home). The gated feature implementations live under ee/ directories; this package only answers 'is this deployment self-hosted, is it licensed, and is this entitlement key EE-gated?'.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:mutate": "stryker run"
+  },
+  "dependencies": {
+    "@repo/tier-config": "workspace:*"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

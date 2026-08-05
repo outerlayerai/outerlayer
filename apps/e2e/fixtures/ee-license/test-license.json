@@ -1,0 +1,11 @@
+{
+  "note": "TEST license fixture for e2e only — regenerate with generate.mjs. Unrelated to any production key.",
+  "publicKey": "MCowBQYDK2VwAyEANaZf7zkoxhrhJrS7Ahbm6a/LzkG0RKOM3y2i1HUq/Ts=",
+  "licenseKey": "outerlayer_ee_v1.eyJvcmciOiJFMkUgU2VsZmhvc3QgTGljZW5zZWQgT3JnIiwicGxhbiI6ImVudGVycHJpc2UiLCJpYXQiOjE3ODM2NDE2MDAsImV4cCI6MjA4Mjc1ODQwMH0.5GYy-FVLlBaDJrKzcKtBFypnV7vL-pMCAaQNbKJRjb0bVhKl7AcnaFbPIwMDMIuf93sg-neuVHaRpz0pcXE-Bw",
+  "claims": {
+    "org": "E2E Selfhost Licensed Org",
+    "plan": "enterprise",
+    "iat": 1783641600,
+    "exp": 2082758400
+  }
+}

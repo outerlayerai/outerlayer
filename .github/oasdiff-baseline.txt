@@ -1,0 +1,290 @@
+# One-time migration baseline for the oasdiff breaking-change check.
+#
+# Each entry below is a `breaking change` that existed on the day we moved
+# from the hand-curated `docs/openapi.yaml` to the generated version. Every
+# one of them falls into one of three buckets:
+#
+#   1. The pre-migration spec was over-constrained (documented a shape the
+#      runtime never actually enforced). Our Zod schemas now describe the
+#      real runtime contract, which oasdiff flags as "breaking" because it
+#      narrows the documented surface. Example: `scores.source` became an
+#      enum; empty strings are now rejected where they weren't before —
+#      but the runtime has always rejected them.
+#
+#   2. The pre-migration spec was under-constrained or outright wrong
+#      (e.g. `span.timestamp` documented as `number` when runtime returns
+#      an ISO string). Fixing that improves client accuracy.
+#
+#   3. Structural style differences between hand-curated prose and
+#      chanfana output (e.g. empty `{}` schema -> `type: object`).
+#
+# These are NOT regressions consumers will hit at runtime. We pin them as
+# accepted once; from the next PR forward, oasdiff compares against the
+# newly-generated baseline and catches any REAL breaking changes.
+#
+# When adding new routes or changing existing ones, do NOT extend this file
+# to paper over an accidental break — fix the underlying schema so oasdiff
+# passes cleanly. A deliberate, documented product removal (a route or field
+# nobody serves anymore, its callers updated in the same change) is the one
+# legitimate reason to add an entry; every section below states which one
+# it is and why.
+
+# --- response body shape (hand-curated main had empty schemas) ---
+in API GET /health the response's body type/format changed from ``/`` to `object`/`` for status `500`
+in API GET /v1/annotation-queues the `data/items/` response's property type/format changed from ``/`` to `object`/`` for status `200`
+in API GET /v1/health/files the response's body type/format changed from ``/`` to `object`/`` for status `200`
+in API GET /v1/health/files the response's body type/format changed from ``/`` to `object`/`` for status `503`
+in API GET /v1/health/ingestion the response's body type/format changed from ``/`` to `object`/`` for status `200`
+in API GET /v1/health/ingestion the response's body type/format changed from ``/`` to `object`/`` for status `503`
+in API GET /v1/templates the `data` response's property type/format changed from ``/`` to `object`/`` for status `200`
+
+# --- stub routes (experiments, prompts return 501 on cloud; content stripped) ---
+in API GET /v1/experiments removed the media type `application/json` for the response with the status `200`
+in API GET /v1/experiments/{experimentId} removed the media type `application/json` for the response with the status `200`
+in API GET /v1/prompts removed the media type `application/json` for the response with the status `200`
+
+# --- scores: Zod now reflects actual runtime enforcement ---
+in API GET /v1/scores the `query` request parameter `resource_type` was restricted to a list of enum values
+in API GET /v1/scores the `query` request parameter `source` was restricted to a list of enum values
+in API POST /v1/scores request property `source` was restricted to a list of enum values
+in API POST /v1/scores the `name` request property's minLength was increased from `0` to `1`
+in API POST /v1/scores the `resource_id` request property's minLength was increased from `0` to `1`
+in API POST /v1/scores/batch request property `scores/items/source` was restricted to a list of enum values
+in API POST /v1/scores/batch the request property `scores/items/resource_id` became required
+in API POST /v1/scores/batch the `scores/items/name` request property's minLength was increased from `0` to `1`
+in API POST /v1/scores/batch the `scores/items/resource_id` request property's minLength was increased from `0` to `1`
+
+# --- spans: hand-curated types were wrong vs runtime ---
+in API GET /v1/spans the `data/items/timestamp` response's property type/format changed from `number`/`` to `string`/`date-time` for status `200`
+in API GET /v1/traces/{traceId}/spans/{spanId} the `data/output_object` response's property type/format changed from `object`/`` to `string`/`` for status `200`
+in API GET /v1/traces/{traceId}/spans/{spanId} the `data/tool_calls` response's property type/format changed from `array`/`` to `string`/`` for status `200`
+
+# --- error response shape unification ---
+# Replaces the pre-migration { error: string } shape (documented but never
+# emitted by the runtime) with the canonical { error: { code, message } }
+# shape that structuredError() has always actually returned. Spec and
+# runtime now agree. See apps/gateway/src/openapi/routes/_shared.ts
+# OpenApiErrorResponseSchema + app.onError handler in openapi/index.ts.
+in API DELETE /v1/annotation-queues/{queueId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API DELETE /v1/annotation-queues/{queueId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API DELETE /v1/annotation-queues/{queueId}/items/{itemId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API DELETE /v1/annotation-queues/{queueId}/items/{itemId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API DELETE /v1/scores/{scoreId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API DELETE /v1/scores/{scoreId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API GET /v1/annotation-queues the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/annotation-queues/{queueId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/annotation-queues/{queueId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API GET /v1/annotation-queues/{queueId}/items the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/annotation-queues/{queueId}/items the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API GET /v1/annotation-queues/{queueId}/items/{itemId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/annotation-queues/{queueId}/items/{itemId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API GET /v1/datasets the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/datasets the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/experiments the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/experiments the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/experiments/{experimentId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/experiments/{experimentId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API GET /v1/metrics the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API GET /v1/metrics the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/metrics the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/prompts the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/prompts the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/runs/{runId}/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/scores the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/scores/aggregations the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/scores/names the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/scores/{scoreId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/scores/{scoreId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API GET /v1/sessions the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API GET /v1/sessions the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/sessions the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/sessions/{sessionId}/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/sessions/{sessionId}/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/spans the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API GET /v1/spans the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/spans the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/templates the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/templates the `error` response's property type/format changed from `string`/`` to `object`/`` for status `422`
+in API GET /v1/templates the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API GET /v1/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/traces/export the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API GET /v1/traces/export the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/traces/export the `error` response's property type/format changed from `string`/`` to `object`/`` for status `403`
+in API GET /v1/traces/export the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/traces/{traceId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/traces/{traceId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API GET /v1/traces/{traceId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `429`
+in API GET /v1/traces/{traceId}/graph the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/traces/{traceId}/spans the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API GET /v1/traces/{traceId}/spans/{spanId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API PATCH /v1/annotation-queues/{queueId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API PATCH /v1/annotation-queues/{queueId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API PATCH /v1/annotation-queues/{queueId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API PATCH /v1/annotation-queues/{queueId}/items/{itemId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API PATCH /v1/annotation-queues/{queueId}/items/{itemId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API PATCH /v1/annotation-queues/{queueId}/items/{itemId} the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API POST /v1/annotation-queues the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API POST /v1/annotation-queues the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API POST /v1/annotation-queues/{queueId}/items the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API POST /v1/annotation-queues/{queueId}/items the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API POST /v1/annotation-queues/{queueId}/items the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API POST /v1/annotation-queues/{queueId}/items/{itemId}/reviews the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API POST /v1/annotation-queues/{queueId}/items/{itemId}/reviews the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API POST /v1/annotation-queues/{queueId}/items/{itemId}/reviews the `error` response's property type/format changed from `string`/`` to `object`/`` for status `404`
+in API POST /v1/datasets/{datasetName}/rows the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API POST /v1/datasets/{datasetName}/rows the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API POST /v1/scores the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API POST /v1/scores the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API POST /v1/scores the `error` response's property type/format changed from `string`/`` to `object`/`` for status `500`
+in API POST /v1/scores/batch the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API POST /v1/scores/batch the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+in API POST /v1/scores/batch the `error` response's property type/format changed from `string`/`` to `object`/`` for status `413`
+in API POST /v1/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `400`
+in API POST /v1/traces the `error` response's property type/format changed from `string`/`` to `object`/`` for status `401`
+
+# --- datasetName format constraint ---
+# Added z.string().min(1).regex(/^[\w./-]+$/) to the datasetName path param.
+# Schemathesis found that garbage bytes (C1 control chars etc.) in the path
+# reached Supabase, hit Wrangler's request timeout, and produced a 503.
+# No real client sends control characters as a dataset name — the runtime
+# was already rejecting these inputs (via a slow-path 503); this makes the
+# rejection explicit, fast, and spec-accurate (400 with a clear message).
+in API POST /v1/datasets/{datasetName}/rows for the `path` request parameter `datasetName`, the minLength was increased from `0` to `1`
+in API POST /v1/datasets/{datasetName}/rows added the pattern `^[\w./-]+$` to the `path` request parameter `datasetName`
+
+# --- hard removal: GET /v1/traces/export ---
+# Endpoint was staging-only with no production callers — confirmed out of
+# band with its author. Normally oasdiff requires a Deprecation +
+# Sunset cycle before removal (and the other two consolidation targets,
+# `/v1/traces/{traceId}/graph` and `/v1/sessions/{sessionId}/traces`,
+# got that treatment). /v1/traces/export skipped the cycle
+# because its format-transform wedge (jsonl/openai/csv) is thin enough
+# that callers can replicate it in 3 lines against GET /v1/traces —
+# keeping a deprecation shell around for 6 months carries no upside.
+# This exception covers the one-time delete; future endpoint removals
+# should follow the deprecate-then-remove pattern the other two used.
+in API GET /v1/traces/export api path removed without deprecation
+
+# --- /v1/datasets canonical envelope upgrade ---
+# `GET /v1/datasets` was returning the legacy `{ datasets: string[] }` flat
+# shape. The REST-API-parity pass collapsed that endpoint into the
+# canonical `{ data: [{ name, row_count, created_at }], pagination }`
+# envelope used by every other list endpoint, so the `datasets` property
+# is gone from the response body. The CLI is the only known consumer and
+# was updated with the same change; its version plan was bumped from minor
+# to major to signal the break to anyone on an older CLI. Future list
+# endpoints that need a shape change should follow the same pattern
+# rather than a parallel `/list` path with deprecation headers.
+in API GET /v1/datasets removed the required property `datasets` from the response with the `200` status
+
+# --- score `source` enum: eval → experiment|annotation|api ---
+# Deliberate, documented break (same pattern as the /v1/datasets entry above).
+# The score Source enum was renamed: automated experiment evals are now
+# `experiment` (was `eval`), human annotations stay `annotation`, and direct
+# sdk.score()/REST submissions are `api`. The legacy `eval` value is no longer
+# accepted on write or as an analytics filter (default is now `api`). Rows
+# already stored as `eval` still DISPLAY in the dashboard; only the write/query
+# API surface drops it. OSS api-schemas took a minor version bump with the same change.
+in API POST /v1/scores removed the enum value `eval` of the request property `source`
+in API POST /v1/scores/batch removed the enum value `eval` of the request property `scores/items/source`
+in API GET /v1/scores removed the enum value `eval` from the `query` request parameter `source`
+
+# --- retirement of the prompt-product API surface ---
+# The prompt-monitoring product is retired; these path families were removed
+# DELIBERATELY (product decision, not schema drift): alerts, annotation-queues,
+# trace sessions, metrics, filter-schema, experiments, prompts, runs, templates.
+# One literal line per retired operation (oasdiff ignore matches substrings,
+# not regex) — an accidental removal of any KEPT route still fails the gate.
+in API DELETE /v1/alerts/{alertId} api path removed without deprecation
+in API DELETE /v1/annotation-queues/{queueId} api path removed without deprecation
+in API DELETE /v1/annotation-queues/{queueId}/items/{itemId} api path removed without deprecation
+in API GET /v1/alerts api path removed without deprecation
+in API GET /v1/alerts/slack-channels api path removed without deprecation
+in API GET /v1/alerts/{alertId} api path removed without deprecation
+in API GET /v1/alerts/{alertId}/history api path removed without deprecation
+in API GET /v1/annotation-queues api path removed without deprecation
+in API GET /v1/annotation-queues/{queueId} api path removed without deprecation
+in API GET /v1/annotation-queues/{queueId}/items api path removed without deprecation
+in API GET /v1/annotation-queues/{queueId}/items/{itemId} api path removed without deprecation
+in API GET /v1/experiments api path removed without deprecation
+in API GET /v1/experiments/baseline api path removed without deprecation
+in API GET /v1/experiments/{experimentId} api path removed without deprecation
+in API GET /v1/filter-schema api path removed without deprecation
+in API GET /v1/metrics api path removed without deprecation
+in API GET /v1/prompts api path removed without deprecation
+in API GET /v1/runs/{runId}/traces api path removed without deprecation
+in API GET /v1/sessions api path removed without deprecation
+in API GET /v1/sessions/{sessionId}/traces api path removed without deprecation
+in API GET /v1/templates api path removed without deprecation
+in API PATCH /v1/annotation-queues/{queueId} api path removed without deprecation
+in API PATCH /v1/annotation-queues/{queueId}/items/{itemId} api path removed without deprecation
+in API POST /v1/alerts api path removed without deprecation
+in API POST /v1/annotation-queues api path removed without deprecation
+in API POST /v1/annotation-queues/{queueId}/items api path removed without deprecation
+in API POST /v1/annotation-queues/{queueId}/items/{itemId}/reviews api path removed without deprecation
+in API PUT /v1/alerts/{alertId} api path removed without deprecation
+
+# --- deploy/dataset API retirement ---
+# The git-push→build→deploy pipeline, cloud datasets, score-configs, and the
+# env promote/rollback saga are retired DELIBERATELY (a product decision).
+# Their tables/functions are dropped in the
+# same PR, so a deprecation cycle would stub endpoints that cannot work; the
+# only known callers (dashboard, CLI) are updated in lockstep here. One
+# literal line per removed operation/property — an accidental removal of any
+# KEPT route still fails the gate.
+in API GET /v1/config api path removed without deprecation
+in API GET /v1/datasets api path removed without deprecation
+in API POST /v1/datasets/{datasetName}/rows api path removed without deprecation
+in API POST /v1/datasets/{datasetName}/rows/from-spans api path removed without deprecation
+in API POST /v1/datasets/{datasetName}/rows/from-traces api path removed without deprecation
+in API GET /v1/deployments api path removed without deprecation
+in API GET /v1/deployments/{deploymentId} api path removed without deprecation
+in API GET /v1/environments removed the required property `data/items/latest_deployment_id` from the response with the `200` status
+in API POST /v1/environments removed the required property `data/latest_deployment_id` from the response with the `201` status
+in API DELETE /v1/environments/{id} removed the required property `data/cascade/snapshot_rows_deleted` from the response with the `200` status
+in API GET /v1/environments/{id} removed the required property `data/cascade_preview/template_snapshot_count` from the response with the `200` status
+in API GET /v1/environments/{id} removed the required property `data/latest_deployment_id` from the response with the `200` status
+in API GET /v1/environments/{id}/deployments api path removed without deprecation
+in API POST /v1/environments/{id}/promote api path removed without deprecation
+in API POST /v1/environments/{id}/rollback api path removed without deprecation
+in API GET /v1/score-configs api path removed without deprecation
+in API GET /v1/score-configs/{name} api path removed without deprecation
+
+# --- GitLab provider removal: new connects are GitHub-only; the runtime returns a structured 409 for legacy gitlab rows ---
+in API POST /v1/apps/{appId}/git/connect removed the enum value `gitlab` of the request property `provider`
+
+# --- /health reports a count instead of naming unset variables ---
+# The route is `security: []` — unauthenticated by design, because a probe has
+# to reach it, so its body carries no configuration detail. `missing` and
+# `configure_at` are replaced by a `missing_count`; the names go to the logs,
+# where the operator who needs them already looks. Nothing but tests read this
+# body, and it is only ever returned alongside a 500.
+in API GET /health removed the required property `missing` from the response with the `500` status
+in API GET /health removed the required property `configure_at` from the response with the `500` status
+
+# --- environments drop `machine_status` ---
+# The field reported whether an environment had a live runtime machine. Nothing
+# has produced one since the runtime was retired, so it answered 'none' for
+# every environment on every call. The column it derived from is dropped in the
+# same change.
+in API GET /v1/environments removed the required property `data/items/machine_status` from the response with the `200` status
+in API POST /v1/environments removed the required property `data/machine_status` from the response with the `201` status
+in API GET /v1/environments/{id} removed the required property `data/machine_status` from the response with the `200` status
+
+# --- OTLP vendor-ingest subsystem retirement (2026-08-04) ---
+# The OTLP prompt-monitoring surface is retired: the trace-ingest routes had
+# no deployed consumers left once the OTLP normalizers, the dataset/
+# experiment/prompt read stack, and the Cloudflare Queues ingest consumer
+# were removed together. `prompt_name` is dropped from the span
+# read routes because it was only ever populated from that stack.
+in API GET /v1/spans removed the required property `data/items/prompt_name` from the response with the `200` status
+in API POST /v1/spans/search removed the required property `data/items/prompt_name` from the response with the `200` status
+in API GET /v1/spans/{spanId} removed the required property `data/prompt_name` from the response with the `200` status
+in API GET /v1/traces api path removed without deprecation
+in API POST /v1/traces api path removed without deprecation
+in API POST /v1/traces/search api path removed without deprecation
+in API GET /v1/traces/{traceId} api path removed without deprecation
+in API GET /v1/traces/{traceId}/spans api path removed without deprecation
+in API GET /v1/traces/{traceId}/spans/{spanId} api path removed without deprecation

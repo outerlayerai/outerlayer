@@ -1,0 +1,20 @@
+{
+  "name": "@repo/api-types",
+  "version": "0.3.0",
+  "description": "Shared API contract types (analytics service, traces, scores) used by the platform. For wire schemas use @repo/api-schemas.",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@repo/api-schemas": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@repo/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "library.mjs",
+    "react-internal.mjs",
+    "supabase-test-mocks.mjs",
+    "supabase-test-mocks-shared.mjs"
+  ],
+  "exports": {
+    "./library.mjs": "./library.mjs",
+    "./react-internal.mjs": "./react-internal.mjs",
+    "./supabase-test-mocks.mjs": "./supabase-test-mocks.mjs",
+    "./supabase-test-mocks-shared.mjs": "./supabase-test-mocks-shared.mjs"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.0",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-unused-imports": "^4.3.0",
+    "globals": "^17.8.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1",
+    "typescript": "^5.2.2"
+  }
+}

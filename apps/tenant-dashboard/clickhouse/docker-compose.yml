@@ -1,0 +1,42 @@
+# ClickHouse Local Development Environment
+#
+# Usage:
+#   cd clickhouse && docker-compose up -d
+#   cd clickhouse && docker-compose down
+#
+# Connect:
+#   URL: http://localhost:8123
+#   Native: localhost:9100 (remapped from 9000, which other local dev services use)
+
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    container_name: clickhouse-analytics
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9100:9000"  # Native interface (host 9100 → container 9000, keeps host :9000 free)
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      # NOTE: Migrations are NOT auto-run on startup to prevent data loss.
+      # Run migrations manually with: yarn clickhouse:migration:dev
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: dev_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+volumes:
+  clickhouse_data:
+    driver: local

@@ -1,0 +1,13 @@
+# Review is requested from these owners on every pull request.
+# https://docs.github.com/articles/about-code-owners
+
+* @kocobee @kashi11
+
+# Licensing, governance, and security policy carry consequences a code review
+# alone doesn't catch — route them to the primary maintainer.
+/LICENSE            @kocobee
+/LICENSING.md       @kocobee
+/SECURITY.md        @kocobee
+/CODE_OF_CONDUCT.md @kocobee
+/ee/                @kocobee
+/packages/ee-license/ @kocobee

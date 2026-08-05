@@ -1,0 +1,88 @@
+/**
+ * Analytics Service Types
+ *
+ * Re-exports all types from the shared @repo/observability-service package.
+ * Exports are intentionally public for module consumers.
+ */
+
+/* eslint-disable import/no-unused-modules */
+
+// Re-export all types from shared package
+export type {
+  DateRange,
+  DateRangePreset,
+  PaginationParams,
+  MetricsSummary,
+  TimeSeriesPoint,
+  MetricsResponse,
+  ModelStats,
+  ModelStatsResponse,
+  RankingDataItem,
+  RankingDataResponse,
+  SavedFilterConfigV1,
+  SavedFilterConfig,
+  RequestsDisplayMode,
+  SavedViewConfig,
+  AggregateRequestsRow,
+  AggregateRequestsResponse,
+  AggregateRequestsParams,
+  TracesParams,
+  TraceSummary,
+  TracesResponse,
+  Span,
+  SpanIO,
+  TraceDetail,
+  PercentileMetric,
+  PercentilesParams,
+  PercentilePoint,
+  PercentilesResponse,
+  DependencyStatus,
+  HealthStatus,
+  HealthResponse,
+  Score,
+  ScoresParams,
+  ScoresResponse,
+  ScoreAggregation,
+  ScoreAggregationsResponse,
+  ScoreNamesResponse,
+  ScoreType,
+  ScoreHistogramBucket,
+  ScoreCategoryCount,
+  ScoreHistogramResponse,
+  ScoreTrendPoint,
+  ScoreTrendInterval,
+  ScoreTrendResponse,
+  ScoreComparisonCell,
+  ScoreComparisonResponse,
+  ScoreScatterPoint,
+  ScoreScatterResponse,
+  AnalyticsFilter,
+  AnalyticsFilterOrGroup,
+  AnalyticsFilterNode,
+  MetricsFilterField,
+  ValidatedMetricsFilter,
+  StringFilterOperator,
+  NumberFilterOperator,
+  FilterOperator,
+  StringFilter,
+  NumberFilter,
+  AdvancedTracesParams,
+  ExtendedMetricsSummary,
+  ExtendedMetricsResponse,
+  FilterColumn,
+  SortConfig,
+  DateRangeConfig,
+  TraceFilterConfig,
+  IAnalyticsService,
+  SpanKindBreakdownRecord,
+  RequestsParams,
+  RequestRecord,
+  RequestsResponse,
+} from '@repo/observability-service';
+
+// Re-export type guards and utility functions
+export {
+  isFilterConfigV2,
+  isViewConfigV3,
+  isAnalyticsFilterOrGroup,
+} from '@repo/observability-service';

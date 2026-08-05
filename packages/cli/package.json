@@ -1,0 +1,58 @@
+{
+  "name": "outerlayer",
+  "version": "0.1.0",
+  "description": "OuterLayer CLI: init/doctor (hooks + daemon onboarding), watch, scan, and eval (validate/mine/qualify/report — execution-verified evals from your own PRs)",
+  "license": "Apache-2.0",
+  "author": "Magu Studios, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outerlayerai/outerlayer.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "cli",
+    "evals",
+    "agent-evaluation",
+    "pull-request-mining"
+  ],
+  "type": "module",
+  "bin": "dist/index.js",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:mutate": "stryker run",
+    "typecheck": "tsc --noEmit",
+    "bench:hook": "node scripts/bench-hook.mjs",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@outerlayer/capture": "workspace:*",
+    "@outerlayer/context-format": "workspace:*",
+    "@outerlayer/session-schema": "workspace:*",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "@types/node": "^22.20.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

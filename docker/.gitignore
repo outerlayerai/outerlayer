@@ -1,0 +1,9 @@
+# selfhost-up.sh generates .env.selfhost with secrets unique to the install —
+# the gateway's shared API secret, the API-key pepper, the token-encryption key.
+# The root .gitignore's `.env` rules match neither this name nor this directory,
+# so without this file the first `git add .` after a self-host install commits
+# every one of them.
+.env.selfhost
+
+# Only the placeholder template is tracked.
+!.env.selfhost.example

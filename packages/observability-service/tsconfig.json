@@ -1,0 +1,21 @@
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "types": ["vitest/globals", "node"],
+    // This service is only ever consumed by bundlers (the gateway via wrangler,
+    // the dashboard via Next) and tested under Vite, so it typechecks with
+    // Bundler resolution — matching @repo/gateway-core. NodeNext (the base
+    // default) can't evaluate the z.infer types the @repo/api-schemas contract
+    // re-exports through @repo/api-types when those packages are consumed as
+    // source, so pagination fields (limit/offset) would resolve to `never`.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@repo/api-schemas": ["../../packages/api-schemas/src/index.ts"],
+      "@repo/api-types": ["../../packages/api-types/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

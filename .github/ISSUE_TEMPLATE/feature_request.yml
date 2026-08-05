@@ -1,0 +1,71 @@
+name: Feature request
+description: Suggest a capability or a change to how something works.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describing the problem tends to get further than describing a solution —
+        it leaves room for an approach you hadn't considered.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: >
+        What are you doing today, and where does it break down? Concrete beats
+        general.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: The change you have in mind, if you have one in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: >
+        Workarounds you are using now, or other approaches you considered and
+        rejected — and why.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running OuterLayer?
+      options:
+        - OuterLayer Cloud (app.outerlayer.ai)
+        - Self-hosted
+        - Local development from this repository
+        - Not using it yet
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Dashboard
+        - Gateway
+        - CLI
+        - Docs
+        - Self-host setup
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I'd be willing to open a pull request for this.
+          required: false

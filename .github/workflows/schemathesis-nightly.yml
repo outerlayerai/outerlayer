@@ -1,0 +1,204 @@
+name: Schemathesis Nightly
+
+# Deep contract fuzz at 200 examples per endpoint. The PR-time fuzz in
+# ci.yml uses 30 examples (~3-4 min); this one takes ~20-30 min
+# and runs overnight so it can explore the long tail of generated inputs
+# Hypothesis produces.
+#
+# Why separate from PR CI: 200 examples x 60 endpoints x 4 workers takes
+# too long to block a PR on, but is the right budget to catch the rarer
+# bugs Hypothesis shrinks into after tens of attempts.
+
+on:
+  schedule:
+    # Weekly (Sundays 07:00 UTC) instead of nightly — fuzzing is slow
+    # (~30-45 min) and gates nothing, so daily was pure cost. On-change
+    # triggers below catch the case that matters (contract edits); the
+    # weekly run is a safety net for drift the path filter can't see.
+    - cron: '0 7 * * 0'
+  # Deliberately NOT triggered on `pull_request` or `push`: this deep fuzz
+  # takes ~30-45 min and gates nothing. PRs are covered by the fast
+  # 30-example fuzz in ci.yml ("OpenAPI Contract Fuzz"). A
+  # post-merge `push` trigger on contract paths existed until June 2026,
+  # but main's merge train piled up overlapping ~45-min runs that were
+  # cancelled or hung (orphan-worker hang) — 21 runs, 0 successes,
+  # ~970 billable min in the first 9 days of June 2026. The weekly cron
+  # (+ manual dispatch after a big contract change) is the right budget.
+  workflow_dispatch:
+    inputs:
+      max_examples:
+        description: 'Hypothesis examples per endpoint'
+        required: false
+        default: '50'
+        type: string
+
+env:
+  SUPABASE_CLI_VERSION: v1.226.4
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Deep contract fuzz
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install workspace dependencies
+        run: yarn install --immutable
+
+      # Build the shared workspace packages before booting wrangler dev. The
+      # gateway bundles @agentmark-ai/* packages (templatedx, api-types, …) from
+      # their built dist/, which `yarn install` does NOT produce. Without this,
+      # wrangler dev's esbuild can't resolve them, the worker never builds, and
+      # /health never answers — the symptom this job hit (gateway timeout). Same
+      # build the `prepare` job in ci.yml runs.
+      - name: Build shared workspace packages
+        run: yarn turbo build --filter='{./packages/*}'
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Install Supabase CLI
+        run: |
+          if ! command -v supabase &> /dev/null; then
+            curl -fsSL "https://github.com/supabase/cli/releases/download/${SUPABASE_CLI_VERSION}/supabase_1.226.4_linux_amd64.deb" -o supabase.deb
+            sudo dpkg -i supabase.deb
+          fi
+
+      - name: Start Supabase
+        run: |
+          cd apps/integration-tests
+          npx tsx scripts/setup-db.ts setup
+
+      - name: Start ClickHouse
+        run: |
+          cd apps/integration-tests
+          docker compose -f clickhouse/docker-compose.yml up -d
+          npx tsx clickhouse/setup-clickhouse.ts setup
+
+      - name: Seed test tenant + app
+        id: seed
+        run: |
+          # The seed mints a REAL peppered key; it must use the same
+          # API_KEY_PEPPER wrangler boots with (committed in .dev.vars.ci).
+          API_KEY_PEPPER="$(grep '^API_KEY_PEPPER=' apps/gateway/.dev.vars.ci | cut -d= -f2-)"
+          export API_KEY_PEPPER
+          SEED_OUT="$(yarn workspace gateway exec tsx scripts/seed-test-tenant.ts)"
+          APP_ID="$(printf '%s\n' "$SEED_OUT" | sed -n 's/^app_id=//p')"
+          API_KEY="$(printf '%s\n' "$SEED_OUT" | sed -n 's/^api_key=//p')"
+          # Mask the minted key in the live log (the seed's ::add-mask:: is
+          # swallowed by the command substitution above, so re-emit it here).
+          echo "::add-mask::$API_KEY"
+          echo "Seeded app_id=$APP_ID"
+          echo "app_id=$APP_ID" >> "$GITHUB_OUTPUT"
+          echo "api_key=$API_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Configure wrangler dev env
+        run: cp apps/gateway/.dev.vars.ci apps/gateway/.dev.vars
+
+      - name: Start wrangler dev
+        run: |
+          cd apps/gateway
+          nohup yarn dev > /tmp/wrangler.log 2>&1 &
+          echo $! > /tmp/wrangler.pid
+
+      - name: Wait for gateway /health
+        # Bounded health wait. Each probe is capped with --max-time so a gateway
+        # that accepts the TCP connection but never answers (wrangler-dev's proxy
+        # binds the port before the worker is ready, or the worker's build stalls)
+        # can't block the loop forever. The previous curl had no timeout: a
+        # half-open listener hung this step for the full 45-min job timeout, with
+        # the wrangler log trapped behind it (the always() upload below can't run
+        # until this step yields). A wall-clock deadline keeps total wait at ~120s
+        # regardless of per-probe behavior, and the step-level timeout is a hard
+        # backstop so the diagnostic upload always gets to run.
+        timeout-minutes: 3
+        run: |
+          deadline=$((SECONDS + 120))
+          until curl -fsS --max-time 5 "http://localhost:9001/health" > /dev/null; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Gateway did not respond on port 9001 within 120s"
+              cat /tmp/wrangler.log || true
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Gateway responsive after ${SECONDS}s"
+
+      - name: Install Schemathesis
+        run: |
+          python3 -m pip install --user "schemathesis==3.39.16"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run Schemathesis (deep)
+        # Same exclusions as the PR-time run so signal is comparable;
+        # only the example budget differs. `Metrics` is isolated into a
+        # dedicated follow-up step because its broad valid date-range input
+        # space can dominate runtime under fuzzing. workflow_dispatch input
+        # is passed via env: to avoid GitHub expression injection.
+        #
+        # Example budget precedence: explicit workflow_dispatch input wins;
+        # else 15 on pull_request (this gates nothing, so keep PRs fast);
+        # else 50 (weekly cron / push). PR & push events carry no
+        # `github.event.inputs`, so the dispatch term is empty there and the
+        # fallback chain resolves the budget without an empty-string crash.
+        env:
+          APP_ID: ${{ steps.seed.outputs.app_id }}
+          MAX_EXAMPLES: ${{ github.event.inputs.max_examples || (github.event_name == 'pull_request' && '15') || '50' }}
+        run: |
+          chmod +x scripts/ci/run-schemathesis-with-heartbeat.sh
+          scripts/ci/run-schemathesis-with-heartbeat.sh \
+            nightly-deep \
+            2400 \
+            /tmp/schemathesis-nightly-debug.jsonl \
+            schemathesis run docs/openapi.yaml \
+            --base-url "http://localhost:9001" \
+            --header "Authorization: Bearer ${{ steps.seed.outputs.api_key }}" \
+            --header "X-Outerlayer-App-Id: ${APP_ID}" \
+            --checks all \
+            --exclude-method DELETE \
+            --exclude-tag Health \
+            --hypothesis-max-examples "${MAX_EXAMPLES}" \
+            --hypothesis-derandomize \
+            --hypothesis-deadline=None \
+            --request-timeout 10000 \
+            --workers 4 \
+            --junit-xml /tmp/schemathesis-nightly.xml \
+            --show-trace
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: schemathesis-nightly
+          path: |
+            /tmp/schemathesis-nightly.xml
+            /tmp/schemathesis-nightly-metrics.xml
+            /tmp/schemathesis-nightly-debug.jsonl
+            /tmp/schemathesis-nightly-metrics-debug.jsonl
+            /tmp/wrangler.log
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f /tmp/wrangler.pid ]; then
+            kill "$(cat /tmp/wrangler.pid)" 2>/dev/null || true
+          fi
+          (cd apps/integration-tests && docker compose -f clickhouse/docker-compose.yml down -v) || true

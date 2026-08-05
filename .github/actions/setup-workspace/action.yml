@@ -1,0 +1,76 @@
+name: 'Setup workspace'
+description: >-
+  Restore the deps + build caches saved by the prepare job, falling back to a
+  full install / incremental build when either cache misses. A cache is an
+  optimization: its absence (cold cache, or LRU eviction once the repo's 10 GB
+  GitHub Actions cache budget is exceeded) must degrade to a slower-but-green
+  run, never hard-fail every downstream job. Requires
+  actions/checkout BEFORE calling.
+inputs:
+  turbo-token:
+    description: >-
+      Turbo remote-cache token, scoped to the build step below. Optional: unset,
+      the fallback build still runs, just without the remote cache. Passed as an
+      input rather than a workflow-level env var so the token is never in the
+      environment of `yarn install` and its third-party lifecycle scripts.
+    required: false
+    default: ''
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: '24'
+
+    # node_modules — keyed on yarn.lock. The exact key matches prepare's save.
+    # restore-keys lets a near-miss (e.g. this run's deps cache was evicted but
+    # a prior run's copy survives) restore a warm tree that the install below
+    # reconciles. NO fail-on-cache-miss: a miss falls back to install rather
+    # than reddening ~15 downstream jobs over a cache-capacity blip.
+    - name: Restore dependency cache
+      id: deps-cache
+      uses: actions/cache/restore@v6
+      with:
+        # Path + key MUST match prepare's deps-cache exactly (incl. the -v4 suffix).
+        path: |
+          node_modules
+          */*/node_modules
+        key: deps-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}
+        restore-keys: |
+          deps-${{ runner.os }}-node24-v4-
+
+    # Fallback install — only when the exact deps key missed. Mirrors prepare's
+    # cold path exactly (immutable install).
+    - name: Install dependencies (deps-cache miss fallback)
+      if: steps.deps-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        echo "::notice::deps cache miss — installing (cold or evicted)"
+        yarn install --immutable
+
+    # Built shared packages (.turbo + packages/*/dist) — keyed on source
+    # content. restore-keys gives a warm .turbo from a prior build of the
+    # same lockfile so the fallback build below is incremental.
+    - name: Restore build cache
+      id: build-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          .turbo
+          packages/*/dist
+        key: build-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/*/src/**', 'packages/*/package.json') }}
+        restore-keys: |
+          build-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}-
+
+    # Fallback build — only when the exact build key missed. turbo is
+    # incremental (warm .turbo from restore-keys + Turbo remote cache via
+    # TURBO_TOKEN/TURBO_TEAM), so this no-ops unchanged packages. Identical
+    # filter to prepare's build step so downstream gets the same dist.
+    - name: Build shared packages (build-cache miss fallback)
+      if: steps.build-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        TURBO_TOKEN: ${{ inputs.turbo-token }}
+      run: |
+        echo "::notice::build cache miss — rebuilding shared packages incrementally"
+        yarn turbo build --filter='{./packages/*}'

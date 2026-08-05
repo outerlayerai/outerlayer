@@ -1,0 +1,46 @@
+name: 'Setup Schemathesis'
+description: 'Restore or install a cached Schemathesis virtualenv'
+
+inputs:
+  version:
+    description: 'Schemathesis version'
+    required: false
+    default: '3.39.16'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect Python version
+      id: python-version
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "value=$(python3 -c 'import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")')" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Schemathesis cache
+      id: cache-schemathesis
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/agentmark-tools/schemathesis/py${{ steps.python-version.outputs.value }}/${{ inputs.version }}
+        key: schemathesis-${{ runner.os }}-py${{ steps.python-version.outputs.value }}-${{ inputs.version }}
+
+    - name: Install Schemathesis
+      if: steps.cache-schemathesis.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ steps.python-version.outputs.value }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        venv_dir="$HOME/.cache/agentmark-tools/schemathesis/py${PYTHON_VERSION}/${VERSION}"
+        rm -rf "$venv_dir"
+        python3 -m venv "$venv_dir"
+        "$venv_dir/bin/pip" install --upgrade pip
+        "$venv_dir/bin/pip" install "schemathesis==${VERSION}"
+
+    - name: Add Schemathesis to PATH
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ steps.python-version.outputs.value }}
+        VERSION: ${{ inputs.version }}
+      run: echo "$HOME/.cache/agentmark-tools/schemathesis/py${PYTHON_VERSION}/${VERSION}/bin" >> "$GITHUB_PATH"

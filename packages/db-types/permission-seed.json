@@ -1,0 +1,600 @@
+{
+  "roles": [
+    "owner",
+    "admin",
+    "write",
+    "read"
+  ],
+  "groups": [
+    {
+      "key": "agents",
+      "rationale": "Agent sessions are self-by-default: every active role reads its own sessions and the team-level findings aggregate. Team-wide session read (other members' sessions and transcripts) and agents/capture-tier settings are admin-granted, so they go to owner/admin only.",
+      "grants": {
+        "agents.findings.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "agents.sessions.self.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "agents.sessions.team.read": [
+          "owner",
+          "admin"
+        ],
+        "agents.settings.write": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "ai_cost_config",
+      "rationale": "Org-wide seat-cost configuration (Settings -> AI costs): owner/admin only, like billing \u2014 it is org-level financial config. The dashboard widget that consumes the derived total reads via service_role, so members still see Total Cost of AI without these grants.",
+      "grants": {
+        "ai_cost_config.delete": [
+          "owner",
+          "admin"
+        ],
+        "ai_cost_config.insert": [
+          "owner",
+          "admin"
+        ],
+        "ai_cost_config.read": [
+          "owner",
+          "admin"
+        ],
+        "ai_cost_config.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "api_key",
+      "rationale": "API keys: owner/admin/write view and create keys; rotating (update) and revoking (delete) a key is owner/admin only.",
+      "grants": {
+        "api_key.delete": [
+          "owner",
+          "admin"
+        ],
+        "api_key.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "api_key.read": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "api_key.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "app",
+      "rationale": "Apps: every role reads; creating, editing, and deleting an app is owner/admin.",
+      "grants": {
+        "app.delete": [
+          "owner",
+          "admin"
+        ],
+        "app.insert": [
+          "owner",
+          "admin"
+        ],
+        "app.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "app.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "app_member_role",
+      "rationale": "Per-app role overrides: every role can see who holds which app role; assigning and revoking overrides is owner/admin.",
+      "grants": {
+        "app_member_role.delete": [
+          "owner",
+          "admin"
+        ],
+        "app_member_role.insert": [
+          "owner",
+          "admin"
+        ],
+        "app_member_role.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "app_member_role.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "app_policy",
+      "rationale": "Governs the app-level publish policy (require_pull_request). Owner/admin only: it is a governance control, and a member who can publish must not be able to remove the review gate. Owner is seeded explicitly because the owner bypass in private.effective_app_permissions (01a-private-authz.sql) returns the owner's org role_permissions set \u2014 an owner not seeded this permission would be denied here.",
+      "grants": {
+        "app_policy.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "audit_log",
+      "rationale": "Tenant audit-trail read. Owner/admin only: the trail carries member emails, IPs, and denied-attempt records. The trail is written exclusively by service_role, so there is no insert/update/delete.",
+      "grants": {
+        "audit_log.read": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "billing",
+      "rationale": "Billing: every role sees the plan and usage; changing the subscription (insert/update/delete) is owner only.",
+      "grants": {
+        "billing.insert": [
+          "owner"
+        ],
+        "billing.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "billing.update": [
+          "owner"
+        ]
+      }
+    },
+    {
+      "key": "context",
+      "rationale": "Context mirror: every role reads the mirror; write roles save, update, and delete context files.",
+      "grants": {
+        "context.delete": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "context.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "context.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "context.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "custom_role",
+      "rationale": "Custom roles: owner/admin define, edit, and delete custom roles.",
+      "grants": {
+        "custom_role.delete": [
+          "owner",
+          "admin"
+        ],
+        "custom_role.insert": [
+          "owner",
+          "admin"
+        ],
+        "custom_role.read": [
+          "owner",
+          "admin"
+        ],
+        "custom_role.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "dashboard",
+      "rationale": "Analytics dashboards: every role views; write roles create, edit, and delete dashboards.",
+      "grants": {
+        "dashboard.delete": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "dashboard.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "dashboard.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "dashboard.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "env_var",
+      "rationale": "Environment variables: every role reads; write roles set, update, and remove them.",
+      "grants": {
+        "env_var.delete": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "env_var.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "env_var.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "env_var.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "env_escalation",
+      "rationale": "Env-build escalation queue: every role reads (the rows explain why a repo's evals aren't running); write roles acknowledge and resolve. Rows are written by the eval worker via service_role.",
+      "grants": {
+        "env_escalation.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "env_escalation.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "environment",
+      "rationale": "Environment lifecycle: every role reads; write roles create, edit, and promote (promote is the release action and covers both forward promotion and rollback); deleting an environment is owner/admin.",
+      "grants": {
+        "environment.delete": [
+          "owner",
+          "admin"
+        ],
+        "environment.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "environment.promote": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "environment.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "environment.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "eval_run",
+      "rationale": "Eval runs: every role reads history; write roles dispatch and manage runs.",
+      "grants": {
+        "eval_run.delete": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "eval_run.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "eval_run.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "eval_run.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "experiment",
+      "rationale": "Experiments: every role views. experiment.run is deliberately ungranted \u2014 its only enforcement was the pending_experiment RLS policies, dropped along with that table; benchmark/eval dispatch gates on eval_run.insert instead (see the eval_run group).",
+      "grants": {
+        "experiment.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ]
+      }
+    },
+    {
+      "key": "git_branch",
+      "rationale": "Tracked git branches: every role reads; owner/admin manage.",
+      "grants": {
+        "git_branch.delete": [
+          "owner",
+          "admin"
+        ],
+        "git_branch.insert": [
+          "owner",
+          "admin"
+        ],
+        "git_branch.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "git_branch.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "git_connection",
+      "rationale": "Git provider connection: every role reads; write roles connect and reconfigure; disconnecting is owner/admin.",
+      "grants": {
+        "git_connection.delete": [
+          "owner",
+          "admin"
+        ],
+        "git_connection.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "git_connection.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "git_connection.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "membership",
+      "rationale": "Member lifecycle, kept separate from profile.* on purpose. profile.insert/update are self-service and held by every role so a member can create and edit their own profile; inviting a member, changing a role, disabling and removing are privileged and belong to owner/admin only. Never gate a lifecycle operation on a self-service permission. membership.read stays broad because the member list is already visible to every role.",
+      "grants": {
+        "membership.delete": [
+          "owner",
+          "admin"
+        ],
+        "membership.insert": [
+          "owner",
+          "admin"
+        ],
+        "membership.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "membership.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "metrics",
+      "rationale": "Gateway-facing metrics read (SDK/CLI surface).",
+      "grants": {
+        "metrics.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ]
+      }
+    },
+    {
+      "key": "profile",
+      "rationale": "Member profiles: every active member reads teammates and creates/edits their own profile; removing a member (delete) is owner/admin.",
+      "grants": {
+        "profile.delete": [
+          "owner",
+          "admin"
+        ],
+        "profile.insert": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "profile.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "profile.update": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ]
+      }
+    },
+    {
+      "key": "score",
+      "rationale": "Gateway-facing scores: every role reads; write roles write; owner/admin delete.",
+      "grants": {
+        "score.delete": [
+          "owner",
+          "admin"
+        ],
+        "score.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "score.write": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "session",
+      "rationale": "Gateway-facing session read (SDK/CLI surface).",
+      "grants": {
+        "session.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ]
+      }
+    },
+    {
+      "key": "span",
+      "rationale": "Gateway-facing span read (SDK/CLI surface).",
+      "grants": {
+        "span.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ]
+      }
+    },
+    {
+      "key": "sso_config",
+      "rationale": "Enterprise SSO config: owner/admin view and edit; only the owner deletes the SSO connection.",
+      "grants": {
+        "sso_config.delete": [
+          "owner"
+        ],
+        "sso_config.insert": [
+          "owner",
+          "admin"
+        ],
+        "sso_config.read": [
+          "owner",
+          "admin"
+        ],
+        "sso_config.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "tenant",
+      "rationale": "Organization record: every role reads; write roles edit organization settings. tenant.delete and tenant.insert are deliberately ungranted \u2014 no RLS policy references them, so they conferred nothing. Orgs are created by create_organization_transaction and deleted only by platform admins, both SECURITY DEFINER paths that bypass RLS.",
+      "grants": {
+        "tenant.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "tenant.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "trace",
+      "rationale": "Traces: every role reads; write roles ingest spans (SDK/CLI).",
+      "grants": {
+        "trace.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "trace.write": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    },
+    {
+      "key": "worker_run",
+      "rationale": "Cloud workers: every role reads run history and transcripts; write roles launch, cancel, and delete runs.",
+      "grants": {
+        "worker_run.delete": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "worker_run.insert": [
+          "owner",
+          "admin",
+          "write"
+        ],
+        "worker_run.read": [
+          "owner",
+          "admin",
+          "write",
+          "read"
+        ],
+        "worker_run.update": [
+          "owner",
+          "admin",
+          "write"
+        ]
+      }
+    }
+  ],
+  "intentionally_unseeded": {}
+}

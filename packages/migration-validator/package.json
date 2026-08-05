@@ -1,0 +1,36 @@
+{
+  "name": "@repo/migration-validator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Validates ClickHouse migrations follow expand-contract pattern (Supabase uses Squawk)",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "validate-migrations": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "lint": "npx eslint src/",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "mkdir -p coverage/.tmp && node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@repo/typescript-config": "workspace:^",
+    "@types/node": "^22.20.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-unused-imports": "^4.3.0",
+    "squawk-cli": "2.61.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.47.0",
+    "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "glob": "^13.0.6"
+  }
+}

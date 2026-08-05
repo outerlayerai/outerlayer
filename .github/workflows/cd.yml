@@ -1,0 +1,1299 @@
+name: CD
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      skip_e2e:
+        description: 'Skip E2E tests (emergency hotfix only)'
+        required: false
+        default: false
+        type: boolean
+      hotfix_reason:
+        description: 'Justification for skipping E2E — REQUIRED when skip_e2e is true'
+        required: false
+        default: ''
+        type: string
+
+env:
+  NODE_VERSION: '24'
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+# Prevent concurrent deployments of the SAME environment from overlapping.
+# The group is keyed on ref AND environment so a manual production promotion
+# gets its own lane instead of sharing one with push-driven staging runs.
+# Sharing a single ref-only group meant a prod dispatch would queue behind an
+# in-flight staging CD and — worse — get silently cancelled when a later push
+# entered the group (GitHub keeps one running + one pending per group, evicting
+# the older pending run). Push events have no inputs.environment, so they fall
+# back to 'staging'. The E2E gate is unaffected: it keys on the commit-SHA
+# cache (e2e-result-${{ github.sha }}) + production-preflight, not on this group.
+concurrency:
+  group: cd-${{ github.ref }}-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  # Path gate: a merge that touches nothing deployable (docs/,
+  # marketing site, markdown, OSS skills) skips the entire staging
+  # deploy + E2E pipeline via needs-propagation from prepare-workspace.
+  # Each full CD run is ~18 billable min and a staging redeploy; a meaningful
+  # share of merges to main are non-deployable. A skipped commit INHERITS its
+  # parent's E2E green in e2e-finalize (the deployable artifacts are
+  # byte-identical), so a later production dispatch of that SHA still passes
+  # production-preflight. workflow_dispatch always counts as deployable —
+  # an operator asked for a deploy, never second-guess that.
+  detect-deployable:
+    name: Detect Deployable Changes
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 2
+    outputs:
+      deployable: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.deployable }}
+    steps:
+      # Unconditional (the paths-filter below stays push-only): the migration
+      # preflight has to run on a manual production dispatch too, which is the
+      # highest-stakes path and the one with no PR gate in front of it.
+      - uses: actions/checkout@v7
+
+      # Preflight: two migrations sharing a version prefix can only ever have
+      # one of them recorded as applied, and CI cannot catch every case — it
+      # runs on pull_request only, so two PRs that are each green against an
+      # older main can merge into a colliding tree. Without this, the first
+      # symptom is a confusing `supabase db push` failure (or worse, a silently
+      # unapplied migration) partway through a deploy. Costs ~1s to instead
+      # fail here, before anything is deployed.
+      - name: Preflight — migration version collisions
+        run: node scripts/ci/check-migration-versions.mjs
+
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
+        if: github.event_name == 'push'
+        id: filter
+        with:
+          # On push to main, paths-filter diffs event.before..event.after.
+          filters: |
+            deployable:
+              - 'apps/gateway/**'
+              - 'apps/tenant-dashboard/**'
+              - 'apps/worker/**'
+              - 'apps/e2e/**'
+              - 'packages/**'
+              - 'scripts/**'
+              - '.github/workflows/cd.yml'
+              - '.github/actions/**'
+              - 'turbo.json'
+              - 'package.json'
+              - 'yarn.lock'
+              - '.yarnrc.yml'
+              - 'tsconfig*.json'
+
+  # Shared install + package build for CD. Downstream jobs restore the run-scoped
+  # cache so staging deploy, staging E2E, and production deploy don't each pay
+  # for their own yarn install + workspace package build.
+  # Gated on detect-deployable: when nothing deployable changed, this skips,
+  # and every downstream deploy/E2E job skips with it via needs-propagation
+  # (none of them use always() in their if). e2e-finalize is the exception —
+  # it always() runs and handles the inheritance path.
+  prepare-workspace:
+    name: Prepare Workspace
+    # 4 vCPU: install + package build parallelize, and every deploy/E2E job
+    # waits on this — double rate, ~half duration, shorter critical path.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    needs: detect-deployable
+    if: needs.detect-deployable.outputs.deployable == 'true'
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore workspace cache
+        id: workspace-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+            .turbo
+            packages/locales/dist
+            packages/session-schema/dist
+            packages/insights-core/dist
+          key: workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+          restore-keys: |
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
+
+      - name: Install dependencies
+        if: steps.workspace-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+      - name: Build shared workspace packages
+        if: steps.workspace-cache.outputs.cache-hit != 'true'
+        run: yarn turbo build --filter=@outerlayer/locales --filter=@outerlayer/insights-core
+
+      - name: Save workspace cache (content-keyed)
+        if: steps.workspace-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+            .turbo
+            packages/locales/dist
+            packages/session-schema/dist
+            packages/insights-core/dist
+          key: workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+
+      - name: Save workspace cache (run-scoped for downstream jobs)
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+            .turbo
+            packages/locales/dist
+            packages/session-schema/dist
+            packages/insights-core/dist
+          key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    needs: prepare-workspace
+    if: ${{ github.event_name == 'push' || github.event.inputs.environment == 'staging' }}
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.STAGING_PROJECT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      STAGING_CLICKHOUSE_HOST: ${{ secrets.STAGING_CLICKHOUSE_HOST }}
+      STAGING_CLICKHOUSE_USER: ${{ secrets.STAGING_CLICKHOUSE_USER }}
+      STAGING_CLICKHOUSE_PASSWORD: ${{ secrets.STAGING_CLICKHOUSE_PASSWORD }}
+      STAGING_CLICKHOUSE_DB: ${{ secrets.STAGING_CLICKHOUSE_DB }}
+      STAGING_FLY_WORKERS_DEPLOY_TOKEN: ${{ secrets.STAGING_FLY_WORKERS_DEPLOY_TOKEN }}
+      # Consumed by this job's probe-fixture seed + read probe and by the E2E
+      # jobs downstream. Validated here rather than in CI: a fork PR has no
+      # access to them, so a CI-side check would fail every external PR on a
+      # prerequisite only a deploy needs.
+      STAGING_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+      STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+      # Gateway Worker secrets — see the deploy step below.
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      STAGING_STRIPE_STORAGE_METER_ID: ${{ secrets.STAGING_STRIPE_STORAGE_METER_ID }}
+      STAGING_TOPICS_TENANT_ALLOWLIST: ${{ secrets.STAGING_TOPICS_TENANT_ALLOWLIST }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Validate deployment secrets
+        run: |
+          MISSING=""
+          [[ -z "$SUPABASE_ACCESS_TOKEN" ]] && MISSING="${MISSING}  - SUPABASE_ACCESS_TOKEN\n"
+          [[ -z "$SUPABASE_DB_PASSWORD" ]] && MISSING="${MISSING}  - STAGING_DB_PASSWORD\n"
+          [[ -z "$SUPABASE_PROJECT_ID" ]] && MISSING="${MISSING}  - STAGING_PROJECT_ID\n"
+          [[ -z "$CLOUDFLARE_API_TOKEN" ]] && MISSING="${MISSING}  - CLOUDFLARE_API_TOKEN\n"
+          [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]] && MISSING="${MISSING}  - CLOUDFLARE_ACCOUNT_ID\n"
+          [[ -z "$STAGING_CLICKHOUSE_HOST" ]] && MISSING="${MISSING}  - STAGING_CLICKHOUSE_HOST\n"
+          [[ -z "$STAGING_CLICKHOUSE_USER" ]] && MISSING="${MISSING}  - STAGING_CLICKHOUSE_USER\n"
+          [[ -z "$STAGING_CLICKHOUSE_PASSWORD" ]] && MISSING="${MISSING}  - STAGING_CLICKHOUSE_PASSWORD\n"
+          [[ -z "$STAGING_CLICKHOUSE_DB" ]] && MISSING="${MISSING}  - STAGING_CLICKHOUSE_DB\n"
+          [[ -z "$STAGING_FLY_WORKERS_DEPLOY_TOKEN" ]] && MISSING="${MISSING}  - STAGING_FLY_WORKERS_DEPLOY_TOKEN\n"
+          [[ -z "$STAGING_SUPABASE_URL" ]] && MISSING="${MISSING}  - STAGING_SUPABASE_URL (vars) — staging Supabase URL, e.g. https://xxx.supabase.co\n"
+          [[ -z "$STAGING_SUPABASE_SERVICE_ROLE_KEY" ]] && MISSING="${MISSING}  - STAGING_SUPABASE_SERVICE_ROLE_KEY — Supabase Dashboard → Settings → API\n"
+          # Worker secrets the gateway deploy uploads (they are not committed in
+          # wrangler.toml). Checked here so a missing one fails before any
+          # migration runs, not midway through the deploy.
+          [[ -z "$CLOUDFLARE_ZONE_ID" ]] && MISSING="${MISSING}  - CLOUDFLARE_ZONE_ID\n"
+          [[ -z "$STAGING_STRIPE_STORAGE_METER_ID" ]] && MISSING="${MISSING}  - STAGING_STRIPE_STORAGE_METER_ID\n"
+          [[ -z "$STAGING_TOPICS_TENANT_ALLOWLIST" ]] && MISSING="${MISSING}  - STAGING_TOPICS_TENANT_ALLOWLIST\n"
+
+          if [[ -n "$MISSING" ]]; then
+            echo "::error::Missing required secrets for STAGING deployment:"
+            echo -e "$MISSING"
+            echo ""
+            echo "Configure these in: GitHub → Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "✓ All staging deployment secrets configured"
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore workspace cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+            .turbo
+            packages/locales/dist
+            packages/session-schema/dist
+            packages/insights-core/dist
+          key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
+          # A `gh run rerun --failed` opens a new attempt without re-running the
+          # already-successful prepare-workspace job, and cleanup-workspace-cache
+          # has by then deleted this run's scratch cache — so the exact per-attempt
+          # key can never hit on a rerun. Fall back to the content-keyed cache that
+          # prepare-workspace also writes: cleanup never touches it, it is stable
+          # across attempts, and it holds the identical built tree (keyed on
+          # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
+          # so a genuine total miss (e.g. LRU eviction) still fails loudly.
+          restore-keys: |
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
+          fail-on-cache-miss: true
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3
+        with:
+          version: latest
+
+      # Step 1: Database migrations (must be backward-compatible)
+      - name: Deploy Supabase (Staging)
+        run: |
+          yarn email-temp:build
+          supabase link --project-ref $SUPABASE_PROJECT_ID
+          supabase db push
+        working-directory: ./apps/tenant-dashboard
+
+      # Step 2: ClickHouse migrations (before gateway, in case gateway needs new schema)
+      - name: Run ClickHouse migrations (Staging)
+        id: clickhouse-staging
+        working-directory: ./apps/tenant-dashboard
+        env:
+          # One-time re-baseline for migrations whose applied checksum predates
+          # the comment-insensitive normalizer; remove once staging and
+          # production have both deployed this wrapper.
+          CH_MIGRATIONS_REBASELINE_VERSIONS: "18,23,24,25,28"
+        run: node ./clickhouse/migrate.mjs --host=$STAGING_CLICKHOUSE_HOST --user=$STAGING_CLICKHOUSE_USER --password=$STAGING_CLICKHOUSE_PASSWORD --db=$STAGING_CLICKHOUSE_DB --migrations-home=./clickhouse/migrations
+
+      # Step 3: Deploy gateway with health-gated verification
+      - name: Capture deploy start time (Staging)
+        id: deploy-start-staging
+        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Cloudflare Workers (Staging)
+        id: deploy-gateway-staging
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/gateway
+          packageManager: yarn
+          # Queues referenced in wrangler.toml must EXIST before the deploy —
+          # `wrangler deploy` binds them but does not create them. Idempotent:
+          # only missing queues are created; a real API error still fails the
+          # step (only the existence grep is guarded, not the create).
+          # wrangler-action executes each preCommands LINE as a separate shell
+          # command (getMultilineInput), so every line must be self-contained —
+          # multiline constructs like for/done break with a sh syntax error.
+          preCommands: |
+            npx wrangler queues list | grep -qF "usage-meter-staging" || npx wrangler queues create "usage-meter-staging"
+            npx wrangler queues list | grep -qF "usage-meter-dlq-staging" || npx wrangler queues create "usage-meter-dlq-staging"
+            npx wrangler queues list | grep -qF "topics-enrichment-staging" || npx wrangler queues create "topics-enrichment-staging"
+          # Environment config that is deliberately not committed in
+          # wrangler.toml's [env.staging.vars]. The action uploads these as
+          # Worker secrets BEFORE it runs the deploy command, so the new code
+          # boots with them already bound; each name must also appear in this
+          # step's env with a non-empty value or the upload fails loudly.
+          # `environment` scopes the upload to --env staging; the deploy command
+          # already carries its own --env, which the action leaves untouched.
+          environment: staging
+          secrets: |
+            CLICKHOUSE_HOST
+            CLOUDFLARE_ZONE_ID
+            SUPABASE_API_BASE_URL
+            STRIPE_STORAGE_METER_ID
+            TOPICS_TENANT_ALLOWLIST
+          command: deploy --env staging
+        env:
+          CLICKHOUSE_HOST: ${{ secrets.STAGING_CLICKHOUSE_HOST }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          # Same staging Supabase project the E2E + probe steps target; kept as
+          # one source of truth so the gateway and the suite can never drift
+          # onto different projects.
+          SUPABASE_API_BASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          STRIPE_STORAGE_METER_ID: ${{ secrets.STAGING_STRIPE_STORAGE_METER_ID }}
+          # Scopes Trace Topics enrichment to the dogfood tenant; an empty value
+          # would enrich every staging tenant, so the deploy requires it.
+          TOPICS_TENANT_ALLOWLIST: ${{ secrets.STAGING_TOPICS_TENANT_ALLOWLIST }}
+
+      - name: Health-gated deployment verification (Staging)
+        id: health-check-staging
+        uses: ./.github/actions/health-check
+        with:
+          api_url: "https://api-stg.agentmark.co"
+          check_name: "Gateway Staging"
+
+      # Seed the DEDICATED probe fixture RIGHT BEFORE the probe, in this same
+      # job. The probe authenticates as a user whose active-tenant claim
+      # (app_metadata.tenant_id) flips whenever anyone signs in and switches
+      # orgs, so the browser suite's shared demo fixture is unsafe here: an
+      # interactive session's active org rides into the probe's sign-in and the
+      # gateway 401s a wrong-tenant app id. This is a SEPARATE fixture account
+      # that nobody ever signs in as interactively, re-pinned here on every
+      # deploy immediately
+      # before the probe reads it — so its claim can never be raced. The
+      # E2E_HIST_* identifiers MUST match probe-gateway-read.ts's defaults. The
+      # seed is idempotent and scoped to this one fixture (it never touches the
+      # demo fixture the e2e-seed job owns), so it is safe on every run.
+      - name: Seed CD probe fixture (Staging)
+        id: seed-probe-fixture-staging
+        working-directory: apps/e2e
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_HIST_ORG: agentmark-cd-probe
+          E2E_HIST_APP: cd-probe-app
+          E2E_HIST_LOGIN_EMAIL: cd-probe@agentmark.co
+          # Must be a secret, never a literal: the seeder resets this account's
+          # password to whatever it receives on every run, so a committed value
+          # is both a live staging credential and self-restoring.
+          E2E_HIST_LOGIN_PASSWORD: ${{ secrets.STAGING_CD_PROBE_LOGIN_PASSWORD }}
+          E2E_HIST_USER_NAME: AgentMark CD Probe
+          # Seed one fixture trace so /v1/spans returns a row (an empty data[]
+          # is still a PASS, but a real row exercises the full read path). Same
+          # secrets the ClickHouse migration step above uses.
+          CLICKHOUSE_HOST: ${{ secrets.STAGING_CLICKHOUSE_HOST }}
+          CLICKHOUSE_USER: ${{ secrets.STAGING_CLICKHOUSE_USER }}
+          CLICKHOUSE_PASSWORD: ${{ secrets.STAGING_CLICKHOUSE_PASSWORD }}
+          CLICKHOUSE_DB: ${{ secrets.STAGING_CLICKHOUSE_DB }}
+        run: npx tsx scripts/seed-staging-fixture.ts
+
+      # The /health endpoint proves the worker boots, NOT that its /v1 data
+      # plane works: a ClickHouse reader-credential misconfiguration can pass
+      # the health check while every gateway ClickHouse read returns 500. The
+      # browser e2e can't catch this either — the
+      # dashboard reads ClickHouse through its own BFF credentials, a separate
+      # path from the gateway's. This probe mints a read-only API key through
+      # the deployed gateway (fixture user → POST /v1/api-keys) and asserts
+      # GET /v1/spans + /v1/scores return 200, covering auth middleware, the
+      # key-store pepper, the ClickHouse reader identity, row-policy scope,
+      # and ClickHouse connectivity in two requests. Uses the dedicated probe
+      # fixture the step above seeds on every CD run.
+      - name: Gateway /v1 read probe (Staging)
+        id: read-probe-staging
+        working-directory: apps/e2e
+        env:
+          E2E_GATEWAY_URL: "https://api-stg.agentmark.co"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          # Same account the seed step above provisions — the probe signs in as
+          # it to mint the read-only key, so both steps must be given the same
+          # secret.
+          E2E_HIST_LOGIN_PASSWORD: ${{ secrets.STAGING_CD_PROBE_LOGIN_PASSWORD }}
+        run: npx tsx scripts/probe-gateway-read.ts
+
+      - name: Auto-rollback on health failure (Staging)
+        if: |
+          failure() && (
+            steps.health-check-staging.outcome == 'failure' ||
+            steps.read-probe-staging.outcome == 'failure'
+          )
+        working-directory: apps/gateway
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "⚠️ Rolling back Cloudflare Worker to previous version..."
+          npx wrangler rollback --env staging --message "Auto-rollback: health check or /v1 read probe failed" --yes
+          echo "✓ Rollback completed"
+          echo ""
+          echo "::error::Deployment rolled back due to health check or /v1 read probe failure. Check logs above for details."
+
+      - name: Record gateway deployment to DORA (Staging)
+        if: always() && steps.deploy-gateway-staging.outcome != 'skipped'
+        continue-on-error: true
+        uses: ./.github/actions/record-dora-deployment
+        with:
+          service: gateway
+          environment: staging
+          status: ${{ steps.deploy-gateway-staging.outcome == 'success' && 'success' || 'failure' }}
+          started_at: ${{ steps.deploy-start-staging.outputs.started_at }}
+          ingest_url: ${{ vars.DORA_INGEST_URL }}
+          api_key: ${{ secrets.STAGING_DORA_INGEST_API_KEY }}
+
+      # The staging tenant-dashboard is deployed by Vercel's Git integration on
+      # push to main — OUTSIDE this workflow — so unlike production (which runs
+      # `vercel deploy` here and records it) staging never recorded a dashboard
+      # DORA deploy, and the staging store only ever showed gateway rows. This
+      # step records the deploy Vercel already performs: poll the Vercel API for
+      # THIS commit's stg production deployment, wait for it to reach a terminal
+      # state, and emit status + start time for the record step below. It does
+      # NOT deploy anything (no double-deploy / no fighting the git integration).
+      # Only VERCEL_TOKEN is required — the team is auto-resolved from the token
+      # (vars.VERCEL_TEAM_ID is an optional override), so a forgotten team-id var
+      # cannot make this silently no-op. Degrades loudly (status=skip)
+      # only if VERCEL_TOKEN is missing or the deploy doesn't resolve in time —
+      # staging gateway DF is unaffected either way.
+      - name: Resolve staging tenant-dashboard deploy (Vercel)
+        id: vercel-stg-dashboard
+        if: always()
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          VERCEL_STG_PROJECT: ${{ vars.STAGING_VERCEL_PROJECT || 'tenant-dashboard-stg' }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          if [[ -z "${VERCEL_TOKEN:-}" ]]; then
+            echo "::warning::VERCEL_TOKEN not set — cannot record the staging tenant-dashboard DORA deploy. (Staging gateway DORA is unaffected.)"
+            echo "status=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Team: explicit override wins; otherwise auto-resolve from the token
+          # (a Vercel token belongs to exactly one team — agentmark). The query
+          # also works token-scoped if neither is available, so teamId is purely
+          # belt-and-suspenders.
+          TEAM="${VERCEL_TEAM_ID:-}"
+          if [[ -z "$TEAM" ]]; then
+            TEAM=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "https://api.vercel.com/v2/teams?limit=1" | jq -r '.teams[0].id // ""' 2>/dev/null || echo "")
+            echo "auto-resolved Vercel team: ${TEAM:-<none — querying token-scoped>}"
+          fi
+          TEAM_PARAM=""
+          [[ -n "$TEAM" ]] && TEAM_PARAM="&teamId=${TEAM}"
+          API="https://api.vercel.com/v6/deployments?app=${VERCEL_STG_PROJECT}&target=production&limit=20${TEAM_PARAM}"
+          # Vercel's git deploy is triggered by the same push and runs alongside
+          # this job; poll until the deployment for our commit reaches a terminal
+          # readyState. 15-min deadline sits well inside the job's 30-min timeout.
+          DEADLINE=$(( SECONDS + 900 ))
+          while (( SECONDS < DEADLINE )); do
+            RESP=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "$API" || echo '{}')
+            MATCH=$(echo "$RESP" | jq -c --arg sha "$COMMIT_SHA" 'first(.deployments[]? | select(.meta.githubCommitSha == $sha))' 2>/dev/null || echo "")
+            if [[ -n "$MATCH" && "$MATCH" != "null" ]]; then
+              STATE=$(echo "$MATCH" | jq -r '.readyState // .state // "UNKNOWN"')
+              case "$STATE" in
+                READY)
+                  CREATED_MS=$(echo "$MATCH" | jq -r '.created // .createdAt // 0')
+                  STARTED=$(date -u -d "@$(( CREATED_MS / 1000 ))" +%Y-%m-%dT%H:%M:%SZ)
+                  echo "status=success" >> "$GITHUB_OUTPUT"
+                  echo "started_at=$STARTED" >> "$GITHUB_OUTPUT"
+                  echo "✓ stg dashboard READY for ${COMMIT_SHA} (started $STARTED)"
+                  exit 0 ;;
+                ERROR|CANCELED)
+                  CREATED_MS=$(echo "$MATCH" | jq -r '.created // .createdAt // 0')
+                  STARTED=$(date -u -d "@$(( CREATED_MS / 1000 ))" +%Y-%m-%dT%H:%M:%SZ)
+                  echo "status=failure" >> "$GITHUB_OUTPUT"
+                  echo "started_at=$STARTED" >> "$GITHUB_OUTPUT"
+                  echo "✗ stg dashboard $STATE for ${COMMIT_SHA}"
+                  exit 0 ;;
+                *)
+                  echo "stg dashboard ${STATE:-pending} for ${COMMIT_SHA}; waiting…" ;;
+              esac
+            else
+              echo "No stg dashboard deploy for ${COMMIT_SHA} yet; waiting…"
+            fi
+            sleep 20
+          done
+          echo "::warning::Timed out waiting for the Vercel stg dashboard deploy of ${COMMIT_SHA}; not recording this run."
+          echo "status=skip" >> "$GITHUB_OUTPUT"
+
+      - name: Record tenant-dashboard deployment to DORA (Staging)
+        if: always() && (steps.vercel-stg-dashboard.outputs.status == 'success' || steps.vercel-stg-dashboard.outputs.status == 'failure')
+        continue-on-error: true
+        uses: ./.github/actions/record-dora-deployment
+        with:
+          service: tenant-dashboard
+          environment: staging
+          status: ${{ steps.vercel-stg-dashboard.outputs.status }}
+          started_at: ${{ steps.vercel-stg-dashboard.outputs.started_at }}
+          ingest_url: ${{ vars.DORA_INGEST_URL }}
+          api_key: ${{ secrets.STAGING_DORA_INGEST_API_KEY }}
+
+      # Step 4: Refresh the cloud-worker machine image (last — a registry push
+      # only, nothing to roll back). The staging dashboard creates ephemeral
+      # worker machines from registry.fly.io/agentmark-workers-stg:latest, and
+      # nothing pins that image between runs (worker machines are destroyed
+      # when a run finishes), so Fly's registry garbage-collects it after an
+      # idle stretch and machine creates then 404 on the manifest. Re-pushing
+      # on every staging deploy keeps the tag alive and current.
+      - name: Install flyctl
+        # Pinned to a full commit SHA (not @master): this job's env exports
+        # staging secrets, so a compromised/retagged upstream action must not
+        # be able to run arbitrary code here. Bump the SHA + comment together
+        # when upgrading.
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Push cloud-worker image (Staging)
+        run: |
+          yarn build
+          flyctl deploy --build-only --push --image-label latest --app agentmark-workers-stg
+        working-directory: apps/worker
+        env:
+          # App-scoped Fly deploy token (registry push for the workers app
+          # only), not an account-wide token.
+          FLY_API_TOKEN: ${{ secrets.STAGING_FLY_WORKERS_DEPLOY_TOKEN }}
+
+      - name: Notify deployment status (Staging)
+        if: always()
+        run: |
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ Staging deployment completed successfully"
+            echo "   Commit: ${{ github.sha }}"
+            echo "   Actor: ${{ github.actor }}"
+          else
+            echo "❌ Staging deployment failed"
+            echo "   Commit: ${{ github.sha }}"
+            echo "   Actor: ${{ github.actor }}"
+            echo "   Check the logs above for details."
+          fi
+
+  # E2E split into three jobs to shard the Playwright suite without racing on
+  # the shared staging fixture:
+  #   1. e2e-seed       — commit-cache lookup; seeds the shared fixture ONCE.
+  #   2. full-e2e-suite — 4 parallel shards, no seeding (depends on e2e-seed).
+  #   3. e2e-finalize   — writes the commit-SHA success cache iff all shards
+  #                       passed (or the cache was already warm).
+  # The commit-SHA cache (e2e-result-<sha>) still short-circuits the whole
+  # thing on a production re-deploy of an already-tested commit.
+
+  # Stage 1: seed the shared staging fixture exactly once for this commit.
+  e2e-seed:
+    name: Seed E2E Fixture (Staging)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    needs: [prepare-workspace, deploy-staging]
+    # Latest-wins on merge trains: when several merges land close together,
+    # only the newest SHA's E2E verdict matters for promotion — a superseded
+    # run's E2E proves nothing anyone will deploy. JOB-level concurrency
+    # (deploys keep the workflow-level no-cancel queue) lets a newer run
+    # evict the older run's still-running E2E stage. The superseded run ends
+    # 'cancelled' with no e2e-result cache — by design: its SHA was never
+    # E2E-verified, and promoting it would correctly fail preflight. Keyed on
+    # environment so a production dispatch's E2E lane can never cancel (or be
+    # cancelled by) push-driven staging E2E.
+    concurrency:
+      group: cd-e2e-seed-${{ github.ref }}-${{ github.event.inputs.environment || 'staging' }}
+      cancel-in-progress: true
+    if: |
+      github.event.inputs.skip_e2e != 'true' &&
+      (
+        needs.deploy-staging.result == 'success' ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.environment == 'production'
+        )
+      )
+    outputs:
+      cache_hit: ${{ steps.e2e-cache.outputs.cache-hit }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      # Lookup-only: do NOT populate the cache here. e2e-finalize writes it
+      # after all shards pass. A hit means this commit already went green and
+      # the whole E2E stage (seed + shards) is skipped via cache_hit.
+      - name: Check E2E cache
+        id: e2e-cache
+        uses: actions/cache@v6
+        with:
+          path: .e2e-result
+          key: e2e-result-${{ github.sha }}
+          lookup-only: true
+
+      - name: Skip E2E if already passed for this commit
+        if: steps.e2e-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "✅ E2E tests already passed for commit ${{ github.sha }}"
+          echo "Skipping seed + shards (cache hit)"
+
+      - name: Setup Node.js
+        if: steps.e2e-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore workspace cache
+        if: steps.e2e-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+            .turbo
+            packages/locales/dist
+            packages/session-schema/dist
+            packages/insights-core/dist
+          key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
+          # A `gh run rerun --failed` opens a new attempt without re-running the
+          # already-successful prepare-workspace job, and cleanup-workspace-cache
+          # has by then deleted this run's scratch cache — so the exact per-attempt
+          # key can never hit on a rerun. Fall back to the content-keyed cache that
+          # prepare-workspace also writes: cleanup never touches it, it is stable
+          # across attempts, and it holds the identical built tree (keyed on
+          # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
+          # so a genuine total miss (e.g. LRU eviction) still fails loudly.
+          restore-keys: |
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
+          fail-on-cache-miss: true
+
+      # Provisions the pre-seeded fixture that env-switch.spec.ts (055) depends
+      # on (org outerlayer-test, app melicent-awadhi-cyan, user demo@agentmark.co,
+      # envs dev/staging/prod). That spec reads pre-seeded data — without the
+      # fixture the breadcrumb env selector never renders and it fails at
+      # setup. The script is idempotent and scoped to that fixture, so it is
+      # safe to run on every deploy. Runs ONCE here, before the sharded suite,
+      # so the 4 shards don't race to re-seed the shared staging Supabase; a
+      # seed failure fails this job loudly rather than surfacing as confusing
+      # spec timeouts across shards.
+      - name: Seed E2E staging fixture (environments)
+        if: steps.e2e-cache.outputs.cache-hit != 'true'
+        run: |
+          cd apps/e2e
+          npx tsx scripts/seed-staging-fixture.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          # The shared browser-suite fixture user (demo@agentmark.co). Required
+          # with no default — the seeder resets the account password to this on
+          # every run, so a committed literal would be a self-restoring staging
+          # credential.
+          E2E_HIST_LOGIN_PASSWORD: ${{ secrets.STAGING_E2E_LOGIN_PASSWORD }}
+          # ClickHouse — seeds the fixture app's first traces so the
+          # onboarding setup-gate doesn't redirect /traces -> /setup and break
+          # the env-switch spec. Same secrets the ClickHouse migration step uses.
+          CLICKHOUSE_HOST: ${{ secrets.STAGING_CLICKHOUSE_HOST }}
+          CLICKHOUSE_USER: ${{ secrets.STAGING_CLICKHOUSE_USER }}
+          CLICKHOUSE_PASSWORD: ${{ secrets.STAGING_CLICKHOUSE_PASSWORD }}
+          CLICKHOUSE_DB: ${{ secrets.STAGING_CLICKHOUSE_DB }}
+
+  # Stage 2: run the suite across 4 shards. No seeding here — the fixture is
+  # already provisioned by e2e-seed. Skipped entirely when the commit-SHA
+  # cache was already warm.
+  full-e2e-suite:
+    name: Full E2E Suite (Staging) (${{ matrix.shard }}/4)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    needs: [prepare-workspace, deploy-staging, e2e-seed]
+    # Latest-wins per shard (see e2e-seed). ${{ matrix.shard }} MUST be in
+    # the group key — matrix instances are separate jobs, and a shared group
+    # would make the 4 shards of the SAME run cancel each other.
+    concurrency:
+      group: cd-e2e-shard-${{ matrix.shard }}-${{ github.ref }}-${{ github.event.inputs.environment || 'staging' }}
+      cancel-in-progress: true
+    if: |
+      github.event.inputs.skip_e2e != 'true' &&
+      needs.e2e-seed.outputs.cache_hit != 'true' &&
+      (
+        needs.deploy-staging.result == 'success' ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.environment == 'production'
+        )
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore workspace cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+            .turbo
+            packages/locales/dist
+            packages/session-schema/dist
+            packages/insights-core/dist
+          key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
+          # A `gh run rerun --failed` opens a new attempt without re-running the
+          # already-successful prepare-workspace job, and cleanup-workspace-cache
+          # has by then deleted this run's scratch cache — so the exact per-attempt
+          # key can never hit on a rerun. Fall back to the content-keyed cache that
+          # prepare-workspace also writes: cleanup never touches it, it is stable
+          # across attempts, and it holds the identical built tree (keyed on
+          # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
+          # so a genuine total miss (e.g. LRU eviction) still fails loudly.
+          restore-keys: |
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
+          fail-on-cache-miss: true
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('apps/e2e/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browsers
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: |
+          cd apps/e2e
+          npx playwright install --with-deps chromium
+
+      - name: Install Playwright deps (if cache hit)
+        if: steps.cache-playwright.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run full E2E suite on staging (includes smoke tests)
+        id: run-e2e
+        run: |
+          cd apps/e2e
+          npx playwright test --project=chromium-staging --shard=${{ matrix.shard }}/4
+        env:
+          E2E_BASE_URL: https://stg.outerlayer.ai
+          E2E_GATEWAY_URL: https://api-stg.agentmark.co
+          # Staging serves behind Vercel Authentication; the suite presents the
+          # project's automation-bypass header (playwright.config.ts) to reach
+          # the app instead of Vercel's SSO wall.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.STAGING_VERCEL_AUTOMATION_BYPASS_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          # The authoring write spec (tests/authoring/prompt-create.spec.ts) uses
+          # this to (a) verify its commit really landed in the fixture repo via the
+          # GitHub Contents API and (b) DELETE it in afterEach — so
+          # agentmark-ai/e2e-authoring-fixture never accumulates per-run prompts.
+          # Unset → the spec degrades gracefully and skips both; set it to a token
+          # with contents:read+write on that repo to enable verification + cleanup.
+          E2E_GH_TOKEN: ${{ secrets.E2E_GH_TOKEN }}
+          CI: true
+
+      # Playwright trace archives record full request headers and cookies,
+      # and the HTML report copies traces into playwright-report/data/ —
+      # failure artifacts must not ship them. Screenshots, videos, and the
+      # report itself stay.
+      - name: Scrub trace archives from failure artifacts
+        if: failure()
+        run: |
+          find apps/e2e/test-results -name 'trace.zip' -delete 2>/dev/null || true
+          find apps/e2e/playwright-report/data -name '*.zip' -delete 2>/dev/null || true
+
+      # Even scrubbed, the artifacts capture staging screenshots and network
+      # payloads, and workflow artifacts are downloadable by anyone who can
+      # read the repo. Upload only while the repo is private, and keep the
+      # window as short as a debugging session needs.
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v7
+        if: failure() && github.event.repository.private
+        with:
+          name: full-e2e-report-${{ matrix.shard }}
+          path: apps/e2e/playwright-report/
+          retention-days: 1
+
+      - name: Upload test results (traces scrubbed)
+        uses: actions/upload-artifact@v7
+        if: failure() && github.event.repository.private
+        with:
+          name: full-e2e-results-${{ matrix.shard }}
+          path: apps/e2e/test-results/
+          retention-days: 1
+
+  # Stage 3: collapse the sharded result into a single pass/fail signal and,
+  # on success, write the commit-SHA cache so a later production re-deploy of
+  # this commit short-circuits the whole E2E stage.
+  e2e-finalize:
+    name: Finalize E2E Result
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    needs: [detect-deployable, e2e-seed, full-e2e-suite]
+    # always(): we must run even when full-e2e-suite is skipped (cache hit, or
+    # the whole pipeline skipped as non-deployable) or a shard failed, so the
+    # production gate gets a definitive e2e_passed value.
+    if: always()
+    outputs:
+      e2e_passed: ${{ steps.determine.outputs.passed }}
+
+    steps:
+      # A production dispatch skips deploy-staging + the E2E jobs, so it relies
+      # on the E2E result cached for this commit by the earlier push run. Restore
+      # it here: e2e-seed (which carries the seed-fixture cache) is skipped on a
+      # prod dispatch, so its cache_hit output is empty and can't gate prod.
+      - name: Restore E2E result for this commit
+        id: result-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .e2e-result
+          key: e2e-result-${{ github.sha }}
+
+      # Non-deployable inheritance: when the push touched nothing deployable
+      # (detect-deployable gated the whole deploy + E2E pipeline off), the
+      # deployable artifacts are byte-identical to the parent commit's — so
+      # the parent's E2E green is this commit's E2E green. Restore the
+      # parent's result; "Determine" below converts it into a pass, and the
+      # save steps re-cache it under THIS sha so chained non-deployable
+      # commits (docs after docs) inherit transitively and a later prod
+      # dispatch of this SHA passes preflight. If the parent was never green,
+      # this misses and the commit stays e2e_passed=false — promote a green
+      # SHA instead. github.event.before is the previous main head on push.
+      - name: Restore parent commit E2E result (non-deployable inheritance)
+        id: inherit-cache
+        if: github.event_name == 'push' && needs.detect-deployable.outputs.deployable != 'true' && steps.result-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: .e2e-result
+          key: e2e-result-${{ github.event.before }}
+
+      # Pass = the commit was already green (e2e-seed cache hit, shards skipped),
+      # OR every shard of full-e2e-suite passed, OR a prior run cached a pass for
+      # this exact commit (the prod-dispatch promote path), OR the commit is
+      # non-deployable and its parent was green (inheritance). A matrix
+      # dependency's `.result` is 'success' only when ALL shards succeed, so
+      # this can't go green on a partial pass.
+      - name: Determine E2E result
+        id: determine
+        env:
+          CACHE_HIT: ${{ needs.e2e-seed.outputs.cache_hit }}
+          SUITE_RESULT: ${{ needs.full-e2e-suite.result }}
+          RESULT_CACHE_HIT: ${{ steps.result-cache.outputs.cache-hit }}
+          DEPLOYABLE: ${{ needs.detect-deployable.outputs.deployable }}
+          INHERIT_HIT: ${{ steps.inherit-cache.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_HIT" = "true" ] || [ "$SUITE_RESULT" = "success" ] || [ "$RESULT_CACHE_HIT" = "true" ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "✅ E2E passed (seed_cache=$CACHE_HIT, suite=$SUITE_RESULT, result_cache=$RESULT_CACHE_HIT)"
+          elif [ "$DEPLOYABLE" != "true" ] && [ "$INHERIT_HIT" = "true" ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "✅ E2E pass inherited from parent (non-deployable change; parent was green)"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "❌ E2E did not pass (seed_cache=$CACHE_HIT, suite=$SUITE_RESULT, result_cache=$RESULT_CACHE_HIT, deployable=$DEPLOYABLE, inherited=$INHERIT_HIT)"
+          fi
+
+      - name: Check out code
+        if: steps.determine.outputs.passed == 'true' && needs.e2e-seed.outputs.cache_hit != 'true' && steps.result-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+
+      - name: Cache E2E success result
+        if: steps.determine.outputs.passed == 'true' && needs.e2e-seed.outputs.cache_hit != 'true' && steps.result-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .e2e-result
+          echo "passed" > .e2e-result/status
+          echo "${{ github.sha }}" > .e2e-result/commit
+
+      - name: Save E2E result to cache
+        if: steps.determine.outputs.passed == 'true' && needs.e2e-seed.outputs.cache_hit != 'true' && steps.result-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .e2e-result
+          key: e2e-result-${{ github.sha }}
+
+  production-preflight:
+    name: Production deploy preflight
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    needs: [e2e-finalize]
+    # Runs on every production dispatch (always() forces evaluation even when the
+    # upstream E2E jobs are skipped). Turns an un-deployable prod dispatch into a
+    # loud, explained failure instead of a silent green skip — deploy-production
+    # has the same gate but, when it's unmet, simply skips invisibly.
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production' }}
+    steps:
+      - name: Require E2E pass (or explicit skip)
+        run: |
+          if [ "${{ needs.e2e-finalize.outputs.e2e_passed }}" != "true" ] && [ "${{ github.event.inputs.skip_e2e }}" != "true" ]; then
+            echo "::error::Production deploy blocked — E2E has not passed for commit ${{ github.sha }}."
+            {
+              echo "## ❌ Production deploy blocked"
+              echo ""
+              echo "E2E has not passed for \`${{ github.sha }}\`, so \`deploy-production\` will not run."
+              echo ""
+              echo "**To deploy, either:**"
+              echo "- let the push-triggered CD for this commit finish (it deploys staging, runs E2E, and caches the result), then re-run this dispatch; or"
+              echo "- re-run with **skip_e2e = true** (+ a hotfix reason) for an emergency hotfix."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "✅ Preconditions met — deploy-production will run." >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 45
+    needs: [prepare-workspace, e2e-seed, full-e2e-suite, e2e-finalize]
+    # Production deploys: manual trigger only
+    # Requires: E2E passed for this run (collapsed by e2e-finalize across all
+    # shards, or a commit-SHA cache hit), OR skip_e2e=true for an emergency
+    # hotfix. The E2E jobs are skipped when skip_e2e=true, so the gate falls
+    # through to the `|| skip_e2e` clause.
+    # Note: always() forces condition evaluation when dependencies are skipped.
+    if: |
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.environment == 'production' &&
+      (needs.e2e-finalize.outputs.e2e_passed == 'true' || github.event.inputs.skip_e2e == 'true')
+    environment: Production
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.PRODUCTION_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.PRODUCTION_PROJECT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PRODUCTION_CLICKHOUSE_HOST: ${{ secrets.PRODUCTION_CLICKHOUSE_HOST }}
+      PRODUCTION_CLICKHOUSE_USER: ${{ secrets.PRODUCTION_CLICKHOUSE_USER }}
+      PRODUCTION_CLICKHOUSE_PASSWORD: ${{ secrets.PRODUCTION_CLICKHOUSE_PASSWORD }}
+      PRODUCTION_CLICKHOUSE_DB: ${{ secrets.PRODUCTION_CLICKHOUSE_DB }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # Gateway Worker secrets — see the deploy step below.
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      PRODUCTION_STRIPE_STORAGE_METER_ID: ${{ secrets.PRODUCTION_STRIPE_STORAGE_METER_ID }}
+      PRODUCTION_BETTERSTACK_INGESTING_URL: ${{ secrets.PRODUCTION_BETTERSTACK_INGESTING_URL }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Audit E2E skip (if used)
+        if: github.event.inputs.skip_e2e == 'true'
+        # hotfix_reason is operator-supplied free text — pass it via env (never
+        # inline ${{ }} in run:) to avoid shell injection. Fail closed: an E2E
+        # bypass with no recorded justification is rejected, so the audit trail
+        # below always carries a real reason.
+        env:
+          HOTFIX_REASON: ${{ github.event.inputs.hotfix_reason }}
+        run: |
+          if [ -z "${HOTFIX_REASON//[[:space:]]/}" ]; then
+            echo "::error::skip_e2e=true requires a non-empty 'hotfix_reason' input."
+            echo "Re-run the deploy and provide a one-line justification for bypassing the E2E gate."
+            exit 1
+          fi
+          echo "::warning::⚠️ PRODUCTION DEPLOY WITH E2E SKIP"
+          echo ""
+          echo "E2E tests were SKIPPED for this production deployment."
+          echo "This should only be used for emergency hotfixes."
+          echo ""
+          echo "Audit trail:"
+          echo "  - Commit: ${{ github.sha }}"
+          echo "  - Triggered by: ${{ github.actor }}"
+          echo "  - Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "  - Reason: $HOTFIX_REASON"
+
+      - name: Validate deployment secrets
+        run: |
+          MISSING=""
+          [[ -z "$SUPABASE_ACCESS_TOKEN" ]] && MISSING="${MISSING}  - SUPABASE_ACCESS_TOKEN\n"
+          [[ -z "$SUPABASE_DB_PASSWORD" ]] && MISSING="${MISSING}  - PRODUCTION_DB_PASSWORD\n"
+          [[ -z "$SUPABASE_PROJECT_ID" ]] && MISSING="${MISSING}  - PRODUCTION_PROJECT_ID\n"
+          [[ -z "$CLOUDFLARE_API_TOKEN" ]] && MISSING="${MISSING}  - CLOUDFLARE_API_TOKEN\n"
+          [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]] && MISSING="${MISSING}  - CLOUDFLARE_ACCOUNT_ID\n"
+          [[ -z "$PRODUCTION_CLICKHOUSE_HOST" ]] && MISSING="${MISSING}  - PRODUCTION_CLICKHOUSE_HOST\n"
+          [[ -z "$PRODUCTION_CLICKHOUSE_USER" ]] && MISSING="${MISSING}  - PRODUCTION_CLICKHOUSE_USER\n"
+          [[ -z "$PRODUCTION_CLICKHOUSE_PASSWORD" ]] && MISSING="${MISSING}  - PRODUCTION_CLICKHOUSE_PASSWORD\n"
+          [[ -z "$PRODUCTION_CLICKHOUSE_DB" ]] && MISSING="${MISSING}  - PRODUCTION_CLICKHOUSE_DB\n"
+          [[ -z "$VERCEL_TOKEN" ]] && MISSING="${MISSING}  - VERCEL_TOKEN\n"
+          # Worker secrets the gateway deploy uploads (they are not committed in
+          # wrangler.toml). Checked here so a missing one fails before any
+          # migration runs, not midway through the deploy.
+          [[ -z "$CLOUDFLARE_ZONE_ID" ]] && MISSING="${MISSING}  - CLOUDFLARE_ZONE_ID\n"
+          [[ -z "$PRODUCTION_STRIPE_STORAGE_METER_ID" ]] && MISSING="${MISSING}  - PRODUCTION_STRIPE_STORAGE_METER_ID\n"
+          [[ -z "$PRODUCTION_BETTERSTACK_INGESTING_URL" ]] && MISSING="${MISSING}  - PRODUCTION_BETTERSTACK_INGESTING_URL\n"
+
+          if [[ -n "$MISSING" ]]; then
+            echo "::error::Missing required secrets for PRODUCTION deployment:"
+            echo -e "$MISSING"
+            echo ""
+            echo "Configure these in: GitHub → Settings → Secrets and variables → Actions (production environment)"
+            exit 1
+          fi
+          echo "✓ All production deployment secrets configured"
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore workspace cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+            .turbo
+            packages/locales/dist
+            packages/session-schema/dist
+            packages/insights-core/dist
+          key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
+          # A `gh run rerun --failed` opens a new attempt without re-running the
+          # already-successful prepare-workspace job, and cleanup-workspace-cache
+          # has by then deleted this run's scratch cache — so the exact per-attempt
+          # key can never hit on a rerun. Fall back to the content-keyed cache that
+          # prepare-workspace also writes: cleanup never touches it, it is stable
+          # across attempts, and it holds the identical built tree (keyed on
+          # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
+          # so a genuine total miss (e.g. LRU eviction) still fails loudly.
+          restore-keys: |
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
+          fail-on-cache-miss: true
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3
+        with:
+          version: latest
+
+      # Step 1: Database migrations (must be backward-compatible)
+      - name: Deploy Supabase (Production)
+        run: |
+          yarn email-temp:build
+          supabase link --project-ref $SUPABASE_PROJECT_ID
+          supabase db push
+        working-directory: ./apps/tenant-dashboard
+
+      # Step 2: ClickHouse migrations (before gateway, in case gateway needs new schema)
+      - name: Run ClickHouse migrations (Production)
+        id: clickhouse-production
+        working-directory: ./apps/tenant-dashboard
+        env:
+          # One-time re-baseline for migrations whose applied checksum predates
+          # the comment-insensitive normalizer; remove once staging and
+          # production have both deployed this wrapper.
+          CH_MIGRATIONS_REBASELINE_VERSIONS: "18,23,24,25,28"
+        run: node ./clickhouse/migrate.mjs --host=$PRODUCTION_CLICKHOUSE_HOST --user=$PRODUCTION_CLICKHOUSE_USER --password=$PRODUCTION_CLICKHOUSE_PASSWORD --db=$PRODUCTION_CLICKHOUSE_DB --migrations-home=./clickhouse/migrations
+
+      # Step 3: Deploy gateway with health-gated verification
+      - name: Capture deploy start time (Production Gateway)
+        id: deploy-start-gateway-production
+        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Cloudflare Workers (Production)
+        id: deploy-gateway-production
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/gateway
+          packageManager: yarn
+          # See the staging deploy step — queues must exist before the deploy,
+          # and each preCommands line must be a self-contained shell command.
+          preCommands: |
+            npx wrangler queues list | grep -qF "usage-meter-prod" || npx wrangler queues create "usage-meter-prod"
+            npx wrangler queues list | grep -qF "usage-meter-dlq-prod" || npx wrangler queues create "usage-meter-dlq-prod"
+            npx wrangler queues list | grep -qF "topics-enrichment-prod" || npx wrangler queues create "topics-enrichment-prod"
+          # See the staging deploy step — these are the environment values that
+          # stay out of wrangler.toml, uploaded as Worker secrets before the
+          # deploy command runs. Every name here must also carry a non-empty
+          # value in this step's env.
+          environment: production
+          secrets: |
+            CLICKHOUSE_HOST
+            CLOUDFLARE_ZONE_ID
+            STRIPE_STORAGE_METER_ID
+            BETTERSTACK_INGESTING_URL
+          command: deploy --env production
+        env:
+          CLICKHOUSE_HOST: ${{ secrets.PRODUCTION_CLICKHOUSE_HOST }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          STRIPE_STORAGE_METER_ID: ${{ secrets.PRODUCTION_STRIPE_STORAGE_METER_ID }}
+          BETTERSTACK_INGESTING_URL: ${{ secrets.PRODUCTION_BETTERSTACK_INGESTING_URL }}
+
+      - name: Health-gated deployment verification (Production Gateway)
+        id: health-check-production
+        uses: ./.github/actions/health-check
+        with:
+          api_url: "https://api.agentmark.co"
+          check_name: "Gateway Production"
+
+      - name: Auto-rollback Gateway on health failure (Production)
+        if: failure() && steps.health-check-production.outcome == 'failure'
+        working-directory: apps/gateway
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "⚠️ PRODUCTION: Rolling back Cloudflare Worker to previous version..."
+          npx wrangler rollback --env production --message "Auto-rollback: health check failed" --yes
+          echo "✓ Rollback completed"
+          echo ""
+          echo "::error::PRODUCTION deployment rolled back due to health check failure. Check logs above for details."
+
+      - name: Record gateway deployment to DORA (Production)
+        if: always() && steps.deploy-gateway-production.outcome != 'skipped'
+        continue-on-error: true
+        uses: ./.github/actions/record-dora-deployment
+        with:
+          service: gateway
+          environment: production
+          status: ${{ steps.deploy-gateway-production.outcome == 'success' && 'success' || 'failure' }}
+          started_at: ${{ steps.deploy-start-gateway-production.outputs.started_at }}
+          # Production events go to the production store; falls back to the
+          # staging store until DORA_INGEST_URL_PRODUCTION is configured
+          # (rows are inert there — reads are env-pinned per dashboard).
+          ingest_url: ${{ vars.DORA_INGEST_URL_PRODUCTION || vars.DORA_INGEST_URL }}
+          api_key: ${{ secrets.DORA_INGEST_API_KEY }}
+
+      # Step 4: Capture current production deployment BEFORE deploying (for rollback)
+      - name: Capture current Vercel production deployment
+        id: capture-vercel-previous
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npm install --global vercel@latest
+          vercel link --yes --project tenant-dashboard-prod --token "$VERCEL_TOKEN"
+
+          # Get current production deployment using inspect on the production alias
+          # This gives us the exact deployment that is currently serving production
+          INSPECT_OUTPUT=$(vercel inspect app.agentmark.co --token "$VERCEL_TOKEN" 2>&1 || echo "")
+          echo "Inspect output (first 15 lines):"
+          echo "$INSPECT_OUTPUT" | head -15
+
+          # Extract deployment ID from inspect output (format: "    id    dpl_xxxx")
+          # Note: vercel inspect uses tabs, not colons, between field name and value
+          PREVIOUS_ID=$(echo "$INSPECT_OUTPUT" | grep -E '^\s*id\s' | head -1 | awk '{print $2}' || echo "")
+
+          if [[ -z "$PREVIOUS_ID" ]]; then
+            # Fallback: extract the deployment URL from inspect output instead
+            # vercel promote accepts both deployment IDs and URLs
+            PREVIOUS_ID=$(echo "$INSPECT_OUTPUT" | grep -E '^\s*url\s' | head -1 | awk '{print $2}' || echo "")
+          fi
+
+          if [[ -n "$PREVIOUS_ID" ]]; then
+            echo "previous_deployment_id=$PREVIOUS_ID" >> $GITHUB_OUTPUT
+            echo "✓ Captured current production deployment: $PREVIOUS_ID"
+          else
+            echo "::warning::Could not capture previous deployment ID - rollback may not be available"
+            echo "previous_deployment_id=" >> $GITHUB_OUTPUT
+          fi
+
+      # Step 5: Deploy Vercel with health-gated verification
+      - name: Capture deploy start time (Production Dashboard)
+        id: deploy-start-dashboard-production
+        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Tenant Dashboard (Production)
+        id: deploy-vercel-production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          # Deploy new version
+          DEPLOY_OUTPUT=$(vercel deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1)
+          echo "$DEPLOY_OUTPUT"
+
+          DEPLOYMENT_URL=$(echo "$DEPLOY_OUTPUT" | grep -oE 'https://[^ ]+\.vercel\.app' | head -1 || echo "")
+          echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $DEPLOYMENT_URL"
+
+      - name: Health-gated deployment verification (Production Dashboard)
+        id: health-check-dashboard
+        uses: ./.github/actions/health-check
+        with:
+          api_url: "https://app.agentmark.co"
+          check_name: "Dashboard Production"
+          endpoints: '[{"path":"/api/health","name":"Dashboard health"}]'
+
+      - name: Auto-rollback Vercel on health failure (Production)
+        if: failure() && steps.health-check-dashboard.outcome == 'failure'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.capture-vercel-previous.outputs.previous_deployment_id }}
+        run: |
+          echo "⚠️ PRODUCTION: Rolling back Vercel deployment to previous version..."
+          if [[ -z "$PREVIOUS_DEPLOYMENT_ID" ]]; then
+            echo "::error::Cannot rollback - no previous deployment ID was captured before deploy"
+            echo "Manual intervention required: use 'vercel rollback' in the Vercel dashboard"
+            exit 1
+          fi
+
+          # Promote the previous deployment back to production
+          # This is more reliable than 'vercel rollback' which has inconsistent behavior
+          vercel promote "$PREVIOUS_DEPLOYMENT_ID" --yes --token "$VERCEL_TOKEN"
+          echo "✓ Vercel rollback completed - promoted $PREVIOUS_DEPLOYMENT_ID to production"
+          echo ""
+          echo "::error::PRODUCTION Dashboard rolled back due to health check failure. Check logs above for details."
+
+      - name: Record dashboard deployment to DORA (Production)
+        if: always() && steps.deploy-vercel-production.outcome != 'skipped'
+        continue-on-error: true
+        uses: ./.github/actions/record-dora-deployment
+        with:
+          service: tenant-dashboard
+          environment: production
+          status: ${{ steps.deploy-vercel-production.outcome == 'success' && 'success' || 'failure' }}
+          started_at: ${{ steps.deploy-start-dashboard-production.outputs.started_at }}
+          # See gateway production step — production store with stg fallback.
+          ingest_url: ${{ vars.DORA_INGEST_URL_PRODUCTION || vars.DORA_INGEST_URL }}
+          api_key: ${{ secrets.DORA_INGEST_API_KEY }}
+
+      - name: Notify deployment status (Production)
+        if: always()
+        run: |
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ Production deployment completed successfully"
+            echo ""
+            echo "Deployment summary:"
+            echo "  - Commit: ${{ github.sha }}"
+            echo "  - Actor: ${{ github.actor }}"
+            echo "  - Gateway: https://api.agentmark.co"
+            echo "  - Dashboard: https://app.agentmark.co"
+          else
+            echo "❌ Production deployment failed"
+            echo ""
+            echo "Failure details:"
+            echo "  - Commit: ${{ github.sha }}"
+            echo "  - Actor: ${{ github.actor }}"
+            echo "  - Check the logs above for details."
+            echo ""
+            echo "If auto-rollback was triggered, services should be restored to previous version."
+          fi
+
+  # Reclaim this run's scratch workspace cache once every consumer has finished.
+  # prepare-workspace saves a ~1 GB workspace-<run_id>-<attempt> cache to pass
+  # the built tree between jobs; nothing reads it after the run ends, so without
+  # cleanup each completed CD run leaves a ~1 GB corpse that lingers (GitHub only
+  # auto-evicts after 7 idle days). Those corpses drift the repo's GH Actions
+  # cache store past its 10 GB limit, which then LRU-evicts CI's deps cache
+  # mid-run and reddens every CI job. Deleting the key here keeps each run
+  # self-cleaning. Best-effort: never fail the deploy over it.
+  cleanup-workspace-cache:
+    name: Cleanup workspace cache
+    # prepare-workspace gate: when the run was skipped as non-deployable,
+    # no run-scoped cache was ever saved — nothing to clean.
+    if: always() && needs.prepare-workspace.result == 'success'
+    needs:
+      - prepare-workspace
+      - deploy-staging
+      - e2e-seed
+      - full-e2e-suite
+      - e2e-finalize
+      - production-preflight
+      - deploy-production
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Delete run-scoped workspace cache
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          KEY="workspace-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "Deleting run-scoped cache: $KEY"
+          gh cache delete "$KEY" --repo "${{ github.repository }}" \
+            || echo "Cache $KEY not present (already evicted or never saved) — nothing to do."

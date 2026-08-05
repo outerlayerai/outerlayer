@@ -1,0 +1,76 @@
+version: 2
+
+updates:
+  # Yarn 4 workspaces: one lockfile at the root covers every app and package,
+  # so a single "/" entry sees the whole monorepo.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    # Low limit on purpose: a short queue that drains beats a wall of open
+    # PRs, and every open PR costs a full CI run per rebase.
+    open-pull-requests-limit: 3
+    versioning-strategy: increase-if-necessary
+    # Never PR a release the day it ships: week-old releases have had their
+    # broken-build follow-up patches, and most compromised-package incidents
+    # are caught within days of publish. Security updates bypass the cooldown.
+    cooldown:
+      default-days: 7
+    labels:
+      - dependencies
+    ignore:
+      # @types/node tracks the RUNTIME Node major (22 — the gateway images and
+      # CI toolchain), not the latest release. A newer types major would let
+      # code reference APIs the runtime doesn't have. Bump it by hand when the
+      # runtime moves.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # wrangler 4.116+ ships miniflare 5.0-alpha (and its workerd) into
+      # `wrangler dev`, which the gateway-http suite and queue-backed ingest
+      # run on; vitest-pool-workers 0.20 is the paired release. Hold both on
+      # the stable miniflare 4 train until miniflare 5 leaves alpha, then
+      # drop these two entries.
+      - dependency-name: wrangler
+        versions: [">=4.116.0 <5.0.0"]
+      - dependency-name: "@cloudflare/vitest-pool-workers"
+        versions: [">=0.19.1 <1.0.0"]
+    groups:
+      # Minor and patch bumps land as one PR per week; the automerge workflow
+      # (dependabot-automerge.yml) lands it without review once CI is green.
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+      # Majors land as ONE weekly PR instead of one PR each. They still need a
+      # human: the automerge workflow skips anything semver-major. If one bump
+      # in the batch is bad, drop it from the group PR with an ignore entry and
+      # let the rest land rather than blocking the whole batch.
+      majors:
+        applies-to: version-updates
+        update-types:
+          - major
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    labels:
+      - dependencies
+    groups:
+      actions:
+        patterns:
+          - "*"

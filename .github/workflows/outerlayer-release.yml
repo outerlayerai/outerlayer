@@ -1,0 +1,132 @@
+name: OuterLayer Release
+
+# Manual, deliberate publish: version bumps land in package.json via PR;
+# this workflow builds, tests, and publishes the outerlayer packages in
+# dependency order (the eval packages before the CLI that depends on them).
+# `--tolerate-republish` makes re-runs safe (already-published versions are
+# skipped, not errors).
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "publish" to confirm releasing to npm'
+        required: true
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Publish @outerlayer/* + outerlayer
+    if: github.event.inputs.confirm == 'publish'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+
+    # Starting this workflow is what publishes to npm, so the ability to start it
+    # is the control that matters. The environment is where required reviewers
+    # and a secret-access restriction are attached, which also keeps NPM_TOKEN
+    # unreachable from any other workflow or fork.
+    environment: npm-release
+
+    permissions:
+      contents: read
+      # Sigstore needs a short-lived OIDC token to sign the provenance
+      # attestation that binds each tarball to this commit and workflow.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: "yarn"
+          cache-dependency-path: yarn.lock
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build
+        run: |
+          yarn turbo build \
+            --filter=@outerlayer/session-schema \
+            --filter=@outerlayer/context-format \
+            --filter=@outerlayer/capture \
+            --filter=@outerlayer/runner-core \
+            --filter=@outerlayer/task-format \
+            --filter=@outerlayer/eval-stats \
+            --filter=@outerlayer/env-prep \
+            --filter=@outerlayer/trial-harness \
+            --filter=@outerlayer/report-card \
+            --filter=@outerlayer/repo-report \
+            --filter=@outerlayer/eval-runner \
+            --filter=outerlayer
+
+      - name: Test
+        run: |
+          yarn turbo test \
+            --filter=@outerlayer/session-schema \
+            --filter=@outerlayer/context-format \
+            --filter=@outerlayer/capture \
+            --filter=@outerlayer/runner-core \
+            --filter=@outerlayer/task-format \
+            --filter=@outerlayer/eval-stats \
+            --filter=@outerlayer/env-prep \
+            --filter=@outerlayer/trial-harness \
+            --filter=@outerlayer/report-card \
+            --filter=@outerlayer/repo-report \
+            --filter=@outerlayer/eval-runner \
+            --filter=outerlayer
+
+      # Yarn packs, npm publishes. Neither tool can do the other's job:
+      #
+      #   * Yarn resolves the `workspace:*` ranges into real versions as it
+      #     packs. npm has no such rewrite, so packing with npm would ship
+      #     manifests that no consumer can install.
+      #   * Only the npm CLI emits a signed provenance attestation, which is
+      #     what lets a consumer verify a tarball was built from this repo at
+      #     this commit.
+      #
+      # The already-published skip is explicit because `--tolerate-republish` is
+      # a Yarn flag: npm answers a duplicate version with a 403, which would
+      # abort the remaining packages and leave the set half-released.
+      - name: Publish (dependency order)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          staging="$(mktemp -d)"
+          publish() {
+            local dir="$1"
+            local name version tarball
+            name="$(node -p "require('./$dir/package.json').name")"
+            version="$(node -p "require('./$dir/package.json').version")"
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "skip $name@$version (already published)"
+              return 0
+            fi
+            tarball="$staging/$(echo "$name" | tr '/@' '--').tgz"
+            yarn workspace "$name" pack --out "$tarball"
+            echo "publish $name@$version"
+            npm publish "$tarball" --provenance --access public
+          }
+          publish packages/session-schema
+          publish packages/context-format
+          publish packages/capture
+          publish packages/runner-core
+          publish packages/task-format
+          publish packages/eval-stats
+          publish packages/env-prep
+          publish packages/trial-harness
+          publish packages/report-card
+          publish packages/repo-report
+          publish packages/eval-runner
+          publish packages/cli
+
+      - name: Smoke the published CLI
+        run: |
+          sleep 15  # registry propagation
+          cd "$(mktemp -d)"
+          npm exec --yes outerlayer@latest -- --help | head -5

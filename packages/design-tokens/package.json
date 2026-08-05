@@ -1,0 +1,17 @@
+{
+  "name": "@repo/design-tokens",
+  "private": true,
+  "main": "./index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gen:ds-bundle": "tsx scripts/generate-ds-bundle.ts"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "tsx": "^4.22.4",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,0 +1,100 @@
+name: Stryker Mutation Daily (tenant-dashboard)
+
+# Daily mutation sweep for the highest-churn / lowest-floor scope: the broad
+# tenant-dashboard suite (mutation floor 49 — the lowest in the repo). The full
+# multi-workspace sweep (gateway's 17 shards, packages) stays WEEKLY in
+# stryker-nightly.yml to control cost (~855 runner-min/run). This daily run
+# closes the gap the ship-confidence audit flagged: a weakened test on UNCHANGED
+# dashboard code is caught by the per-PR patch-mutation gate only when that file
+# is in the diff, so otherwise it could sit unverified for up to 7 days. Running
+# Mon–Sat shrinks that window to ~1 day (Sunday is covered by the weekly sweep).
+#
+# A failing run = a mutation-floor regression on unchanged code (surfaces as a
+# red scheduled run + GitHub's scheduled-failure notification). The "fake-green"
+# step also lists covered-but-surviving mutants in the run summary.
+#
+# NOTE: the steps below intentionally mirror the `mutate` job in
+# stryker-nightly.yml — keep the two in sync. A follow-up could DRY them via a
+# `workflow_call` reusable workflow. The money-auth scope is intentionally left
+# to the weekly sweep here: it is already enforced at the 85 bar on every PR via
+# scripts/ci/patch-mutation.mjs (SCOPED_FLOORS). Gateway can be added to this
+# matrix if the team accepts the extra daily runner cost (17 shards/day).
+on:
+  schedule:
+    - cron: '0 7 * * 1-6'
+  workflow_dispatch:
+
+concurrency:
+  group: stryker-daily
+  cancel-in-progress: false
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    name: Mutation (${{ matrix.workspace.name }})
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - { path: apps/tenant-dashboard, name: tenant-dashboard, pkg: tenant-dashboard }
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # Build the workspace's DEPENDENCIES but not the workspace itself — see
+      # stryker-nightly.yml's "Build dependencies" step for the full rationale.
+      - name: Build dependencies
+        env:
+          WORKSPACE_PATH: ${{ matrix.workspace.path }}
+          WORKSPACE_PKG: ${{ matrix.workspace.pkg }}
+        run: |
+          yarn turbo build \
+            --filter="{./$WORKSPACE_PATH}..." \
+            --filter="!$WORKSPACE_PKG"
+
+      - name: Restore Stryker incremental cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ matrix.workspace.path }}/reports/mutation/stryker-incremental.json
+          key: stryker-incremental-${{ matrix.workspace.name }}-${{ github.sha }}
+          restore-keys: |
+            stryker-incremental-${{ matrix.workspace.name }}-
+
+      # Enforces the break threshold from scripts/ci/mutation-score-floors.json
+      # (tenant-dashboard = 49). A drop below it fails the run. MUTATE_GLOB comes
+      # via env (not inline ${{...}}) to avoid command-injection paths through
+      # matrix data — matches stryker-nightly.yml.
+      - name: Run Stryker
+        working-directory: ${{ matrix.workspace.path }}
+        env:
+          MUTATE_GLOB: ${{ matrix.workspace.mutate }}
+        run: |
+          if [ -n "$MUTATE_GLOB" ]; then
+            npx stryker run --mutate "$MUTATE_GLOB"
+          else
+            npx stryker run
+          fi
+
+      - name: Surface fake-green test suspects
+        if: always()
+        # Covered-but-surviving mutants (weak assertions on code the tests DO
+        # run) — the class the per-PR patch-mutation gate can't see on unchanged
+        # files. Report-only; never fails the job.
+        env:
+          WORKSPACE_PATH: ${{ matrix.workspace.path }}
+        run: node scripts/ci/find-fake-green.mjs "$WORKSPACE_PATH/reports/mutation/mutation.json"

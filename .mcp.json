@@ -1,0 +1,42 @@
+{
+  "mcpServers": {
+    "cloudflare-observability": {
+      "type": "sse",
+      "url": "https://observability.mcp.cloudflare.com/sse"
+    },
+    "cloudflare-graphql": {
+      "type": "sse",
+      "url": "https://graphql.mcp.cloudflare.com/sse"
+    },
+    "dataforseo": {
+      "command": "npx",
+      "args": ["-y", "@dataforseo/mcp-server-typescript"],
+      "env": {
+        "DATAFORSEO_USERNAME": "${DATAFORSEO_USERNAME}",
+        "DATAFORSEO_PASSWORD": "${DATAFORSEO_PASSWORD}"
+      }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--headless",
+        "--isolated",
+        "--browser",
+        "chromium"
+      ],
+      "env": {}
+    },
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--headless",
+        "--isolated"
+      ],
+      "env": {}
+    }
+  }
+}

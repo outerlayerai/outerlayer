@@ -1,0 +1,6 @@
+{
+  "_comment": "Published (non-private) workspaces that legitimately depend on a private workspace, because the private package's code is vendored into the published dist via tsup's noExternal (a devDependency, not a runtime dependency, so npm's own dependency resolution never sees it — the build tool bundles it in directly). Every entry here is verified against the dependent's tsup.config.ts noExternal list by check-publish-safety.mjs; an entry whose vendoring is removed fails the check until the entry is removed too.",
+  "allow": {
+    "@outerlayer/capture": ["@repo/model-registry"]
+  }
+}

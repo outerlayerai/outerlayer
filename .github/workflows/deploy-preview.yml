@@ -1,0 +1,180 @@
+name: Deploy Preview
+
+on:
+  issue_comment:
+    types: [created]
+
+# Least-privilege default.
+permissions:
+  contents: read
+
+jobs:
+  deploy-preview:
+    # Author gate: only a repo OWNER or org MEMBER can
+    # trigger a preview deploy. This job checks out PR-head code and its steps
+    # hold SUPABASE_ACCESS_TOKEN / VERCEL_TOKEN; without the gate, any commenter
+    # could run it. COLLABORATOR is excluded on purpose: on a public repo that
+    # association covers anyone granted repo access at all, down to triage-only
+    # community members. Keep those secrets step-scoped (as below) and never add
+    # a runner-side build step that executes PR code while a management token is
+    # in that step's env.
+    if: >
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/deploy-preview') &&
+      contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+    steps:
+      - name: Acknowledge comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" -f content=eyes
+
+      - name: Get PR branch
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          PR_DATA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '{ref: .head.ref, sha: .head.sha}')
+          echo "ref=$(echo "$PR_DATA" | jq -r '.ref')" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "$PR_DATA" | jq -r '.sha')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.pr.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Detect changed apps
+        id: detect
+        run: |
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+
+          DEPLOY_DASHBOARD=false
+          DEPLOY_OUTERLAYER=false
+
+          if echo "$CHANGED_FILES" | grep -q "^apps/tenant-dashboard/"; then
+            DEPLOY_DASHBOARD=true
+          fi
+          if echo "$CHANGED_FILES" | grep -q "^apps/outerlayer-site/"; then
+            DEPLOY_OUTERLAYER=true
+          fi
+
+          # If no specific app changed, deploy tenant-dashboard-stg as fallback
+          # (e.g., shared packages changed, or someone wants to preview root changes)
+          if [ "$DEPLOY_DASHBOARD" = "false" ] && [ "$DEPLOY_OUTERLAYER" = "false" ]; then
+            DEPLOY_DASHBOARD=true
+          fi
+
+          echo "deploy_dashboard=$DEPLOY_DASHBOARD" >> "$GITHUB_OUTPUT"
+          echo "deploy_outerlayer=$DEPLOY_OUTERLAYER" >> "$GITHUB_OUTPUT"
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo "deploy_dashboard=$DEPLOY_DASHBOARD, deploy_outerlayer=$DEPLOY_OUTERLAYER"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Get Supabase branch credentials
+        id: supabase
+        if: steps.detect.outputs.deploy_dashboard == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_ID }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          BRANCHES=$(curl -sf \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$PRODUCTION_PROJECT_REF/branches" || echo "[]")
+
+          BRANCH_REF=$(echo "$BRANCHES" | jq -r \
+            --argjson pr "$PR_NUMBER" '.[] | select(.pr_number == $pr) | .project_ref // empty')
+
+          if [ -z "$BRANCH_REF" ]; then
+            echo "No Supabase branch for PR #$PR_NUMBER — using default credentials"
+            echo "has_branch=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          API_KEYS=$(curl -sf \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$BRANCH_REF/api-keys")
+
+          ANON_KEY=$(echo "$API_KEYS" | jq -r '.[] | select(.name == "anon") | .api_key // empty')
+
+          echo "::add-mask::$ANON_KEY"
+          echo "has_branch=true" >> "$GITHUB_OUTPUT"
+          echo "api_url=https://${BRANCH_REF}.supabase.co" >> "$GITHUB_OUTPUT"
+          echo "anon_key=$ANON_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy tenant-dashboard-stg
+        id: deploy-dashboard
+        if: steps.detect.outputs.deploy_dashboard == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_TENANT_DASHBOARD_PROJECT_ID }}
+          HAS_BRANCH: ${{ steps.supabase.outputs.has_branch }}
+          SUPABASE_URL: ${{ steps.supabase.outputs.api_url }}
+          SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon_key }}
+        run: |
+          if [ "$HAS_BRANCH" = "true" ]; then
+            URL=$(vercel deploy --token="$VERCEL_TOKEN" --yes \
+              --build-env NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL" \
+              --build-env NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY")
+          else
+            URL=$(vercel deploy --token="$VERCEL_TOKEN" --yes)
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # Runs from the repo root: the Vercel project already carries
+      # `apps/outerlayer-site` as its Root Directory, so deploying from the
+      # subdirectory would nest that path twice and find no app.
+      - name: Deploy outerlayer-site
+        id: deploy-outerlayer
+        if: steps.detect.outputs.deploy_outerlayer == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_OUTERLAYER_SITE_PROJECT_ID }}
+        run: |
+          URL=$(vercel deploy --token="$VERCEL_TOKEN" --yes)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URLs on PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          DASHBOARD_URL: ${{ steps.deploy-dashboard.outputs.url }}
+          DASHBOARD_OUTCOME: ${{ steps.deploy-dashboard.outcome }}
+          OUTERLAYER_URL: ${{ steps.deploy-outerlayer.outputs.url }}
+          OUTERLAYER_OUTCOME: ${{ steps.deploy-outerlayer.outcome }}
+        run: |
+          BODY="## Preview Deployments"$'\n\n'
+          BODY+="| App | Preview URL |"$'\n'
+          BODY+="|-----|-------------|"$'\n'
+
+          if [ "$DASHBOARD_OUTCOME" = "success" ]; then
+            BODY+="| tenant-dashboard-stg | $DASHBOARD_URL |"$'\n'
+          fi
+          if [ "$OUTERLAYER_OUTCOME" = "success" ]; then
+            BODY+="| outerlayer-site | $OUTERLAYER_URL |"$'\n'
+          fi
+
+          gh pr comment "$PR_NUMBER" --body "$BODY"
+
+      - name: React to comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" -f content=rocket

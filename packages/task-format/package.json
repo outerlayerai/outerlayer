@@ -1,0 +1,61 @@
+{
+  "name": "@outerlayer/task-format",
+  "version": "0.1.0",
+  "description": "The eval task format (.outerlayer/evals/*.yaml): schema, loader, static lints, and the execution validation gate — no task enters a card without passing it",
+  "license": "Apache-2.0",
+  "author": "Magu Studios, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outerlayerai/outerlayer.git",
+    "directory": "packages/task-format"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "evals",
+    "task-schema",
+    "swe-bench",
+    "validation"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:gate-live": "OUTERLAYER_GATE_LIVE=1 vitest run --testTimeout 300000 src/__tests__/gate.live.test.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@outerlayer/runner-core": "workspace:*",
+    "yaml": "^2.5.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,0 +1,53 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+/reports
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+/proxy/.build
+
+/supabase/templates/*
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# editor/tool backups (e.g. .env.local.bak, .dev.vars.bak)
+*.bak
+
+# vercel
+.vercel
+
+certificates
+# Sentry Config File
+.env.sentry-build-plugin
+
+# Email template build cache
+scripts/dist/.cache-hash
+
+# dev:full temporary config backup
+supabase/config.toml.dev-full-backup
+.next-selfhost-*
+.env*.local

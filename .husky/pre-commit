@@ -1,0 +1,31 @@
+#!/bin/sh
+
+yarn lint-staged
+
+# Secret scan on staged changes — the first line of defense against committing a
+# credential (see .gitleaks.toml for the ruleset). Catches it BEFORE it enters
+# even a local commit, where rotation would be the only remedy.
+#
+# Soft-skip when gitleaks isn't installed: this hook is fast local feedback, not
+# the enforcement boundary — the "Secret Scan" CI job (ci.yml) is the
+# unbypassable gate, so a missing local binary must not block honest commits. It
+# prints the one-line install so the local net gets restored.
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks git --staged --config .gitleaks.toml --no-banner --redact; then
+    echo ""
+    echo "❌ pre-commit: a secret was detected in your STAGED changes (above)."
+    echo ""
+    echo "   Do NOT just delete the file and re-commit — if it ever lands in a"
+    echo "   commit, it's in history. Instead:"
+    echo "     1. Remove the secret from the staged change."
+    echo "     2. If it's already a real credential, rotate it."
+    echo "     3. False positive? Add a scoped allowlist entry to .gitleaks.toml"
+    echo "        (see its header comment — allowlist the value/path, never a whole rule)."
+    echo ""
+    exit 1
+  fi
+else
+  echo "ℹ pre-commit: gitleaks not found — skipping local secret scan."
+  echo "  CI still enforces it, but install it for local pre-commit protection:"
+  echo "    macOS: brew install gitleaks   ·   other: https://github.com/gitleaks/gitleaks#installing"
+fi

@@ -1,0 +1,5 @@
+# Round-trip fixtures and their recorded baselines are byte-exact regression
+# anchors — one fixture is deliberately CRLF. Disable all EOL normalization so
+# git never rewrites their bytes on commit or checkout.
+fixtures/** -text
+baselines/** -text

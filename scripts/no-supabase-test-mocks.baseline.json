@@ -1,0 +1,20 @@
+{
+  "files": [
+    "apps/tenant-dashboard/src/app/api/webhooks/payment/route.test.ts",
+    "apps/tenant-dashboard/src/app/auth/callback/route.test.ts",
+    "apps/tenant-dashboard/src/components/common/notifications-popover/__tests__/xss-prevention.test.tsx",
+    "apps/tenant-dashboard/src/features/dashboards/service.test.ts",
+    "apps/tenant-dashboard/src/lib/apps/__tests__/server-client.test.ts",
+    "apps/tenant-dashboard/src/lib/system/membership-service.test.ts",
+    "apps/tenant-dashboard/src/lib/system/registration/email-registration.test.ts",
+    "apps/tenant-dashboard/src/lib/system/registration/oauth-registration.test.ts",
+    "apps/tenant-dashboard/src/lib/system/terms-agreement.test.ts",
+    "apps/tenant-dashboard/src/sections/platform-admin/__tests__/entitlement-actions.test.ts",
+    "apps/tenant-dashboard/src/sections/platform-admin/__tests__/organizations-actions.test.ts",
+    "apps/tenant-dashboard/src/utils/__tests__/get-user-permissions.test.ts",
+    "packages/gateway-core/src/lib/system-client.test.ts",
+    "packages/gateway-core/src/openapi/__tests__/api-keys-list-create.test.ts",
+    "packages/gateway-core/src/openapi/__tests__/api-keys-routes.test.ts",
+    "packages/gateway-core/src/services/span-limit-service.test.ts"
+  ]
+}

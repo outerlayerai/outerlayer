@@ -1,0 +1,882 @@
+# Authz equivalence golden baseline
+# Snapshot of CURRENT resolver behavior — equivalence net, NOT a correctness oracle.
+# Regenerate only after a reviewed, intentional change: UPDATE_AUTHZ_GOLDEN=1.
+#
+# Functions under snapshot:
+#   private.authorize(perm)                        -> org boolean
+#   private.app_authorize(perm, app)               -> per-app boolean
+#   private.effective_app_permissions(app)         -> per-app permission set
+#   private.get_org_permission_set(cr, role, tid)  -> org permission set
+#
+# App scopes (app_authorize / set columns), in order:
+#   override_builtin : home-tenant app, per-app built-in role override = read
+#   override_custom  : home-tenant app, per-app custom-role override (app.read, worker_run.insert, environment.promote)
+#   org_fallback     : home-tenant app, NO per-app row → org-level fallback
+#   other_tenant     : app in a DIFFERENT tenant → expected deny
+#
+# Org custom-role perms : app.read, dashboard.read, environment.read, trace.read, worker_run.read
+# App custom-role perms : app.read, environment.promote, worker_run.insert
+#
+# Actors:
+#   owner            role=owner member
+#   admin            role=admin member
+#   write            role=write member
+#   read             role=read member
+#   disabled         role=disabled member
+#   org_custom       role=read org_custom_role member
+#   app_scoped_read  role=read is_app_scoped member
+#   platform_admin   role=none platform_admin NON_member
+#   non_member       role=none NON_member
+#
+# DOWNWARD-OVERRIDE rows (silent-escalation review targets):
+#   admin @ override_builtin — org-admin restricted to a built-in app-read override on one app
+#   admin @ override_custom — org-admin restricted to an app-scoped custom-role subset on one app
+#
+# Baseline provenance: regenerated when app_authorize and the per-app permission
+# set collapsed into ONE resolver (private.effective_app_permissions), structured
+# as tenant-closure (I1) → state-gate (I2) → single resolution (I3). The only
+# intended divergences from the pre-consolidation baseline, all within I1/I2/I3:
+#   (a) other_tenant deny — an app outside the actor tenant is out of the resolver
+#       domain (tenant closure), for every actor INCLUDING owner.
+#   (b) disabled deny — a disabled membership yields no effective role, so a per-app
+#       override has nothing to attach to (state gate).
+#   (c) owner BOOL↔SET consistency — owner ignores per-app overrides (I3), so its
+#       answers come from the org owner set, not from an override. environment.
+#       promote is seeded to owner/admin/write in role_permissions, so those roles
+#       hold it via the org role: it appears in the owner/admin/write org sets, in
+#       owner's app sets at every in-tenant scope, and for admin/write at
+#       org_fallback. read does not hold it. The app custom-role override already
+#       carries environment.promote, so the override_custom answers are unchanged.
+#
+# === ORG PERMISSION SETS (get_org_permission_set) ===
+SETORG owner = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETORG admin = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.read,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETORG write = [agents.findings.read,agents.sessions.self.read,api_key.insert,api_key.read,app.read,app_member_role.read,billing.read,context.delete,context.insert,context.read,context.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.read,git_connection.insert,git_connection.read,git_connection.update,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,score.write,session.read,span.read,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETORG read = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETORG disabled = []
+SETORG org_custom = [app.read,dashboard.read,environment.read,trace.read,worker_run.read]
+SETORG app_scoped_read = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+#
+# === APP PERMISSION SETS (effective_app_permissions) ===
+SETAPP owner override_builtin = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP owner override_custom = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP owner org_fallback = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP owner other_tenant = []
+SETAPP admin override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP admin override_custom = [app.read,environment.promote,worker_run.insert]
+SETAPP admin org_fallback = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.read,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP admin other_tenant = []
+SETAPP write override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP write override_custom = [app.read,environment.promote,worker_run.insert]
+SETAPP write org_fallback = [agents.findings.read,agents.sessions.self.read,api_key.insert,api_key.read,app.read,app_member_role.read,billing.read,context.delete,context.insert,context.read,context.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.read,git_connection.insert,git_connection.read,git_connection.update,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,score.write,session.read,span.read,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP write other_tenant = []
+SETAPP read override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP read override_custom = [app.read,environment.promote,worker_run.insert]
+SETAPP read org_fallback = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP read other_tenant = []
+SETAPP disabled override_builtin = []
+SETAPP disabled override_custom = []
+SETAPP disabled org_fallback = []
+SETAPP disabled other_tenant = []
+SETAPP org_custom override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP org_custom override_custom = [app.read,environment.promote,worker_run.insert]
+SETAPP org_custom org_fallback = [app.read,dashboard.read,environment.read,trace.read,worker_run.read]
+SETAPP org_custom other_tenant = []
+SETAPP app_scoped_read override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP app_scoped_read override_custom = [app.read,environment.promote,worker_run.insert]
+SETAPP app_scoped_read org_fallback = []
+SETAPP app_scoped_read other_tenant = []
+SETAPP platform_admin override_builtin = []
+SETAPP platform_admin override_custom = []
+SETAPP platform_admin org_fallback = []
+SETAPP platform_admin other_tenant = []
+SETAPP non_member override_builtin = []
+SETAPP non_member override_custom = []
+SETAPP non_member org_fallback = []
+SETAPP non_member other_tenant = []
+#
+# === BOOLEAN MATRIX ===
+# BOOL <actor> <perm> org=<t|f> override_builtin=<t|f> override_custom=<t|f> org_fallback=<t|f> other_tenant=<t|f>
+BOOL owner agents.findings.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner agents.sessions.self.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner agents.sessions.team.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner agents.settings.write org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner ai_cost_config.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner ai_cost_config.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner ai_cost_config.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner ai_cost_config.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner api_key.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner api_key.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner api_key.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner api_key.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app_member_role.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app_member_role.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app_member_role.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app_member_role.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner app_policy.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner audit_log.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner billing.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner billing.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner billing.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner context.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner context.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner context.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner context.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner custom_role.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner custom_role.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner custom_role.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner custom_role.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner dashboard.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner dashboard.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner dashboard.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner dashboard.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner env_escalation.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner env_escalation.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner env_var.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner env_var.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner env_var.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner env_var.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner environment.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner environment.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner environment.promote org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner environment.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner environment.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner eval_run.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner eval_run.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner eval_run.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner eval_run.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner experiment.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_branch.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_branch.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_branch.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_branch.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_connection.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_connection.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_connection.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner git_connection.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner membership.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner membership.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner membership.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner membership.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner metrics.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner profile.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner profile.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner profile.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner profile.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner score.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner score.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner score.write org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner session.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner span.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner sso_config.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner sso_config.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner sso_config.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner sso_config.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner tenant.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner tenant.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner trace.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner trace.write org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner worker_run.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner worker_run.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner worker_run.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL owner worker_run.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL admin agents.findings.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin agents.sessions.self.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin agents.sessions.team.read org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin agents.settings.write org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin ai_cost_config.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin ai_cost_config.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin ai_cost_config.read org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin ai_cost_config.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin api_key.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin api_key.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin api_key.read org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin api_key.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin app.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin app.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin app.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL admin app.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin app_member_role.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin app_member_role.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin app_member_role.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin app_member_role.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin app_policy.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin audit_log.read org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL admin billing.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL admin context.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin context.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin context.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin context.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin custom_role.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin custom_role.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin custom_role.read org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin custom_role.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin dashboard.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin dashboard.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin dashboard.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin env_escalation.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin env_escalation.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin env_var.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin env_var.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin env_var.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin env_var.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin environment.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin environment.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin environment.promote org=t override_builtin=f override_custom=t org_fallback=t other_tenant=f
+BOOL admin environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin environment.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin eval_run.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin eval_run.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin eval_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin eval_run.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin experiment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_branch.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_branch.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_branch.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_branch.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_connection.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_connection.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_connection.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin git_connection.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin membership.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin membership.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin membership.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin membership.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin metrics.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin profile.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin profile.insert org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin profile.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin profile.update org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin score.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin score.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin score.write org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin session.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin span.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL admin sso_config.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin sso_config.read org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin sso_config.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin tenant.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin tenant.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin trace.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin trace.write org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin worker_run.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL admin worker_run.insert org=t override_builtin=f override_custom=t org_fallback=t other_tenant=f
+BOOL admin worker_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL admin worker_run.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write agents.findings.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write agents.sessions.self.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write agents.sessions.team.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write agents.settings.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write ai_cost_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write ai_cost_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write ai_cost_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write ai_cost_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write api_key.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write api_key.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write api_key.read org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write api_key.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write app.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write app.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write app.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL write app.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write app_member_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write app_member_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write app_member_role.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write app_member_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write app_policy.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write audit_log.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write billing.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write context.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write context.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write context.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write context.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write custom_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write custom_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write custom_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write custom_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write dashboard.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write dashboard.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write dashboard.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write env_escalation.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write env_escalation.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write env_var.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write env_var.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write env_var.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write env_var.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write environment.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write environment.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write environment.promote org=t override_builtin=f override_custom=t org_fallback=t other_tenant=f
+BOOL write environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write environment.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write eval_run.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write eval_run.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write eval_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write eval_run.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write experiment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write git_branch.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write git_branch.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write git_connection.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write git_connection.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write git_connection.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write git_connection.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write membership.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write membership.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write membership.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write membership.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write metrics.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write profile.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write profile.insert org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write profile.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write profile.update org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write score.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write score.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write score.write org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write session.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write span.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write sso_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write sso_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write sso_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL write tenant.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write tenant.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write trace.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write trace.write org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write worker_run.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL write worker_run.insert org=t override_builtin=f override_custom=t org_fallback=t other_tenant=f
+BOOL write worker_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL write worker_run.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
+BOOL read agents.findings.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read agents.sessions.self.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read agents.sessions.team.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read agents.settings.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read ai_cost_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read ai_cost_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read ai_cost_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read ai_cost_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read api_key.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read api_key.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read api_key.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read api_key.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read app.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read app.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read app.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL read app.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read app_member_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read app_member_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read app_member_role.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read app_member_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read app_policy.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read audit_log.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read billing.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read context.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read context.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read context.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read context.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read custom_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read custom_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read custom_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read custom_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read dashboard.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read env_escalation.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read env_var.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read env_var.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read environment.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read environment.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read environment.promote org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
+BOOL read environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read eval_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read experiment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read git_branch.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read git_branch.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read git_connection.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read git_connection.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read git_connection.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read git_connection.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read membership.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read membership.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read membership.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read membership.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read metrics.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read profile.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read profile.insert org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read profile.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read profile.update org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read score.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read score.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read score.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read session.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read span.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read sso_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read sso_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read sso_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read tenant.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read tenant.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read trace.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read trace.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read worker_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL read worker_run.insert org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
+BOOL read worker_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL read worker_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled agents.findings.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled agents.sessions.self.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled agents.sessions.team.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled agents.settings.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled ai_cost_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled ai_cost_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled ai_cost_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled ai_cost_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled api_key.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled api_key.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled api_key.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled api_key.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app_member_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app_member_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app_member_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app_member_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled app_policy.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled audit_log.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled billing.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled context.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled context.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled context.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled context.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled custom_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled custom_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled custom_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled custom_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled dashboard.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled dashboard.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled env_escalation.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled env_var.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled env_var.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled environment.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled environment.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled environment.promote org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled environment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled eval_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled experiment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_branch.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_branch.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_connection.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_connection.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_connection.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled git_connection.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled membership.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled membership.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled membership.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled membership.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled metrics.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled profile.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled profile.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled profile.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled profile.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled score.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled score.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled score.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled session.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled span.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled sso_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled sso_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled sso_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled tenant.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled tenant.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled trace.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled trace.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled worker_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled worker_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled worker_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL disabled worker_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom agents.findings.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom agents.sessions.self.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom agents.sessions.team.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom agents.settings.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom ai_cost_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom ai_cost_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom ai_cost_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom ai_cost_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom api_key.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom api_key.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom api_key.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom api_key.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
+BOOL org_custom app.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app_member_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app_member_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app_member_role.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app_member_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom app_policy.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom audit_log.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom billing.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom context.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom context.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom context.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom context.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom custom_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom custom_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom custom_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom custom_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom dashboard.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL org_custom dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom env_escalation.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom env_var.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom env_var.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom environment.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom environment.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom environment.promote org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
+BOOL org_custom environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL org_custom environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom eval_run.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom experiment.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_branch.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_branch.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_connection.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_connection.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_connection.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom git_connection.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom membership.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom membership.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom membership.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom membership.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom metrics.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom profile.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom profile.insert org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom profile.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom profile.update org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom score.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom score.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom score.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom session.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom span.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom sso_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom sso_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom sso_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom tenant.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom tenant.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom trace.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL org_custom trace.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom worker_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL org_custom worker_run.insert org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
+BOOL org_custom worker_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
+BOOL org_custom worker_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read agents.findings.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read agents.sessions.self.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read agents.sessions.team.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read agents.settings.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read ai_cost_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read ai_cost_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read ai_cost_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read ai_cost_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read api_key.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read api_key.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read api_key.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read api_key.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app.read org=t override_builtin=t override_custom=t org_fallback=f other_tenant=f
+BOOL app_scoped_read app.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app_member_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app_member_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app_member_role.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app_member_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read app_policy.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read audit_log.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read billing.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read context.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read context.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read context.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read context.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read custom_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read custom_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read custom_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read custom_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read dashboard.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read dashboard.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read env_escalation.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read env_var.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read env_var.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read environment.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read environment.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read environment.promote org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
+BOOL app_scoped_read environment.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read eval_run.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read experiment.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_branch.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_branch.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_connection.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_connection.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_connection.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read git_connection.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read membership.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read membership.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read membership.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read membership.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read metrics.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read profile.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read profile.insert org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read profile.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read profile.update org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read score.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read score.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read score.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read session.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read span.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read sso_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read sso_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read sso_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read tenant.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read tenant.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read trace.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read trace.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read worker_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read worker_run.insert org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
+BOOL app_scoped_read worker_run.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
+BOOL app_scoped_read worker_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin agents.findings.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin agents.sessions.self.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin agents.sessions.team.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin agents.settings.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin ai_cost_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin ai_cost_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin ai_cost_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin ai_cost_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin api_key.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin api_key.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin api_key.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin api_key.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app_member_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app_member_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app_member_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app_member_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin app_policy.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin audit_log.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin billing.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin context.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin context.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin context.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin context.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin custom_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin custom_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin custom_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin custom_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin dashboard.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin dashboard.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin env_escalation.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin env_var.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin env_var.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin environment.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin environment.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin environment.promote org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin environment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin eval_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin experiment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_branch.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_branch.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_connection.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_connection.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_connection.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin git_connection.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin membership.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin membership.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin membership.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin membership.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin metrics.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin profile.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin profile.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin profile.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin profile.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin score.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin score.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin score.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin session.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin span.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin sso_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin sso_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin sso_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin tenant.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin tenant.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin trace.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin trace.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin worker_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin worker_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin worker_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL platform_admin worker_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member agents.findings.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member agents.sessions.self.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member agents.sessions.team.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member agents.settings.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member ai_cost_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member ai_cost_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member ai_cost_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member ai_cost_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member api_key.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member api_key.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member api_key.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member api_key.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app_member_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app_member_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app_member_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app_member_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member app_policy.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member audit_log.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member billing.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member billing.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member billing.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member context.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member context.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member context.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member context.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member custom_role.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member custom_role.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member custom_role.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member custom_role.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member dashboard.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member dashboard.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member env_escalation.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member env_var.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member env_var.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member environment.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member environment.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member environment.promote org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member environment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member eval_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member experiment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_branch.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_branch.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_connection.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_connection.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_connection.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member git_connection.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member membership.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member membership.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member membership.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member membership.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member metrics.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member profile.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member profile.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member profile.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member profile.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member score.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member score.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member score.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member session.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member span.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member sso_config.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member sso_config.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member sso_config.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member sso_config.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member tenant.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member tenant.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member trace.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member trace.write org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member worker_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member worker_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member worker_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
+BOOL non_member worker_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f

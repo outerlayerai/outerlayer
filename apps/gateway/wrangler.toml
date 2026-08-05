@@ -1,0 +1,329 @@
+name = "gateway"
+main = "src/index.ts"
+compatibility_date = "2024-07-29"
+compatibility_flags = ["nodejs_compat_v2"]
+
+upload_source_maps = true
+
+# cpu_ms is set per-environment (staging/production) so local dev is unrestricted
+
+[[migrations]]
+tag = "v1"
+new_classes = ["AppConnection"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["BuildLogConnection"]
+
+# v3: BuildLogConnection has no reader — build-log streaming for managed
+# builds is gone and nothing can start a build, so nothing opens this DO.
+# `deleted_classes` is the documented Cloudflare decommission path (a binding
+# whose class no longer exists fails deploy otherwise).
+[[migrations]]
+tag = "v3"
+deleted_classes = ["BuildLogConnection"]
+
+# v4: the managed-code-deployment runtime is retired, so AppConnection has no
+# readers (managed-machine HTTP dispatch and the observer WebSocket relay are
+# gone) and nothing opens this DO. `deleted_classes` is the documented Cloudflare
+# decommission path (a binding whose class no longer exists fails deploy otherwise).
+[[migrations]]
+tag = "v4"
+deleted_classes = ["AppConnection"]
+
+# SUPABASE_JWT_SECRET must be set as a secret via `wrangler secret put SUPABASE_JWT_SECRET`
+# Used to sign short-lived JWTs for tenant-scoped Supabase clients
+
+# SUPABASE_PUBLISHABLE_KEY must be set as a secret via `wrangler secret put SUPABASE_PUBLISHABLE_KEY`
+# The Supabase publishable key (`sb_publishable_…`), used with tenant-scoped
+# clients for RLS-enforced access. The legacy SUPABASE_ANON_KEY name is also
+# accepted during the key migration window. The secret key (`sb_secret_…`) is set
+# as SUPABASE_SECRET_KEY, and the legacy SUPABASE_SERVICE_ROLE_KEY name is also
+# accepted during the key migration window.
+
+# OAUTH_STATE_SECRET must be set as a secret via `wrangler secret put OAUTH_STATE_SECRET`
+# HMAC-SHA256 key for signing OAuth state tokens minted by
+# POST /v1/apps/:appId/git/connect. Min 32 chars. Must match the dashboard's
+# OAUTH_STATE_SECRET — drift silently breaks every signed callback.
+
+[dev]
+port = 9001
+
+[triggers]
+# Schedule cron triggers:
+# - At every minute: billing metering + topics enrichment
+# - Daily 03:00 UTC: entitlement-driven retention sweep.
+#   Keep in sync with RETENTION_SWEEP_CRON in src/jobs/retention-sweep-handler.ts —
+#   scheduled() routes that exact cron string to the sweep only.
+crons = [ "* * * * *", "0 3 * * *", "30 3 * * *" ]
+
+[env.staging]
+route = "api-stg.agentmark.co/*"
+
+[env.staging.limits]
+cpu_ms = 100
+
+[env.staging.vars]
+# Provided as Worker secrets at deploy time rather than committed here
+# (`wrangler secret put <NAME> --env staging`):
+#   CLICKHOUSE_HOST, CLOUDFLARE_ZONE_ID, SUPABASE_API_BASE_URL,
+#   STRIPE_STORAGE_METER_ID, TOPICS_TENANT_ALLOWLIST
+# The first three are required by EnvSchema — a deploy that is missing any of
+# them fails env validation at startup rather than degrading. Local and CI runs
+# read the required ones from apps/gateway/.dev.vars; the allowlist is optional
+# and enrichment covers every tenant when it is unset.
+# Row-policy read identity: tenant analytics reads authenticate as this user so
+# ClickHouse itself enforces tenant isolation.
+# Not a secret (mirrors .dev.vars.ci). Its password IS a secret:
+# `wrangler secret put CLICKHOUSE_READ_PASSWORD --env staging`.
+# DEPLOY ORDER: the user must exist on this env's ClickHouse (run
+# apps/tenant-dashboard/clickhouse/ensure-read-user.mjs --print in the CH
+# console) AND the password secret must be set BEFORE a deploy carries this
+# var — with the var set and the password wrong/missing, every tenant
+# analytics read fails auth instead of falling back to the writer.
+CLICKHOUSE_READ_USER = "analytics_reader"
+# Least-privilege WRITE identity (clickhouse migration 47): ingest / mutation /
+# server reads authenticate as this user instead of the `default` superuser.
+# The `analytics_writer` user + the CLICKHOUSE_WRITE_PASSWORD secret must both
+# exist on this env before this var is live, or every ingest + mutation fails
+# auth. Unset it to fall back to `default` via CLICKHOUSE_PASSWORD.
+CLICKHOUSE_WRITE_USER = "analytics_writer"
+STRIPE_SPAN_METER_KEY = "span_meter"
+STRIPE_STORAGE_METER_KEY = "storage_gb"
+GITHUB_APP_ID = "982846"
+CLOUDFLARE_CACHE_DOMAIN = "api-stg.agentmark.co"
+DASHBOARD_BASE_URL = "https://stg.outerlayer.ai"
+# ERROR_REPORTING_DSN is set via `wrangler secret put ERROR_REPORTING_DSN --env staging`
+# (not a committed var — see apps/gateway/.dev.vars.example for local dev).
+# Log shipping is off for staging; Cloudflare Workers Observability retains
+# console output for 7 days, which is what staging diagnosis runs on. Set
+# BETTERSTACK_INGESTING_URL to ship logs to an external sink.
+NODE_ENV="production"
+POSTHOG_PROJECT_API_KEY = "phc_7fSWghF2oY2R32hXYtXsWcCKmfnkvXbu4Kh63y8VfXW"
+# Entitlement-driven physical retention: the daily 03:00 UTC
+# cron resolves each tenant's data_retention_days and hard-deletes expired
+# ClickHouse rows + R2 payload blobs. Replaces the fixed 90-day DDL TTL
+# removed in ClickHouse migration 28.
+RETENTION_SWEEP_ENABLED = "true"
+# Trace Topics enrichment (dogfood): the every-minute cron summarizes + embeds
+# sessions into trace_facets for clustering. Off by default in code
+# (resolveTopicsConfig). The TOPICS_TENANT_ALLOWLIST secret scopes enrichment to
+# the dogfood tenant so other staging tenants' traffic isn't enriched; unset, it
+# enriches every tenant on this env. BATCH_LIMIT raises the
+# per-tick candidate cap above the code default (25) to drain the backfill
+# faster; a failed tick just re-selects its unenriched traces next minute, so
+# partial ticks self-heal. LOOKBACK_HOURS widens the ingest-recency window
+# (default 24h) to 90 days so the backfilled corpus — imported earlier than 24h
+# ago — is eligible rather than stranded outside the window.
+# Model provider is openai (facet default gpt-5-nano, embeddings
+# text-embedding-3-small at 1024 dims). TOPICS_MODEL_API_KEY must be set as a
+# secret (`wrangler secret put TOPICS_MODEL_API_KEY --env staging`); the cron
+# throws and enriches nothing if the selected provider has no key.
+TOPICS_ENRICHMENT_ENABLED = "true"
+TOPICS_BATCH_LIMIT = "100"
+TOPICS_LOOKBACK_HOURS = "2160"
+TOPICS_MODEL_PROVIDER = "openai"
+
+# Staging queue configuration. No builder bindings: there is no managed-build
+# path, so nothing on this env can start a build.
+[[env.staging.queues.producers]]
+queue = "usage-meter-staging"
+binding = "USAGE_METER_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "usage-meter-staging"
+max_batch_size = 100
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "usage-meter-dlq-staging"
+retry_delay = 30
+
+[[env.staging.queues.consumers]]
+queue = "usage-meter-dlq-staging"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Topics-enrichment fan-out: the ingest consumer nominates each trace whose
+# ROOT span it persisted; the consumer runs the full per-trace enrichment
+# (multi-second LLM latency per message — hence the small batch). max_retries
+# mirrors TOPICS_MAX_RETRY_ATTEMPTS in code: redelivery is routine here
+# (still-streaming traces wait out their debounce; provider blips back off).
+# No DLQ on purpose — the scheduled scan re-discovers any dropped trace, so
+# the scan IS the retry of last resort. max_concurrency stays low: each
+# invocation holds concurrent model calls, and enrichment must never crowd
+# the provider rate limits or ClickHouse.
+[[env.staging.queues.producers]]
+queue = "topics-enrichment-staging"
+binding = "TOPICS_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "topics-enrichment-staging"
+# Batch width is the throughput lever: a batch's messages process
+# CONCURRENTLY and the batch lasts as long as its slowest trace, so width-25
+# moves ~5x the traces of width-5 in the same wall clock. Measured at
+# width-5 the drain ran ~15 traces/min against a 20k-row backfill (days);
+# width-25 with up to 6 invocations bounds a full re-drain in hours. A
+# provider throttle surfaces as retries, which back off and scale
+# concurrency down — the safety valve when 25-wide batches meet a TPM cap.
+max_batch_size = 25
+max_batch_timeout = 10
+max_retries = 20
+max_concurrency = 6
+retry_delay = 60
+
+# Object storage for oversized span payloads lifted out at ingest (see
+# src/services/blob-offload.ts). Full payloads live here; ClickHouse keeps
+# only an inline preview + a BlobRefs pointer. Zero egress + native binding.
+[[env.staging.r2_buckets]]
+binding = "TRACE_BLOBS"
+bucket_name = "trace-blobs-staging"
+
+# Model price registry (models.json + overrides.json), published by the
+# registry-sync workflow. Read on the first uncached pricing request so a new
+# model is priced WITHOUT waiting for a deploy — the bundled snapshot is only
+# the fallback. KV rather than R2: ~800 KB of read-mostly config, written a
+# handful of times a quarter and read at every cold start, is what KV's edge
+# caching is for; R2 here holds large per-tenant span payloads and is swept
+# daily by the retention job.
+[[env.staging.kv_namespaces]]
+binding = "MODEL_REGISTRY"
+id = "b7ea03a52afc419fa56f3ef5a3229988"
+
+[env.production]
+route = "api.agentmark.co/*"
+
+[env.production.limits]
+cpu_ms = 100
+
+[env.production.vars]
+# Provided as Worker secrets at deploy time rather than committed here
+# (`wrangler secret put <NAME> --env production`):
+#   CLICKHOUSE_HOST, CLOUDFLARE_ZONE_ID, STRIPE_STORAGE_METER_ID,
+#   BETTERSTACK_INGESTING_URL, SUPABASE_API_BASE_URL
+# CLICKHOUSE_HOST, CLOUDFLARE_ZONE_ID, and SUPABASE_API_BASE_URL are required
+# by EnvSchema — a deploy that is missing any of them fails env validation at
+# startup rather than degrading. BETTERSTACK_INGESTING_URL is optional: without
+# it (and BETTERSTACK_LOGS_TOKEN) the logger stays console-only.
+# SUPABASE_API_BASE_URL is a secret in both environments: the URL is reachable
+# from the dashboard's browser bundle, but the repo doesn't need to hand out
+# the project ref to anyone who greps it.
+# Row-policy read identity — see the staging var for the full note.
+# DEPLOY ORDER: provision the user on the PROD ClickHouse service and
+# `wrangler secret put CLICKHOUSE_READ_PASSWORD --env production` BEFORE the
+# next production deploy, or tenant analytics reads fail auth.
+CLICKHOUSE_READ_USER = "analytics_reader"
+# Least-privilege WRITE identity — see the staging
+# var for the full note. DEPLOY ORDER: provision the user on the PROD
+# ClickHouse service AND `wrangler secret put CLICKHOUSE_WRITE_PASSWORD --env
+# production` BEFORE uncommenting, or every ingest + mutation fails auth.
+# Commented ⇒ writes fall back to the `default` identity (safe no-op).
+# CLICKHOUSE_WRITE_USER = "analytics_writer"
+STRIPE_SPAN_METER_KEY = "span_meter"
+STRIPE_STORAGE_METER_KEY = "storage_gb"
+CLOUDFLARE_CACHE_DOMAIN = "api.agentmark.co"
+GITHUB_APP_ID = "984275"
+DASHBOARD_BASE_URL = "https://app.outerlayer.ai"
+POSTHOG_PROJECT_API_KEY = "phc_6p3PncXXaaXHMuC4Mx9Npk6bofal0CwnptHNIbR5v21"
+# Entitlement-driven physical retention — see the staging var.
+RETENTION_SWEEP_ENABLED = "true"
+# ERROR_REPORTING_DSN is set via `wrangler secret put ERROR_REPORTING_DSN --env production`
+# (not a committed var — see apps/gateway/.dev.vars.example for local dev).
+NODE_ENV="production"
+
+# Production queue configuration
+[[env.production.queues.producers]]
+queue = "usage-meter-prod"
+binding = "USAGE_METER_QUEUE"
+
+[[env.production.queues.consumers]]
+queue = "usage-meter-prod"
+max_batch_size = 100
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "usage-meter-dlq-prod"
+retry_delay = 30
+
+[[env.production.queues.consumers]]
+queue = "usage-meter-dlq-prod"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Topics-enrichment fan-out — see the staging block for the rationale.
+# Inert until TOPICS_ENRICHMENT_ENABLED is set for production: the producer
+# is gated by the same flag, so nothing is ever enqueued while topics is off.
+[[env.production.queues.producers]]
+queue = "topics-enrichment-prod"
+binding = "TOPICS_QUEUE"
+
+[[env.production.queues.consumers]]
+queue = "topics-enrichment-prod"
+# Width-25 batches for the same reason as staging: batch messages process
+# concurrently, so width — not invocation count — sets the drain rate.
+max_batch_size = 25
+max_batch_timeout = 10
+max_retries = 20
+max_concurrency = 5
+retry_delay = 60
+
+[[env.production.r2_buckets]]
+binding = "TRACE_BLOBS"
+bucket_name = "trace-blobs-prod"
+
+# Model price registry (models.json + overrides.json), published by the
+# registry-sync workflow. Read on the first uncached pricing request so a new
+# model is priced WITHOUT waiting for a deploy — the bundled snapshot is only
+# the fallback. KV rather than R2: ~800 KB of read-mostly config, written a
+# handful of times a quarter and read at every cold start, is what KV's edge
+# caching is for; R2 here holds large per-tenant span payloads and is swept
+# daily by the retention job.
+[[env.production.kv_namespaces]]
+binding = "MODEL_REGISTRY"
+id = "1517b77d0dbb44bc9cb578587aacb371"
+
+[observability]
+enabled = true
+head_sampling_rate = 1 # optional. default = 1.
+
+# =============================================================================
+# Cloudflare Queues Configuration
+# =============================================================================
+# Usage-meter fan-out: the per-minute Stripe usage-meter cron aggregates ALL
+# customers in ClickHouse, then fans out one message per customer so each
+# `meterEvents.create` call runs in its own consumer slot with its own
+# retries + DLQ, instead of a tenant-count-proportional loop inside the cron.
+
+[[queues.producers]]
+queue = "usage-meter"
+binding = "USAGE_METER_QUEUE"
+
+[[queues.consumers]]
+queue = "usage-meter"
+max_batch_size = 100
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "usage-meter-dlq"
+retry_delay = 30
+
+[[queues.consumers]]
+queue = "usage-meter-dlq"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Topics-enrichment fan-out — see the staging block for the rationale.
+# (default/local: wrangler dev simulates queues locally.)
+[[queues.producers]]
+queue = "topics-enrichment"
+binding = "TOPICS_QUEUE"
+
+[[queues.consumers]]
+queue = "topics-enrichment"
+max_batch_size = 25
+max_batch_timeout = 10
+max_retries = 20
+retry_delay = 60
+
+# Object storage for oversized span payloads (default/local; wrangler dev
+# simulates R2 locally). See src/services/blob-offload.ts.
+[[r2_buckets]]
+binding = "TRACE_BLOBS"
+bucket_name = "trace-blobs"

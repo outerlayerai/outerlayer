@@ -1,0 +1,13 @@
+diff --git a/index.js b/index.js
+index d518f1df0974b361911ab5ed90857295ab834f0a..307b68a6a23641611f207f5c9cbf041ea2318b4d 100644
+--- a/index.js
++++ b/index.js
+@@ -59,7 +59,7 @@ function parse (string, allowUnsafe) {
+     }
+   }
+ 
+-  var loader = allowUnsafe ? parser.load : parser.safeLoad
++  var loader = allowUnsafe ? parser.load : (parser.DEFAULT_SAFE_SCHEMA ? parser.safeLoad : parser.load)
+   var yaml = match[match.length - 1].replace(/^\s+|\s+$/g, '')
+   var attributes = loader(yaml) || {}
+   var body = string.replace(match[0], '')

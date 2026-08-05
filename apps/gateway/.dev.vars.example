@@ -1,0 +1,167 @@
+# Gateway Development Configuration
+#
+# Copy to `.dev.vars` (gitignored) and fill in the values for your machine:
+#
+#   cp apps/gateway/.dev.vars.example apps/gateway/.dev.vars
+#
+# `wrangler dev` loads this file as the Worker's environment. The schema that
+# validates it is `EnvSchema` in packages/gateway-core/src/types.ts — every var
+# below that is marked REQUIRED is non-optional there, and a missing one makes
+# the Zod parse fail so `/health` (and any request that builds the gateway
+# context) returns 5xx listing the missing keys.
+#
+# A second, smaller set is required only by the hosted Cloudflare entrypoint
+# (`setRequiredEnvKeys` in apps/gateway/src/index.ts). Those are marked
+# REQUIRED (hosted) and are what `/health` reports on; a placeholder is enough
+# for local development as long as you are not exercising that subsystem.
+#
+# The dev-server port is NOT read from this file — `yarn dev` expands
+# `GATEWAY_PORT` from the shell (or the repo-root `.env.local`).
+
+# REQUIRED. Must be one of development / staging / production.
+NODE_ENV=development
+
+# ---------------------------------------------------------------------------
+# Supabase — REQUIRED
+# ---------------------------------------------------------------------------
+# Run `npx supabase start` in apps/tenant-dashboard, then take these from
+# `npx supabase status -o json` (fields API_URL, PUBLISHABLE_KEY, SECRET_KEY,
+# JWT_SECRET).
+
+# Base URL of the Supabase REST API.
+SUPABASE_API_BASE_URL=http://127.0.0.1:54321
+# Secret (`sb_secret_…`) key — runs as service_role and bypasses RLS.
+SUPABASE_SECRET_KEY=your-supabase-secret-key
+# Publishable (`sb_publishable_…`) key — used for RLS-enforced scoped clients.
+SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
+# Used to sign the short-lived JWTs the gateway mints for tenant-scoped clients.
+SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+
+# ---------------------------------------------------------------------------
+# ClickHouse (analytics) — REQUIRED
+# ---------------------------------------------------------------------------
+# Start with `docker compose up -d` in apps/tenant-dashboard/clickhouse, then
+# apply migrations with `yarn clickhouse:migration:dev` from apps/tenant-dashboard.
+# CLICKHOUSE_PASSWORD must be present but may be empty — some local containers
+# run the `default` user with no password and reject a non-empty one.
+CLICKHOUSE_HOST=http://localhost:8123
+CLICKHOUSE_PASSWORD=dev_password
+
+# Least-privilege read/write identities — optional. When unset, reads fall back
+# to the writer identity (row policies go inert) and writes fall back to the
+# `default` superuser. `yarn clickhouse:migration:dev` provisions both users.
+# CLICKHOUSE_READ_USER=analytics_reader
+# CLICKHOUSE_READ_PASSWORD=your-clickhouse-read-password
+# CLICKHOUSE_WRITE_USER=analytics_writer
+# CLICKHOUSE_WRITE_PASSWORD=your-clickhouse-write-password
+
+# ---------------------------------------------------------------------------
+# App config — REQUIRED
+# ---------------------------------------------------------------------------
+# Where the dashboard runs. Used to build links back into the app.
+DASHBOARD_BASE_URL=http://localhost:3002
+
+# ---------------------------------------------------------------------------
+# Secrets — REQUIRED
+# ---------------------------------------------------------------------------
+# HMAC key for signing the git-connect OAuth state token. MUST match the
+# dashboard's OAUTH_STATE_SECRET exactly — drift silently breaks every callback
+# (each signed state token fails verification and the callback 400s). Min 32
+# chars. In stg/prod: `wrangler secret put OAUTH_STATE_SECRET`.
+OAUTH_STATE_SECRET=dev-oauth-state-secret-change-me-min-32-chars
+
+# Encrypts provider credentials at rest. Min 32 chars.
+TOKEN_ENCRYPTION_KEY=dev-token-encryption-key-change-me-32-chars
+
+# ---------------------------------------------------------------------------
+# Cloudflare (cache purge) — REQUIRED
+# ---------------------------------------------------------------------------
+# Only read when purging the edge cache, so placeholders are fine locally, but
+# the schema still requires all three to be non-empty.
+CLOUDFLARE_ZONE_ID=dev-placeholder-zone-id
+CLOUDFLARE_API_KEY=dev-placeholder-api-key
+CLOUDFLARE_CACHE_DOMAIN=localhost
+
+# ---------------------------------------------------------------------------
+# GitHub App — REQUIRED
+# ---------------------------------------------------------------------------
+# Needed by the git-connect flow. Placeholders keep the gateway booting; set
+# real values to exercise repository connection. The App's public slug is not
+# an env var — it is derived at runtime from the GitHub API so it cannot drift.
+GITHUB_APP_ID=dev-placeholder-github-app-id
+GITHUB_APP_PRIVATE_KEY=dev-placeholder-github-app-private-key
+
+# ---------------------------------------------------------------------------
+# Unkey (burst rate limiting only) — REQUIRED
+# ---------------------------------------------------------------------------
+# API-key verification lives in the Postgres key store; Unkey covers the burst
+# rate limiter alone.
+UNKEY_API_KEY=dev-placeholder-unkey-key
+
+# ---------------------------------------------------------------------------
+# API-key store pepper — REQUIRED (hosted)
+# ---------------------------------------------------------------------------
+# HMAC-SHA256 secret used to hash an incoming API key and look up its digest.
+# MUST match the dashboard's API_KEY_PEPPER — a key minted by the dashboard
+# under a different pepper fails verification here and 401s every request.
+API_KEY_PEPPER=dev-api-key-pepper-change-me
+
+# ---------------------------------------------------------------------------
+# Stripe (metering + storage cap) — REQUIRED (hosted)
+# ---------------------------------------------------------------------------
+# Optional in the shared schema — the Node self-host entrypoint wires a no-op
+# billing service and needs none of these — but the Cloudflare entrypoint
+# asserts them, so `/health` reports unhealthy without them. Billing endpoints
+# are not exercised by a normal local run, so placeholders are fine.
+STRIPE_SECRET_KEY=sk_test_dev_placeholder
+STRIPE_SPAN_METER_KEY=span_meter
+STRIPE_STORAGE_METER_KEY=storage_gb
+STRIPE_STORAGE_METER_ID=mtr_dev_placeholder
+
+# ---------------------------------------------------------------------------
+# Fly Machines (environment provisioning + promote) — REQUIRED (hosted)
+# ---------------------------------------------------------------------------
+# Optional in the shared schema, asserted by the Cloudflare entrypoint. Local
+# development rarely deploys via Fly, so a placeholder is enough — but leaving
+# it unset makes `/health` fail with `missing:[FLY_API_TOKEN]`.
+FLY_API_TOKEN=dev-placeholder-fly-token-not-real
+
+# Cloud workers — optional. Without CLOUD_WORKER_APP the /v1/workers launch
+# routes return 503 and reads still work.
+# CLOUD_WORKER_APP=your-fly-worker-app
+# CLOUD_WORKER_IMAGE=registry.fly.io/your-fly-worker-app:latest
+# CLOUD_WORKER_REGION=iad
+
+# ---------------------------------------------------------------------------
+# Log shipping (BetterStack/Logtail) — optional
+# ---------------------------------------------------------------------------
+# Set BOTH to ship structured logs to BetterStack; leave either unset and the
+# gateway logs to stdout only (captured by your platform's log drain —
+# `wrangler tail`, Fly, etc.). Self-hosting needs neither.
+# BETTERSTACK_LOGS_TOKEN=your_source_token
+# BETTERSTACK_INGESTING_URL=https://your-ingest-host.betterstackdata.com
+
+# ---------------------------------------------------------------------------
+# Error reporting (Sentry-compatible, vendor-neutral) — optional
+# ---------------------------------------------------------------------------
+# Point the DSN at Better Stack Errors, a self-hosted Sentry, or GlitchTip.
+#   - Reporting is ON when a DSN is set and not force-disabled.
+#   - Force OFF (no-op) with ERROR_REPORTING_ENABLED=false or
+#     ERROR_REPORTING_BACKEND=none — no DSN needs to be removed.
+# ERROR_REPORTING_DSN=https://token@your-sentry-host/0
+# ERROR_REPORTING_ENABLED=true
+# ERROR_REPORTING_BACKEND=sentry
+
+# ---------------------------------------------------------------------------
+# Blob storage — optional
+# ---------------------------------------------------------------------------
+# Oversized span payloads are lifted out at ingest. Unset uses the Cloudflare R2
+# binding (wrangler simulates it locally). Point at any S3-compatible store —
+# MinIO, for instance — to run without a Cloudflare account.
+# BLOB_STORAGE_BACKEND=s3
+# BLOB_S3_ENDPOINT=http://127.0.0.1:9300
+# BLOB_S3_REGION=us-east-1
+# BLOB_S3_ACCESS_KEY_ID=your-access-key
+# BLOB_S3_SECRET_ACCESS_KEY=your-secret-key
+# BLOB_S3_BUCKET=trace-blobs
+# BLOB_S3_FORCE_PATH_STYLE=true

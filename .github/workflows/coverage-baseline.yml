@@ -1,0 +1,132 @@
+name: Coverage (main)
+
+# Daily cron, not per-push: this workflow only (a) refreshes the baseline
+# artifact PR runs download for the *informational* coverage-delta comment
+# and (b) opens the auto/coverage-ratchet PR. The gating floors live in
+# scripts/ci/coverage-floors.json and are enforced inside each PR's own
+# Coverage Gate job, so a baseline up to a day stale affects no enforcement.
+# Per-push it ran ~25x/day at ~15 billable min each (June 2026 audit:
+# ~2k min/9 days, 26% of runs cancelled mid-flight by the concurrency
+# group); daily is the same ratchet signal at ~1/25th the cost. Use
+# workflow_dispatch to refresh on demand after a big coverage change.
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-baseline
+  cancel-in-progress: true
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build baseline
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build shared workspace packages
+        # test:coverage is invoked with --only below, which skips ^build.
+        # Workspace deps (e.g. @agentmark-ai/api-types) need their dist/
+        # present before vitest can resolve them. Mirrors the pre-test
+        # build step in ci.yml.
+        run: yarn turbo build --filter='{./packages/*}'
+
+      - name: Run unit tests with coverage
+        # Only workspaces with a `test:coverage` script run; turbo skips the
+        # rest. Their summaries are collected below and gated by
+        # scripts/ci/coverage-floors.json.
+        #
+        # --concurrency=2: turbo's default (10) runs every suite at once on a
+        # 4-vCPU runner, and each vitest process spawns its own worker pool
+        # sized to the CPU count (~10x oversubscription). PR CI never sees this
+        # load — it shards tenant-dashboard onto 3 separate runners — so the
+        # starvation flakes (cli dev-server ECONNREFUSED, v5-adapter tsc/e2e
+        # timeouts, gateway timing assertions) only fired here on main.
+        # De-flaking individual tests just moves the failure to the
+        # next-weakest timing-sensitive test; bounding the load is what works.
+        run: yarn turbo test:coverage --concurrency=2 --filter='{./apps/*}' --filter='{./packages/*}' --filter='!integration-tests' --filter='!@outerlayer/e2e' --only
+
+      - name: Collect summaries
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p /tmp/coverage-baseline
+          for dir in apps/*/coverage packages/*/coverage; do
+            if [ -f "$dir/coverage-summary.json" ]; then
+              workspace="$(dirname "$dir")"
+              mkdir -p "/tmp/coverage-baseline/$workspace/coverage"
+              cp "$dir/coverage-summary.json" "/tmp/coverage-baseline/$workspace/coverage/"
+            fi
+          done
+          # Non-hidden filename: actions/upload-artifact@v7 excludes dotfiles
+          # by default, so /tmp/coverage-baseline/.sha was silently dropped
+          # from the artifact and downstream PRs rendered no delta.
+          echo "$COMMIT_SHA" > /tmp/coverage-baseline/sha.txt
+
+      - name: Upload baseline artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-baseline
+          path: /tmp/coverage-baseline/
+          retention-days: 30
+
+      - name: Ratchet floors
+        run: node scripts/ci/ratchet-coverage-floors.mjs
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if [ -n "$(git status --porcelain scripts/ci/coverage-floors.json)" ]; then
+            echo "has_changes=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.has_changes == '1'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          # PAT (not GITHUB_TOKEN) so workflows trigger on the auto-PR.
+          # GitHub suppresses workflow runs for events created by the
+          # repo-scoped GITHUB_TOKEN as a recursion guard, which leaves
+          # bot-opened PRs stuck on "BLOCKED — required checks missing".
+          # Same pattern as update-pricing.yml.
+          token: ${{ secrets.MODEL_REGISTRY_TOKEN }}
+          # Commit ONLY the floor file. The coverage run regenerates other
+          # working-tree files (e.g. prompt-core test fixtures) as a side
+          # effect; without this, create-pull-request defaults to committing
+          # ALL changes, sweeping those into the auto PR. Those paths match the
+          # `app-code`/`oss-packages` path filters in ci.yml and would
+          # trigger the full test matrix on a PR that only bumps a number.
+          # `coverage-floors.json` matches no filter, so a floor-only PR runs
+          # no heavy jobs.
+          add-paths: scripts/ci/coverage-floors.json
+          commit-message: "chore(coverage): auto-ratchet floors from main"
+          title: "chore(coverage): auto-ratchet floors"
+          body: |
+            Automated bump of `scripts/ci/coverage-floors.json` based on actual coverage on `main`.
+
+            Bump policy lives in `scripts/ci/ratchet-coverage-floors.mjs` (`computeBumpedFloor`). Review the diff and merge.
+          branch: auto/coverage-ratchet
+          base: main
+          delete-branch: true
+          labels: automation,coverage

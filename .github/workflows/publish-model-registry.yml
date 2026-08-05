@@ -1,0 +1,105 @@
+name: Publish Model Registry
+
+# Publishes the model price registry to the KV namespaces the gateway reads at
+# runtime, so a newly-priced model reaches production WITHOUT waiting for a
+# worker deploy. That gap is why a model released since the running deploy was
+# stored at cost 0: the price map was frozen at build time.
+#
+# Triggered on main rather than from the sync workflow on purpose — KV must
+# mirror what is MERGED, not what an unreviewed auto-sync branch proposed.
+# Publishing both namespaces from one push is deliberate too: production
+# deploys are manual, and gating prices behind them recreates the staleness
+# this exists to remove. Prices are the same upstream facts for both.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/model-registry/models.json"
+      - "packages/model-registry/overrides.json"
+  workflow_dispatch:
+    # Manual re-publish, e.g. to seed a namespace for the first time or to
+    # recover one after an accidental delete.
+
+permissions:
+  contents: read
+
+concurrency:
+  # Last write wins; an older registry must never overwrite a newer one.
+  group: publish-model-registry
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to KV
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The Cloudflare token is scoped to the wrangler steps below, NOT job-wide:
+    # a job-level secret is in the environment of every step, including
+    # `yarn install`, which runs third-party lifecycle scripts.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      # The publish and read-back steps resolve wrangler through the gateway
+      # workspace, which requires an installed node_modules state.
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # Fail loudly on a malformed registry BEFORE it reaches a namespace the
+      # gateway reads. The runtime guard treats a non-registry document as a
+      # failed refresh and keeps the bundled snapshot, so a bad publish
+      # degrades rather than breaks — but it should not get that far.
+      - name: Validate the registry documents
+        run: |
+          for f in packages/model-registry/models.json packages/model-registry/overrides.json; do
+            node -e "
+              const doc = require('./$f');
+              const n = Object.keys(doc.models ?? {}).length;
+              if (n === 0) { console.error('$f has no models — refusing to publish'); process.exit(1); }
+              console.log('$f: ' + n + ' models');
+            "
+          done
+
+      - name: Publish to staging and production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # Keep these in sync with apps/gateway/wrangler.toml.
+          STAGING_ID=b7ea03a52afc419fa56f3ef5a3229988
+          PROD_ID=1517b77d0dbb44bc9cb578587aacb371
+          for ns in "$STAGING_ID" "$PROD_ID"; do
+            for f in models overrides; do
+              # Through the gateway workspace, which owns the wrangler dependency:
+              # pins the version the Worker is built with instead of whatever npx
+              # resolves, and keeps the dependency declared where it is used.
+              # `yarn workspace … exec` runs with the workspace (apps/gateway)
+              # as cwd, so the registry path must be anchored to the repo root.
+              yarn workspace gateway exec wrangler kv key put "$f.json" \
+                --path "$GITHUB_WORKSPACE/packages/model-registry/$f.json" \
+                --namespace-id "$ns" --remote
+            done
+          done
+
+      - name: Confirm the published copy is readable
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # An ack is not proof the value landed; read it back and check it
+          # parses as a registry before calling the publish a success.
+          for ns in b7ea03a52afc419fa56f3ef5a3229988 1517b77d0dbb44bc9cb578587aacb371; do
+            yarn workspace gateway exec wrangler kv key get "models.json" \
+              --namespace-id "$ns" --remote > /tmp/published.json
+            node -e "
+              const doc = require('/tmp/published.json');
+              const n = Object.keys(doc.models ?? {}).length;
+              if (n === 0) { console.error('published copy has no models'); process.exit(1); }
+              console.log('namespace $ns: ' + n + ' models readable');
+            "
+          done

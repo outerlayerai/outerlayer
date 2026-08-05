@@ -1,0 +1,26 @@
+{
+  "name": "@repo/worker-core",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "description": "Shared, Workers-safe core for cloud workers: the WorkerDispatchAdapter port + its Fly implementation, normalized transcript event types, the worker params/callback wire schemas, and the callback-apply core. Pure, runtime-agnostic code — no Node built-ins, no app imports — so it bundles into both the Next.js dashboard and the Cloudflare Workers gateway. The Node-only LocalWorkerAdapter and the production factory stay in the dashboard app; the machine-side runner (apps/worker) deliberately duplicates the wire schemas instead of importing this package.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@outerlayer/session-schema": "workspace:*",
+    "@supabase/supabase-js": "2.111.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@repo/db-types": "*",
+    "@repo/typescript-config": "*",
+    "@vitest/coverage-v8": "^4.1.8",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

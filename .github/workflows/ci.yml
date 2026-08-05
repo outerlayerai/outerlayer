@@ -1,0 +1,1570 @@
+name: CI
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, ready_for_review]
+
+# Cancel in-progress runs when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SUPABASE_CLI_VERSION: 'v2.72.8'
+  # TURBO_TOKEN is deliberately NOT here: a workflow-level secret is in the
+  # environment of every step, including `yarn install`, which runs third-party
+  # lifecycle scripts. It is passed only to the steps that invoke turbo (and to
+  # the setup-workspace action's `turbo-token` input).
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+# Least-privilege default; jobs elevate as needed.
+# detect-changes' dorny/paths-filter calls GitHub's listFiles API on
+# pull_request events, which needs pull-requests: read (both are read-only).
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # Detect which files changed to conditionally run downstream jobs
+  detect-changes:
+    name: Detect Changes
+    if: github.event.pull_request.draft == false
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 2
+    outputs:
+      app-code: ${{ steps.filter.outputs.app-code }}
+      dashboard: ${{ steps.filter.outputs.dashboard }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      gateway-contract: ${{ steps.filter.outputs.gateway-contract }}
+      packages: ${{ steps.filter.outputs.packages }}
+      migrations: ${{ steps.filter.outputs.migrations }}
+      openapi: ${{ steps.filter.outputs.openapi }}
+      integration-deps: ${{ steps.filter.outputs.integration-deps }}
+      infra: ${{ steps.filter.outputs.infra }}
+      docs: ${{ steps.filter.outputs.docs }}
+      agentmark-scripts: ${{ steps.filter.outputs.agentmark-scripts }}
+      supabase: ${{ steps.filter.outputs.supabase }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
+        id: filter
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - '*.md'
+            app-code:
+              - 'apps/**'
+              - 'packages/**'
+            dashboard:
+              - 'apps/tenant-dashboard/**'
+            gateway:
+              # The CF shell AND the extracted runtime-neutral core — both hold
+              # gateway behavior the gateway jobs (incl. the dedicated MinIO
+              # blob-storage integration test) must gate on.
+              - 'apps/gateway/**'
+              - 'packages/gateway-core/**'
+            gateway-contract:
+              # The actual API contract: top-level openapi source + route
+              # definitions + the spec + shared schemas. Deliberately does NOT
+              # include the test dir (openapi/__tests__/**) so a test-only change
+              # (e.g. an assertion-strengthening pass) does not trigger the deep
+              # schemathesis contract fuzz — the contract is unchanged.
+              # (paths-filter ORs its patterns, so a `!__tests__` negation would
+              # NOT exclude; positive patterns are the reliable way.)
+              # The openapi app + routes live in packages/gateway-core since the
+              # extraction.
+              - 'packages/gateway-core/src/openapi/*.ts'
+              - 'packages/gateway-core/src/openapi/routes/**'
+              - 'packages/api-schemas/**'
+              - 'docs/openapi.yaml'
+            packages:
+              - 'packages/**'
+            migrations:
+              - 'apps/tenant-dashboard/supabase/migrations/**'
+              - 'apps/tenant-dashboard/clickhouse/migrations/**'
+            openapi:
+              # The generated API contract. oasdiff compares the PR's
+              # docs/openapi.yaml against base and fails on breaking changes.
+              - 'docs/openapi.yaml'
+            integration-deps:
+              - 'apps/tenant-dashboard/**'
+              - 'apps/integration-tests/**'
+              - 'packages/**'
+            infra:
+              - '.github/**'
+              - 'turbo.json'
+              - 'package.json'
+              - 'yarn.lock'
+              - 'tsconfig*.json'
+              # Repo-root gate scripts (pre-push/CI checks + their tests). A
+              # scripts-only push must still reach static-checks so its baseline
+              # gates and the scripts vitest project run server-side.
+              - 'scripts/**'
+            agentmark-scripts:
+              - 'scripts/should-deploy.sh'
+              - 'scripts/test-should-deploy.sh'
+            supabase:
+              - 'apps/tenant-dashboard/supabase/**'
+
+  repo-guards:
+    name: Repo Guards
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 8
+    # CD config validation and docs validation share ONE always-on job: split
+    # across jobs each would bill a full runner minute for ~1 min of work (see
+    # the static-checks comment for the billing rationale). Conditional pieces
+    # self-skip via detect-changes outputs at the step level.
+    needs: detect-changes
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      # Two migrations sharing a filename version prefix can never both be
+      # recorded as applied — schema_migrations keys on that prefix alone. The
+      # collision only exists once the branches are merged, so this reads the
+      # whole directory (on a pull_request, checkout gives us base+head) rather
+      # than the PR's changed files, and runs unconditionally: a PR that adds
+      # no migration can still be the half of the pair that lands second.
+      # Invoked as plain node, not `yarn ci:migration-versions`: this job never
+      # installs the workspace, and the check has no dependencies to need one.
+      - name: Migration version collision gate
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/check-migration-versions.mjs
+
+      # Regression test — proves the gate above still catches a duplicate
+      # version, an unparseable filename, and a zero-padding-equal collision.
+      - name: Regression test — migration version collision gate
+        if: ${{ !cancelled() }}
+        run: scripts/ci/verify-migration-versions-detects-violation.sh
+
+      # A package.json `license` string is a public grant of rights: npm ships it
+      # verbatim to every installer, and nothing else in the build checks it
+      # against the per-directory map in LICENSING.md. Plain node (no workspace
+      # install in this job), same as the migration gate above.
+      - name: License map gate
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/check-license-map.mjs
+
+  # Shared install + build step; downstream jobs restore from cache.
+  # Uses a content-based cache key so repeated runs with unchanged deps/OSS
+  # skip the ~5 min install+build entirely.
+  prepare:
+    name: Prepare
+    # 4 vCPU: install + turbo build parallelize well, and every other job
+    # waits on this one — runner-rate doubles but duration roughly halves,
+    # so it's cost-neutral and shortens the whole pipeline's critical path.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    needs: detect-changes
+    if: needs.detect-changes.outputs.app-code == 'true' || needs.detect-changes.outputs.infra == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      # Dependency cache — keyed ONLY on yarn.lock so a source-file change
+      # doesn't bust it. When yarn.lock is unchanged this hits and the
+      # install below is skipped (the ~4.8 min serial cost this split removes).
+      - name: Restore dependency cache
+        id: deps-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: deps-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}
+
+      # Build cache — keyed on source-file content (the original content hash).
+      # A source change busts THIS but not the deps cache, so the build below
+      # runs incrementally against a warm .turbo while install is skipped.
+      - name: Restore build cache
+        id: build-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            .turbo
+            packages/*/dist
+          key: build-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/*/src/**', 'packages/*/package.json') }}
+          restore-keys: |
+            build-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}-
+
+      # A restore-keys hit means these artifacts were built from DIFFERENT
+      # sources. Turbo re-derives everything it decides to rebuild, but a file
+      # the current sources no longer emit would otherwise survive in dist and
+      # be tested — or published — as if this build had produced it. Only the
+      # `.turbo` half of the cache is safe to carry across a partial match.
+      - name: Discard build artifacts from a partial cache match
+        if: steps.build-cache.outputs.cache-matched-key != '' && steps.build-cache.outputs.cache-hit != 'true'
+        run: rm -rf packages/*/dist
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+      # Always run: `turbo build` is incremental (warm .turbo from build-cache
+      # + Turbo remote cache via TURBO_TOKEN/TURBO_TEAM), so it no-ops
+      # unchanged packages and only rebuilds what actually changed.
+      - name: Build shared workspace packages
+        run: yarn turbo build --filter='{./packages/*}'
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Save dependency cache (content-keyed)
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: deps-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}
+
+      - name: Save build cache (content-keyed)
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            .turbo
+            packages/*/dist
+          key: build-${{ runner.os }}-node24-v4-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/*/src/**', 'packages/*/package.json') }}
+
+      # Downstream jobs restore the deps + build caches above directly (via the
+      # setup-workspace composite action), so prepare saves no per-run workspace
+      # cache. Adding one back costs ~1 min of cache-save on prepare's tail every
+      # run, and double-saves node_modules on a cold run (once as the deps cache,
+      # again inside the run-scoped cache).
+
+  # Static checks — lint, type check, security audit, knip, and the
+  # test-quality ratchet gates in ONE job. Each was 10-40s of real work
+  # billed as a full runner minute plus its own VM boot + checkout + cache
+  # restore (June 2026 audit: the micro-jobs cost ~16 billable min per CI
+  # run, ~17% of the org Actions bill). 4 vCPU so the sequential steps
+  # (typecheck dominates) stay off the critical path. Check steps run under
+  # `!cancelled()` guards so one failure doesn't hide the others' results;
+  # the job still fails if any step failed.
+  static-checks:
+    name: Static Checks
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.app-code == 'true' || needs.detect-changes.outputs.infra == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        id: workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Run linting
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn turbo lint --filter='{./apps/*}' --filter='{./packages/*}'
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Run type check
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:typecheck
+        env:
+          NODE_OPTIONS: '--max-old-space-size=8192'
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Run security audit
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn npm audit --severity high --recursive
+
+      - name: Run knip
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:knip
+
+      # config.toml's declarative schema_paths list is hand-maintained; a file
+      # named there but deleted from supabase/schemas/ makes `supabase db diff`
+      # abort instead of comparing schemas, which the drift gate in
+      # supabase-checks reads as "no drift" unless it checks the exit code.
+      # Catches the stale list here, before that job even starts.
+      - name: Schema paths guard (config.toml vs supabase/schemas/)
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: scripts/ci/check-schema-paths.sh
+
+      # Root "scripts" vitest project (gate predicates + mutation-shard packing).
+      # It runs in no other job, so grade it here whenever static-checks runs.
+      - name: Run gate-script unit tests
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: npx vitest run --project scripts
+
+      # Every stryker.config*.mjs's `mutate` glob (and SCOPED_FLOORS' path list
+      # in patch-mutation.mjs) must actually resolve to a file on disk — a
+      # renamed or deleted source file otherwise leaves a mutation floor being
+      # satisfied against a smaller corpus than intended, with nothing else in
+      # the pipeline noticing. See scripts/ci/check-stryker-mutate-targets.mjs.
+      - name: Stryker mutate-target integrity gate
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:stryker-mutate-targets
+
+      # Test-quality ratchet gates, promoted from local-hook-only to a
+      # blocking CI check (via ci-gate needs). Both scripts glob test files
+      # and compare against shrink-only baselines; they import `glob` and a
+      # workspace package, so they need the installed workspace.
+      - name: Weak test-assertion gate (shrink-only baseline)
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:weak-test-assertions
+
+      - name: No Supabase client mocks in tests (shrink-only baseline)
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:supabase-test-mocks
+
+      # Byte-exact: the role_permissions seed block + the shared permission map
+      # are generated from packages/db-types/permission-seed.json. Fails if the
+      # committed artifacts drift from a fresh `codegen:permissions` run.
+      - name: Permission codegen is up to date (byte-exact)
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:permission-codegen
+
+      # Keeps the RLS-bypassing admin client inside the service layer (S4 bug
+      # class): shrink-only baseline of createSupabaseAdminClient() outside
+      # src/services|ee/services.
+      - name: Data-access boundary gate (shrink-only baseline)
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:data-access-boundary
+
+      # Keeps a build (esbuild) from bundling another app's source without
+      # declaring it as a dependency — the coupling stays visible to the
+      # workspace graph (turbo/yarn/knip). See finding #6e.
+      - name: Cross-app bundling gate
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:cross-app-bundling
+
+      # Every ClickHouse client construction site must carry per-query memory
+      # caps (guarded factory or allowlisted with caps of its own) — one
+      # unbounded query shape on a shared instance takes down every co-tenant
+      # workload. See scripts/ci/check-clickhouse-client-guardrails.mjs.
+      - name: ClickHouse client guardrails
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:clickhouse-client-guardrails
+
+      # A credential-shaped workflow `env:` value must come from an expression,
+      # never a literal. This catches the one class secret scanning cannot: a
+      # human-chosen password is low-entropy prose with no prefix, so no
+      # entropy- or prefix-based detector fires on it. Position is the only
+      # signal. See scripts/ci/check-workflow-secret-literals.mjs.
+      - name: Workflow secret literals
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:workflow-secret-literals
+
+      # Keeps a published (non-private) workspace from depending on a private
+      # one — that breaks a standalone `npm install` of the published package
+      # (the private dependency was never published). See scripts/ci/check-
+      # publish-safety.mjs.
+      - name: Publish safety gate
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:publish-safety
+
+      # Regression test — proves the gate above still fires on a synthetic
+      # violation and still respects a fresh (non-rotted) allowlist entry.
+      - name: Regression test — publish safety gate
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: scripts/ci/verify-publish-safety-detects-violation.sh
+
+      # Regression test — proves the API-tenancy gate still fires on a new
+      # legacy route and still catches a rotted allowlist entry.
+      - name: Regression test — API tenancy allowlist gate
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: scripts/ci/verify-api-tenancy-allowlist-detects-violation.sh
+
+      # Joins a spec's acceptance criteria to the tests that prove them. Every
+      # other gate here asks whether the code matches itself; this one asks
+      # whether it matches what was specified. Hard-fails on a labeled
+      # criterion no test cites (and on a test citing a criterion that no
+      # longer exists); the count of still-unlabeled criteria is a shrink-only
+      # floor. See scripts/ci/check-acceptance-coverage.mjs.
+      - name: Acceptance criteria coverage gate
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:acceptance-coverage
+
+      # Regression test — proves the gate above still catches an unbound
+      # criterion, an orphaned citation, and a floor regression.
+      - name: Regression test — acceptance criteria coverage gate
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: scripts/ci/verify-acceptance-coverage-detects-violation.sh
+
+  # Unit tests — sharded by workspace so the heavy tenant-dashboard suite
+  # (278 files / 3878 tests, ~3.6 min with coverage) gets its own runner
+  # instead of contending with gateway + packages for the same cores under
+  # turbo (which serialised them into one ~7 min job). Each lane emits its
+  # OWN complete per-workspace coverage; the coverage-gate job below
+  # aggregates and runs the floor + patch-coverage gates on the full picture.
+  # No coverage is merged WITHIN a workspace, so each gate sees exactly the
+  # same per-workspace totals it saw before — just produced in parallel.
+  # Unit tests — sharded for parallelism. The tenant-dashboard suite (278 files
+  # / ~3900 tests, ~7 min with coverage on a CI runner) is the bottleneck, so
+  # it's split across 3 vitest shards that each emit a blob (coverage rides
+  # inside the blob); the coverage-gate job merges the blobs into ONE complete
+  # report — validated lossless vs an unsharded run — before the floor/patch
+  # gates. The `rest` lane runs every other workspace and emits coverage
+  # directly. turbo still cache-skips an unchanged dashboard (the blob is a
+  # cached output), so a non-dashboard PR replays the shards instantly.
+  unit-tests:
+    name: Unit Tests (${{ matrix.lane }})
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.app-code == 'true' || needs.detect-changes.outputs.infra == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { lane: dashboard-1, kind: dashboard, shard: '1/3' }
+          - { lane: dashboard-2, kind: dashboard, shard: '2/3' }
+          - { lane: dashboard-3, kind: dashboard, shard: '3/3' }
+          - { lane: rest, kind: rest, shard: '' }
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Run unit tests with coverage
+        # dashboard-* = the tenant-dashboard suite, vitest --shard'd k/3, each
+        # lane emitting a blob. rest = every other apps/* + packages/* workspace,
+        # emitting coverage/ directly. KIND/SHARD are controlled matrix values,
+        # never user input.
+        env:
+          KIND: ${{ matrix.kind }}
+          SHARD: ${{ matrix.shard }}
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+        run: |
+          if [ "$KIND" = "dashboard" ]; then
+            # Disable vitest's per-run coverage thresholds here: a single shard
+            # only runs 1/3 of the suite, so its standalone coverage is far below
+            # the threshold by construction. The thresholds apply to the MERGED
+            # coverage, enforced once in coverage-gate (check-coverage-floors.mjs
+            # at the workspace's real floor, 38.8%). Shards only produce blobs.
+            yarn turbo test:coverage --filter=tenant-dashboard -- \
+              --reporter=blob --shard="$SHARD" \
+              --coverage.thresholds.statements=0 --coverage.thresholds.branches=0 \
+              --coverage.thresholds.functions=0 --coverage.thresholds.lines=0
+          else
+            yarn turbo test:coverage --filter='{./apps/*}' --filter='{./packages/*}' --filter='!tenant-dashboard' --filter='!integration-tests' --filter='!@outerlayer/e2e'
+          fi
+
+      - name: Package artifact for aggregation
+        # dashboard lanes ship their vitest blob (merged later); the rest lane
+        # ships its complete per-workspace coverage/ dirs. A lane that produced
+        # nothing (a real fault) makes tar fail loudly rather than ship an empty
+        # artifact that would silently skip a floor.
+        env:
+          KIND: ${{ matrix.kind }}
+          LANE: ${{ matrix.lane }}
+        run: |
+          if [ "$KIND" = "dashboard" ]; then
+            tar -czf "unit-$LANE.tgz" -C apps/tenant-dashboard .vitest-reports
+          else
+            tar -czf "unit-$LANE.tgz" $(find apps packages -maxdepth 2 -type d -name coverage)
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-${{ matrix.lane }}
+          path: unit-${{ matrix.lane }}.tgz
+          retention-days: 1
+
+  # `next build` gate — the bundler's server/client graph analysis is the only
+  # check that catches a `server-only`-marked module (or a module that became
+  # client-by-inheritance after an RSC conversion) reaching the client graph.
+  # Neither typecheck, lint, nor vitest exercises this: both failure classes
+  # have shipped green through the rest of CI and broken only at Vercel
+  # deploy. Uses the same compiler Vercel production uses (plain `next build`,
+  # same as the repo's own `build` script — no `--webpack` override).
+  dashboard-build:
+    name: Dashboard Build
+    # 2 vCPU: unlike `prepare` (every other job's dependency) or static-checks
+    # (typecheck dominates a long sequential step list), this job is a single
+    # leaf step nothing else waits on — ci-gate's fan-in already waits on
+    # everything regardless. Watch the first cold run's actual wall-clock
+    # against the timeout below; bump to 4 vCPU if it runs hot.
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.dashboard == 'true' || needs.detect-changes.outputs.packages == 'true' || needs.detect-changes.outputs.infra == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      # Next.js's own incremental-build cache. Cache entries are PR-scoped
+      # (this workflow only triggers on pull_request, never a push to main),
+      # so the key stays coarse — lockfile + next.config.* only — to let
+      # every push within the same PR reuse the same entry; hashing source
+      # content here would mint a new entry on every synchronize push (source
+      # changes every push, by definition) and defeat that reuse. Next itself
+      # revalidates cache content against the files it actually reads before
+      # reusing it, so a coarse key can't serve stale output.
+      - name: Restore Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: apps/tenant-dashboard/.next/cache
+          key: next-build-${{ runner.os }}-v1-${{ hashFiles('yarn.lock') }}-${{ hashFiles('apps/tenant-dashboard/next.config.*') }}
+          restore-keys: |
+            next-build-${{ runner.os }}-v1-${{ hashFiles('yarn.lock') }}-
+
+      # Placeholders only — this job checks build-GRAPH validity (does the
+      # bundle compile, does server-only code stay out of the client graph),
+      # not a runnable deployment, so no real secrets are needed. Values
+      # mirror the shapes the dashboard's env schema expects (URLs are
+      # `.url()`-validated). SKIP_ENV_VALIDATION bypasses the server-side zod
+      # schema in src/env.ts entirely (same mechanism the e2e dashboard boot
+      # uses locally); the five NEXT_PUBLIC_* vars below are still required
+      # because src/env.ts's `runtimeEnv` reads them directly even when
+      # validation is skipped.
+      - name: Build dashboard (next build)
+        working-directory: apps/tenant-dashboard
+        env:
+          SKIP_ENV_VALIDATION: 'true'
+          NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321'
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'ci-build-graph-placeholder'
+          NEXT_PUBLIC_APP_URL: 'http://localhost:3002'
+        run: yarn build
+
+  # Coverage gate — aggregates per-workspace coverage from every unit-tests
+  # lane and runs the confidence gates (aggregate floors, patch coverage, type
+  # suppression, quarantine staleness) on the COMPLETE picture. Split out of
+  # the unit-tests job so test execution can shard; the gate scripts are pure
+  # Node (node: builtins only, no node_modules) and finish in seconds. Runs
+  # only after every lane passes — coverage is only meaningful on a green suite.
+  coverage-gate:
+    # Stays on GitHub-hosted: vitest blobs embed absolute source paths from
+    # the producing runner, and
+    # Blacksmith checks out at /home/runner/_work (vs GitHub's /home/runner/
+    # work), so the coverage merge dies when blob paths don't resolve. The
+    # reassemble step now normalizes both prefixes to ${GITHUB_WORKSPACE},
+    # which makes the merge runner-agnostic — but this job is ~1 min/run
+    # (~$3/mo on GitHub), so we keep it on the boring proven runner rather
+    # than spend canary cycles validating the merge on Blacksmith too.
+    name: Coverage Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: [detect-changes, prepare, unit-tests]
+    if: needs.detect-changes.outputs.app-code == 'true' || needs.detect-changes.outputs.infra == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      # Needs the workspace (not just node) because it runs `vitest
+      # --merge-reports` to reassemble the sharded dashboard coverage.
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Download unit artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unit-*
+          path: /tmp/unit-artifacts
+
+      - name: Reassemble coverage (merge sharded dashboard blobs)
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # rest lane: complete per-workspace coverage/ dirs, dropped in place.
+          for tgz in /tmp/unit-artifacts/unit-rest/unit-rest.tgz; do
+            tar -xzf "$tgz" -C .
+          done
+          # dashboard: collect the per-shard vitest blobs, then let Vitest merge
+          # them into one COMPLETE coverage report. Validated lossless vs an
+          # unsharded run, so the floor/patch gates see identical numbers.
+          mkdir -p apps/tenant-dashboard/.vitest-reports
+          for tgz in /tmp/unit-artifacts/unit-dashboard-*/unit-dashboard-*.tgz; do
+            tar -xzf "$tgz" -C apps/tenant-dashboard
+          done
+          echo "Dashboard blobs:"; ls apps/tenant-dashboard/.vitest-reports/
+          # Start from a clean slate so artifact validation below can't pass
+          # on stale output from a cache or a previous attempt.
+          rm -rf apps/tenant-dashboard/coverage
+          # Normalize absolute paths embedded in coverage artifacts. Blacksmith
+          # runners check out at /home/runner/_work/... (the actions-runner
+          # default) while GitHub-hosted uses /home/runner/work/...; vitest
+          # blobs and coverage summaries record absolute source paths from the
+          # producing runner, and `vitest --merge-reports --coverage` exits 1
+          # SILENTLY (green replay, no error, no summary) when those sources
+          # don't exist on this machine. Rewriting the blob paths alone makes
+          # the identical blobs merge cleanly. Map both
+          # known prefixes to THIS job's workspace so unit lanes and this gate
+          # can run on different runner types. Summaries are normalized too so
+          # report-coverage-delta.mjs's absolute-path baseline lookups match.
+          find apps/tenant-dashboard/.vitest-reports -name 'blob-*.json' -exec \
+            sed -i -e "s|/home/runner/_work/app/app|${GITHUB_WORKSPACE}|g" \
+                   -e "s|/home/runner/work/app/app|${GITHUB_WORKSPACE}|g" {} +
+          find apps packages -path '*/coverage/coverage-summary.json' -exec \
+            sed -i -e "s|/home/runner/_work/app/app|${GITHUB_WORKSPACE}|g" \
+                   -e "s|/home/runner/work/app/app|${GITHUB_WORKSPACE}|g" {} +
+          # Regenerate the merged coverage reports only — no vitest threshold
+          # gate here; check-coverage-floors.mjs below is the sole dashboard
+          # authority (at the real 38.8% floor, not vitest's looser 22%).
+          #
+          # Don't trust vitest's exit code: the merge process has crashed with
+          # exit 1 AFTER successfully writing both coverage reports (all
+          # replayed tests green, no summary printed). The
+          # gates below are the real authority, so judge this step by its
+          # deliverables: coverage-summary.json (floors gate) and lcov.info
+          # (patch gate). Retry once for genuine crashes that produced nothing.
+          merge_ok=false
+          for attempt in 1 2; do
+            if yarn workspace tenant-dashboard vitest run --merge-reports --coverage \
+              --coverage.reporter=json-summary --coverage.reporter=lcov \
+              --coverage.thresholds.statements=0 --coverage.thresholds.branches=0 \
+              --coverage.thresholds.functions=0 --coverage.thresholds.lines=0; then
+              merge_ok=true
+            else
+              echo "::warning::vitest --merge-reports exited non-zero (attempt ${attempt})"
+            fi
+            if node -e "
+              const s = require('./apps/tenant-dashboard/coverage/coverage-summary.json');
+              const lines = s.total?.lines?.total;
+              if (!Number.isFinite(lines) || lines <= 0) throw new Error('empty totals');
+              require('fs').accessSync('./apps/tenant-dashboard/coverage/lcov.info');
+            "; then
+              if [ "$merge_ok" = false ]; then
+                echo "::warning::merge crashed after writing valid coverage reports — continuing; floors/patch gates below are the authority"
+              fi
+              merge_ok=true
+              break
+            fi
+            echo "Coverage reports missing or invalid after attempt ${attempt}"
+            merge_ok=false
+            rm -rf apps/tenant-dashboard/coverage
+          done
+          if [ "$merge_ok" = false ]; then
+            echo "::error::coverage merge failed to produce valid reports after 2 attempts"
+            exit 1
+          fi
+          echo "Coverage dirs present:"
+          find apps packages -maxdepth 2 -type d -name coverage | sort
+
+      - name: Output coverage summary
+        if: always()
+        run: node scripts/ci/summarize-coverage.mjs
+
+      - name: Enforce coverage floors
+        run: node scripts/ci/check-coverage-floors.mjs
+
+      - name: Download coverage baseline from main
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p /tmp/coverage-baseline
+          # `gh api` returns 404 if the workflow hasn't landed on main yet.
+          # Swallow all failures here — baseline is optional, reporter handles
+          # its absence gracefully.
+          RUN_ID=$(gh api "repos/$REPO/actions/workflows/coverage-baseline.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id // ""' 2>/dev/null || echo "")
+          if [ -n "$RUN_ID" ]; then
+            gh run download "$RUN_ID" --repo "$REPO" --name coverage-baseline --dir /tmp/coverage-baseline || echo "No baseline artifact yet"
+            # Baseline summaries embed absolute paths from the producing
+            # runner (coverage-baseline.yml runs on Blacksmith → /home/runner/
+            # _work). Normalize to THIS workspace so report-coverage-delta's
+            # absolute-path lookups match the PR-side summaries.
+            find /tmp/coverage-baseline -name 'coverage-summary.json' -exec \
+              sed -i -e "s|/home/runner/_work/app/app|${GITHUB_WORKSPACE}|g" \
+                     -e "s|/home/runner/work/app/app|${GITHUB_WORKSPACE}|g" {} + 2>/dev/null || true
+            # Accept either sha.txt (what this workflow writes) or .sha, which
+            # older artifacts still inside the 30-day retention window use.
+            # Drop the fallback once no such artifact can still be restored.
+            SHA_FILE=""
+            if [ -f /tmp/coverage-baseline/sha.txt ]; then
+              SHA_FILE=/tmp/coverage-baseline/sha.txt
+            elif [ -f /tmp/coverage-baseline/.sha ]; then
+              SHA_FILE=/tmp/coverage-baseline/.sha
+            fi
+            if [ -n "$SHA_FILE" ]; then
+              {
+                echo "BASELINE_SHA=$(cat "$SHA_FILE")"
+              } >> "$GITHUB_ENV"
+            fi
+          else
+            echo "No successful coverage-baseline run on main yet — skipping baseline fetch."
+          fi
+
+      - name: List changed files
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: gh api "repos/$REPO/pulls/$PR_NUM/files?per_page=100" --paginate --jq '.[].filename' > /tmp/changed-files.txt
+
+      - name: Report coverage delta
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/ci/report-coverage-delta.mjs
+
+      - name: Enforce patch coverage
+        # always() so we still report when the aggregate floor failed —
+        # patch % helps the author see whether THEIR code or the floor
+        # itself is the problem.
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/ci/check-patch-coverage.mjs
+
+      - name: Enforce type suppression floors
+        run: node scripts/ci/check-type-suppression-floors.mjs
+
+      - name: Enforce unused-exports floor (knip exports + types, two-way)
+        run: node scripts/ci/check-unused-exports-floor.mjs
+
+      - name: Enforce API tenancy allowlist (shrink-only)
+        run: node scripts/ci/check-api-tenancy-allowlist.mjs
+
+      - name: Check quarantine staleness
+        if: always()
+        run: node scripts/ci/check-quarantine-staleness.mjs
+
+  # Patch mutation — runs Stryker scoped to the source files this PR changed and
+  # fails if their tests don't kill enough mutants. Catches fake-green tests (a
+  # test that runs the code but asserts nothing — e.g. the metering-jobs 0%
+  # incident) at PR time instead of waiting for the nightly. Enforced where the
+  # full suite runs cleanly under one vitest config (dashboard + packages, where
+  # fake-green tests concentrate); gateway's separate workers project means its
+  # suite can't run as one, so the script leaves gateway unenforced rather than
+  # report false survivors. Tunable via PATCH_MUTATION_THRESHOLD / _MIN_MUTANTS.
+  patch-mutation:
+    name: Patch Mutation (${{ matrix.shard }}/3)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Shard the changed files across 3 runners so the mutant phase — ~70% of a
+    # slow run and embarrassingly parallel — executes 3-way concurrently. Each
+    # shard grades its own files at their own thresholds and the CI Gate ANDs
+    # the shards, so enforcement is unchanged; only wall-clock drops. Small
+    # diffs run entirely on shard 1 (the rest skip in seconds), so a tiny PR
+    # never pays a tripled dry-run. fail-fast off so one shard's real failure
+    # still lets the others report their survivors.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    # Backstop only. patch-mutation.mjs self-budgets Stryker to
+    # PATCH_MUTATION_BUDGET_MIN (12m) and degrades an over-budget run to an
+    # advisory PASS, so a large diff never hard-cancels this job into a red CI
+    # Gate. This ceiling sits above that budget + setup so the script's graceful
+    # path always wins; reaching it means the script's own timeout failed.
+    # 40 (not 30): the budget timer only arms when Stryker spawns, so workspace
+    # setup + instrument + the scoped dry run can eat >6 min first — at 30 the
+    # ceiling fired before the budget on a large diff and hard-cancelled the
+    # job the graceful path was about to advisory-pass.
+    timeout-minutes: 40
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.dashboard == 'true' || needs.detect-changes.outputs.packages == 'true' || needs.detect-changes.outputs.gateway == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: List changed files (with patch hunks)
+        # NDJSON ({"filename","patch"} per line) rather than bare filenames:
+        # patch-mutation.mjs parses the hunks into Stryker line ranges so it
+        # mutates only the DIFF. Whole-file mutation at gateway-route scale is
+        # unaffordable (3 changed route files → 840 mutants ≈ 3-4 h at the
+        # nightly's observed s/mutant, which burns the full 24-min budget for
+        # zero enforcement). A file whose patch the API omits (huge/binary)
+        # degrades to whole-file.
+        #
+        # Resilience: a transient GitHub API failure must not hard-fail this
+        # required gate. On failure the list is empty/absent and patch-mutation
+        # falls back to a git diff (empty on the shallow PR checkout), so the
+        # gate skips rather than blocks — matching the "infra failures warn+pass"
+        # goal and the unit-tests job's similar step. (Flagged by cubic.)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: gh api "repos/$REPO/pulls/$PR_NUM/files?per_page=100" --paginate --jq '.[] | {filename, patch}' > /tmp/changed-files.ndjson
+
+      - name: Run patch mutation
+        env:
+          PATCH_MUTATION_CHANGED_FILES: /tmp/changed-files.ndjson
+          # This shard's slice of the changed files. The script flattens all
+          # targets, splits them into 3 contiguous chunks, and only mutates this
+          # shard's chunk (or skips fast when its chunk is empty). See
+          # shardTargets() in scripts/ci/patch-mutation.mjs.
+          PATCH_MUTATION_SHARD: ${{ matrix.shard }}/3
+          # Self-imposed Stryker wall-clock budget, kept under the job's
+          # timeout-minutes above so an over-budget run degrades to an advisory
+          # pass instead of being hard-cancelled. See scripts/ci/patch-mutation.mjs.
+          PATCH_MUTATION_BUDGET_MIN: '24'
+        run: node scripts/ci/patch-mutation.mjs
+
+  # Integration tests - only when Supabase-related code changes
+  integration-tests:
+    name: Integration Tests (${{ matrix.shard }}/2)
+    # 4 vCPU: the Supabase stack + parallel vitest workers are the pipeline's
+    # critical path (~5 min/shard on 2 vCPU). Double rate, ~half duration —
+    # cost-neutral, faster PRs, and more headroom against the Kong
+    # "invalid response from upstream" flake seen on the 2 vCPU canary.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # 2 shards, not 4: each shard pays ~4-5 min of fixed setup (Supabase
+      # boot, image load, DB setup) before any test runs. At 4 shards that
+      # overhead was ~32% of the entire org Actions bill's biggest line item
+      # (June 2026 audit: ~13.7k billable min/9 days). Halving the shard
+      # count trades ~4 min of PR wall-clock for ~12k billable min/month.
+      matrix:
+        shard: [1, 2]
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.integration-deps == 'true' || needs.detect-changes.outputs.infra == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+
+      - name: Setup Supabase CLI
+        uses: ./.github/actions/setup-supabase-cli
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      # Cache the Supabase Docker image set so `supabase start` loads them
+      # locally instead of pulling from the registry (~1.5 min/shard) — and so
+      # the stack stops depending on Docker Hub availability on every run, which
+      # is a recurring source of integration flakiness. Keyed on the CLI version
+      # because the image tags are pinned to it, so a restore can never hand
+      # `supabase start` a stale image. actions/cache auto-saves this path at
+      # post-job when the key misses; the "Export" step below stages the tarball.
+      - name: Restore Supabase Docker images
+        id: supabase-images
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/supabase-images
+          key: supabase-images-${{ runner.os }}-${{ env.SUPABASE_CLI_VERSION }}-v1
+
+      - name: Load cached Supabase images
+        if: steps.supabase-images.outputs.cache-hit == 'true'
+        # Pure optimisation: any failure falls through to a normal registry pull
+        # in `supabase start`, so this can never break the job.
+        continue-on-error: true
+        run: |
+          if [ -f ~/.cache/supabase-images/images.tar ]; then
+            docker load -i ~/.cache/supabase-images/images.tar
+          fi
+
+      - name: Setup integration test database
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54331
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+          GOOGLE_CLIENT_ID: test-google-client-id
+          GOOGLE_CLIENT_SECRET: test-google-client-secret
+          GITHUB_CLIENT_ID: test-github-client-id
+          GITHUB_CLIENT_SECRET: test-github-client-secret
+          SUPABASE_AUTH_REDIRECT_URI: http://localhost:3002/auth/callback
+        run: |
+          cd apps/integration-tests
+          yarn db:setup
+
+      - name: Export Supabase images for cache
+        # First run for this CLI version: snapshot exactly the images the running
+        # stack uses (precise — `docker ps`, not a name grep) so the post-job
+        # cache save persists them. Best-effort; never fails the job.
+        if: steps.supabase-images.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          mkdir -p ~/.cache/supabase-images
+          imgs=$(docker ps --format '{{.Image}}' | sort -u)
+          if [ -n "$imgs" ]; then
+            docker save $imgs -o ~/.cache/supabase-images/images.tar
+            echo "Cached $(echo "$imgs" | wc -l) Supabase images ($(du -h ~/.cache/supabase-images/images.tar | cut -f1))"
+          fi
+
+      - name: Run integration tests
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54331
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+          GOOGLE_CLIENT_ID: test-google-client-id
+          GOOGLE_CLIENT_SECRET: test-google-client-secret
+          GITHUB_CLIENT_ID: test-github-client-id
+          GITHUB_CLIENT_SECRET: test-github-client-secret
+          SUPABASE_AUTH_REDIRECT_URI: http://localhost:3002/auth/callback
+        run: |
+          echo "Running integration tests (shard ${{ matrix.shard }}/2)..."
+          cd apps/integration-tests
+          npx vitest run --shard=${{ matrix.shard }}/2
+
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "Integration tests failed, gathering debug info..."
+          echo "=== Docker containers ==="
+          docker ps -a || echo "Docker not available"
+          echo "=== Integration test directory ==="
+          ls -la apps/integration-tests/supabase/ || true
+
+      - name: Cleanup test resources
+        if: always()
+        run: |
+          cd apps/integration-tests || true
+          tsx scripts/setup-db.ts teardown || true
+          docker ps -q --filter "label=com.supabase.cli.project" | xargs -r docker stop || true
+          docker system prune -f || true
+
+  # Schemathesis property/fuzz tests for the gateway's OpenAPI surface.
+  # Reads docs/openapi.yaml, generates adversarial-but-schema-valid requests
+  # via Hypothesis, flags handler 5xx, status-code drift, and schema drift
+  # against the live gateway. Security: no webhook payload fields are
+  # interpolated into shell `run:` steps; typed inputs (env:, with:) only.
+  #
+  # Status: blocking on the main-surface run. It catches real regressions no
+  # other gate sees (an HTTPException rewritten to a 500, for one), and an
+  # advisory version of it just hides them. The Health run stays advisory
+  # because 503s under fuzz concurrency are expected dependency backpressure,
+  # not real bugs.
+  #
+  # Budget: --hypothesis-max-examples 10 at PR-time. This job is reserved for
+  # public API contract changes only; broader gateway/runtime changes are
+  # covered by gateway-http integration tests. Keeping the trigger narrow
+  # avoids burning ~30 minutes of CI on PRs that don't touch the /v1 surface.
+  # Nightly cron in .github/workflows/schemathesis-nightly.yml still runs at
+  # 200 for deeper signal across the whole contract.
+  openapi-contract-fuzz:
+    name: OpenAPI Contract Fuzz
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 25
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.gateway-contract == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Free disk space
+        # Mirrors what integration-test jobs do: reclaim ~12 GB of pre-installed
+        # tooling (dotnet, Android SDK, GHC, CodeQL) that the runner ships with
+        # but the fuzz job never uses. Without this, Docker competes for I/O
+        # with those large directories during Supabase image layer extraction,
+        # inflating startup from ~3 min to 4+ min inconsistently.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+
+      - name: Setup Supabase CLI
+        uses: ./.github/actions/setup-supabase-cli
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Start Supabase
+        run: |
+          cd apps/integration-tests
+          npx tsx scripts/setup-db.ts setup
+
+      - name: Start ClickHouse
+        # Run from apps/integration-tests so `npx tsx` resolves its binary
+        # from the workspace node_modules and interprets the path relative
+        # to the workspace root (tsx walks up to nearest package.json).
+        run: |
+          cd apps/integration-tests
+          docker compose -f clickhouse/docker-compose.yml up -d
+          npx tsx clickhouse/setup-clickhouse.ts setup
+
+      - name: Seed test tenant + app
+        id: seed
+        run: |
+          # The seed mints a REAL peppered key; it must use the same
+          # API_KEY_PEPPER wrangler boots with (committed in .dev.vars.ci).
+          API_KEY_PEPPER="$(grep '^API_KEY_PEPPER=' apps/gateway/.dev.vars.ci | cut -d= -f2-)"
+          export API_KEY_PEPPER
+          SEED_OUT="$(yarn workspace gateway exec tsx scripts/seed-test-tenant.ts)"
+          APP_ID="$(printf '%s\n' "$SEED_OUT" | sed -n 's/^app_id=//p')"
+          API_KEY="$(printf '%s\n' "$SEED_OUT" | sed -n 's/^api_key=//p')"
+          # Mask the minted key in the live log (the seed's ::add-mask:: is
+          # swallowed by the command substitution above, so re-emit it here).
+          echo "::add-mask::$API_KEY"
+          echo "Seeded app_id=$APP_ID"
+          echo "app_id=$APP_ID" >> "$GITHUB_OUTPUT"
+          echo "api_key=$API_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Configure wrangler dev env
+        run: cp apps/gateway/.dev.vars.ci apps/gateway/.dev.vars
+
+      - name: Start wrangler dev
+        # Background process; PID captured so the cleanup step can SIGTERM
+        # it. `nohup` prevents the wrangler process from being reaped when
+        # the step ends.
+        run: |
+          cd apps/gateway
+          nohup yarn dev > /tmp/wrangler.log 2>&1 &
+          echo $! > /tmp/wrangler.pid
+          echo "wrangler dev started, pid=$(cat /tmp/wrangler.pid)"
+
+      - name: Wait for gateway /health
+        # Each probe is capped with --max-time so a half-open listener (wrangler
+        # proxy up before the worker is ready) fails the probe instead of hanging
+        # the loop forever — an untimed curl here would block this PR-gating step
+        # until the job timeout, with the wrangler log trapped behind it. A
+        # wall-clock deadline keeps the wait at ~60s regardless of per-probe
+        # behavior; the step timeout is a hard backstop.
+        timeout-minutes: 2
+        run: |
+          deadline=$((SECONDS + 60))
+          until curl -fsS --max-time 5 "http://localhost:9001/health" > /dev/null; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Gateway did not respond on port 9001 within 60s"
+              echo "--- wrangler.log ---"
+              cat /tmp/wrangler.log || true
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Gateway responsive after ${SECONDS}s"
+
+      - name: Setup Schemathesis
+        # 3.39.5 has a known incompatibility with hypothesis >=6.150
+        # (unknown `_fallback` kwarg to hypothesis.settings). 3.39.16 fixes it.
+        uses: ./.github/actions/setup-schemathesis
+        with:
+          version: '3.39.16'
+
+      - name: Run Schemathesis (main surface)
+        # --checks all                    every contract check on
+        # --exclude-method DELETE         no destructive fuzzing
+        # --exclude-tag Health            health endpoints get a second fuzz
+        #                                 step below — `not_a_server_error`
+        #                                 is excluded for them because 503s
+        #                                 on dependency backpressure are
+        #                                 expected under fuzz load. All other
+        #                                 checks (schema/status/content-type/
+        #                                 headers/negative-data/ignored-auth)
+        #                                 still run against health endpoints
+        #                                 in the narrower follow-up run.
+        # --hypothesis-max-examples 10    Observed: ~15.5 min fuzz with 32 ops
+        #                                 at --workers 4. The 25-min job timeout
+        #                                 gives a 5-min buffer over that. Nightly
+        #                                 cron runs at 200 for deeper signal.
+        # --hypothesis-no-phases shrink  Prevent unbounded shrink loops: if one
+        #                                 request returns a transient 5xx,
+        #                                 Hypothesis would otherwise loop
+        #                                 minimising the failing case until the
+        #                                 job ceiling hits. Skipping shrink means
+        #                                 failures are reported with the original
+        #                                 (non-minimised) input — still actionable.
+        # --hypothesis-derandomize        deterministic generation per commit
+        # --hypothesis-deadline=None      Hypothesis's per-test-case deadline
+        #                                 (default 15s) is meant for pure-
+        #                                 function property tests. Against
+        #                                 real HTTP + ClickHouse, a single
+        #                                 slow endpoint (e.g. /v1/metrics
+        #                                 with a populated table) can cross
+        #                                 the threshold — that's an SRE
+        #                                 concern, not a contract violation.
+        #                                 Disabling here keeps the gate
+        #                                 scoped to the 7 spec-conformance
+        #                                 checks.
+        # Auth: the seeded REAL peppered key (steps.seed.outputs.api_key),
+        # masked in logs, sent as the Bearer token + its app id header.
+        # Blocking: this step gates merges. See job header for rationale.
+        env:
+          APP_ID: ${{ steps.seed.outputs.app_id }}
+        run: |
+          chmod +x scripts/ci/run-schemathesis-with-heartbeat.sh
+          scripts/ci/run-schemathesis-with-heartbeat.sh \
+            main-surface \
+            1200 \
+            /tmp/schemathesis-main-debug.jsonl \
+            schemathesis run docs/openapi.yaml \
+            --base-url "http://localhost:9001" \
+            --header "Authorization: Bearer ${{ steps.seed.outputs.api_key }}" \
+            --header "X-Outerlayer-App-Id: ${APP_ID}" \
+            --checks all \
+            --exclude-method DELETE \
+            --exclude-tag Health \
+            --hypothesis-max-examples 10 \
+            --hypothesis-derandomize \
+            --hypothesis-deadline=None \
+            --request-timeout 10000 \
+            --workers 4 \
+            --junit-xml /tmp/schemathesis-results.xml \
+            --show-trace
+
+      - name: Run Schemathesis (health endpoints, narrow checks)
+        # Separate run for Health-tagged endpoints. Uses --include-tag Health
+        # to scope the run to just /health, /v1/health/ingestion, /v1/health/
+        # files and uses --exclude-checks to drop only `not_a_server_error`
+        # — the single check that produces false-positive noise when
+        # ClickHouse or Supabase return 503 under concurrent fuzz load.
+        #
+        # Every other check (response_schema_conformance,
+        # status_code_conformance, content_type_conformance,
+        # response_headers_conformance, negative_data_rejection,
+        # ignored_auth) still runs. The health endpoints declare 503 as a
+        # valid response per their Chanfana schemas, so a 503 body that
+        # matches the declared schema is pure signal — this configuration
+        # catches drift between schema and runtime without blocking on
+        # transient dependency backpressure. Kept advisory so transient
+        # 5xx from Supabase/ClickHouse don't block unrelated PRs.
+        continue-on-error: true
+        env:
+          APP_ID: ${{ steps.seed.outputs.app_id }}
+        run: |
+          chmod +x scripts/ci/run-schemathesis-with-heartbeat.sh
+          scripts/ci/run-schemathesis-with-heartbeat.sh \
+            health-surface \
+            1200 \
+            /tmp/schemathesis-health-debug.jsonl \
+            schemathesis run docs/openapi.yaml \
+            --base-url "http://localhost:9001" \
+            --header "Authorization: Bearer ${{ steps.seed.outputs.api_key }}" \
+            --header "X-Outerlayer-App-Id: ${APP_ID}" \
+            --include-tag Health \
+            --checks all \
+            --exclude-checks not_a_server_error \
+            --exclude-method DELETE \
+            --hypothesis-max-examples 30 \
+            --hypothesis-derandomize \
+            --hypothesis-deadline=None \
+            --request-timeout 10000 \
+            --workers 4 \
+            --junit-xml /tmp/schemathesis-results-health.xml \
+            --show-trace
+
+      - name: Upload Schemathesis report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: schemathesis-results
+          path: |
+            /tmp/schemathesis-results.xml
+            /tmp/schemathesis-results-metrics.xml
+            /tmp/schemathesis-results-health.xml
+            /tmp/schemathesis-main-debug.jsonl
+            /tmp/schemathesis-metrics-debug.jsonl
+            /tmp/schemathesis-health-debug.jsonl
+            /tmp/wrangler.log
+          if-no-files-found: warn
+          # Debug dumps of a live gateway run (request/response bodies, wrangler
+          # output). Artifacts are downloadable by anyone who can read the repo,
+          # so keep only the window a failure investigation needs.
+          retention-days: 3
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f /tmp/wrangler.pid ]; then
+            kill "$(cat /tmp/wrangler.pid)" 2>/dev/null || true
+          fi
+          (cd apps/integration-tests && docker compose -f clickhouse/docker-compose.yml down -v) || true
+          (cd apps/integration-tests && npx tsx scripts/setup-db.ts teardown) || true
+          docker system prune -f || true
+
+  # Gateway HTTP integration tests. Runs the `gateway-http` Vitest
+  # project in apps/integration-tests/, which boots `wrangler dev` via
+  # globalSetup and runs HTTP-level tests against the running gateway.
+  # Complements openapi-contract-fuzz — that job catches unknown-unknowns
+  # via fuzzing; this job pins named assertions for high-value paths
+  # (auth boundaries, happy-path reads).
+  gateway-integration-tests:
+    name: Gateway HTTP Integration Tests
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.gateway == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Setup Supabase CLI
+        uses: ./.github/actions/setup-supabase-cli
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Start Supabase
+        run: |
+          cd apps/integration-tests
+          npx tsx scripts/setup-db.ts setup
+
+      - name: Start ClickHouse
+        run: |
+          cd apps/integration-tests
+          docker compose -f clickhouse/docker-compose.yml up -d
+          npx tsx clickhouse/setup-clickhouse.ts setup
+
+      - name: Start MinIO (blob-storage seam; self-host S3 backend, lives with apps/gateway-node)
+        run: |
+          cd apps/gateway-node
+          docker compose -f minio/docker-compose.yml up -d
+          # The server image ships no curl/mc, so poll the S3 health endpoint
+          # from the host (the runner has curl) instead of a container healthcheck.
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:9300/minio/health/live; then
+              echo "MinIO ready"; break
+            fi
+            echo "waiting for MinIO ($i)..."; sleep 2
+          done
+          curl -sf http://127.0.0.1:9300/minio/health/live
+
+      - name: Run gateway-http vitest project
+        # Vitest's globalSetup hook (apps/integration-tests/gateway-http/
+        # global-setup.ts) seeds a test tenant, copies .dev.vars.ci into
+        # .dev.vars, spawns wrangler dev, and waits for /health before
+        # any test runs. SIGTERMs wrangler on teardown.
+        run: |
+          yarn workspace integration-tests vitest run --project gateway-http
+
+      - name: Upload marker on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gateway-integration-logs
+          path: |
+            apps/integration-tests/gateway-http/.app-id
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          (cd apps/integration-tests && docker compose -f clickhouse/docker-compose.yml down -v) || true
+          (cd apps/gateway-node && docker compose -f minio/docker-compose.yml down -v) || true
+          (cd apps/integration-tests && npx tsx scripts/setup-db.ts teardown) || true
+          docker system prune -f || true
+
+  # Shell script test suites — deploy gating
+  agentmark-script-tests:
+    name: Agentmark Script Tests
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    needs: detect-changes
+    if: needs.detect-changes.outputs.agentmark-scripts == 'true' || needs.detect-changes.outputs.infra == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Run deploy script tests
+        run: bash scripts/test-should-deploy.sh
+
+  # Supabase schema validation (consolidated from supabase_ci.js.yml)
+  supabase-checks:
+    name: Supabase Checks
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.supabase == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - uses: ./.github/actions/setup-supabase-cli
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Build email templates
+        run: yarn email-temp:build
+        working-directory: ./apps/tenant-dashboard
+
+      - name: Start Supabase DB
+        run: |
+          export GITHUB_CLIENT_ID=client_id && export GITHUB_CLIENT_SECRET=client_secret && export GOOGLE_CLIENT_ID=client_id && export GOOGLE_CLIENT_SECRET=client_secret && export SUPABASE_AUTH_REDIRECT_URI=http://localhost:3000/auth/callback && supabase db start
+        working-directory: ./apps/tenant-dashboard
+
+      - name: Verify generated types are checked in
+        # Regenerates types from CI's fresh local DB and compares against the
+        # committed canonical file at `packages/db-types/index.ts`. A drift
+        # here means someone changed the SQL schema/migrations without running
+        # `yarn codegen:db` to refresh the shared types package.
+        #
+        # The canonical file is consumed by both apps via `@repo/db-types`
+        # (with a thin re-export shim at
+        # `apps/tenant-dashboard/src/types/db.ts` for back-compat).
+        run: |
+          export GITHUB_CLIENT_ID=client_id && export GITHUB_CLIENT_SECRET=client_secret && export GOOGLE_CLIENT_ID=client_id && export GOOGLE_CLIENT_SECRET=client_secret && export SUPABASE_AUTH_REDIRECT_URI=http://localhost:3000/auth/callback && supabase gen types typescript --local > /tmp/types.gen.ts
+          if ! diff --strip-trailing-cr -q /tmp/types.gen.ts ../../packages/db-types/index.ts > /dev/null 2>&1; then
+            echo "Committed packages/db-types/index.ts is stale."
+            echo "Run 'yarn codegen:db' from apps/tenant-dashboard and commit the result."
+            echo ""
+            echo "--- diff (committed vs freshly generated) ---"
+            diff -u --strip-trailing-cr ../../packages/db-types/index.ts /tmp/types.gen.ts | head -120
+            exit 1
+          fi
+          echo "Generated types match committed @repo/db-types."
+        working-directory: ./apps/tenant-dashboard
+
+      - name: Verify zero schema drift
+        run: |
+          set +e
+          DIFF_OUTPUT=$(supabase db diff --local 2>&1)
+          DIFF_EXIT=$?
+          set -e
+          # A non-zero exit means `db diff` aborted instead of comparing schemas
+          # (e.g. config.toml's schema_paths lists a file that no longer exists
+          # on disk) — treat that as a failure instead of silently passing, since
+          # an aborted run also emits no SQL and would otherwise look "clean".
+          if [ "$DIFF_EXIT" -ne 0 ]; then
+            echo "❌ 'supabase db diff' aborted (exit $DIFF_EXIT) instead of comparing schemas:"
+            echo ""
+            echo "$DIFF_OUTPUT"
+            echo ""
+            echo "This usually means config.toml's db.migrations.schema_paths lists a"
+            echo "schema file that no longer exists. Check apps/tenant-dashboard/supabase/config.toml"
+            echo "against apps/tenant-dashboard/supabase/schemas/."
+            exit 1
+          fi
+          # Check if output contains actual SQL (drift) vs "No schema changes found"
+          if echo "$DIFF_OUTPUT" | grep -qiE "^(CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|set )"; then
+            echo "❌ Schema drift detected between migrations and schema files:"
+            echo ""
+            echo "$DIFF_OUTPUT"
+            echo ""
+            echo "To fix: Update schema files or regenerate migration with 'npx supabase db diff -f <name>'"
+            echo "See README.md for declarative schema workflow."
+            exit 1
+          fi
+          echo "✓ No schema drift detected"
+        working-directory: ./apps/tenant-dashboard
+
+      - name: Run Supabase security & performance linter (splinter)
+        run: ./scripts/run-splinter.sh
+        working-directory: ./apps/tenant-dashboard
+
+  # Drift checks — OpenAPI guard (see the static-checks comment for billing
+  # rationale): gateway routes → docs/openapi.yaml (regenerate + git diff).
+  drift-checks:
+    name: Drift Checks
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    needs: [detect-changes, prepare]
+
+    steps:
+      - name: Skip if no relevant changes
+        if: >-
+          needs.detect-changes.outputs.app-code != 'true' &&
+          needs.detect-changes.outputs.docs != 'true'
+        run: echo "No app-code or docs changes, skipping drift checks"
+
+      - uses: actions/checkout@v7
+        if: >-
+          needs.detect-changes.outputs.app-code == 'true' ||
+          needs.detect-changes.outputs.docs == 'true'
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        if: >-
+          needs.detect-changes.outputs.app-code == 'true' ||
+          needs.detect-changes.outputs.docs == 'true'
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Regenerate docs/openapi.yaml from gateway routes
+        if: >-
+          needs.detect-changes.outputs.app-code == 'true' ||
+          needs.detect-changes.outputs.docs == 'true'
+        run: yarn gen:openapi
+
+      - name: Fail if docs/openapi.yaml changed
+        if: >-
+          needs.detect-changes.outputs.app-code == 'true' ||
+          needs.detect-changes.outputs.docs == 'true'
+        run: |
+          if ! git diff --exit-code -- docs/openapi.yaml; then
+            echo ""
+            echo "::error file=docs/openapi.yaml::docs/openapi.yaml is out of sync with the gateway's Chanfana routes."
+            echo ""
+            echo "To fix:"
+            echo "  1. Run 'yarn gen:openapi' locally."
+            echo "  2. Commit the updated docs/openapi.yaml."
+            echo "  3. Push."
+            exit 1
+          fi
+
+  # Destructive-migration + timestamp-ordering validation (Squawk). Invoked as a
+  # reusable workflow here — rather than as a standalone pull_request workflow —
+  # so it joins the required "CI Gate" aggregate and can't merge green via a
+  # drifted branch-protection list. Gated on the migrations paths-filter.
+  migration-check:
+    name: Migration Validation
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.migrations == 'true'
+    uses: ./.github/workflows/migration-check.yml
+
+  # Breaking-API-change detection (oasdiff). Same rationale as migration-check:
+  # folded into the CI Gate aggregate instead of a standalone required check.
+  openapi-breaking-change:
+    name: OpenAPI Breaking Change
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.openapi == 'true'
+    uses: ./.github/workflows/openapi-breaking-change.yml
+
+  # Secret scan — hard gate against committing credentials.
+  # Deliberately NOT gated on detect-changes: a secret can appear in ANY file, so
+  # this must run on every PR. Scans only the PR's new commits (base..head) —
+  # historical findings are handled by rotation, not by failing every future PR.
+  # Shares .gitleaks.toml with the local .husky/pre-commit hook so both agree.
+  secret-scan:
+    name: Secret Scan
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Need both endpoints of the PR range; fetch full history so the
+          # base..head log range resolves even after force-pushes/rebases.
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned)
+        run: |
+          set -euo pipefail
+          VERSION=8.30.0
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan PR commits for secrets
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          echo "Scanning ${BASE_SHA}..${HEAD_SHA} (new commits in this PR only)"
+          # --redact so a leaked value is never echoed into public CI logs.
+          # Non-zero exit → secret found → job fails → CI Gate fails.
+          if ! gitleaks git . \
+                --config .gitleaks.toml \
+                --log-opts="${BASE_SHA}..${HEAD_SHA} --no-merges" \
+                --redact --no-banner --verbose; then
+            echo ""
+            echo "::error::Secret detected in this PR's commits. Do NOT push a fix that just deletes the file —"
+            echo "::error::the secret stays in history. Rotate the credential first, then remove it. If this is a"
+            echo "::error::false positive, add a scoped allowlist entry to .gitleaks.toml (see its header comment)."
+            exit 1
+          fi
+          echo "✅ No secrets in the PR's new commits."
+
+      - name: Regression test — credential-in-url rule
+        # Reuses the gitleaks binary installed above; no reinstall. Proves the
+        # credential-in-url rule (added to close the DSN-in-URL gap — see
+        # .gitleaks.toml) still fires on a DSN-shaped credential and still
+        # ignores a bare-host URL, so a future .gitleaks.toml edit can't
+        # silently regress it back to "no leaks found".
+        run: scripts/ci/verify-gitleaks-credential-in-url.sh
+
+  # Gate job - single required status check for branch protection
+  ci-gate:
+    name: CI Gate
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 2
+    needs: [detect-changes, prepare, static-checks, unit-tests, dashboard-build, coverage-gate, patch-mutation, integration-tests, gateway-integration-tests, repo-guards, agentmark-script-tests, supabase-checks, drift-checks, openapi-contract-fuzz, migration-check, openapi-breaking-change, secret-scan]
+    if: always()
+
+    steps:
+      - name: Check CI results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "❌ CI failed — one or more jobs reported failure"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "❌ CI cancelled — one or more jobs were cancelled"
+            exit 1
+          fi
+          echo "✅ All checks passed or correctly skipped"
+
+  # NOTE: E2E tests removed from CI pipeline
+  # E2E tests now run after every staging deployment (in CD pipeline)
+  # Results are cached by commit SHA to avoid re-runs on production deploy
+  # See: .github/workflows/cd.yml

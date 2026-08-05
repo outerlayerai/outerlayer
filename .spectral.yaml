@@ -1,0 +1,82 @@
+# Spectral OpenAPI lint ruleset for docs/openapi.yaml.
+#
+# The spec itself is auto-generated from apps/gateway/src/openapi/ via
+# `yarn gen:openapi` (Chanfana + Zod). This ruleset enforces style and
+# quality on the generated output. When a rule fails, the fix belongs
+# in the upstream Zod schema, not in docs/openapi.yaml.
+#
+# Run locally:
+#   npx @stoplight/spectral-cli lint docs/openapi.yaml
+#
+# CI: .github/workflows/openapi-lint.yml runs this on every PR that
+# touches the spec or the gateway routes.
+
+extends:
+  - "spectral:oas"
+
+rules:
+  # -----------------------------------------------------------------------
+  # Hard contract rules — keep at error. These catch real consumer bugs.
+  # -----------------------------------------------------------------------
+  operation-operationId: error          # every route needs a stable ID for SDK gen
+  operation-operationId-unique: error   # IDs collide -> SDK clients break silently
+  operation-operationId-valid-in-url: error
+  operation-success-response: error     # every operation declares ≥1 2xx response
+  no-$ref-siblings: error               # invalid OpenAPI; some parsers crash
+  # `duplicated-entry-in-enum` is disabled. Spectral's nimma JSONPath
+  # compiler crashes (`Cannot read properties of null reading 'enum'`)
+  # while traversing the typeless `nullable: true` schema fragments that
+  # `z.unknown().nullable()` emits into the generated spec. The crash is
+  # independent of this rule's correctness — the rule never gets a chance
+  # to run because nimma dies first. Disabling lets Spectral finish the
+  # other rules; re-enabling it is a one-line trial after any nimma
+  # upgrade.
+  #
+  # Re-enable after the upstream fix (either give JsonValueSchema a
+  # well-typed OpenAPI emission, or post-process the generated spec to
+  # add `type: ['object', 'string', 'number', 'boolean', 'array']` to
+  # typeless nullable schemas).
+  duplicated-entry-in-enum: off
+  oas3-schema: error                    # base structural validity
+
+  # OuterLayer convention: operationIds are kebab-case (matches existing 41
+  # routes — service-health, list-annotation-queues, etc.). Catches a
+  # Chanfana route that drifts from convention before SDK regen propagates
+  # the inconsistency to every language client.
+  operation-id-kebab-case:
+    description: "operationId must be kebab-case (lowercase + hyphens)"
+    message: "operationId '{{value}}' must be kebab-case (e.g. list-traces, not listTraces or list_traces)"
+    severity: error
+    given: "$.paths[*][get,post,put,patch,delete].operationId"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+
+  # info.license is missing — this is a SaaS API, not a distributed
+  # library, so a license field is not meaningful. Stays off.
+  info-license: off
+  license-url: off
+
+  # -----------------------------------------------------------------------
+  # Quality ratchets — locks in the current spec quality so future PRs
+  # can't regress it. All currently pass against the generated yaml.
+  # -----------------------------------------------------------------------
+  operation-description: error          # every route has a `description`
+  operation-tags: error                 # every route declares ≥1 tag
+  operation-tag-defined: error          # tags must appear in the top-level tags[] array
+  tag-description: error                # every top-level tag has a description
+  oas3-unused-component: error          # no orphaned components.schemas entries
+  path-keys-no-trailing-slash: error    # consistent trailing-slash policy
+
+  # Spectral's built-in oas ruleset doesn't include an operation-summary
+  # rule, so we define one. Summaries are what Mintlify/Postman/Stoplight
+  # show as the endpoint nav label — without them, users see raw operationIds.
+  operation-summary-required:
+    description: "Every operation must have a summary"
+    message: "Operation is missing a summary (set `summary: '...'` on the route's schema)"
+    severity: error
+    given: "$.paths[*][get,post,put,patch,delete]"
+    then:
+      field: summary
+      function: truthy

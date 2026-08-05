@@ -1,0 +1,40 @@
+# Fly app hosting the Topics clustering service (UMAP + HDBSCAN). The dashboard
+# POSTs facet embeddings to POST /cluster during topic-map generation; every
+# request is authenticated with an HMAC shared secret (TOPICS_CLUSTERING_SECRET).
+#
+# Deploy (from apps/topics-clustering):
+#   fly apps create agentmark-topics-clustering-stg   # once
+#   fly secrets set TOPICS_CLUSTERING_SECRET=<value> --app agentmark-topics-clustering-stg
+#   fly deploy
+# Then set on the dashboard (Vercel, staging):
+#   TOPICS_CLUSTERING_URL=https://agentmark-topics-clustering-stg.fly.dev
+#   TOPICS_CLUSTERING_SECRET=<same value>
+app = "agentmark-topics-clustering-stg"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Generation is infrequent (manual "Generate topics"), so scale to zero and
+  # resume on demand. `suspend` snapshots memory for a fast resume, avoiding a
+  # cold Python + UMAP/HDBSCAN import on every call.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health"
+
+# UMAP fits a manifold on a seeded 5k sample (or up to the 50k ceiling) of
+# 1024-dim float32 vectors; give it real headroom so a generation pass can't OOM.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2
+  memory_mb = 4096

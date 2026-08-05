@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@repo/api-schemas": ["../../packages/api-schemas/src/index.ts"],
+      "@repo/shared-utils": ["../../packages/shared-utils/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/__tests__/**"
+  ]
+}

@@ -1,0 +1,908 @@
+{
+  "dashboard": {
+    "apps": {
+      "selectProvider": "Select a Git provider",
+      "connectGitProvider": "Connect Git Repository",
+      "envVars": {
+        "title": "Environment Variables",
+        "addButton": "Add",
+        "noVariablesMessage": "No environment variables configured.",
+        "hideValueTooltip": "Hide value",
+        "revealValueTooltip": "Reveal value",
+        "editTooltip": "Edit",
+        "deleteTooltip": "Delete",
+        "deleteDialogTitle": "Delete Environment Variable",
+        "deleteConfirmMessage": "Are you sure you want to delete {{key}}? This action cannot be undone.",
+        "cancelButton": "Cancel",
+        "deleteButton": "Delete",
+        "addDialogTitle": "Add Environment Variable",
+        "updateDialogTitle": "Update Environment Variable",
+        "keyLabel": "Key",
+        "keyHelper": "e.g. DATABASE_URL",
+        "keyPlaceholder": "MY_ENV_VAR",
+        "valueLabel": "Value",
+        "valuePlaceholder": "Enter value",
+        "valuePlaceholderEdit": "Enter new value",
+        "updateButton": "Update",
+        "validation": {
+          "keyRequired": "Key is required",
+          "keyPattern": "Must start with a letter and contain only uppercase letters, digits, and underscores"
+        }
+      }
+    },
+    "sidebar": {
+      "users": "Users",
+      "settings": "Settings",
+      "home": "Home",
+      "dashboards": "Dashboards",
+      "topics": "Topics",
+      "benchmarks": "Benchmarks"
+    },
+    "tabs": {
+      "editor": "Editor",
+      "items": "Items"
+    },
+    "home": {
+      "setupProjectTitle": "Welcome to OuterLayer. Follow these steps to get started and view your dashboard!",
+      "steps": {
+        "step1": "Create an app",
+        "step1Description": "Create a new app and link a github repository.",
+        "step2": "Run create agentmark",
+        "step2Description": "Initialize agentmark project by running <0>npm create agentmark@latest</0> and push to git.",
+        "step3": " Publish your first prompt",
+        "step3Description": "Create a prompt template w/ a name. Add your prompt and click Publish. i.e."
+      },
+      "successAlert": "Congratulations on setting up your app!"
+    },
+    "table": {
+      "tabs": {
+        "all": "All",
+        "public": "Public",
+        "private": "Private"
+      },
+      "columnHeader": {
+        "templateId": "Template Id",
+        "title": "Title",
+        "lastEdited": "Last Edited",
+        "extension": "Extension"
+      }
+    },
+    "profileSettings": {
+      "saveButton": "Save",
+      "namePlaceholder": "Name",
+      "emailPlaceholder": "Email address",
+      "passwordPlaceholder": "New password",
+      "confirmPasswordPlaceholder": "Confirm password",
+      "currentPasswordPlaceholder": "Current password",
+      "successNotification": "Update success!",
+      "allowedImageTypes": "Allowed *.jpeg, *.jpg, *.png, *.gif",
+      "allowedImageSize": "max size of 3mb",
+      "pageTitle": "Profile",
+      "profileInfoTitle": "Profile Information",
+      "updatePasswordTitle": "Update Password",
+      "rolePlaceholder": "Role",
+      "githubAuthTitle": "GitHub Authentication",
+      "githubAuthDescription": "Connect your GitHub account to enable repository integration and automated deployments.",
+      "connectGitHub": "Connect with GitHub",
+      "connecting": "Connecting...",
+      "connectedAs": "Connected as",
+      "disconnect": "Disconnect",
+      "githubAuthSuccess": "Successfully connected to GitHub",
+      "githubDisconnectSuccess": "Successfully disconnected from GitHub",
+      "changeEmailTitle": "Change Email Address",
+      "changeEmailDescription": "Enter a new email address. You'll need to verify it before the change takes effect.",
+      "newEmailPlaceholder": "New email address",
+      "currentEmailLabel": "Current email",
+      "updateEmailButton": "Update Email",
+      "emailChangeSuccess": "Verification emails sent! Check both your old and new email inboxes to confirm the change.",
+      "emailChangePending": "Email change pending",
+      "emailChangePendingDescription": "A verification email was sent to {{email}}. Check both your old and new email inboxes.",
+      "emailChangeVerified": "Your email has been successfully updated.",
+      "emailChangeOAuthOnly": "Email changes require password authentication. Add a password to your account first.",
+      "emailChangeSameEmail": "This is already your email address.",
+      "emailChangeErrors": {
+        "email_exists": "This email is already registered to another account.",
+        "email_address_invalid": "Please enter a valid email address.",
+        "user_sso_managed": "Email changes require password authentication. Add a password to your account first.",
+        "over_request_rate_limit": "Too many requests. Please try again in a few minutes.",
+        "session_expired": "Your session has expired. Please log in again.",
+        "duplicate_key": "You have a pending email change. Check your inbox or submit a new email to replace it.",
+        "expired": "This verification link has expired. Please request a new email change.",
+        "alreadyUsed": "This verification link has already been used.",
+        "unknown": "An unexpected error occurred. Please try again."
+      }
+    },
+    "unsavedChangesModal": {
+      "title": "You have unsaved changes. Are you sure you want to leave?",
+      "cancel": "Cancel",
+      "proceed": "Proceed"
+    },
+    "headerAccountPopup": {
+      "profileMenuItem": "Profile"
+    },
+    "settings": {
+      "heading": "Settings",
+      "organization": {
+        "heading": "Organization",
+        "description": "Basic organization details",
+        "form": {
+          "saveButton": "Save",
+          "successNotification": "Update success!",
+          "errorNotification": "Something went wrong",
+          "organizationIdPlaceholder": "Organization ID",
+          "companyNamePlaceholder": "Company Name"
+        }
+      },
+      "inviteUsers": {
+        "heading": "Manage Users",
+        "description": "Invite users to join your organization and assign them the appropriate roles",
+        "inviteButton": "Invite",
+        "inviteSuccess": "Invitation Sent",
+        "rolePlaceholder": "Role",
+        "inviteLimitReached": "You have reached the maximum number of invites. <0>Upgrade to Enterprise</0> to add more users.",
+        "roleOwner": "Owner",
+        "roleAdmin": "Admin",
+        "roleWrite": "Write",
+        "roleRead": "Read",
+        "namePlaceholder": "Name",
+        "validation": {
+          "role": "Role is required"
+        },
+        "userList": {
+          "heading": "Users",
+          "tableHeader": {
+            "name": "Name",
+            "email": "Email",
+            "role": "Role",
+            "inviteStatus": "Invite Status"
+          },
+          "inviteLinkSent": "Invite link sent",
+          "inviteStatusPending": "Pending",
+          "inviteStatusAccepted": "Accepted",
+          "updateRole": "Update Role",
+          "removeUser": "Remove from Organization",
+          "resendInvite": "Resend",
+          "cancel": "Cancel",
+          "confirm": {
+            "removeTitle": "Are you sure you want to remove this user from the organization?"
+          },
+          "cannotRemoveLastOwner": "Cannot remove the last owner from the organization",
+          "onlyOwnersCanPromote": "Only owners can promote users to owner role",
+          "manageAppAccess": "Manage App Access"
+        }
+      },
+      "manageAppAccessDialog": {
+        "title": "App Access",
+        "failedLoadApps": "Failed to load apps",
+        "failedLoadRoles": "Failed to load app roles",
+        "failedLoadData": "Failed to load data",
+        "accessGrantedTo": "Access granted to",
+        "accessRevokedFor": "Access revoked for",
+        "operationFailed": "Operation failed",
+        "noAppsFound": "No apps found in this organization.",
+        "allAppsUnrestricted": "All apps access (unrestricted — no specific apps enabled)",
+        "appsEnabled": "apps enabled",
+        "failedGrantAccess": "Failed to grant access",
+        "failedRevokeAccess": "Failed to revoke access",
+        "failedUpdateRole": "Failed to update role",
+        "close": "Close",
+        "restrictToSpecificApps": "Restrict to specific apps",
+        "enterpriseRequired": "App-level roles require an Enterprise plan.",
+        "noAppsAssigned": "App-scoped but no apps assigned — user has zero app access"
+      },
+      "inviteUsersAppRoles": {
+        "failedLoadApps": "Failed to load apps. Per-app role assignment may be unavailable.",
+        "restrictToApps": "Restrict to specific apps",
+        "selectApp": "Select app",
+        "addApp": "Add app",
+        "failedLoadPermissions": "Failed to load app access permissions. Please refresh the page."
+      },
+      "billing": {
+        "heading": "Billing",
+        "description": "Easily manage or start your subscription.",
+        "rateLimitDisclaimer": "Note: All accounts are currently rate-limited to 250 requests every 5 seconds. If you need more, please reach out to us: hello@outerlayer.ai",
+        "management": {
+          "standardPlan": "Growth",
+          "yourPlan": "Plan:",
+          "managePlanHeader": "Subscription:",
+          "managePlanLink": "View",
+          "numRequests": "Units:",
+          "storage": "Storage:",
+          "plansHeading": "Manage your Subscription",
+          "plansSubheading": "Easily view your current plan, how many units were used this billing cycle, or manage/update your existing subscription.",
+          "upgradeHeading": "Upgrade your plan",
+          "upgradeSuccess": "Plan upgraded successfully!",
+          "cancellationPending": "Your plan is scheduled for cancellation. Select a plan below to reactivate.",
+          "contactSales": "Contact Sales",
+          "subscriptionExpiredError": "Your subscription has expired. Please try again.",
+          "unexpectedError": "An unexpected error occurred. Please try again."
+        },
+        "setup": {
+          "standardPlan": "Growth",
+          "enterprisePlan": "Enterprise",
+          "teamPlan": "Team",
+          "standardPlanDescription": "Flat monthly fee with usage-based unit pricing.",
+          "enterprisePlanDescription": "Need more? Contact us to learn about our enterprise offerings.",
+          "teamPlanDescription": "For growing teams that need dedicated support and higher limits.",
+          "plansSubheading": "Get started with dead simple usage-based pricing. We automatically scale when you do.",
+          "plansHeading": "Ready to upgrade?",
+          "yourPlan": "Plan:",
+          "numRequests": "Units:",
+          "storage": "Storage:",
+          "freePlan": "Free",
+          "hobbyPlan": "Free"
+        }
+      },
+      "aiCost": {
+        "description": "Your organization's fixed AI tooling spend — paid seats across tools (Claude, Cursor, Copilot, …) at a blended monthly price per seat. Feeds the Total Cost of AI dashboard metric alongside metered token spend.",
+        "form": {
+          "saveButton": "Save",
+          "successNotification": "AI cost settings saved",
+          "errorNotification": "Something went wrong",
+          "seatCountLabel": "Paid AI tool seats",
+          "seatCountHelp": "Total paid seats across all AI tools, org-wide",
+          "costPerSeatLabel": "Cost per seat (USD / month)",
+          "costPerSeatHelp": "Blended monthly price per seat across your tools",
+          "monthlyTotalPrefix": "Fixed monthly AI spend:",
+          "numberInvalid": "Enter a valid number",
+          "numberNegative": "Must be zero or more"
+        }
+      },
+      "apiUrl": {
+        "heading": "Webhook Url",
+        "description": "Add the webhook url for testing prompts",
+        "saveButton": "Save",
+        "successNotification": "Webhook Url Saved!",
+        "deleteSuccess": "Webhook Url deleted!",
+        "sectionDescription": "The webhook url is used to integrate with the OuterLayer platform for features like alerting. Please ensure that it is a valid url. Visit the <0>docs</0> to see how you can setup the webhook.",
+        "apiUrlPlaceholder": "Webhook Url",
+        "secretKeyPlaceholder": "Secret Key",
+        "deleteButton": "Delete",
+        "deleteConfirmation": "Are you sure you want to delete the Webhook Url?",
+        "cancel": "Cancel",
+        "validation": {
+          "apiKey": "Webhook Url is required"
+        }
+      }
+    },
+    "developers": {
+      "generalTitle": "General",
+      "generalDescription": "Basic information about your app",
+      "heading": "API Keys",
+      "description": "Add API keys to communicate with OuterLayer's gateway",
+      "appId": "App Id",
+      "provider": "Provider",
+      "repository": "Repository",
+      "branch": "Branch",
+      "requirePullRequest": "Require pull request",
+      "requirePullRequestDescription": "Publishing opens a pull request against the connected branch instead of committing directly.",
+      "requirePullRequestNoPermission": "Only admins and owners can change this.",
+      "requirePullRequestSaved": "Publish policy updated",
+      "createButton": "Create API Key",
+      "saveButton": "Create",
+      "name": "Name",
+      "createdAt": "Created At",
+      "createdBy": "Created By",
+      "createApiKeyTitle": "Create API Key",
+      "apiKeyTitle": "API Key",
+      "copy": "Copy",
+      "copiedToClipboard": "Copied to clipboard",
+      "apiKeyDescription1": "Your API key won't be saved. If you lose it, you must regenerate a new API key.",
+      "apiKeyDescription2": "Always store API keys in a safe place, and don't expose them to your users.",
+      "delete": "Delete",
+      "deleteApiKeyTitle": "Are you sure you want to delete this API key?",
+      "cancel": "Cancel",
+      "emptyList": "No API keys",
+      "apiKeyLimitReached": "You have reached the maximum number of API keys. <0>Upgrade to Enterprise</0> to add more API keys."
+    },
+    "users": {
+      "title": "Users",
+      "noResults": "No Data",
+      "tableHeader": {
+        "userId": "User Id",
+        "requests": "Requests",
+        "cost": "Cost ($)",
+        "avgTokens": "Avg. Tokens",
+        "completionTokens": "Completion Tokens",
+        "promptTokens": "Prompt Tokens",
+        "avgRequestsPerDay": "Avg. Req/Day"
+      },
+      "placeholder": {
+        "title": "Welcome to Users",
+        "description": "Track and analyze user activity across your application. To get started, you need to include user IDs in your requests.",
+        "getStartedButton": "Get Started",
+        "followSteps": "Follow these steps:",
+        "steps": {
+          "step1": {
+            "description": "Create a new OuterLayer project"
+          },
+          "step2": {
+            "description": "Build and run the demo to generate your first requests"
+          }
+        }
+      }
+    },
+    "placeholder": {
+      "title": "Welcome to Your Dashboard",
+      "description": "Get started with your project by following these simple steps. Our platform provides you with all the tools you need to build, manage, and scale your applications efficiently.",
+      "getStartedButton": "Get Started",
+      "followSteps": "Follow these steps:",
+      "steps": {
+        "step1": {
+          "description": "Create a new OuterLayer project"
+        },
+        "step2": {
+          "description": "Build and run the demo to generate your first traces"
+        }
+      },
+      "seeDocs": "See Docs"
+    },
+    "gettingStarted": {
+      "title": "Send your first trace",
+      "subtitle": "Four steps to your first trace — this page updates automatically the moment it arrives.",
+      "lockedHint": "Link your repo to unlock the rest of setup.",
+      "repo": {
+        "title": "Link your repo",
+        "description": "Prompts, datasets, and config sync from your Git repository — linking it is what makes this app real.",
+        "required": "Required",
+        "linked": "Linked",
+        "connect": "Connect your repo",
+        "link": "Link repository",
+        "done": "Your repository is linked — prompts and config will sync from it.",
+        "loading": "Checking repository status",
+        "connectUnavailable": "Git provider connect is temporarily unavailable. Contact support.",
+        "connectFailed": "Failed to start git connect"
+      },
+      "scaffold": {
+        "title": "Install the CLI and initialize your project",
+        "description": "Install the OuterLayer CLI, then run agentmark init in your project's root. It detects your stack, creates the agentmark/ directory, and wires up your editor's MCP servers.",
+        "note": "Safe to run in an existing project — it keeps any config you already have. When you're done, commit and push to your linked branch — pushes are what sync your prompts and config to this app."
+      },
+      "setup": {
+        "title": "Set up OuterLayer in this project",
+        "editorLabel": "Using a coding agent (Claude Code, Cursor, Copilot)? Paste this prompt and it handles the rest:",
+        "orDocs": "Prefer to do it by hand?",
+        "docsLabel": "Follow the getting-started docs"
+      },
+      "credentials": {
+        "title": "Add your credentials",
+        "description": "Add these to your project's .env file. Never hardcode or commit them."
+      },
+      "listening": {
+        "active": "Listening for your first trace…",
+        "refresh": "Check now",
+        "none": "No traces yet — make sure your app ran and flushed its spans."
+      },
+      "key": {
+        "title": "Create your API key",
+        "generate": "Generate API key",
+        "hint": "Shown once — it authenticates your app's traces.",
+        "exists": "Done",
+        "existsHint": "This app already has an API key.",
+        "manage": "Manage keys",
+        "created": "API key created — copy it now, it won't be shown again.",
+        "limit": "You've reached your API key limit. Upgrade your plan to create more.",
+        "failed": "Couldn't create an API key. Please try again.",
+        "once": "Key shown once — copy it now",
+        "yourKey": "Your API key — copy it now, it won't be shown again",
+        "copy": "Copy",
+        "copied": "Copied to clipboard"
+      },
+      "banner": {
+        "message": "Traces are flowing, but this app has no linked repository yet — prompts, datasets, and config sync need one.",
+        "cta": "Link your repo"
+      },
+      "checklist": {
+        "title": "Finish setting up",
+        "dismiss": "Dismiss",
+        "app": {
+          "label": "Create your first app"
+        },
+        "repo": {
+          "label": "Link your repo",
+          "cta": "Link"
+        },
+        "apiKey": {
+          "label": "Create an API key",
+          "cta": "Add a key"
+        },
+        "trace": {
+          "label": "Send your first trace",
+          "cta": "View traces"
+        },
+        "teammate": {
+          "label": "Invite a teammate",
+          "cta": "Invite"
+        }
+      }
+    },
+    "context": {
+      "title": "Context",
+      "repoRoot": "repo root",
+      "view": {
+        "files": "Files",
+        "history": "History",
+        "tabFiles": "Files",
+        "tabContent": "Content",
+        "tabUsage": "Usage",
+        "usageStatRecent": "activations · {{days}}d",
+        "usageStatTotal": "total · {{days}}d",
+        "usageStatSessions": "sessions",
+        "usageStatLastUsed": "last used",
+        "usageColServer": "Server",
+        "usageColLastUsed": "Last used",
+        "usageColCalls": "Calls",
+        "usageColSessions": "Sessions",
+        "filterPlaceholder": "Filter files",
+        "newFile": "New context file",
+        "resync": "Resync context",
+        "syncing": "Syncing…",
+        "selectFile": "Select a file to view its contents.",
+        "unrecognizedPath": "This path is not a recognized context file.",
+        "markedForDeletion": "Marked for deletion",
+        "restoreDraft": "Restore",
+        "fileLoadError": "This file could not be loaded. It may have changed since the page loaded.",
+        "loadErrorTitle": "Couldn't load context",
+        "loadError": "The context tree for this repository could not be read.",
+        "staleBanner": "Your change was saved, but the context view hasn't caught up yet.",
+        "resyncAction": "Resync",
+        "draftEdited": "{{n}} edited",
+        "draftNew": "{{n}} new",
+        "draftDeleted": "{{n}} deleted",
+        "changeSubmitted": "Change submitted — <0>PR #{{number}} ↗</0>",
+        "pendingPrPane": "Submitted as <0>PR #{{number}} ↗</0> — this file appears here once the PR merges.",
+        "leaveTitle": "Discard unsaved changes?",
+        "leaveBody_one": "You have unsaved edits across {{count}} file. Leaving will discard them.",
+        "leaveBody_other": "You have unsaved edits across {{count}} files. Leaving will discard them.",
+        "leaveStay": "Keep editing",
+        "leaveDiscard": "Discard changes",
+        "discardAllTitle": "Discard all changes?",
+        "discardAllBody_one": "This discards your edits to {{count}} file.",
+        "discardAllBody_other": "This discards your edits to {{count}} files.",
+        "discardAllStay": "Keep editing",
+        "discardAllConfirm": "Discard all",
+        "errorValidation": "Some files have validation errors. Fix the highlighted files and try again.",
+        "errorNotConnected": "Repository is not connected.",
+        "errorUnknown": "Unknown error",
+        "errorRefreshRemote": "Couldn't check the remote. Try again.",
+        "landingBranch": "Changes pushed to {{branch}} · {{sha}}",
+        "landingPrUpdated": "Pull request #{{number}} updated",
+        "landingPrProtected": "Opened pull request #{{number}} — {{branch}} is protected, direct push unavailable",
+        "landingPrOpened": "Opened pull request #{{number}}"
+      },
+      "editor": {
+        "rich": "Rich",
+        "raw": "Raw",
+        "publishChanges": "Publish changes…",
+        "delete": "Delete",
+        "statusEdited": "edited",
+        "statusNew": "new",
+        "richPlaceholder": "Start writing — describe what this file should do…",
+        "linkUrlLabel": "Link URL",
+        "linkUrlPlaceholder": "https://…",
+        "linkApply": "Apply",
+        "linkRemove": "Remove"
+      },
+      "publish": {
+        "title": "Publish changes",
+        "subtitlePartial": "Publishing {{current}} of {{total}} files → {{branch}} · one commit",
+        "subtitleAll_one": "{{count}} file → {{branch}} · one commit",
+        "subtitleAll_other": "{{count}} files → {{branch}} · one commit",
+        "newChip": "new",
+        "newFolderChip": "new folder",
+        "deletedChip": "deleted",
+        "diff": "Diff",
+        "discardTooltip": "Discard this file's changes",
+        "conflictModified": "Changed on the remote since you loaded it.",
+        "conflictDeleted": "Deleted on the remote since you loaded it.",
+        "conflictExists": "Already exists on the remote.",
+        "conflictDeleteModified": "Changed on the remote since you marked it.",
+        "keepAsNew": "Keep as new file",
+        "restoreDraft": "Restore",
+        "confirmDelete": "Confirm delete",
+        "refresh": "Refresh",
+        "excludedHint": "This file won't be published.",
+        "warnDescription": "Missing description — publishes as-is.",
+        "warnGeneric": "{{field}} needs attention — publishes as-is.",
+        "outcomePr": "Opens a pull request — required by this app's settings.",
+        "commitMessageLabel": "Commit message",
+        "discardAll": "Discard all",
+        "cancel": "Cancel",
+        "publishing": "Publishing…",
+        "submit_one": "Publish {{count}} change",
+        "submit_other": "Publish {{count}} changes"
+      },
+      "create": {
+        "header": "New context file",
+        "newKindTitle": "New {{kind}}",
+        "alreadyExistsScope": "Already exists in this scope",
+        "scope": "Scope",
+        "name": "Name",
+        "location": "Location",
+        "dupPath": "A file already exists at this path.",
+        "cancel": "Cancel",
+        "create": "Create",
+        "fixedTakenMcp": "This scope already has an mcp.json.",
+        "fixedTakenInstructions": "This scope already has an AGENTS.md.",
+        "kinds": {
+          "command": {
+            "label": "Command",
+            "description": "Slash command your agents can run"
+          },
+          "skill": {
+            "label": "Skill",
+            "description": "Reusable capability with a SKILL.md"
+          },
+          "subagent": {
+            "label": "Subagent",
+            "description": "Specialized agent definition"
+          },
+          "document": {
+            "label": "Document",
+            "description": "Plain markdown doc, lives anywhere"
+          },
+          "instructions": {
+            "label": "Instructions",
+            "description": "AGENTS.md-style guidance"
+          },
+          "mcp": {
+            "label": "MCP server",
+            "description": "Connect a tool via mcp.json"
+          }
+        },
+        "validation": {
+          "enterName": "Enter a name.",
+          "skillMax": "Use 64 characters or fewer.",
+          "segmentMax": "Each part must be 64 characters or fewer.",
+          "pathMax": "This path is too long — keep it under 180 characters.",
+          "slug": "Lowercase letters, digits, and single hyphens only.",
+          "subagentSlug": "Lowercase letters and single hyphens only.",
+          "emptySegment": "Path segments can't be empty.",
+          "dupFolder": "A folder already exists at this path."
+        }
+      },
+      "delete": {
+        "titleSkill": "Delete this skill?",
+        "titleFile": "Delete this file?",
+        "titleFolder": "Delete this folder?",
+        "skillBody": "Marks the skill's whole directory for deletion, including files OuterLayer does not manage. Nothing changes in git until you publish.",
+        "folderBody": "Marks every file in this folder for deletion, including its non-content files. Nothing changes in git until you publish.",
+        "listingFiles": "Listing files…",
+        "unmanagedMarker": " — not managed by OuterLayer, will also be marked",
+        "fileBody": "Marks <0>{{path}}</0> for deletion. Nothing changes in git until you publish.",
+        "cancel": "Cancel",
+        "deleteSkill": "Delete skill",
+        "deleteFile": "Delete file",
+        "deleteFolder": "Delete folder",
+        "errorListFailed": "Could not list files to delete.",
+        "errorNotConnected": "Repository is not connected."
+      },
+      "empty": {
+        "resyncing": "Resyncing…",
+        "resync": "Resync",
+        "noConnectionTitle": "No repository connected",
+        "noConnectionBody": "Context lives in your repo's .outerlayer/ directory. Connect a repository to browse it here.",
+        "noConnectionCta": "Connect a repository",
+        "neverSyncedTitle": "Set up context for this repo",
+        "neverSyncedBody": "This repository is connected but has no .outerlayer/ context yet. Add it in your repo, then resync.",
+        "neverSyncedCta": "Set up context",
+        "noContextTitle": "No context yet",
+        "noContextBody": "No .outerlayer/ context files were found on the connected branch. Add a skill, command, or AGENTS.md file to your repo's .outerlayer/ directory to get started.",
+        "noContextCta": "Set up context"
+      },
+      "fileBlocks": {
+        "oversizeTooLarge": "This file is too large to preview here.",
+        "oversizeViewProvider": "View it on your provider ↗",
+        "oversizeOpenRepo": "Open it in your repository to view its contents.",
+        "mcpServerCount_one": "{{count}} MCP server",
+        "mcpServerCount_other": "{{count}} MCP servers",
+        "envRefsRedacted": "env refs redacted"
+      },
+      "tree": {
+        "noMatch": "No files match \"{{query}}\".",
+        "serverCount_one": "· {{count}} server",
+        "serverCount_other": "· {{count}} servers",
+        "excludedNote_one": "{{count}} other file in git",
+        "excludedNote_other": "{{count}} other files in git",
+        "shadows": "shadows",
+        "submittedAsPr": "Submitted as a pull request",
+        "containsNew": "Contains a new file",
+        "containsUnsaved": "Contains unsaved changes",
+        "newFile": "New file",
+        "newFolder": "New folder",
+        "newFolderName": "Folder name",
+        "deleteFolder": "Delete folder",
+        "unsavedChanges": "Unsaved changes",
+        "markedForDeletion": "Marked for deletion",
+        "lastUsedNever": "never",
+        "lastUsedNeverSkillTip": "No session has activated this skill in 90 days — it may not match how the work is phrased, or may not be needed.",
+        "lastUsedNeverMcpTip": "No session has called any of this file's servers in 90 days — their tool definitions still load into every session's context.",
+        "relTimeNow": "just now",
+        "relTimeMinutes": "{{count}}m ago",
+        "relTimeHours": "{{count}}h ago",
+        "relTimeDays": "{{count}}d ago",
+        "drilldownLoading": "Loading activations…",
+        "drilldownUnavailable": "Activation detail unavailable.",
+        "drilldownTrend": "Activations · last {{days}} days",
+        "drilldownSessions": "Recent sessions",
+        "drilldownTopics": "Topics",
+        "drilldownEmpty": "No activating sessions recorded in the last {{days}} days.",
+        "mcpToolsUsed_one": "{{count}} tool used",
+        "mcpToolsUsed_other": "{{count}} tools used",
+        "mcpToolsQuiet_one": "· {{count}} gone quiet",
+        "mcpToolsQuiet_other": "· {{count}} gone quiet",
+        "mcpToolsMore_one": "+{{count}} more",
+        "mcpToolsMore_other": "+{{count}} more",
+        "mcpOutsideRepo": "Also used, configured outside this repo: {{names}}",
+        "mcpEmpty": "No tool calls recorded in the last {{days}} days.",
+        "discardEditBody": "Unsaved changes",
+        "discardCreateBody": "New file (not published)",
+        "discardDeleteBody": "Marked for deletion",
+        "discardChange": "Discard change",
+        "discardNewFile": "Discard new file",
+        "restoreFile": "Restore file",
+        "restoreFolder": "Restore folder",
+        "countEdits_one": "{{count}} edit",
+        "countEdits_other": "{{count}} edits",
+        "countNew_one": "{{count}} new file",
+        "countNew_other": "{{count}} new files",
+        "countDeletions_one": "{{count}} deletion",
+        "countDeletions_other": "{{count}} deletions",
+        "discardStagedChanges_one": "Discard {{count}} staged change",
+        "discardStagedChanges_other": "Discard {{count}} staged changes",
+        "discardConfirmTitle": "Discard staged changes?",
+        "discardConfirmBody": "This discards {{summary}} in this folder. Buffered edits and new files are lost; deletions are restored. This can't be undone.",
+        "discardConfirm": "Discard changes",
+        "discardedEditMessage": "Change discarded.",
+        "discardedCreateMessage": "New file discarded.",
+        "undo": "Undo"
+      },
+      "history": {
+        "triggerLink": "Link",
+        "triggerPush": "Push",
+        "triggerResync": "Resync",
+        "colSync": "Sync",
+        "colTrigger": "Trigger",
+        "colCommit": "Commit",
+        "colBranch": "Branch",
+        "colWhen": "When",
+        "colTook": "Took",
+        "empty": "No syncs yet. Push to the connected branch or resync to get started.",
+        "loadError": "Could not load sync history. Try refreshing the page."
+      },
+      "toolbar": {
+        "bold": "Bold",
+        "italic": "Italic",
+        "strikethrough": "Strikethrough",
+        "inlineCode": "Inline code",
+        "heading1": "Heading 1",
+        "heading2": "Heading 2",
+        "heading3": "Heading 3",
+        "bodyText": "Body text",
+        "bulletList": "Bullet list",
+        "numberedList": "Numbered list",
+        "quote": "Quote",
+        "codeBlock": "Code block",
+        "link": "Link",
+        "table": "Table",
+        "divider": "Divider",
+        "undo": "Undo",
+        "redo": "Redo"
+      }
+    }
+  },
+  "app": {
+    "title": "Apps",
+    "emptyList": "No Apps",
+    "emptyAppAccess": {
+      "title": "No accessible apps",
+      "description": "You don't have access to any apps yet. Contact your organization admin to get access to the apps you need."
+    },
+    "createAppTitle": "Create new App",
+    "createButton": "Create App",
+    "saveButton": "Save",
+    "name": "Name",
+    "displayName": "Display name",
+    "displayNameHelper": "A friendly name shown across the dashboard. Leave blank to use the identifier.",
+    "identifier": "Identifier",
+    "identifierHelper": "Auto-generated, used in URLs. This can't be changed.",
+    "renameAppTitle": "Rename App",
+    "renameButton": "Save",
+    "renameSuccess": "App renamed.",
+    "renameFailed": "Failed to rename the app. Please try again.",
+    "deleteDialogTitle": "Delete App",
+    "githubNotConnected": "Please connect your Git repository",
+    "deleteAppDescription": "Are you sure you want to delete this app? You won't be able to access your api keys, traces, metrics and other data again once doing this.",
+    "enterAppNameToDelete": "Enter the app name to delete",
+    "deleteButton": "Delete",
+    "cancel": "Cancel",
+    "deleteAppSuccess": "App deleted.",
+    "deleteAppFailed": "Failed to delete the app. Please try again.",
+    "deleteAppFkBlocked": "This app still has related resources we can't remove automatically. Delete any remaining alerts, Slack integrations, or dashboards first and try again.",
+    "appLimitReached": "You have reached the maximum number of apps. <0>Upgrade to Enterprise</0> to add more apps.",
+    "yes": "Yes",
+    "validation": {
+      "name": {
+        "required": "Name is required",
+        "max": "Name must be less than 100 characters"
+      }
+    },
+    "linkRepositoryModal": {
+      "title": "Link Repository",
+      "selectLabel": "Select a Repository",
+      "saveButton": "Save",
+      "branchLabel": "Select a Branch"
+    },
+    "settingsMenu": {
+      "rename": "Rename",
+      "delete": "Delete",
+      "connectGit": "Connect Git Repository",
+      "connectGitHub": "Connect GitHub Repository",
+      "linkRepository": "Link Repository",
+      "updateRepo": "Update Repository",
+      "changeProvider": "Change Git Provider",
+      "updateGitHubOrg": "Update GitHub Organization"
+    }
+  },
+  "org": {
+    "createOrgTitle": "Create new Organization",
+    "name": "Organization Name",
+    "companyName": "Company Name",
+    "companyNamePlaceholder": "My Company Inc.",
+    "saveButton": "Create",
+    "cancelButton": "Cancel",
+    "createSuccess": "Organization created successfully!",
+    "orgLimitReached": "You have reached the maximum of 10 organizations. Please leave an organization before creating a new one.",
+    "validation": {
+      "companyName": {
+        "required": "Company name is required",
+        "max": "Company name must be at most 255 characters"
+      }
+    },
+    "switcher": {
+      "switchOrganization": "Switch Organization",
+      "createOrganization": "Create Organization",
+      "limitReached": "Limit reached (10)"
+    },
+    "createOrganization": {
+      "welcome": "Create Your First Organization",
+      "description": "To get started, create an organization to manage your apps and team."
+    }
+  },
+  "auth": {
+    "login": {
+      "newUser": "New user?",
+      "createAnAccountLink": "Create an account",
+      "forgotPassword": "Forgot Password?",
+      "passwordPlaceholder": "Password",
+      "emailPlaceholder": "Email Address",
+      "loginButton": "Login",
+      "heading": "Sign in to OuterLayer",
+      "or": "Or",
+      "loginWithGitHub": "Login with GitHub",
+      "loginWithGoogle": "Login with Google",
+      "rateLimitError": "Too many login attempts. Please wait a few minutes before trying again."
+    },
+    "forgotPassword": {
+      "title": "Forgot your password?",
+      "description": "Please enter the email address associated with your account and We will email you a link to reset your password.",
+      "returnButton": "Return to sign in",
+      "sendButton": "Send Request",
+      "emailPlaceholder": "Email Address"
+    },
+    "linkExpired": {
+      "title": "Link expired",
+      "description": "Email links can only be used once. This link has expired or has already been used.",
+      "requestNewLink": "Request a new link",
+      "returnToSignIn": "Return to sign in"
+    },
+    "newPassword": {
+      "title": "New Password",
+      "description": "Update to use your new password",
+      "inviteTitle": "Welcome",
+      "inviteTitleWithCompany": "Welcome to {{company}}",
+      "inviteDescription": "Your account is ready. Set a password to finish setting up your account.",
+      "setPasswordButton": "Set Password",
+      "passwordPlaceholder": "Password",
+      "confirmPlaceholder": "Confirm Password",
+      "updateButton": "Update Password"
+    },
+    "register": {
+      "heading": "Get started free",
+      "subtitle": "Already have an account?",
+      "signInLink": "Sign in",
+      "createButton": "Create account",
+      "firstNamePlaceholder": "First name",
+      "lastNamePlaceholder": "Last name",
+      "companyNamePlaceholder": "Company name",
+      "emailPlaceholder": "Email address",
+      "passwordPlaceholder": "Password",
+      "organizationNamePlaceholder": "Organization Name",
+      "or": "Or",
+      "registerWithGitHub": "Register with GitHub",
+      "registerWithGoogle": "Register with Google"
+    },
+    "verify": {
+      "title": "Please check your email!",
+      "returnButton": "Return to sign in"
+    },
+    "acceptInvite": {
+      "title": "Organization Invitation",
+      "welcomeTitle": "Join your team on OuterLayer",
+      "pageTitle": "Accept Invitation",
+      "invitedTo": "You have been invited to join",
+      "description": "Click the button below to accept the invitation and add this organization to your account.",
+      "acceptButton": "Accept Invitation",
+      "declineButton": "Decline",
+      "accepting": "Accepting invitation...",
+      "error": {
+        "title": "Invitation Error",
+        "invalidLink": "Invalid invitation link",
+        "goToDashboard": "Go to Dashboard"
+      },
+      "expired": {
+        "title": "Invitation Expired",
+        "message": "Your invitation to join {{companyName}} has expired. Please contact the organization administrator to request a new invitation."
+      },
+      "alreadyAccepted": {
+        "title": "Already Accepted",
+        "message": "You have already accepted this invitation."
+      },
+      "orgLimitReached": {
+        "title": "Organization Limit Reached",
+        "message": "You have reached the maximum of 10 organizations. Please leave an organization from your dashboard before accepting this invitation to join {{companyName}}."
+      },
+      "success": {
+        "title": "Welcome!",
+        "message": "You have successfully joined {{companyName}}. The organization is now available in your organization switcher."
+      }
+    },
+    "validation": {
+      "firstName": {
+        "required": "First name required"
+      },
+      "lastName": {
+        "required": "Last name required"
+      },
+      "companyName": {
+        "required": "Company name is required"
+      },
+      "email": {
+        "invalid": "Email must be a valid email address",
+        "required": "Email is required"
+      },
+      "password": {
+        "required": "Password is required",
+        "match": "Passwords must match",
+        "min": "Password must be at least 6 characters",
+        "max": "Password must be less than 30 characters"
+      },
+      "currentPassword": {
+        "required": "Current password is required"
+      },
+      "name": {
+        "required": "Name required",
+        "max": "Name must be less than 100 characters"
+      },
+      "organizationName": {
+        "required": "Organization name required",
+        "max": "Organization name must be less than 100 characters"
+      }
+    }
+  },
+  "systemPages": {
+    "notFound": {
+      "title": "Sorry, page not found!",
+      "description": "Sorry, we couldn't find the page you're looking for. Perhaps you've mistyped the URL? Be sure to check your spelling.",
+      "returnHomeButton": "Go Home"
+    },
+    "forbidden": {
+      "title": "No permission",
+      "description": "The page you're trying access has restricted access. Please refer to your system administrator",
+      "returnHomeButton": "Go home"
+    }
+  },
+  "common": {
+    "publishDisabledTooltip": "You don't have permission to publish. Contact your administrator for write access."
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "@outerlayer/provider-e2b",
+  "version": "0.1.0",
+  "description": "Managed microVM SandboxProvider backed by E2B Firecracker sandboxes: builds the environment once, snapshots it, then boots independent offline-capable sandboxes from that snapshot. Implements the same interface as the local Docker provider, so running the eval runner on managed infrastructure is a config change rather than a rewrite.",
+  "license": "Apache-2.0",
+  "author": "Magu Studios, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/outerlayerai/outerlayer.git",
+    "directory": "packages/provider-e2b"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "sandbox",
+    "e2b",
+    "firecracker",
+    "microvm"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@outerlayer/runner-core": "workspace:*",
+    "e2b": "^2.32.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

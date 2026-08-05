@@ -1,0 +1,113 @@
+# Wrangler dev env vars used by CI fuzz/integration jobs.
+#
+# Copied to `.dev.vars` by the workflow before `wrangler dev` starts.
+# `.dev.vars` is gitignored; this `.ci` variant is committed so CI has
+# a deterministic env without requiring secrets.
+#
+# Real values: SUPABASE_*, CLICKHOUSE_*, NODE_ENV, API_KEY_PEPPER.
+# Everything else is a placeholder — these vars satisfy
+# `apps/gateway/src/types.ts:EnvSchema` (so `wrangler dev` boots) but
+# the endpoints exercised by fuzz tests don't depend on the real
+# values. If a fuzz test starts hitting an endpoint that needs (say)
+# real Stripe creds, it'll surface as a clear 5xx and we'll either
+# add a real secret or exclude the endpoint.
+
+NODE_ENV=development
+
+# --- Supabase (local) ---
+# The CI integration Supabase images predate opaque `sb_*` keys and parse the
+# apikey as a JWT, so these carry the legacy demo JWTs under the new var names.
+# Swap to the `sb_publishable_…` / `sb_secret_…` demo literals once the CI stack
+# images support opaque keys.
+SUPABASE_API_BASE_URL=http://127.0.0.1:54331
+SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+SUPABASE_SECRET_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+SUPABASE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
+
+# --- ClickHouse (local) ---
+# The integration-tests ClickHouse container (apps/integration-tests/
+# clickhouse/docker-compose.yml) runs with `default` user / no password.
+# Must match — non-empty passwords are rejected with
+# "Authentication failed". Verified by direct curl:
+#   curl -su default:ci-clickhouse 'http://127.0.0.1:18123/?query=SELECT+1'
+#   → 401 "Authentication failed"
+#   curl -su default: 'http://127.0.0.1:18123/?query=SELECT+1'
+#   → 200
+CLICKHOUSE_HOST=http://127.0.0.1:18123
+CLICKHOUSE_PASSWORD=
+# Row-policy read identity — provisioned by apps/integration-tests/clickhouse/
+# setup-clickhouse.ts (matches its CI defaults; not a secret).
+CLICKHOUSE_READ_USER=analytics_reader
+CLICKHOUSE_READ_PASSWORD=ci_reader_password
+# Least-privilege write identity — provisioned by the same setup script
+# (matches its CI defaults; not a secret). Ingest / mutation runs as this user.
+CLICKHOUSE_WRITE_USER=analytics_writer
+CLICKHOUSE_WRITE_PASSWORD=ci_writer_password
+
+# --- Unkey (burst rate limiting only) ---
+UNKEY_API_KEY=ci-bypass
+
+# --- API-key store pepper ---
+# HMAC secret the gateway uses to hash an incoming key and look up its digest.
+# Committed non-secret value so CI seed helpers (setup-gateway.ts) can grep the
+# SAME bytes the gateway boots with — the seeded key and the verifier can never
+# drift. Real deploys inject a random per-env secret via `wrangler secret put`.
+API_KEY_PEPPER=am-ci-pepper-not-a-secret
+
+# --- Stripe (placeholder; billing endpoints not fuzzed) ---
+STRIPE_SECRET_KEY=sk_test_ci_placeholder
+STRIPE_SPAN_METER_KEY=span_meter
+STRIPE_STORAGE_METER_KEY=storage_gb
+STRIPE_STORAGE_METER_ID=mtr_ci_placeholder
+
+# --- Cloudflare (placeholder; cache/zone APIs not fuzzed) ---
+CLOUDFLARE_ZONE_ID=ci_placeholder
+CLOUDFLARE_API_KEY=ci_placeholder
+CLOUDFLARE_CACHE_DOMAIN=ci.local
+
+# --- OuterLayer dashboard URL ---
+DASHBOARD_BASE_URL=http://localhost:3000
+
+# --- GitHub App (placeholder; connect flow not fuzzed) ---
+GITHUB_APP_ID=ci_placeholder
+GITHUB_APP_PRIVATE_KEY=ci_placeholder
+# Slug for the git-connect URL helper's install URL.
+
+# --- Token encryption (>=32 chars per Zod schema) ---
+TOKEN_ENCRYPTION_KEY=ci-token-encryption-key-32chars-min
+
+# --- OAuth state HMAC secret (>=32 chars; matches dashboard) ---
+OAUTH_STATE_SECRET=ci-oauth-state-secret-32chars-min-padding
+
+# --- BetterStack (placeholder; logs/errors discarded in CI) ---
+BETTERSTACK_LOGS_TOKEN=ci_placeholder
+BETTERSTACK_INGESTING_URL=http://127.0.0.1:9999
+BETTERSTACK_ERRORS_DSN=https://ci@ci.local/0
+
+# --- OTel ---
+
+# --- Observer WebSocket ticket secret (>=32 chars) ---
+
+# --- Environments & Promotion (Fly Machines) ---
+# FLY_API_TOKEN is `.min(1)` required in apps/gateway/src/types.ts. /health
+# (and any wrangler boot path that hits EnvSchema.parse) returns 5xx if it's
+# absent. CI doesn't exercise the Fly deploy path, so a placeholder is
+# sufficient — but it MUST be set or Zod parse fails and the gateway is
+# reported unhealthy.
+FLY_API_TOKEN=ci_placeholder_fly_token
+
+# --- Blob storage (R2 default; S3/MinIO opt-in, wired in the adapter PR) ---
+# All optional — unset here, so CI exercises the default R2 binding (the
+# wrangler local R2 simulation). The adapter PR's MinIO-backed integration test
+# flips these on, pointing at the MinIO container provisioned alongside
+# ClickHouse (apps/gateway/minio/docker-compose.yml, S3 API on host :9300):
+#   BLOB_STORAGE_BACKEND=s3
+#   BLOB_S3_ENDPOINT=http://127.0.0.1:9300
+#   BLOB_S3_REGION=us-east-1
+#   BLOB_S3_ACCESS_KEY_ID=minioadmin
+#   BLOB_S3_SECRET_ACCESS_KEY=minioadmin
+#   BLOB_S3_BUCKET=trace-blobs
+#   BLOB_S3_FORCE_PATH_STYLE=true
+
+# --- Insights (trace-topics) enrichment (056) ---
+TOPICS_MOCK_MODEL=true

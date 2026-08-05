@@ -1,0 +1,71 @@
+name: OpenAPI Breaking Change Check
+
+# Compares the PR's `docs/openapi.yaml` against the version on the PR's base
+# branch and fails the build if oasdiff detects breaking changes.
+#
+# `oasdiff` is an open-source tool (https://www.oasdiff.com/); the action
+# (oasdiff/oasdiff-action/breaking) writes inline annotations to the PR
+# summary so reviewers see which operation broke and how.
+#
+# Scope: advisory-as-error. Anything classified as a breaking change by
+# oasdiff (removing required fields, narrowing response types, deleting
+# endpoints, etc.) will block merge. If a change is intentional, the PR
+# author must either avoid the break or update the docs review process to
+# record the rationale before force-merging.
+#
+# Security note: GitHub Actions recommends not interpolating webhook payload
+# fields directly into shell `run:` steps. We pass `github.base_ref` (a ref
+# name from PR metadata, not free-form text) through `env:` into the action's
+# typed inputs, following the GitHub Security team guide:
+# https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+
+# Reusable workflow — invoked by the `openapi-breaking-change` job in
+# ci.yml (gated on the `openapi` paths-filter) so it runs inside the
+# required "CI Gate" aggregate rather than as a standalone required check.
+# No top-level concurrency here: the caller (OuterLayer CI) already cancels
+# in-progress runs, and a matching group would collide with the caller's.
+on:
+  workflow_call:
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  oasdiff:
+    name: Detect breaking API changes
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    env:
+      # Pin the base ref into a named env var rather than interpolating it
+      # inline below — this keeps the expression inside a typed input, out of
+      # any shell, so it cannot be abused even if GitHub Actions' payload
+      # hardening regresses.
+      BASE_REF: ${{ github.base_ref }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # We need the base branch's docs/openapi.yaml available locally.
+          # fetch-depth: 0 pulls full history so the git ref resolution below
+          # works.
+          fetch-depth: 0
+
+      - name: Run oasdiff (breaking-change mode)
+        uses: oasdiff/oasdiff-action/breaking@b7c3adeb54330db1903d27c61db520e5661ad55b # v0.1.11
+        with:
+          # The action consumes its inputs through Go, not a shell.
+          # github.base_ref is the branch name the PR targets (e.g. "main"),
+          # sourced from trusted PR metadata rather than PR body text.
+          base: 'origin/${{ env.BASE_REF }}:docs/openapi.yaml'
+          revision: 'HEAD:docs/openapi.yaml'
+          fail-on: ERR
+          # Frozen baseline of already-accepted breaking changes, from the
+          # point the spec became generated rather than hand-curated.
+          # Do NOT extend this file when adding new routes;
+          # fix the underlying schema instead. See the file header for
+          # the full rationale.
+          err-ignore: .github/oasdiff-baseline.txt

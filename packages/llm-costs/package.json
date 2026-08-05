@@ -1,0 +1,26 @@
+{
+  "main": "./cost-mapping.ts",
+  "name": "@repo/llm-costs",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@repo/model-registry": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:mutate": "stryker run"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,0 +1,127 @@
+name: Migration Validation
+
+# Reusable workflow — invoked by the `migration-check` job in ci.yml
+# (gated on the `migrations` paths-filter) so it runs inside the required
+# "CI Gate" aggregate. Intentionally NOT self-triggered on pull_request: a
+# standalone trigger would sit outside CI Gate and could merge green if the
+# branch-protection required-checks list ever drifted from this workflow's name.
+on:
+  workflow_call:
+
+env:
+  NODE_VERSION: '24'
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  validate-migrations:
+    name: Validate Database Migrations
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+
+      - name: Build migration validator
+        run: yarn workspace @repo/migration-validator build
+
+      - name: Get changed migration files
+        id: changed-files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Get changed Supabase migrations
+          # --diff-filter=d: deleted files must not reach the validators — they
+          # no longer exist on disk and would fail the run on ENOENT.
+          SUPABASE_CHANGES=$(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- 'apps/tenant-dashboard/supabase/migrations/*.sql' | tr '\n' ' ')
+          echo "supabase_changes=$SUPABASE_CHANGES" >> $GITHUB_OUTPUT
+
+          # Get changed ClickHouse migrations
+          CLICKHOUSE_CHANGES=$(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD -- 'apps/tenant-dashboard/clickhouse/migrations/*.sql' | tr '\n' ' ')
+          echo "clickhouse_changes=$CLICKHOUSE_CHANGES" >> $GITHUB_OUTPUT
+
+          # Check if any migrations changed
+          if [ -n "$SUPABASE_CHANGES" ] || [ -n "$CLICKHOUSE_CHANGES" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check migration timestamp ordering
+        if: steps.changed-files.outputs.supabase_changes != ''
+        run: .github/scripts/check-migration-ordering.sh
+
+      - name: Validate Supabase migrations with Squawk
+        if: steps.changed-files.outputs.supabase_changes != ''
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.supabase_changes }}
+        run: |
+          echo "🔍 Validating changed Supabase migrations with Squawk..."
+          echo "Files: $CHANGED_FILES"
+          echo ""
+
+          # Use Squawk for PostgreSQL migrations (AST-based, handles comments correctly)
+          # Squawk detects: adding NOT NULL without default, changing column types,
+          # dropping columns, renaming tables/columns, and many more PostgreSQL anti-patterns
+          #
+          # PINNED (not @latest): Squawk ships new lint rules in releases, and an
+          # unpinned fetch turns each addition into a surprise failure on unrelated
+          # PRs. Bump deliberately to adopt new rules; this version is clean
+          # against the current migrations.
+          npx squawk-cli@2.58.0 $CHANGED_FILES
+
+      - name: Validate ClickHouse migrations (changed files only)
+        if: steps.changed-files.outputs.clickhouse_changes != ''
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.clickhouse_changes }}
+        run: |
+          echo "🔍 Validating changed ClickHouse migrations..."
+          echo "Files: $CHANGED_FILES"
+          echo ""
+
+          node packages/migration-validator/dist/cli.js \
+            --clickhouse apps/tenant-dashboard/clickhouse/migrations \
+            --files $CHANGED_FILES \
+            --github
+
+      - name: Skip validation (no migration changes)
+        if: steps.changed-files.outputs.has_changes == 'false'
+        run: |
+          echo "✅ No migration files changed - skipping validation"
+
+  migration-tests:
+    name: Migration Validator Tests
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+
+      - name: Run migration validator tests
+        run: yarn workspace @repo/migration-validator test

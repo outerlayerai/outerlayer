@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "es2021",
+    /* Web-standard globals (Response, Request, fetch, Headers, URL, crypto,
+       TextEncoder, …) come from the `dom` lib, NOT `@cloudflare/workers-types`.
+       That keeps the core runtime-agnostic: the same globals exist on the
+       Cloudflare Worker, on Node 18+, and in the browser. */
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    /* The extracted contract packages and @outerlayer/session-schema resolve to
+       their TS source (they ship source-entry exports, no built dist). */
+    "paths": {
+      "@repo/api-schemas": ["../../packages/api-schemas/src/index.ts"],
+      "@repo/api-types": ["../../packages/api-types/src/index.ts"],
+      "@repo/shared-utils": ["../../packages/shared-utils/src/index.ts"],
+      "@outerlayer/session-schema": ["../../packages/session-schema/src/index.ts"]
+    },
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**", "node_modules"]
+}

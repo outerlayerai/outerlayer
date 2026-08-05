@@ -1,0 +1,101 @@
+name: Bug report
+description: Something behaves differently than documented or expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this.
+
+        **Not for security vulnerabilities.** A public issue tells everyone
+        running this software about the flaw before there is a fix. Report those
+        privately instead: the repository's **Security** tab → **Report a
+        vulnerability**, or email security@outerlayer.ai. `SECURITY.md` has the
+        details.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: |
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The smallest sequence that reproduces it. A `curl` command or a failing
+        test is worth more than a description.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running OuterLayer?
+      options:
+        - OuterLayer Cloud (app.outerlayer.ai)
+        - Self-hosted
+        - Local development from this repository
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: >
+        The release you are on, or the commit SHA you built from
+        (`git rev-parse --short HEAD`). For Cloud, roughly when you saw it.
+      placeholder: "v1.4.2, or 29c0376c"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      description: Pick the closest one. If you aren't sure, leave it as Not sure.
+      options:
+        - Dashboard
+        - Gateway
+        - CLI
+        - Docs
+        - Self-host setup
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Operating system, Node version, browser if it is a dashboard issue, and
+        anything unusual about how the services are deployed.
+      placeholder: |
+        OS: macOS 15.2
+        Node: 22.11.0
+        Browser: Firefox 134
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: >
+        Paste anything relevant. **Redact API keys, tokens, and customer data
+        first** — this issue is public.
+      render: text
+    validations:
+      required: false

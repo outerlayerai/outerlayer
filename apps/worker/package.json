@@ -1,0 +1,29 @@
+{
+  "name": "worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Machine-side runner for cloud workers. Clones the tenant repo, runs a terminal coding agent (Claude Code, Codex) against a task, streams normalized transcript events back to the dashboard, and reports the resulting diff via a retrying callback. Dual-mode: WORKER_PARAMS inline (local dev child process) or WORKER_TOKEN one-time-Vault handshake (ephemeral Fly machine). Ships with zero @repo/* runtime deps so the Fly image stays tiny; the wire schemas are duplicated from @repo/worker-core on purpose.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --noEmit && esbuild src/index.ts src/worker-runner.ts --bundle --platform=node --target=node22 --format=esm --outdir=dist --packages=external",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@vitest/coverage-v8": "^4.1.8",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.8"
+  }
+}

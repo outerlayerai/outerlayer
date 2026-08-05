@@ -1,0 +1,24 @@
+# Fly app that holds the eval-worker IMAGE + APP SECRETS. Individual run Machines
+# are created on demand by the dispatcher (dashboard route → Fly Machines API)
+# with auto_destroy=true — NOT by `fly deploy`. There is no [http_service]: the
+# worker has no inbound; it's a run-once job triggered per eval run.
+#
+# See README-fly.md for the one-time setup (create app, set secrets, deploy image,
+# point the dispatcher at it).
+app = "outerlayer-eval-worker"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  OUTERLAYER_E2B_ENABLED = "1"
+  # OUTERLAYER_E2B_TEMPLATE, SUPABASE_URL, EVAL_IMAGE set as env or dispatcher-passed.
+
+# Worker footprint: I/O-bound orchestration (heavy compute is inside E2B).
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+# No auto-started machines: this app is an image + secret holder. Run Machines are
+# ephemeral, created by the dispatcher, and auto_destroy on completion.

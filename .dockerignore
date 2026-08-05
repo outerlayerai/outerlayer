@@ -1,0 +1,20 @@
+# Docker build context excludes. The eval-worker image reinstalls deps
+# (yarn install) and rebuilds outputs (turbo build) in-container, so none of the
+# generated/huge trees need to ship in the context.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+.git
+**/coverage
+**/.env
+**/.env.*
+**/.dev.vars
+**/*.log
+**/.DS_Store
+.yarn/cache
+.yarn/install-state.gz
+**/.claude
+apps/*/.next
+apps/tenant-dashboard/supabase/.branches
+apps/tenant-dashboard/supabase/.temp

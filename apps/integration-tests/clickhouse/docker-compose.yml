@@ -1,0 +1,33 @@
+services:
+  clickhouse-test:
+    image: 'clickhouse/clickhouse-server:25.8'
+    container_name: clickhouse-integration-test
+    hostname: clickhouse-test
+    environment:
+      - CLICKHOUSE_DB=default
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ports:
+      # Use different ports than the dev ClickHouse (8123/9000)
+      - '127.0.0.1:18123:8123'  # HTTP interface
+      - '127.0.0.1:19000:9000'  # Native interface
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    # Limit resources for test container.
+    #
+    # 2G was the original limit; raised to 3G after the integration suite
+    # grew past ~1500 tests. The OvercommitTracker in CH 25.x uses ~80% of
+    # the container limit as `max_server_memory_usage` — at 2G that left
+    # 1.6 GiB, which the alert-scheduler tests were hitting once enough
+    # mark caches and pending part merges had accumulated upstream. 3G
+    # gives ~2.4 GiB of headroom and removes the flake without hiding
+    # genuine memory regressions (alert-scheduler's spans are now batched
+    # into single OTLP requests, so a hit at 3G would mean a real leak).
+    deploy:
+      resources:
+        limits:
+          memory: 3G

@@ -1,0 +1,40 @@
+name: Dependabot Automerge
+
+# Enables GitHub's auto-merge on dependabot PRs that carry no breaking change
+# (the grouped minor-and-patch PR and non-major security bumps). The merge
+# itself is performed by GitHub only after every required check passes, so
+# nothing lands that CI wouldn't accept. Majors are skipped and keep needing a
+# human review.
+#
+# pull_request_target, not pull_request: dependabot-triggered pull_request
+# runs get no Actions secrets, and this job needs the bot PAT. It never checks
+# out or executes PR code, so the elevated context stays safe.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Enable auto-merge for non-major updates
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        # The bot PAT, not GITHUB_TOKEN: the eventual merge's push event is
+        # attributed to whoever enabled auto-merge, and pushes made by
+        # GITHUB_TOKEN don't trigger workflows — the staging CD would silently
+        # skip. Same rationale as the PAT in coverage-baseline.yml.
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.MODEL_REGISTRY_TOKEN }}

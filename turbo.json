@@ -1,0 +1,109 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["**/.env.*local"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "passThroughEnv": [
+        "SUPABASE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "UNKEY_API_KEY",
+        "API_KEY_PEPPER",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_SECRET_WEBHOOK_KEY",
+        "STRIPE_SPAN_METER_ID",
+        "STRIPE_SPAN_METER_KEY",
+        "GITHUB_APP_ID",
+        "GITHUB_APP_PRIVATE_KEY",
+        "GITHUB_APP_WEBHOOK_SECRET",
+        "GITHUB_CLIENT_ID",
+        "GITHUB_CLIENT_SECRET",
+        "DATABASE_URL",
+        "TOKEN_ENCRYPTION_KEY",
+        "RESEND_API_KEY",
+        "RESEND_BROADCAST_AUDIENCE_ID",
+        "FROM_EMAIL",
+        "CLICKHOUSE_PASSWORD",
+        "CLICKHOUSE_HOST",
+        "SLACK_CLIENT_SECRET",
+        "VERCEL_DEPLOYMENT_ID",
+        "VERCEL_SKEW_PROTECTION_ENABLED",
+        "SKIP_ENV_VALIDATION",
+        "VERCEL_ENV",
+        "FLY_API_TOKEN"
+      ]
+    },
+    "gateway-node#build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "dependsOn": ["^build", "@outerlayer/locales#build"],
+      "inputs": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "src/**/*.spec.ts",
+        "src/**/*.spec.tsx",
+        "test/**",
+        "tests/**",
+        "jest.config.*",
+        "vitest.config.*",
+        "tsconfig.json",
+        "tsconfig.*.json"
+      ],
+      "passThroughEnv": ["HOME", "USERPROFILE", "HOMEPATH"]
+    },
+    "test:coverage": {
+      "dependsOn": ["^build", "@outerlayer/locales#build"],
+      "inputs": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "src/**/*.spec.ts",
+        "src/**/*.spec.tsx",
+        "test/**",
+        "tests/**",
+        "vitest.config.*",
+        "tsconfig.json",
+        "tsconfig.*.json"
+      ],
+      "outputs": ["coverage/**", ".vitest-reports/**"]
+    },
+    "test:e2e": {
+      "cache": false,
+      "dependsOn": ["build"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "app/**/*.ts",
+        "app/**/*.tsx",
+        "scripts/**/*.ts",
+        "*.ts",
+        "*.tsx",
+        "tsconfig.json",
+        "tsconfig.*.json"
+      ]
+    },
+    "outerlayer#typecheck": {
+      "dependsOn": ["^typecheck", "^build"]
+    },
+    "@repo/worker-core#typecheck": {
+      "dependsOn": ["^typecheck", "^build"]
+    },
+    "build:package": {},
+    "lint": {},
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["PORT", "GATEWAY_PORT", "FLY_API_TOKEN"]
+    }
+  }
+}

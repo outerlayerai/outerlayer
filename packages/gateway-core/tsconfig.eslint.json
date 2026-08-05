@@ -1,0 +1,6 @@
+{
+  "//": "Lint-only project: same options as tsconfig.json but INCLUDES test files so typescript-eslint's typed rules can parse them. tsconfig.json excludes tests to keep `tsc` typecheck fast; eslint needs them in a project (parserOptions.project).",
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist"]
+}

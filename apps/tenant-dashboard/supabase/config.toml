@@ -1,0 +1,255 @@
+# A string used to distinguish different Supabase projects on the same host. Defaults to the
+# working directory name when running `supabase init`.
+project_id = "splinter-secdef"
+
+[api]
+enabled = true
+# Port to use for the API URL.
+port = 55501
+# Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
+# endpoints. public and storage are always included.
+schemas = ["public", "storage", "graphql_public"]
+# Extra schemas to add to the search_path of every request. public is always included.
+extra_search_path = ["public", "extensions"]
+# The maximum number of rows returns from a view, table, or stored procedure. Limits payload size
+# for accidental or malicious requests.
+max_rows = 1000
+
+[db]
+# Port to use for the local database URL.
+port = 55502
+# Port used by db diff command to initialize the shadow database.
+shadow_port = 55500
+# The database major version to use. This has to be the same as your remote database's. Run `SHOW
+# server_version;` on the remote database to check.
+major_version = 15
+# Declarative schema files - loaded in order for db diff comparisons
+# See: https://supabase.com/docs/guides/local-development/declarative-database-schemas
+[db.migrations]
+# Using baseline dump as the single source of truth
+# To split into domain files later, use the domain-based files in schemas/
+schema_paths = [
+    "./schemas/00-extensions.sql",
+    "./schemas/01-types.sql",
+    # Private-schema authz helpers (DEFINER bodies + public INVOKER
+    # wrappers). After 01-types (needs the permission/role enums), before any
+    # RLS policy or function body that references private.authorize/app_authorize.
+    "./schemas/01a-private-authz.sql",
+    "./schemas/02-functions-core.sql",
+    "./schemas/03-functions-transactions.sql",
+    "./schemas/10-tenant.sql",
+    "./schemas/11-profile.sql",
+    "./schemas/12-rbac.sql",
+    "./schemas/13-terms-agreement.sql",
+    "./schemas/20-app.sql",
+    # Environment is declared here — after app/tenant/profile and before
+    # 23-api-key.sql, which carries an FK reference to it
+    # (api_key.environment_id -> environment(id)). The file number (52) is kept
+    # for grouping; schema_paths order is what `db diff` honours.
+    "./schemas/52-environment.sql",
+    "./schemas/22-git-connection.sql",
+    "./schemas/23-api-key.sql",
+    # Postgres key-store secret table + verify/set DEFINER RPCs. After
+    # 23-api-key.sql (FK to public.api_key). Its plpgsql verify body references
+    # billing/git_branch which load later — safe, plpgsql defers body resolution
+    # to runtime.
+    "./schemas/23a-api-key-secret.sql",
+    "./schemas/27-env-var.sql",
+    "./schemas/27-notification.sql",
+    "./schemas/28-dashboard.sql",
+    "./schemas/29-custom-role.sql",
+    "./schemas/30-billing.sql",
+    "./schemas/31-app-member-role.sql",
+    # Consolidated polymorphic-actor audit log. After 31-app-member-role.sql
+    # so every audited RBAC table exists.
+    "./schemas/32-audit-log.sql",
+    # OuterLayer context layer: mirror tables (context_snapshot/
+    # context_blob/context_tree_entry/context_head). 33 is the free slot
+    # between 32-audit-log.sql and 40-platform-admin.sql. Needs
+    # 10-tenant.sql/12-rbac.sql/20-app.sql (already loaded above) for
+    # tenant, role_permissions, and the context.* permission enum values.
+    "./schemas/33-context.sql",
+    "./schemas/40-platform-admin.sql",
+    "./schemas/55-saved-trace-filters.sql",
+    "./schemas/60-feature-flags.sql",
+    "./schemas/65-sso.sql",
+    "./schemas/66-pull-request.sql",
+    "./schemas/67-ai-cost-config.sql",
+    "./schemas/71-eval-run.sql",
+    "./schemas/71-agent-insights.sql",
+    "./schemas/72-env-escalation.sql",
+    "./schemas/73-worker-run.sql",
+    "./schemas/74-pull-request-session.sql",
+    # Ops telemetry about the database itself. Own `ops` schema, off the
+    # PostgREST surface, and depends on nothing in public.
+    "./schemas/94-ops-usage-snapshots.sql",
+    "./schemas/95-gateway-rls.sql",
+    # Centralized EXECUTE revokes for internal SECURITY DEFINER
+    # functions. After all function definitions, before triggers.
+    "./schemas/96-function-execution-grants.sql",
+    # Composite tenant/app foreign keys. After every table that carries both
+    # columns, so all 22 referencing tables exist by the time it loads.
+    "./schemas/97-tenant-app-consistency.sql",
+    # Strips TRUNCATE/REFERENCES/TRIGGER from anon/authenticated. Must load
+    # after every file that creates a table or grants on one — it sweeps the
+    # whole schema rather than naming tables.
+    "./schemas/98-table-privilege-hardening.sql",
+    "./schemas/99-triggers.sql",
+    "./schemas/storage-policies.sql"
+]
+
+[db.seed]
+enabled = true
+sql_paths = ['./seed.sql']
+
+[db.pooler]
+enabled = false
+# Port to use for the local connection pooler.
+port = 55509
+# Specifies when a server connection can be reused by other clients.
+# Configure one of the supported pooler modes: `transaction`, `session`.
+pool_mode = "transaction"
+# How many server connections to allow per user/database pair.
+default_pool_size = 20
+# Maximum number of client connections allowed.
+max_client_conn = 100
+
+[realtime]
+enabled = true
+# Bind realtime via either IPv4 or IPv6. (default: IPv6)
+# ip_version = "IPv6"
+
+[studio]
+# Disabled by default to save ~100 MB RAM. Enable when debugging the database.
+enabled = false
+# Port to use for Supabase Studio.
+port = 55503
+# External URL of the API server that frontend connects to.
+api_url = "http://127.0.0.1"
+
+# Email testing server. Emails sent with the local dev setup are not actually sent - rather, they
+# are monitored, and you can view the emails that would have been sent from the web interface.
+[inbucket]
+# Disabled by default to save ~50 MB RAM. Enable when testing email flows.
+enabled = false
+# Port to use for the email testing server web interface.
+port = 55504
+# Uncomment to expose additional ports for testing user applications that send emails.
+# smtp_port = 54325
+# pop3_port = 54326
+
+[storage]
+enabled = true
+# The maximum file size allowed (e.g. "5MB", "500KB").
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+enable_manual_linking = true
+# The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
+# in emails.
+site_url = "http://localhost:4005"
+# How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
+jwt_expiry = 3600
+# If disabled, the refresh token will never expire.
+enable_refresh_token_rotation = true
+# Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
+# Requires enable_refresh_token_rotation = true.
+refresh_token_reuse_interval = 10
+# Allow/disallow new user signups to your project.
+enable_signup = true
+
+[auth.email]
+# Allow/disallow new user signups via email to your project.
+enable_signup = true
+# If enabled, a user will be required to confirm any email change on both the old, and new email
+# addresses. If disabled, only the new email is required to confirm.
+double_confirm_changes = true
+# If enabled, users need to confirm their email address before signing in.
+enable_confirmations = false
+
+# Uncomment to customize email template
+# Note: Requires Docker file sharing configuration for template paths
+# [auth.email.template.invite]
+# subject = "You have been invited"
+# content_path = "./supabase/templates/invite-user.html"
+
+# [auth.email.template.recovery]
+# subject = "Reset your password"
+# content_path = "./supabase/templates/password-reset.html"
+
+# [auth.email.template.confirmation]
+# subject = "Confirm your email"
+# content_path = "./supabase/templates/confirm-signup.html"
+
+
+[auth.sms]
+# Allow/disallow new user signups via SMS to your project.
+enable_signup = true
+# If enabled, users need to confirm their phone number before signing in.
+enable_confirmations = false
+# Template for sending OTP to users
+template = "Your code is {{ .Code }} ."
+
+# Use pre-defined map of phone number to OTP for testing.
+[auth.sms.test_otp]
+# 4152127777 = "123456"
+
+# Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
+[auth.sms.twilio]
+enabled = false
+account_sid = ""
+message_service_sid = ""
+# DO NOT commit your Twilio auth token to git. Use environment variable substitution instead:
+auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
+
+# Use an external OAuth provider. The full list of providers are: `apple`, `azure`, `bitbucket`,
+# `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin`, `notion`, `twitch`,
+# `twitter`, `slack`, `spotify`, `workos`, `zoom`.
+[auth.external.github]
+enabled = true
+client_id = "placeholder"
+# DO NOT commit your OAuth provider secret to git. Use environment variable substitution instead:
+secret = "placeholder"
+# Overrides the default auth redirectUrl.
+redirect_uri = "http://localhost:4005/auth/callback"
+# Overrides the default auth provider URL. Used to support self-hosted gitlab, single-tenant Azure,
+# or any other third-party OIDC providers.
+url = ""
+
+[auth.external.google]
+enabled = true
+client_id = "placeholder"
+secret = "placeholder"
+redirect_uri = "http://localhost:4005/auth/callback"
+
+[auth.external.gitlab]
+enabled = true
+# GitLab calls this "Application ID" in their UI
+client_id = "placeholder"
+secret = "placeholder"
+redirect_uri = "http://localhost:4005/auth/callback"
+
+[analytics]
+enabled = false
+port = 55507
+vector_port = 55508
+# Configure one of the supported backends: `postgres`, `bigquery`.
+backend = "postgres"
+
+# Experimental features may be deprecated any time
+[experimental]
+# Configures Postgres storage engine to use OrioleDB (S3)
+orioledb_version = ""
+# Configures S3 bucket URL, eg. <bucket_name>.s3-<region>.amazonaws.com
+s3_host = "env(S3_HOST)"
+# Configures S3 bucket region, eg. us-east-1
+s3_region = "env(S3_REGION)"
+# Configures AWS_ACCESS_KEY_ID for S3 bucket
+s3_access_key = "env(S3_ACCESS_KEY)"
+# Configures AWS_SECRET_ACCESS_KEY for S3 bucket
+s3_secret_key = "env(S3_SECRET_KEY)"
+
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"

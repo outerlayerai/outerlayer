@@ -1,0 +1,488 @@
+name: Stryker Mutation Nightly
+
+on:
+  schedule:
+    # 07:00 UTC Sundays = 00:00 PT Sunday (midnight). Weekly, not daily, to
+    # control cost: this matrix bills ~855 runner-min/run (17 mutation shards
+    # run concurrently — the run "duration" shows only the longest shard).
+    # The per-PR "Patch Mutation" job in ci.yml covers changed-file
+    # regressions between weekly full sweeps; use workflow_dispatch on demand.
+    - cron: '0 7 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: stryker-nightly
+  cancel-in-progress: false
+
+# Least-privilege default; jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    # Matrix entries use full workspace paths (apps/… or packages/…) so the
+    # same workflow can handle both. `name` is the short label used for
+    # artifact filenames — GitHub's artifact API doesn't allow slashes.
+    name: Mutation (${{ matrix.workspace.name }})
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # 120 min ceiling. Gateway is sharded across 4 parallel jobs (see
+    # below) — the full gateway scope is ~3,440 mutants × 1.1 s per
+    # mutant / 4 concurrency, well past this timeout end-to-end. Each
+    # shard is sized to ~1,000 mutants and fits in ~10-15 min wall time.
+    # observability-service and tenant-dashboard run as single jobs (they
+    # comfortably fit under the timeout).
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          # `pkg` is the package.json `name` — used as a NEGATION filter on
+          # the build step so turbo skips building the workspace itself.
+          # `mutate` (optional) overrides the workspace's stryker.config.mjs
+          # `mutate` glob via the --mutate CLI flag.
+          # `vitestDir` (optional) sets vitest's `--dir` flag via the
+          # STRYKER_VITEST_DIR env var, which stryker.config.mjs reads
+          # into the `vitest.dir` Stryker option. This is the key knob
+          # for fitting gateway in 2 h CI: Stryker's vitest-runner
+          # hardcodes perTest coverage, which hangs on projects with
+          # ~200+ source files (stryker-mutator/stryker-js#214). `dir`
+          # narrows test discovery to the directory containing the
+          # tests for the shard's mutate scope, shrinking the perTest
+          # coverage data proportionally.
+          # Matrix data flows through env vars (not inline ${{...}}) in
+          # the Run Stryker step to avoid command-injection paths —
+          # see https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+          #
+          # CLI `--mutate` REPLACES the config's mutate array — including
+          # the exclusion patterns. Each shard MUST re-append the
+          # universal exclusions or test files / type declarations get
+          # mutated, inflating the mutant count 7-10× (one shard reached
+          # 3,354 mutants without them).
+          - { path: packages/gateway-core, name: gateway-services, pkg: '@repo/gateway-core',
+              vitestDir: 'src/services',
+              mutate: 'src/services/**/*.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          - { path: packages/gateway-core, name: gateway-lib, pkg: '@repo/gateway-core',
+              vitestDir: 'src/lib',
+              mutate: 'src/lib/**/*.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # utils mutates the root src/utils.ts (tested by the sibling
+          # src/utils.test.ts) AND src/utils/**. dir=src/utils would discover
+          # only the subdir tests and miss utils.test.ts, so src/utils.ts
+          # mutants would go uncovered. dir=src + an include for both test
+          # locations keeps the perTest dataset to just the utils suites.
+          - { path: packages/gateway-core, name: gateway-utils, pkg: '@repo/gateway-core',
+              vitestDir: 'src',
+              stryker_include: 'utils.test.ts,utils/**/*.test.ts',
+              mutate: 'src/utils.ts,src/utils/**/*.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # Gateway routes — split into 6 shards. Two shards is not enough:
+          # a combined routes shard reaches only ~51% (400/777 mutants) in
+          # under two hours, projecting ~3h45m against a 2h timeout. The route
+          # shards run ~8x slower per mutant than service shards because
+          # `dir=src/openapi` discovers ~200 openapi tests with heavy MSW
+          # setup. Capping each shard at ~350 mutants keeps wall time
+          # under ~100 min even at the observed rate.
+          - { path: packages/gateway-core, name: gateway-routes-scores, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/scores.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # Spans + score-configs + health + deployments do not fit one
+          # shard (~316 mutants): they run ~17 sec/mutant against the ~13
+          # sec/mutant of the other route shards — probably more MSW handlers
+          # touched per test — and exceed the 2h timeout. Two shards keeps
+          # each under ~200 mutants.
+          - { path: packages/gateway-core, name: gateway-routes-spans, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/spans.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # apps.ts, workers.ts, and environments.ts (679-771 LOC each) are
+          # the largest remaining route files after traces/scores/spans, so
+          # each gets its own shard — consistent with the ~200-mutant target
+          # the other route shards are sized against.
+          - { path: packages/gateway-core, name: gateway-routes-apps, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/apps.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          - { path: packages/gateway-core, name: gateway-routes-workers, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/workers.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          - { path: packages/gateway-core, name: gateway-routes-environments, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/environments.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # api-keys.ts (622 LOC) plus the two thin route files left over
+          # (capabilities.ts, pricing.ts) bundle to ~755 LOC, matching the
+          # other shards' size.
+          - { path: packages/gateway-core, name: gateway-routes-api-keys-misc, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/api-keys.ts,src/openapi/routes/capabilities.ts,src/openapi/routes/pricing.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # agents.ts (582 LOC) plus health.ts (273 LOC) bundle to ~855 LOC.
+          - { path: packages/gateway-core, name: gateway-routes-agents-health, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/agents.ts,src/openapi/routes/health.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # eval-runs.ts and eval-trials.ts (355 + 345 LOC) bundle to ~700
+          # LOC — the two smallest of the mid-size route files.
+          - { path: packages/gateway-core, name: gateway-routes-evals, pkg: '@repo/gateway-core',
+              vitestDir: 'src/openapi',
+              mutate: 'src/openapi/routes/eval-runs.ts,src/openapi/routes/eval-trials.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # git/ moved to packages/gateway-core in the runtime-decoupling
+          # extraction. crypto.ts (token encryption) holds the real
+          # logic worth mutating; the rest of git/ is thin provider wrappers
+          # wrappers. Its own small shard: git and queues live in separate
+          # workspaces, so one shard cannot cover both. dir=src/git scopes test
+          # discovery to the git suites (small perTest dataset, no hang).
+          - { path: packages/gateway-core, name: gateway-git, pkg: '@repo/gateway-core',
+              vitestDir: 'src/git',
+              mutate: 'src/git/crypto.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # jobs/ is excluded from the default mutate glob as "thin wrappers"
+          # too — but stripe-meter-event-handler.tsx and storage-metering-
+          # handler.ts compute the billing AMOUNTS sent to Stripe. Their tests
+          # carry strong value / customer-id / idempotency assertions;
+          # mutation testing is what guards those amounts against a silent
+          # regression the line-coverage floor can't see. Small scope (2
+          # handlers) so it shares one shard. vitestDir=src/jobs scopes test
+          # discovery to the jobs suites (small perTest dataset, no hang).
+          # Combined into score-gateway by the score-gateway-* artifact
+          # pattern (combine-gateway-scores.mjs).
+          - { path: apps/gateway, name: gateway-jobs, pkg: gateway,
+              vitestDir: 'src/jobs',
+              mutate: 'src/jobs/stripe-meter-event-handler.tsx,src/jobs/storage-metering-handler.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          # storage-cap-service.ts is the one business-logic service that stayed
+          # in apps/gateway (it fronts the metering path). The gateway-services
+          # shard lives in gateway-core, so storage-cap needs its own small
+          # apps/gateway shard.
+          # dir=src/services scopes discovery to apps/gateway's own service suites.
+          - { path: apps/gateway, name: gateway-storage-cap, pkg: gateway,
+              vitestDir: 'src/services',
+              mutate: 'src/services/storage-cap-service.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
+          - { path: apps/tenant-dashboard, name: tenant-dashboard, pkg: tenant-dashboard }
+          # Dedicated high-floor money-and-auth scope. These four files (the
+          # billing feature slice's server actions + service, and the Stripe
+          # payment webhook) are the dashboard's highest-blast-radius logic and
+          # are gated at PR time via scripts/ci/patch-mutation.mjs
+          # (SCOPED_FLOORS → the suffixed floor key
+          # apps/tenant-dashboard:money-auth). This nightly entry tracks the
+          # scoped score over time and surfaces survivors in the weekly report;
+          # the score artifact name is distinct so it never collides with the
+          # broad tenant-dashboard run above. The default tenant-dashboard
+          # stryker.config.mjs handles the --mutate override.
+          - { path: apps/tenant-dashboard, name: tenant-dashboard-money-auth, pkg: tenant-dashboard,
+              mutate: 'src/features/billing/actions.ts,src/features/billing/service.ts,src/app/api/webhooks/payment/route.ts,src/config/stripe-prices.ts,!src/**/*.test.ts,!src/**/*.test.tsx,!src/**/*.d.ts' }
+          - { path: packages/observability-service, name: observability-service, pkg: '@repo/observability-service' }
+          # Security-sensitive packages. api-key-service handles Unkey key
+          # creation + metadata; entitlements resolves tier+override into
+          # the effective per-tenant limits the gateway gates on. Both are
+          # tiny (1-2 mutate targets each) so they fit in a single job
+          # without sharding. Floor is null in mutation-score-floors.json
+          # for the first nightly — the ratchet job seeds it from the
+          # baseline run.
+          - { path: packages/api-key-service, name: api-key-service, pkg: '@repo/api-key-service' }
+          - { path: packages/entitlements, name: entitlements, pkg: '@repo/entitlements' }
+          # shared-utils carries its own packages/shared-utils/stryker.config.mjs
+          # like every other in-tree package. Floor lives in
+          # mutation-score-floors.json under the packages/shared-utils key.
+          - { path: packages/shared-utils, name: shared-utils, pkg: '@repo/shared-utils' }
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # Build the workspace's DEPENDENCIES but not the workspace itself.
+      # Stryker's vitest runner compiles source via tsx/swc at test time, so
+      # we don't need a built artifact for the workspace under test — but its
+      # dependencies (e.g. @agentmark-ai/api-schemas, @repo/llm-costs) DO
+      # need their `dist/` built because workspace versions don't ship
+      # pre-built. Skipping the workspace build avoids tenant-dashboard's
+      # Next.js `Collecting page data` step, which fails without the ~30
+      # production env vars that aren't (and shouldn't be) in CI.
+      #
+      # Negation filter (`!<pkg>`) is used because turbo 2.3.3's documented
+      # `^...` self-exclusion operator does NOT actually exclude self in
+      # practice (verified locally via --dry-run).
+      - name: Build dependencies
+        env:
+          WORKSPACE_PATH: ${{ matrix.workspace.path }}
+          WORKSPACE_PKG: ${{ matrix.workspace.pkg }}
+        run: |
+          yarn turbo build \
+            --filter="{./$WORKSPACE_PATH}..." \
+            --filter="!$WORKSPACE_PKG"
+
+      # Restore the Stryker incremental state file. This is the single
+      # biggest performance lever for nightly mutation testing — Stryker
+      # reuses results for mutants whose covering tests haven't changed,
+      # typically 70–90% of mutants on incremental runs. Cache key chains
+      # to the workflow's run-id (immutable, won't collide); restore-keys
+      # falls through to "any prior run for this workspace" so every
+      # nightly after the first warms up against the previous nightly.
+      - name: Restore Stryker incremental cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ matrix.workspace.path }}/reports/mutation/stryker-incremental.json
+          key: stryker-incremental-${{ matrix.workspace.name }}-${{ github.sha }}
+          restore-keys: |
+            stryker-incremental-${{ matrix.workspace.name }}-
+
+      - name: Run Stryker
+        working-directory: ${{ matrix.workspace.path }}
+        # Each in-tree stryker.config.mjs reads its break threshold from
+        # scripts/ci/mutation-score-floors.json. null there means no break
+        # gate (baseline still being established).
+        #
+        # MUTATE_GLOB overrides the config `mutate:` when set. STRYKER_VITEST_DIR
+        # is read into `vitest.dir` (gateway only — see the shard matrix above).
+        # Both come via env vars (not inline ${{...}}) to avoid command-injection
+        # paths through matrix data.
+        #
+        # We do NOT pass --reporters here — the config sets `progress` +
+        # clear-text + html + json, which gives the mutation-by-mutation progress
+        # logs needed to diagnose timeouts. Passing `--reporters` explicitly
+        # silently drops the `progress` reporter, leaving hours of silence.
+        env:
+          MUTATE_GLOB: ${{ matrix.workspace.mutate }}
+          STRYKER_VITEST_DIR: ${{ matrix.workspace.vitestDir }}
+          # Optional: comma-separated list of dir-relative test globs.
+          # Used by shards where even a narrowed `dir` produces a
+          # too-large perTest dataset. Consumed by
+          # apps/gateway/vitest.stryker.config.ts.
+          STRYKER_INCLUDE: ${{ matrix.workspace.stryker_include }}
+        run: |
+          if [ -n "$MUTATE_GLOB" ]; then
+            npx stryker run --mutate "$MUTATE_GLOB"
+          else
+            npx stryker run
+          fi
+
+      - name: Extract score
+        if: always()
+        env:
+          WORKSPACE_PATH: ${{ matrix.workspace.path }}
+          WORKSPACE_NAME: ${{ matrix.workspace.name }}
+        run: |
+          node scripts/ci/extract-mutation-score.mjs \
+            "$WORKSPACE_PATH/reports/mutation/mutation.json" \
+            "$WORKSPACE_NAME" \
+            "/tmp/score-$WORKSPACE_NAME.json"
+
+      - name: Surface fake-green test suspects
+        if: always()
+        # Fake-green = code the tests RUN but barely assert on — covered mutants
+        # that survive (the storage-metering 0% pattern), as opposed to NoCoverage
+        # mutants (just untested). Appends a ranked list to the run summary so
+        # weak tests already in the suite get found, not only new ones (which the
+        # PR-time patch-mutation gate catches). Report-only; never fails the job.
+        env:
+          WORKSPACE_PATH: ${{ matrix.workspace.path }}
+        run: node scripts/ci/find-fake-green.mjs "$WORKSPACE_PATH/reports/mutation/mutation.json"
+
+      - name: Upload score
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: score-${{ matrix.workspace.name }}
+          path: /tmp/score-${{ matrix.workspace.name }}.json
+          retention-days: 30
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-html-${{ matrix.workspace.name }}
+          path: ${{ matrix.workspace.path }}/reports/mutation/
+          retention-days: 14
+
+  aggregate-gateway:
+    name: Combine gateway shard scores
+    needs: [mutate]
+    # Run even when some shard jobs fail so we can still surface a
+    # partial combined score. Downstream jobs (ratchet, weekly-summary)
+    # tolerate a missing score-gateway.json by treating gateway as "no
+    # score this run".
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Download all per-shard scores
+        uses: actions/download-artifact@v8
+        with:
+          pattern: score-gateway-*
+          path: /tmp/gateway-shard-scores
+          merge-multiple: true
+
+      - name: Combine shard scores into score-gateway.json
+        run: |
+          mkdir -p /tmp/gateway-combined
+          node scripts/ci/combine-gateway-scores.mjs \
+            /tmp/gateway-shard-scores \
+            /tmp/gateway-combined/score-gateway.json
+
+      - name: Upload combined gateway score
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: score-gateway
+          path: /tmp/gateway-combined/score-gateway.json
+          retention-days: 30
+
+      # The real quality gate. Per-shard `stryker run` only enforces the low
+      # static catastrophe floor; the ratcheted aggregate floor (apps/gateway)
+      # is enforced HERE, on the mutant-weighted combined score — plus a
+      # per-shard tripwire so an isolated collapse can't hide in the average.
+      - name: Enforce gateway mutation floor (aggregate + catastrophe tripwire)
+        run: node scripts/ci/assert-gateway-mutation-gate.mjs /tmp/gateway-combined/score-gateway.json
+
+  ratchet:
+    name: Ratchet score floors
+    needs: [mutate, aggregate-gateway]
+    # Run even when some workspace jobs fail so we can still record scores.
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Download current scores
+        uses: actions/download-artifact@v8
+        with:
+          pattern: score-*
+          path: /tmp/mutation-scores
+          merge-multiple: true
+
+      - name: Ratchet floors
+        env:
+          SCORES_DIR: /tmp/mutation-scores
+        run: node scripts/ci/ratchet-mutation-scores.mjs
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if [ -n "$(git status --porcelain scripts/ci/mutation-score-floors.json)" ]; then
+            echo "has_changes=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.has_changes == '1'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          # PAT (not GITHUB_TOKEN) so workflows trigger on the auto-PR.
+          # See coverage-ratchet.yml for the full rationale.
+          token: ${{ secrets.MODEL_REGISTRY_TOKEN }}
+          # Commit ONLY the floor file — same rationale as the coverage ratchet
+          # (see coverage-baseline.yml): the Stryker run regenerates other
+          # working-tree files, and without add-paths create-pull-request would
+          # sweep them into the auto PR, tripping the path filters and the full
+          # test matrix. mutation-score-floors.json matches no filter.
+          add-paths: scripts/ci/mutation-score-floors.json
+          commit-message: "chore(mutation): auto-ratchet score floors"
+          title: "chore(mutation): auto-ratchet score floors"
+          body: |
+            Automated bump of `scripts/ci/mutation-score-floors.json` based on the latest nightly Stryker run.
+
+            Bump policy lives in `scripts/ci/ratchet-mutation-scores.mjs` (`computeBumpedFloor`). Review the diff and merge.
+          branch: auto/mutation-score-ratchet
+          base: main
+          delete-branch: true
+          labels: automation,mutation-testing
+
+  weekly-summary:
+    name: Weekly summary
+    needs: [mutate, aggregate-gateway]
+    # Run even when some workspace jobs fail so we can still surface scores.
+    if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Day of week
+        id: dow
+        run: echo "dow=$(date -u +%u)" >> "$GITHUB_OUTPUT"
+
+      - name: Determine if we should post
+        id: should_post
+        env:
+          DOW: ${{ steps.dow.outputs.dow }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$DOW" = "7" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "post=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "post=0" >> "$GITHUB_OUTPUT"
+            echo "Skipping weekly summary (not Monday and not manually triggered)."
+          fi
+
+      - name: Setup Node.js
+        if: steps.should_post.outputs.post == '1'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Download current scores
+        if: steps.should_post.outputs.post == '1'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: score-*
+          path: /tmp/current-scores
+          merge-multiple: true
+
+      - name: Find previous week's run
+        if: steps.should_post.outputs.post == '1'
+        id: prev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          CUTOFF=$(date -u -d '-6 days' -Iseconds)
+          RUN_ID=$(gh api "repos/$REPO/actions/workflows/stryker-nightly.yml/runs?status=success&per_page=20" \
+            --jq "[.workflow_runs[] | select(.created_at < \"$CUTOFF\")] | first | .id // \"\"" 2>/dev/null || echo "")
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          if [ -z "$RUN_ID" ]; then
+            echo "No prior run >= 6 days ago. Weekly summary will report current scores only."
+          else
+            echo "Found prior run: $RUN_ID"
+          fi
+
+      - name: Download previous week's scores
+        if: steps.should_post.outputs.post == '1' && steps.prev.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.prev.outputs.run_id }}
+        run: |
+          mkdir -p /tmp/previous-scores
+          gh run download "$RUN_ID" --repo "$REPO" --pattern "score-*" --dir /tmp/previous-scores || echo "(previous scores unavailable)"
+          find /tmp/previous-scores -type f -name '*.json' -exec mv {} /tmp/previous-scores/ \; 2>/dev/null || true
+          find /tmp/previous-scores -mindepth 1 -type d -empty -delete 2>/dev/null || true
+
+      - name: Post weekly comment
+        if: steps.should_post.outputs.post == '1'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          CURRENT_SCORES_DIR: /tmp/current-scores
+          PREVIOUS_SCORES_DIR: /tmp/previous-scores
+        run: node scripts/ci/post-mutation-weekly.mjs

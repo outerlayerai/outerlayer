@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": true
+  },
+  "ignoreCommand": "cd ../.. && bash scripts/should-deploy.sh outerlayer-site",
+  "installCommand": "cd ../.. && YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install"
+}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" fill="none">
+  <g transform="translate(4 6)">
+    <rect x="2" y="2" width="44" height="44" rx="11" stroke="#2065D1" stroke-width="3"/>
+    <rect x="11" y="11" width="26" height="26" rx="7" stroke="#103996" stroke-width="3" stroke-opacity="0.6"/>
+    <rect x="19" y="19" width="10" height="10" rx="3" fill="#1B1D1F"/>
+  </g>
+  <text x="62" y="39" font-family="Georgia, 'Times New Roman', serif" font-size="32" font-weight="500">
+    <tspan fill="#1B1D1F">outer</tspan><tspan fill="#6B7280">layer</tspan>
+  </text>
+</svg>

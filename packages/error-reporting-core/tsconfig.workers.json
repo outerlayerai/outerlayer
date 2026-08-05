@@ -1,0 +1,19 @@
+{
+  // Workers-bundle gate. Mirrors the Cloudflare Workers gateway's tsconfig —
+  // `moduleResolution: "Bundler"`, `lib: es2021`, and ONLY
+  // `@cloudflare/workers-types` in `types` (NO `node`). It deliberately does NOT
+  // pull in `@types/node`, so any reach for a Node built-in fails to typecheck
+  // here. `yarn typecheck:workers` is the proof that `@repo/error-reporting-core`
+  // bundles cleanly into the Workers runtime (the gateway imports it).
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["es2021"],
+    "types": ["@cloudflare/workers-types"],
+    "noEmit": true,
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/__tests__"]
+}

@@ -1,0 +1,178 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/git/pre-push-checks.mjs",
+        "scripts/vitest.config.ts"
+      ],
+      "ignore": [
+        ".eslintrc.js"
+      ],
+      "ignoreDependencies": [
+        "@repo/eslint-config"
+      ]
+    },
+    "apps/tenant-dashboard": {
+      "ignore": [
+        "src/lib/api/generated/**",
+        "scripts/**",
+        "src/theme/**",
+        "clickhouse/teardown.mjs",
+        "src/test-helpers/stubs/mui-x-data-grid.ts",
+        "src/context/index.ts",
+        "src/lib/system/client.ts",
+        "src/lib/system/index.ts",
+        "src/lib/dora-metrics/index.ts",
+        "src/lib/system/git/github/index.ts",
+        "src/components/page-header/index.ts",
+        "src/components/empty-state/index.ts",
+        "src/components/error-state/index.ts",
+        "src/components/page-skeleton/index.ts",
+        "src/components/table-pager/index.ts"
+      ],
+      "entry": [
+        "vitest.*.config.ts",
+        "src/features/context/components/rich-editor/test-helpers/harness-entry.ts",
+        "src/lib/analytics/index.ts",
+        "src/lib/analytics/types.ts",
+        "src/lib/analytics/logger.ts",
+        "src/lib/analytics/tenant-context.ts",
+        "src/lib/system/git/index.ts",
+        "src/flags/index.ts",
+        "src/hooks/environments/use-selected-env.ts",
+        "src/components/upgrade-prompt/index.ts",
+        "src/auth/guard/platform-admin-guard.tsx",
+        "src/sections/platform-admin/utils/with-platform-admin-check.ts",
+        "src/sections/platform-admin/__tests__/test-helpers.ts",
+        "src/types/sso.ts",
+        "src/types/app-member-role.ts",
+        "src/types/platform-admin.ts"
+      ],
+      "ignoreDependencies": [
+        "@mui/x-data-grid"
+      ]
+    },
+    "apps/gateway": {
+      "entry": [
+        "vitest.*.config.ts",
+        "vitest.*.config.mts"
+      ],
+      "ignore": [
+        "scripts/**"
+      ]
+    },
+    "apps/gateway-node": {
+      "ignoreDependencies": [
+        "@outerlayer/session-schema",
+        "tsx",
+        "zod"
+      ]
+    },
+    "apps/worker": {
+      "entry": [
+        "src/worker-runner.ts"
+      ]
+    },
+    "apps/e2e": {
+      "entry": [
+        "playwright.*.config.ts",
+        "fixtures/**/*.mjs"
+      ],
+      "ignore": [
+        "tests/utils/connected-handler.ts",
+        "tests/utils/staging-helpers.ts"
+      ]
+    },
+    "apps/integration-tests": {
+      "entry": [
+        "clickhouse/global-teardown.ts"
+      ],
+      "paths": {
+        "@/*": ["./src/*", "../tenant-dashboard/src/*"],
+        "@/utils/*": ["./src/utils/*", "../tenant-dashboard/src/utils/*"]
+      },
+      "ignore": [
+        "src/stubs/server-only.ts",
+        "src/stubs/next-cache.ts",
+        "src/stubs/next-headers.ts",
+        "test-sequencer.js"
+      ],
+      "ignoreDependencies": [
+        "@logtail/next",
+        "@repo/transactional",
+        "@sentry/nextjs",
+        "gateway",
+        "server-only",
+        "ws",
+        "zod"
+      ]
+    },
+    "packages/gateway-core": {
+      "entry": [
+        "vitest.*.config.ts"
+      ]
+    },
+    "packages/eval-runner": {
+      "entry": [
+        "*.mjs"
+      ]
+    },
+    "packages/session-schema": {
+      "entry": [
+        "scripts/*.mjs"
+      ]
+    },
+    "packages/provider-e2b": {
+      "entry": [
+        "templates/build-template.mjs"
+      ]
+    },
+    "packages/*": {}
+  },
+  "ignoreWorkspaces": [],
+  "ignore": [
+    "tmp/**",
+    "**/dist/**",
+    "**/.next/**",
+    "**/coverage/**",
+    "**/.turbo/**",
+    "**/.stryker-tmp/**",
+    "**/.claude/**",
+    "**/.outerlayer/**",
+    "**/stryker.config*.mjs"
+  ],
+  "ignoreBinaries": [
+    "tsx",
+    "playwright",
+    "stripe",
+    "stryker",
+    "du",
+    "g",
+    "start",
+    "typecheck",
+    "dev",
+    "rg"
+  ],
+  "ignoreDependencies": [
+    "@cloudflare/workers-types",
+    "@unkey/error",
+    "postcss-load-config",
+    "cloudflare"
+  ],
+  "rules": {
+    "files": "error",
+    "exports": "off",
+    "types": "off",
+    "nsExports": "off",
+    "nsTypes": "off",
+    "duplicates": "error",
+    "enumMembers": "error",
+    "dependencies": "error",
+    "devDependencies": "error",
+    "optionalPeerDependencies": "off",
+    "unlisted": "error",
+    "unresolved": "error",
+    "binaries": "error"
+  }
+}

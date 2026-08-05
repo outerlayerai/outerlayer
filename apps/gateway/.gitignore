@@ -1,0 +1,9 @@
+.dev.vars
+.wrangler
+# Sentry Config File
+.sentryclirc
+
+# Stryker copies its vitest setup shim next to the config per test-runner
+# process during mutation runs; crash-killed runs can leave them behind.
+stryker-setup-*.js
+.stryker-tmp/

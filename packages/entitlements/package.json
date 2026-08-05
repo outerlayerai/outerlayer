@@ -1,0 +1,30 @@
+{
+  "name": "@repo/entitlements",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "description": "Shared tier-entitlement resolution. Pure functions that read `tenant_entitlement_override` + `billing` and return effective boolean/numeric values. Used by both the cloud gateway (Cloudflare Worker) and the tenant dashboard (Next.js). Consumers supply their own Supabase client (admin, scoped, or otherwise). Tier values come from `@repo/tier-config`; this package owns the resolution rules but not the matrix.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:mutate": "stryker run"
+  },
+  "dependencies": {
+    "@repo/db-types": "*",
+    "@repo/tier-config": "workspace:*"
+  },
+  "peerDependencies": {
+    "@supabase/supabase-js": "^2.50.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "@supabase/supabase-js": "2.111.0",
+    "msw": "^2.15.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}
