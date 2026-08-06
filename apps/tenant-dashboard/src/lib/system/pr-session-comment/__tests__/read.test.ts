@@ -228,6 +228,79 @@ describe("readLinkedSessions", () => {
     });
   });
 
+  it("maps each session to its OWN app's name and default env when two apps share the repo", async () => {
+    // The name/env lookups are batched (`.in('id', …)`), so a mis-keyed map
+    // would hand every row the first app's name. Two apps with distinct
+    // names and distinct default envs is what makes that visible — a
+    // single-app fixture passes either way.
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-a", repository: REPO, pr_comments_enabled: true },
+      { tenant_id: TENANT, app_id: "app-b", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-a", trace_id: "t-a", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l2", app_id: "app-b", trace_id: "t-b", method: "pr_link", verification: "confirmed" }),
+      ],
+    });
+    const chQuery = vi.fn().mockResolvedValue([
+      chRow({ TraceId: "t-a", AppId: "app-a", StartedAt: "2026-07-02 09:00:00.000" }),
+      chRow({ TraceId: "t-b", AppId: "app-b", StartedAt: "2026-07-01 09:00:00.000" }),
+    ]);
+    seedSupabaseMswState({
+      apps: [
+        { id: "app-a", tenant_id: TENANT, name: "api" },
+        { id: "app-b", tenant_id: TENANT, name: "worker" },
+      ],
+    });
+    seedManagedDeploymentTablesState({
+      environments: [
+        { id: "env-a", app_id: "app-a", name: "production", is_default: true },
+        { id: "env-b", app_id: "app-b", name: "staging", is_default: true },
+        // Non-default env on app-a: must not win over `production`.
+        { id: "env-a2", app_id: "app-a", name: "preview", is_default: false },
+      ],
+    });
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result).not.toBeNull();
+    expect(result!.map((r) => [r.traceId, r.appName, r.envName])).toEqual([
+      ["t-a", "api", "production"],
+      ["t-b", "worker", "staging"],
+    ]);
+  });
+
+  it("scopes the pull_request_session read by tenant_id as well as app_id", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-1", trace_id: "t-ours", method: "pr_link", verification: "confirmed" }),
+        // Same app id, foreign tenant — unreachable in production given
+        // `uc_git_connection UNIQUE (app_id, tenant_id)`, but the row proves
+        // the filter is actually sent rather than merely implied.
+        link({
+          id: "l2",
+          app_id: "app-1",
+          tenant_id: "tenant-other",
+          trace_id: "t-theirs",
+          method: "pr_link",
+          verification: "confirmed",
+        }),
+      ],
+    });
+    const chQuery = vi.fn().mockResolvedValue([chRow({ TraceId: "t-ours", AppId: "app-1" })]);
+    seedSupabaseMswState({ apps: [{ id: "app-1", tenant_id: TENANT, name: "api" }] });
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result!.map((r) => r.traceId)).toEqual(["t-ours"]);
+    const [, params] = chQuery.mock.calls[0]!;
+    expect(params.traceIds).toEqual(["t-ours"]);
+  });
+
   it("queries agent_session_summary FINAL scoped to the tenant, for a chunk of trace ids", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
