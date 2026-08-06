@@ -24,10 +24,9 @@ interface EditRetryLoop {
 /**
  * Longest run of consecutive FAILED edits to a single file — the agent stuck
  * retrying an edit it can't land (usually a stale anchor). Every attempt
- * burns tokens for zero progress. Same definition and default threshold
- * (≥3) as the findings detector `edit-retry-loop`, restated over span rows:
- * an edit is `Metadata.isEdit = '1'` with a file; a failure is a span-level
- * error status; any non-error edit to that file (including a rejected one)
+ * burns tokens for zero progress. Default threshold is 3: an edit is
+ * `Metadata.isEdit = '1'` with a file; a failure is a span-level error
+ * status; any non-error edit to that file (including a rejected one)
  * resets its run. Returns null below the threshold — presence IS the signal.
  */
 export function findEditRetryLoop(spans: TrajectorySpan[], minRun = 3): EditRetryLoop | null {

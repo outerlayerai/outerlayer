@@ -40,7 +40,6 @@
     "@clickhouse/client-web": "^1.4.0",
     "@logtail/edge": "^0.5.7",
     "@opentelemetry/api": "^1.9.0",
-    "@outerlayer/insights-core": "*",
     "@repo/entitlements": "workspace:*",
     "@repo/error-reporting-core": "*",
     "@repo/gateway-core": "workspace:*",

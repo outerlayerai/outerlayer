@@ -34,7 +34,7 @@ worth looking at out.
   produced: merged or reverted, and what it cost. Velocity numbers come with a
   stability guardrail attached, not as a standalone brag.
 - **Mines the corrections.** Steering topics cluster the moments a human had
-  to step in, so a mistake the fleet keeps repeating surfaces as one finding
+  to step in, so a mistake the fleet keeps repeating surfaces as one topic
   instead of fifty scattered transcripts.
 - **Versions context, measures the gain.** Agent context (CLAUDE.md files,
   skills, rules) is mirrored and versioned, and session outcomes joined to
@@ -96,8 +96,8 @@ from needing Stripe credentials.
 Handing a fleet more of the work is the goal, and it is a result you build
 toward, not a toggle you flip on day one. Every autonomy claim in OuterLayer
 is anchored to evidence: sessions joined to PR outcomes, corrections mined
-into findings, context changes measured against your own history. When the
-numbers say the last increase in scope held, you grant the next one.
+into steering topics, context changes measured against your own history.
+When the numbers say the last increase in scope held, you grant the next one.
 
 ## Built to be trusted with your sessions
 

@@ -77,11 +77,10 @@ export const Permissions = {
 
   // Agent sessions (actor privacy). Self-by-default: `self.read` is
   // every active role's view of their OWN sessions; `team.read` (other
-  // developers' sessions + transcripts) is admin-granted. Findings are
-  // team-level aggregates; settings governs agents/capture-tier config.
+  // developers' sessions + transcripts) is admin-granted. Settings governs
+  // agents/capture-tier config.
   AGENTS_SESSIONS_SELF_READ: "agents.sessions.self.read" as const,
   AGENTS_SESSIONS_TEAM_READ: "agents.sessions.team.read" as const,
-  AGENTS_FINDINGS_READ: "agents.findings.read" as const,
   AGENTS_SETTINGS_WRITE: "agents.settings.write" as const,
 
   // SSO permissions (enterprise SAML config — owner/admin only; delete is
@@ -196,7 +195,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     // visible — so this label deliberately avoids a bare "sessions".
     label: 'Observability',
     permissions: [
-      { key: 'observability_view', displayName: 'View session traces, findings & topics', dbPermissions: ['trace.read'] },
+      { key: 'observability_view', displayName: 'View session traces & topics', dbPermissions: ['trace.read'] },
     ],
     entitlementGate: 'traces_enabled',
   },

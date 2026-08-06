@@ -121,11 +121,10 @@ CREATE TYPE public.app_permission AS ENUM (
     -- self-by-default; team-wide read is an explicit, admin-granted permission
     -- (market norm: no vendor exposes peers' session transcripts, and even
     -- per-user metrics are admin-gated). `self.read` = a member's own sessions only; `team.read` =
-    -- every actor's sessions in the app. Findings are team-level aggregates
-    -- (never per-person content); settings governs capture-tier/agents config.
+    -- every actor's sessions in the app. Settings governs capture-tier/agents
+    -- config.
     'agents.sessions.self.read',
     'agents.sessions.team.read',
-    'agents.findings.read',
     'agents.settings.write',
     -- Cloud workers: terminal coding-agent runs on managed
     -- machines. read = see runs + transcripts, insert = launch, update =

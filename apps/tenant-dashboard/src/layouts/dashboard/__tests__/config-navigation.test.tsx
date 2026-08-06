@@ -4,9 +4,8 @@
  *
  * Navigation sidebar must filter items based on the user's effective
  * permissions. Dashboards and Context lead the rail, followed by Workers and
- * the agents-only surfaces Sessions / Findings (trace.read). Settings trails
- * the rail — there is no Deployments item, and no "Getting started" or
- * "Overview" item.
+ * the agents-only surface Sessions (trace.read). Settings trails the rail —
+ * there is no Deployments item, and no "Getting started" or "Overview" item.
  */
 import { renderHook } from '@testing-library/react';
 
@@ -38,7 +37,6 @@ vi.mock('../../../routes/paths', () => ({
     context: { root: (org: string, app: string) => `/${org}/${app}/context` },
     agents: {
       sessions: (org: string, app: string) => `/${org}/${app}/agents/sessions`,
-      findings: (org: string, app: string) => `/${org}/${app}/agents/findings`,
     },
   },
 }));
@@ -101,7 +99,7 @@ describe('useNavData — permission filtering', () => {
       'dashboard.sidebar.dashboards',
       'Context',
       'Workers',
-      'Sessions', 'Findings',
+      'Sessions',
       'dashboard.sidebar.topics',
       'dashboard.sidebar.settings',
     ]);
@@ -110,7 +108,6 @@ describe('useNavData — permission filtering', () => {
       '/test-org/test-app/context',
       '/test-org/test-app/workers',
       '/test-org/test-app/agents/sessions',
-      '/test-org/test-app/agents/findings',
       '/test-org/test-app/insights',
       '/test-org/test-app/settings',
     ]);
@@ -156,7 +153,7 @@ describe('useNavData — permission filtering', () => {
     const { result } = renderHook(() => useNavData());
     const items = getItems(result.current);
 
-    expect(items.map((i) => i.title)).toEqual(['Sessions', 'Findings', 'dashboard.sidebar.topics']);
+    expect(items.map((i) => i.title)).toEqual(['Sessions', 'dashboard.sidebar.topics']);
   });
 
   it('shows only settings when user has only app.read', () => {
@@ -252,7 +249,7 @@ describe('useNavData — permission filtering', () => {
       const { result } = renderHook(() => useNavData());
       const titles = getItems(result.current).map((i) => i.title);
 
-      expect(titles).toEqual(['Sessions', 'Findings', 'dashboard.sidebar.topics']);
+      expect(titles).toEqual(['Sessions', 'dashboard.sidebar.topics']);
     });
 
     it('uses org-level permissions when app.id is null', () => {
@@ -269,7 +266,7 @@ describe('useNavData — permission filtering', () => {
       const { result } = renderHook(() => useNavData());
       const titles = getItems(result.current).map((i) => i.title);
 
-      expect(titles).toEqual(['Sessions', 'Findings', 'dashboard.sidebar.topics']);
+      expect(titles).toEqual(['Sessions', 'dashboard.sidebar.topics']);
     });
 
     it('shows no items when app context is present and useAppPermissions returns empty permissions', () => {

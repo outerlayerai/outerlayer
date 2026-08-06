@@ -1,6 +1,6 @@
 /**
- * Agent-sessions permissions acceptance — findings RLS, and the DB grant/RPC
- * layer `resolveAgentSessionScope` (`apps/tenant-dashboard/src/features/
+ * Agent-sessions permissions acceptance — the DB grant/RPC layer
+ * `resolveAgentSessionScope` (`apps/tenant-dashboard/src/features/
  * agent-sessions/scope.ts`) depends on.
  *
  * `resolveAgentSessionScope` itself cannot run end-to-end in this harness:
@@ -8,15 +8,12 @@
  * client bound to the request's session COOKIE (`createSupabaseServerClient`
  * → `next/headers` `cookies()`). This harness stubs `next/headers`'s
  * `headers()` only (`src/stubs/next-headers.ts`) — there is no cookie
- * bridge for a real Supabase session here. So this file proves the two
- * things that ARE drivable over the real wire:
- *
- *   1. The `app_authorize` RPC — the exact call `checkAppPermission` makes —
- *      resolves `agents.sessions.team.read`/`agents.sessions.self.read`
- *      correctly across the role matrix, through the same header-scoped
- *      client (`createTenantScopedClient`) every other acceptance suite uses.
- *   2. `AgentSessionsService.getFindings` (Supabase-only, no permission gate
- *      of its own — RLS is the only enforcement) is tenant-isolated for real.
+ * bridge for a real Supabase session here. So this file proves the thing
+ * that IS drivable over the real wire: the `app_authorize` RPC — the exact
+ * call `checkAppPermission` makes — resolves `agents.sessions.team.read`/
+ * `agents.sessions.self.read` correctly across the role matrix, through the
+ * same header-scoped client (`createTenantScopedClient`) every other
+ * acceptance suite uses.
  *
  * `resolveAgentSessionScope`'s own branch logic (team vs self, the
  * `NO_ACTOR_SENTINEL` fail-closed case, and the 404-no-oracle branch in
@@ -34,7 +31,7 @@ import { createTenantWithOwner, addUserToTenant, type SameTenantUser } from '../
 const SELF_READ = 'agents.sessions.self.read';
 const TEAM_READ = 'agents.sessions.team.read';
 
-describe('agent-sessions permissions and findings — the real Postgres wire path', () => {
+describe('agent-sessions permissions — the real Postgres wire path', () => {
   const admin = createSupabaseAdminClient();
 
   let orgA: SameTenantUser; // owner of A → has team.read AND self.read
@@ -62,8 +59,6 @@ describe('agent-sessions permissions and findings — the real Postgres wire pat
   }, 90000);
 
   afterAll(async () => {
-    await admin.from('agent_finding').delete().eq('app_id', appA);
-    await admin.from('agent_theme').delete().eq('app_id', appA);
     await admin.from('app').delete().in('tenant_id', [orgA.tenantId, orgB.tenantId]);
     await admin.from('membership').delete().in('user_id', [orgA.id, orgB.id, writeA.id, readA.id]);
     for (const user of [orgA, orgB, writeA, readA]) {
@@ -110,64 +105,6 @@ describe('agent-sessions permissions and findings — the real Postgres wire pat
       const { data: self } = await asForeign.rpc('app_authorize', { requested_permission: SELF_READ, target_app_id: appA });
       expect(team).toBe(false);
       expect(self).toBe(false);
-    });
-  });
-
-  describe('AgentSessionsService.getFindings — Supabase RLS, no separate permission gate', () => {
-    const findingId = randomUUID();
-    const themeId = randomUUID();
-
-    beforeAll(async () => {
-      const { error: findingError } = await admin.from('agent_finding').insert({
-        id: findingId,
-        tenant_id: orgA.tenantId,
-        app_id: appA,
-        detector_id: 'edit-retry-loop',
-        severity: 'warn',
-        summary: 'Repeated failed edits to the same file',
-        session_count: 3,
-        session_ids: ['s1', 's2', 's3'],
-      });
-      if (findingError) throw new Error(`seed agent_finding: ${findingError.message}`);
-
-      const { error: themeError } = await admin.from('agent_theme').insert({
-        id: themeId,
-        tenant_id: orgA.tenantId,
-        app_id: appA,
-        label: 'Stale edit anchors',
-        description: 'Multiple sessions hit the same stale-anchor edit failure',
-        severity: 'warn',
-        evidence_session_ids: ['s1', 's2'],
-      });
-      if (themeError) throw new Error(`seed agent_theme: ${themeError.message}`);
-    });
-
-    it("a member of A sees A's findings and themes", async () => {
-      const { agentSessionsService } = await import('tenant-dashboard/src/features/agent-sessions/service');
-      const db = await createTenantScopedClient(orgA, orgA.tenantId);
-      const result = await agentSessionsService.getFindings({
-        userId: orgA.id,
-        tenantId: orgA.tenantId,
-        appId: appA as never,
-        dataRetentionDays: -1,
-        db,
-      });
-      expect(result.findings.map((f) => f.id)).toEqual([findingId]);
-      expect(result.themes.map((t) => t.id)).toEqual([themeId]);
-    });
-
-    it("a non-member under A's tenant header sees NO findings or themes — RLS denies the row, not a filtered empty page", async () => {
-      const { agentSessionsService } = await import('tenant-dashboard/src/features/agent-sessions/service');
-      const db = await createTenantScopedClient(orgB, orgA.tenantId);
-      const result = await agentSessionsService.getFindings({
-        userId: orgB.id,
-        tenantId: orgA.tenantId,
-        appId: appA as never,
-        dataRetentionDays: -1,
-        db,
-      });
-      expect(result.findings).toEqual([]);
-      expect(result.themes).toEqual([]);
     });
   });
 });

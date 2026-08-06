@@ -199,8 +199,6 @@ type TableErrorMap = {
   sso_config_select?: { message: string };
   override_upsert?: { message: string };
   override_delete?: { message: string };
-  agent_finding_select?: { message: string };
-  agent_theme_select?: { message: string };
   temp_access_grant_select?: { message: string };
   terms_agreement_select?: { message: string };
 };
@@ -220,9 +218,6 @@ type SupabaseMswState = {
   platformIncidents: PlatformIncidentRow[];
   platformDoraCollectionStates: PlatformDoraCollectionStateRow[];
   savedTraceFilters: SavedTraceFilterRow[];
-  /** agent_finding / agent_theme rows — written by the gateway compute job, read-only here. */
-  agentFindings: Record<string, unknown>[];
-  agentThemes: Record<string, unknown>[];
   tenantEntitlementOverrides: TenantEntitlementOverrideRow[];
   // Captured mutation payloads — tests assert against these instead of
   // hand-rolled spies. Lets the test verify "the right upsert payload
@@ -266,8 +261,6 @@ const defaultState = (): SupabaseMswState => ({
   platformIncidents: [],
   platformDoraCollectionStates: [],
   savedTraceFilters: [],
-  agentFindings: [],
-  agentThemes: [],
   tenantEntitlementOverrides: [],
   upsertedEntitlementOverrides: [],
   deletedEntitlementOverrides: [],
@@ -326,8 +319,6 @@ export function seedSupabaseMswState(nextState: Partial<SupabaseMswState>) {
     platformDoraCollectionStates:
       nextState.platformDoraCollectionStates ?? state.platformDoraCollectionStates,
     savedTraceFilters: nextState.savedTraceFilters ?? state.savedTraceFilters,
-    agentFindings: nextState.agentFindings ?? state.agentFindings,
-    agentThemes: nextState.agentThemes ?? state.agentThemes,
     tenantEntitlementOverrides:
       nextState.tenantEntitlementOverrides?.map(applyOverrideDefaults) ??
       state.tenantEntitlementOverrides,
@@ -890,43 +881,6 @@ export const supabaseHandlers = [
 
     return HttpResponse.json(body, { status: 201 });
   }),
-
-  // agent_finding / agent_theme — read-only projections of the compute job's
-  // tables. PostgREST semantics kept honest: app_id eq filter + `order`
-  // parsing, so a route that drops its ordering or scoping fails these mocks.
-  ...(["agent_finding", "agent_theme"] as const).map((table) =>
-    http.get(`${SUPABASE_URL}/rest/v1/${table}`, ({ request }) => {
-      const selectError = state.tableErrors[`${table}_select`];
-      if (selectError) {
-        return HttpResponse.json({ message: selectError.message }, { status: 500 });
-      }
-      const url = new URL(request.url);
-      const appId = getEqParam(url, 'app_id');
-      const rowsKey = table === 'agent_finding' ? 'agentFindings' : 'agentThemes';
-      let rows = state[rowsKey].filter((row) =>
-        appId ? row['app_id'] === appId : true,
-      );
-      const order = url.searchParams.get('order');
-      if (order) {
-        const terms = order.split(',').map((term) => term.split('.'));
-        rows = [...rows].sort((a, b) => {
-          for (const [field, ...mods] of terms) {
-            const dir = mods.includes('desc') ? -1 : 1;
-            // PostgREST nulls placement is independent of sort direction.
-            const nullsLast = mods.includes('nullslast');
-            const av = a[field!] as number | string | null;
-            const bv = b[field!] as number | string | null;
-            if (av === bv) continue;
-            if (av === null) return nullsLast ? 1 : -1;
-            if (bv === null) return nullsLast ? -1 : 1;
-            return av < bv ? -1 * dir : 1 * dir;
-          }
-          return 0;
-        });
-      }
-      return HttpResponse.json(rows.map((row) => projectSelectedFields(url, row)));
-    }),
-  ),
 
   http.head(`${SUPABASE_URL}/rest/v1/saved_trace_filters`, ({ request }) => {
     const url = new URL(request.url);

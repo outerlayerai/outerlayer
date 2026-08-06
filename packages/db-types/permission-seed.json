@@ -8,14 +8,8 @@
   "groups": [
     {
       "key": "agents",
-      "rationale": "Agent sessions are self-by-default: every active role reads its own sessions and the team-level findings aggregate. Team-wide session read (other members' sessions and transcripts) and agents/capture-tier settings are admin-granted, so they go to owner/admin only.",
+      "rationale": "Agent sessions are self-by-default: every active role reads its own sessions. Team-wide session read (other members' sessions and transcripts) and agents/capture-tier settings are admin-granted, so they go to owner/admin only.",
       "grants": {
-        "agents.findings.read": [
-          "owner",
-          "admin",
-          "write",
-          "read"
-        ],
         "agents.sessions.self.read": [
           "owner",
           "admin",

@@ -21,13 +21,12 @@ const ENV = "prod";
 const BASE = `/orgs/${ORG}/apps/${APP}/env/${ENV}`;
 
 describe("appPaths — env-scoped builders", () => {
-  it("agents (sessions list + session detail by traceId + findings)", () => {
+  it("agents (sessions list + session detail by traceId)", () => {
     expect(appPaths.agents.sessions(ORG, APP, ENV)).toBe(`${BASE}/agents/sessions`);
     // the detail builder interpolates the traceId as the last segment
     expect(appPaths.agents.session(ORG, APP, ENV, "1b247b75d348")).toBe(
       `${BASE}/agents/sessions/1b247b75d348`,
     );
-    expect(appPaths.agents.findings(ORG, APP, ENV)).toBe(`${BASE}/agents/findings`);
   });
 
   it("settings (developers) index + every sub-page", () => {

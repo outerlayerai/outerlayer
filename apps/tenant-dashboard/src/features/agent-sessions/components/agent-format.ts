@@ -52,5 +52,3 @@ export const agentColor = (t: string): string => {
   for (let i = 0; i < t.length; i += 1) h = (h * 31 + t.charCodeAt(i)) >>> 0;
   return FALLBACK_COLORS[h % FALLBACK_COLORS.length]!;
 };
-
-export const SEVERITY_COLOR: Record<string, string> = { high: "#B42318", warn: "#B54708", info: "#5B6169" };

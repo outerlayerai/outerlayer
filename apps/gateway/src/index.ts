@@ -18,10 +18,6 @@ import { dispatchRequest } from "@repo/gateway-core/dispatch-request";
 import { runScheduledJobs } from "@repo/gateway-core/jobs/run-scheduled-jobs";
 import { topicsEnrichmentHandler } from "./jobs/topics-enrichment-handler";
 import {
-  findingsComputeHandler,
-  FINDINGS_COMPUTE_CRON,
-} from "./jobs/findings-compute-handler";
-import {
   retentionSweepHandler,
   RETENTION_SWEEP_CRON,
 } from "./jobs/retention-sweep-handler";
@@ -205,21 +201,6 @@ export const app = {
           .then(() => retentionSweepHandler(cron))
           .catch((e) => {
             ctx.waitUntil(logScheduledError(e as Error, "retention-sweep-handler"));
-          })
-      );
-      return;
-    }
-
-    // Nightly agent-findings compute — its OWN cron event, same shape as the
-    // retention sweep. Worker-only; rides the topics-enrichment gate
-    // (TOPICS_ENRICHMENT_ENABLED + allowlist): findings and enrichment are one
-    // insight layer, enabled for the same tenants.
-    if (event.cron === FINDINGS_COMPUTE_CRON) {
-      ctx.waitUntil(
-        Promise.resolve()
-          .then(() => findingsComputeHandler(cron))
-          .catch((e) => {
-            ctx.waitUntil(logScheduledError(e as Error, "findings-compute-handler"));
           })
       );
       return;

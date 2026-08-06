@@ -14,7 +14,6 @@ const iconfiy = (name: string) => (
 const ICONS = {
   settings: iconfiy("material-symbols:settings-outline"),
   agentSessions: iconfiy("fluent:group-list-24-regular"),
-  findings: iconfiy("mdi:alert-decagram-outline"),
   topics: iconfiy("fluent:tag-multiple-24-regular"),
   dashboards: iconfiy("material-symbols:dashboard-outline-rounded"),
   fleet: iconfiy("mdi:robot-outline"),
@@ -85,12 +84,6 @@ export function useNavData() {
       title: "Sessions",
       path: appPaths.agents.sessions(params.orgName, params.appName, envName),
       icon: ICONS.agentSessions,
-      requiredPermission: "trace.read",
-    },
-    {
-      title: "Findings",
-      path: appPaths.agents.findings(params.orgName, params.appName, envName),
-      icon: ICONS.findings,
       requiredPermission: "trace.read",
     },
     {

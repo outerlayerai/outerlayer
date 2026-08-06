@@ -1,5 +1,5 @@
 /**
- * Domain types for agent sessions — the wire shape of the list/detail/findings
+ * Domain types for agent sessions — the wire shape of the list/detail
  * reads, shared by the service and the React Server Component (RSC) pages that call it.
  */
 import type { SignedImageRef } from "./blob-url";
@@ -113,32 +113,6 @@ export interface AgentSessionDetail {
    * when the session touched no scored PR. Rides the session payload so the
    * detail view needs no second fetch. */
   prOutcomes: SessionPrOutcome[];
-}
-
-export interface AgentFinding {
-  id: string;
-  detectorId: string;
-  severity: string;
-  summary: string;
-  suggestion: string | null;
-  costUsd: number | null;
-  sessionCount: number;
-  sessionIds: string[];
-  project: string | null;
-}
-
-interface AgentTheme {
-  id: string;
-  label: string;
-  description: string;
-  severity: string;
-  evidenceSessionIds: string[];
-}
-
-export interface AgentFindingsResponse {
-  findings: AgentFinding[];
-  themes: AgentTheme[];
-  computedAt: string | null;
 }
 
 export interface SessionsPage {
