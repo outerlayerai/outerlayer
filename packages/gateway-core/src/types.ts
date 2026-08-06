@@ -270,6 +270,15 @@ export const EnvSchema = z.object({
    * behind this queue as gap repair either way.
    */
   TOPICS_QUEUE: z.custom<QueueBatchProducer<unknown>>().optional(),
+  /**
+   * Queue producer for PR-session-comment refresh triggers (one message per
+   * `(tenant, repository, prNumber)` observed in a synced batch, sent with a
+   * debounce delay). OPTIONAL: absent on self-host / local dev without
+   * queues — the refresh then relies purely on the `pull_request` webhook
+   * and the hourly cron sweep, which stay behind this queue as gap repair
+   * either way, so an unbound queue degrades latency, not correctness.
+   */
+  PR_COMMENT_QUEUE: z.custom<QueueBatchProducer<unknown>>().optional(),
   /** R2 bucket for oversized span payloads lifted out at ingest (blob-offload) */
   TRACE_BLOBS: z.custom<BlobBucket>(),
   /**
