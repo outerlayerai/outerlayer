@@ -54,17 +54,12 @@ export interface LinkedSessionRow {
   errorCount: number;
 }
 
-interface GitConnectionAppRow {
-  app_id: string;
-}
-
-interface ConfirmedLinkRow {
-  app_id: string;
-  trace_id: string;
-  session_id: string;
-  method: string;
-}
-
+/**
+ * ClickHouse rows are hand-typed because ClickHouse has no generated schema
+ * types (unlike Postgres, whose row shapes come from `@repo/db-types` through
+ * the `Database`-typed admin client) and its client hands back untyped JSON.
+ * Every field below is coerced at the boundary rather than trusted.
+ */
 interface ChSessionRow {
   TraceId: string;
   Title: string;
@@ -79,41 +74,31 @@ interface ChSessionRow {
 
 type AdminClient = ReturnType<typeof getAdminDataClient>;
 
-/** `app.id -> app.name`, resolved one row at a time so it works against a
- * plain `.eq('id', …).maybeSingle()` shape (no `.in()` dependency). Fan-out
- * is small: one call per distinct `AppId` a linked session actually carries. */
+/** `app.id -> app.name`. One batched read; callers fall back to the raw id
+ * for any app the query didn't return. */
 async function resolveAppNames(
   admin: AdminClient,
   appIds: string[],
 ): Promise<Map<string, string>> {
-  const entries = await Promise.all(
-    appIds.map(async (appId) => {
-      const { data } = await admin.from("app").select("id, name").eq("id", appId).maybeSingle();
-      return [appId, data?.name ?? appId] as const;
-    }),
-  );
-  return new Map(entries);
+  if (appIds.length === 0) return new Map();
+  const { data } = await admin.from("app").select("id, name").in("id", appIds);
+  return new Map((data ?? []).map((row) => [row.id, row.name]));
 }
 
 /** `app.id -> default environment name` (`environment.is_default = true`),
- * for the deep link's `env` URL segment. Empty string when an app has no
- * default environment row. */
+ * for the deep link's `env` URL segment. Apps with no default environment row
+ * are absent from the map; callers substitute an empty string. */
 async function resolveDefaultEnvNames(
   admin: AdminClient,
   appIds: string[],
 ): Promise<Map<string, string>> {
-  const entries = await Promise.all(
-    appIds.map(async (appId) => {
-      const { data } = await admin
-        .from("environment")
-        .select("app_id, name")
-        .eq("app_id", appId)
-        .eq("is_default", true)
-        .maybeSingle();
-      return [appId, data?.name ?? ""] as const;
-    }),
-  );
-  return new Map(entries);
+  if (appIds.length === 0) return new Map();
+  const { data } = await admin
+    .from("environment")
+    .select("app_id, name")
+    .in("app_id", appIds)
+    .eq("is_default", true);
+  return new Map((data ?? []).map((row) => [row.app_id, row.name]));
 }
 
 /**
@@ -150,12 +135,19 @@ export async function readLinkedSessions(
   if (connectionsError) {
     throw new Error(`git_connection read failed: ${connectionsError.message}`);
   }
-  const appIds = [...new Set((connections as GitConnectionAppRow[] | null ?? []).map((c) => c.app_id))];
+  const appIds = [...new Set((connections ?? []).map((c) => c.app_id))];
   if (appIds.length === 0) return null;
 
+  // `tenant_id` is redundant with `app_id IN (…)` — those ids came from a
+  // tenant-scoped `git_connection` read one query above, and
+  // `uc_git_connection UNIQUE (app_id, tenant_id)` means an app belongs to
+  // exactly one tenant. It is sent anyway so this query is self-evidently
+  // tenant-scoped in isolation, without the reader having to reconstruct that
+  // argument from the query above it.
   const { data: links, error: linksError } = await admin
     .from("pull_request_session")
     .select("app_id, trace_id, session_id, method")
+    .eq("tenant_id", tenantId)
     .in("app_id", appIds)
     .eq("pr_number", prNumber)
     .eq("verification", "confirmed")
@@ -163,7 +155,7 @@ export async function readLinkedSessions(
   if (linksError) {
     throw new Error(`pull_request_session read failed: ${linksError.message}`);
   }
-  const confirmed = (links as ConfirmedLinkRow[] | null) ?? [];
+  const confirmed = links ?? [];
   if (confirmed.length === 0) return [];
 
   const methodByTrace = new Map(
