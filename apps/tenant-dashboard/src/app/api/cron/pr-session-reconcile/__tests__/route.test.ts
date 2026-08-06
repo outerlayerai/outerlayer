@@ -3,9 +3,12 @@
  *
  * The route is thin: authenticate the cron bearer, clamp the windows,
  * delegate to runPrSessionSweep then runOutcomeScoresSweep (mocked seams —
- * their logic is tested in reconciler.test.ts / emit.test.ts), and map the
- * results to a status. Pins the auth gate, the clamp bounds, the
- * reconcile-before-emit order, the skipped paths, and the error → 500 map.
+ * their logic is tested in reconciler.test.ts / emit.test.ts), refresh the
+ * GitHub comment for each PR the sweep's `changed` set names (PR 12's
+ * gap-repair — refreshPrSessionComment is mocked here too, its own logic is
+ * tested in refresh.test.ts), and map the results to a status. Pins the
+ * auth gate, the clamp bounds, the reconcile-before-emit order, the skipped
+ * paths, the error → 500 map, and that an unchanged sweep refreshes nothing.
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
@@ -23,6 +26,7 @@ beforeAll(() => {
 
 const mockSweep = vi.hoisted(() => vi.fn());
 const mockOutcomeSweep = vi.hoisted(() => vi.fn());
+const mockRefreshComment = vi.hoisted(() => vi.fn());
 
 vi.mock("@/config-global.server", () => ({
   CRON_SECRET: "test-cron-secret",
@@ -36,10 +40,15 @@ vi.mock("@/lib/system/outcome-scores", () => ({
   runOutcomeScoresSweep: mockOutcomeSweep,
 }));
 
+vi.mock("@/lib/system/pr-session-comment", () => ({
+  refreshPrSessionComment: mockRefreshComment,
+}));
+
 import { GET } from "../route";
 
 const COUNTS = { candidates: 3, linked: 2, confirmed: 1, pending: 1, unmatched: 0 };
 const OUTCOME_COUNTS = { skipped: false, apps: 1, prs: 2, scoreRows: 6 };
+const CHANGED = [{ tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 42 }];
 
 function cronRequest(query = "", token = "test-cron-secret"): NextRequest {
   return new NextRequest(`http://localhost/api/cron/pr-session-reconcile${query}`, {
@@ -49,8 +58,9 @@ function cronRequest(query = "", token = "test-cron-secret"): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS });
+  mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: [] });
   mockOutcomeSweep.mockResolvedValue(OUTCOME_COUNTS);
+  mockRefreshComment.mockResolvedValue({ status: "unchanged", commentId: 1 });
 });
 
 describe("GET /api/cron/pr-session-reconcile", () => {
@@ -75,6 +85,7 @@ describe("GET /api/cron/pr-session-reconcile", () => {
       sinceHours: 24,
       ...COUNTS,
       outcomeScores: { emitSinceHours: 24, ...OUTCOME_COUNTS },
+      commentRefresh: { attempted: 0, failed: 0 },
     });
     // Emission runs AFTER reconciliation so links confirmed this tick emit
     // this tick.
@@ -100,6 +111,7 @@ describe("GET /api/cron/pr-session-reconcile", () => {
       sinceHours: 24,
       ...COUNTS,
       outcomeScores: { skipped: true },
+      commentRefresh: { attempted: 0, failed: 0 },
     });
   });
 
@@ -135,5 +147,33 @@ describe("GET /api/cron/pr-session-reconcile", () => {
     const res = await GET(cronRequest());
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "insert failed" });
+  });
+
+  it("refreshes nothing when the sweep's changed set is empty — an unchanged tick costs zero GitHub reads", async () => {
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: [] });
+    const res = await GET(cronRequest());
+    expect(res.status).toBe(200);
+    expect(mockRefreshComment).not.toHaveBeenCalled();
+    expect(await res.json()).toMatchObject({ commentRefresh: { attempted: 0, failed: 0 } });
+  });
+
+  it("refreshes exactly the PRs the sweep's changed set names, with the (tenantId, repository, prNumber) it resolved", async () => {
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: CHANGED });
+    const res = await GET(cronRequest());
+    expect(mockRefreshComment).toHaveBeenCalledTimes(1);
+    expect(mockRefreshComment).toHaveBeenCalledWith(CHANGED[0]);
+    expect(await res.json()).toMatchObject({ commentRefresh: { attempted: 1, failed: 0 } });
+  });
+
+  it("does not abort the sweep response when a refresh fails or throws", async () => {
+    const target2 = { tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 43 };
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: [CHANGED[0]!, target2] });
+    mockRefreshComment
+      .mockResolvedValueOnce({ status: "failed", reason: "boom" })
+      .mockRejectedValueOnce(new Error("unexpected throw"));
+    const res = await GET(cronRequest());
+    expect(res.status).toBe(200);
+    expect(mockRefreshComment).toHaveBeenCalledTimes(2);
+    expect(await res.json()).toMatchObject({ commentRefresh: { attempted: 2, failed: 2 } });
   });
 });

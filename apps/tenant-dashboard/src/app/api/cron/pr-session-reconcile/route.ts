@@ -3,6 +3,8 @@ import { CRON_SECRET } from "@/config-global.server";
 import { safeCompare } from "@/utils/safe-compare";
 import { runPrSessionSweep } from "@/lib/system/pr-session-reconciler";
 import { runOutcomeScoresSweep } from "@/lib/system/outcome-scores";
+import { refreshPrSessionComment } from "@/lib/system/pr-session-comment";
+import type { ChangedPrTarget } from "@/lib/system/pr-session-reconciler/reconciler";
 
 /**
  * Session-side PR↔session reconciliation sweep. The PR side reconciles
@@ -27,8 +29,36 @@ import { runOutcomeScoresSweep } from "@/lib/system/outcome-scores";
  *
  *   curl -H "Authorization: Bearer $CRON_SECRET" \
  *     "$HOST/api/cron/pr-session-reconcile?emitSinceHours=8760"
+ *
+ * Finally, refresh the GitHub comment for every PR whose links this tick
+ * actually changed (`result.changed`). This is a SAFETY NET, never the
+ * comment's primary path — a `pull_request` webhook (PR 9) and a debounced
+ * queue off ingest (PRs 10/11) post/update comments within the p50 ≤ 2 min
+ * latency budget on their own; this hourly sweep only exists to catch what
+ * those miss (an offline machine syncing sessions days late, a dropped queue
+ * message). Refreshing every PR the sweep merely looked at — instead of only
+ * the ones that changed — would be a rate-limit problem on a busy tenant,
+ * so this stays scoped to `result.changed`.
  */
 export const maxDuration = 300;
+
+/** Refreshes the GitHub comment for each changed PR. One failure must not
+ * abort the rest — `refreshPrSessionComment` already never throws, but the
+ * try/catch is defensive in case a future change to it does. */
+async function refreshChangedComments(
+  changed: ChangedPrTarget[],
+): Promise<{ attempted: number; failed: number }> {
+  let failed = 0;
+  for (const target of changed) {
+    try {
+      const result = await refreshPrSessionComment(target);
+      if (result.status === "failed") failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { attempted: changed.length, failed };
+}
 
 export async function GET(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
@@ -52,12 +82,14 @@ export async function GET(request: NextRequest): Promise<Response> {
       return Response.json({ skipped: true, reason: "clickhouse not configured" });
     }
     const outcomeScores = await runOutcomeScoresSweep({ sinceHours: emitSinceHours });
+    const commentRefresh = await refreshChangedComments(result.changed);
     return Response.json({
       sinceHours,
       ...result.counts,
       outcomeScores: outcomeScores.skipped
         ? { skipped: true }
         : { emitSinceHours, ...outcomeScores },
+      commentRefresh,
     });
   } catch (error) {
     return Response.json(

@@ -3,10 +3,14 @@
  * mocks); ClickHouse is the injected query seam. Pins the exact link rows
  * written (method tier, verification, conflict-key merge), the
  * never-downgrade rules (pr_link stays pr_link, confirmed stays confirmed),
- * the branch-tier activity-window guard, and pending-link aging.
+ * the branch-tier activity-window guard, pending-link aging, and — PR 12 —
+ * the `changed` set the cron sweep uses to decide which PRs' GitHub
+ * comments to refresh, and its `resolveChangedLinkTargets` repository join.
  */
 import { describe, it, expect, vi } from "vitest";
+import { http, HttpResponse } from "msw";
 import { getAdminDataClient } from "@/lib/system/admin-client";
+import { server } from "@/test-helpers/msw-server";
 import {
   seedPullRequestSessionMswState,
   getPullRequestSessionLinks,
@@ -16,6 +20,7 @@ import {
 import {
   reconcilePullRequest,
   reconcileRecentSessions,
+  resolveChangedLinkTargets,
   BRANCH_LINK_LOOKBACK_DAYS,
 } from "../reconciler";
 
@@ -150,6 +155,26 @@ describe("reconcileRecentSessions (sweep side)", () => {
     expect(counts.confirmed).toBe(2);
     expect(counts.pending).toBe(1);
     expect(chQuery.mock.calls[0]![1]).toEqual({ sinceHours: 48 });
+    // PR 12: every (app_id, pr_number) that got a brand-new link this tick —
+    // the cron route refreshes exactly these PRs' GitHub comments.
+    expect(counts.changed).toEqual([
+      { appId: APP, prNumber: 12 },
+      { appId: APP, prNumber: 999 },
+    ]);
+  });
+
+  it("reports no changed links on a second sweep over identical evidence — nothing moved, so nothing refreshes", async () => {
+    seedPullRequestSessionMswState({
+      pullRequests: [
+        pr({ pr_number: 12, head_branch: "feat/x", opened_at: "2026-07-10T00:00:00.000Z", merged_at: "2026-07-12T00:00:00.000Z" }),
+      ],
+      links: [
+        link({ id: "L1", pr_number: 12, trace_id: "t-claim", session_id: "s", method: "pr_link", verification: "confirmed" }),
+      ],
+    });
+    const chQuery = vi.fn().mockResolvedValue([sweepRow({ TraceId: "t-claim", sessionPrs: [12] })]);
+    const counts = await reconcileRecentSessions(getAdminDataClient(), chQuery, { sinceHours: 48, now: NOW });
+    expect(counts.changed).toEqual([]);
   });
 
   it("ages pending links: past-grace with no record → unmatched, record-appeared → confirmed, fresh → untouched", async () => {
@@ -169,5 +194,66 @@ describe("reconcileRecentSessions (sweep side)", () => {
     expect(byId.get("L-found")).toBe("confirmed");
     expect(byId.get("L-fresh")).toBe("pending");
     expect(counts.unmatched).toBe(1);
+    // PR 12: both aging transitions (pending → confirmed, pending →
+    // unmatched) count as a link change — a comment's rendered session list
+    // moves either way. The untouched-fresh link does not.
+    expect(counts.changed).toEqual([
+      { appId: APP, prNumber: 7 },
+      { appId: APP, prNumber: 999 },
+    ]);
+  });
+});
+
+describe("resolveChangedLinkTargets (PR 12: changed links → refresh targets)", () => {
+  const SUPABASE_URL = "http://localhost:54321";
+
+  function seedGitConnections(
+    rows: { app_id: string; tenant_id: string; repository: string }[],
+  ) {
+    server.use(
+      http.get(`${SUPABASE_URL}/rest/v1/git_connection`, ({ request }) => {
+        const url = new URL(request.url);
+        const raw = url.searchParams.get("app_id") ?? "";
+        const appIds = raw.startsWith("in.(")
+          ? raw
+              .slice(4, -1)
+              .split(",")
+              .map((v) => v.replace(/^"|"$/g, ""))
+          : null;
+        const matched = appIds ? rows.filter((r) => appIds.includes(r.app_id)) : rows;
+        return HttpResponse.json(matched);
+      }),
+    );
+  }
+
+  it("maps each changed (app_id, pr_number) to (tenantId, repository, prNumber) via git_connection", async () => {
+    seedGitConnections([
+      { app_id: "app-1", tenant_id: "tenant-1", repository: "github.com/acme/api" },
+      { app_id: "app-2", tenant_id: "tenant-2", repository: "github.com/acme/web" },
+    ]);
+    const targets = await resolveChangedLinkTargets(getAdminDataClient(), [
+      { appId: "app-1", prNumber: 42 },
+      { appId: "app-2", prNumber: 7 },
+    ]);
+    expect(targets).toEqual([
+      { tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 42 },
+      { tenantId: "tenant-2", repository: "github.com/acme/web", prNumber: 7 },
+    ]);
+  });
+
+  it("drops a pair whose app has no git_connection row rather than failing the sweep", async () => {
+    seedGitConnections([{ app_id: "app-1", tenant_id: "tenant-1", repository: "github.com/acme/api" }]);
+    const targets = await resolveChangedLinkTargets(getAdminDataClient(), [
+      { appId: "app-1", prNumber: 42 },
+      { appId: "app-missing", prNumber: 8 },
+    ]);
+    expect(targets).toEqual([{ tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 42 }]);
+  });
+
+  it("returns an empty array without querying git_connection when nothing changed", async () => {
+    const spy = vi.fn(() => HttpResponse.json([]));
+    server.use(http.get(`${SUPABASE_URL}/rest/v1/git_connection`, spy));
+    expect(await resolveChangedLinkTargets(getAdminDataClient(), [])).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
