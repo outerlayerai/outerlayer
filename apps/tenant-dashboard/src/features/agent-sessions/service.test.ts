@@ -1,9 +1,9 @@
 /**
- * AgentSessionsService — `getSessionDetail`, `getFindings`, and
- * `listSessions`, exercised through the real query path each read runs
- * (ClickHouse for the span tree / list rollup, PostgREST-via-MSW for
- * findings/PR-outcomes) rather than a hand-faked query chain. The React Server Component (RSC) pages
- * call this service directly; there is no route layer to test separately.
+ * AgentSessionsService — `getSessionDetail` and `listSessions`, exercised
+ * through the real query path each read runs (ClickHouse for the span
+ * tree / list rollup, PostgREST-via-MSW for PR-outcomes) rather than a
+ * hand-faked query chain. The React Server Component (RSC) pages call
+ * this service directly; there is no route layer to test separately.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -118,7 +118,7 @@ beforeEach(() => {
   summaryRowsOverride = null;
   rangeLookupEmpty = false;
   mockScope.value = { kind: "team" };
-  seedSupabaseMswState({ agentFindings: [], agentThemes: [], tableErrors: {} });
+  seedSupabaseMswState({ tableErrors: {} });
 });
 
 describe("AgentSessionsService.getSessionDetail", () => {
@@ -452,118 +452,6 @@ describe("AgentSessionsService.getSessionDetail", () => {
     mockJson.mockResolvedValue([]);
     const data = await agentSessionsService.getSessionDetail(ctx(), "nonexistent");
     expect(data).toBeNull();
-  });
-});
-
-describe("AgentSessionsService.getFindings", () => {
-  const APP = "app-1";
-  const OTHER_APP = "other-app";
-
-  const finding = (over: Record<string, unknown>) => ({
-    id: "f-1",
-    tenant_id: "tenant-1",
-    app_id: APP,
-    detector_id: "edit-retry-loop",
-    severity: "high",
-    summary: "Edit retry loop on src/hot.ts",
-    suggestion: "Re-read the file before editing.",
-    cost_usd: 1.25,
-    session_count: 1,
-    session_ids: ["s1"],
-    project: "github.com/acme/app",
-    computed_at: "2026-07-17T03:30:00.000Z",
-    ...over,
-  });
-
-  it("maps rows to the wire contract, dollar-ranked with nulls last, scoped to the app", async () => {
-    seedSupabaseMswState({
-      agentFindings: [
-        finding({ id: "f-null", detector_id: "api-error-stall", cost_usd: null, session_count: 2 }),
-        finding({ id: "f-cheap", cost_usd: 0.4 }),
-        finding({ id: "f-big", detector_id: "tool-error-cluster", cost_usd: 9.5, session_count: 4, session_ids: ["s1", "s2"] }),
-        finding({ id: "f-other-app", app_id: OTHER_APP, cost_usd: 99 }),
-      ],
-      agentThemes: [
-        {
-          id: "th-1",
-          tenant_id: "tenant-1",
-          app_id: APP,
-          label: "Stale file reads",
-          description: "Edits failing against stale file content.",
-          severity: "warn",
-          evidence_session_ids: ["s1", "s2"],
-          computed_at: "2026-07-17T03:31:00.000Z",
-        },
-      ],
-    });
-
-    const data = await agentSessionsService.getFindings(ctx({ appId: APP }));
-
-    expect(data.findings.map((f) => f.id)).toEqual(["f-big", "f-cheap", "f-null"]);
-    expect(data.findings[0]).toEqual({
-      id: "f-big",
-      detectorId: "tool-error-cluster",
-      severity: "high",
-      summary: "Edit retry loop on src/hot.ts",
-      suggestion: "Re-read the file before editing.",
-      costUsd: 9.5,
-      sessionCount: 4,
-      sessionIds: ["s1", "s2"],
-      project: "github.com/acme/app",
-    });
-    expect(data.themes).toEqual([
-      {
-        id: "th-1",
-        label: "Stale file reads",
-        description: "Edits failing against stale file content.",
-        severity: "warn",
-        evidenceSessionIds: ["s1", "s2"],
-      },
-    ]);
-    expect(data.computedAt).toBe("2026-07-17T03:31:00.000Z");
-  });
-
-  it("empty tables → empty arrays and a null computedAt (the page renders its empty state)", async () => {
-    const data = await agentSessionsService.getFindings(ctx({ appId: APP }));
-    expect(data).toEqual({ findings: [], themes: [], computedAt: null });
-  });
-
-  it("null cost stays null (never coerced to 0), and non-string session_ids entries are dropped", async () => {
-    seedSupabaseMswState({
-      agentFindings: [
-        finding({ id: "f-null", cost_usd: null, session_ids: ["s1", 42, null, "s2"] }),
-        finding({ id: "f-bad-ids", cost_usd: 2, session_ids: "not-an-array" }),
-      ],
-    });
-    const data = await agentSessionsService.getFindings(ctx({ appId: APP }));
-    expect(data.findings.map((f) => f.id)).toEqual(["f-bad-ids", "f-null"]);
-    expect(data.findings[1]?.costUsd).toBeNull();
-    expect(data.findings[1]?.sessionIds).toEqual(["s1", "s2"]);
-    expect(data.findings[0]?.sessionIds).toEqual([]);
-  });
-
-  it("equal-cost findings tiebreak on session_count desc; themes order by severity ascending", async () => {
-    seedSupabaseMswState({
-      agentFindings: [
-        finding({ id: "f-few", cost_usd: 5, session_count: 2 }),
-        finding({ id: "f-many", cost_usd: 5, session_count: 9 }),
-      ],
-      agentThemes: [
-        { id: "th-warn", tenant_id: "tenant-1", app_id: APP, label: "w", description: "d", severity: "warn", evidence_session_ids: [], computed_at: "2026-07-17T03:00:00.000Z" },
-        { id: "th-high", tenant_id: "tenant-1", app_id: APP, label: "h", description: "d", severity: "high", evidence_session_ids: [], computed_at: "2026-07-17T03:00:00.000Z" },
-      ],
-    });
-    const data = await agentSessionsService.getFindings(ctx({ appId: APP }));
-    expect(data.findings.map((f) => f.id)).toEqual(["f-many", "f-few"]);
-    expect(data.themes.map((t) => t.id)).toEqual(["th-high", "th-warn"]);
-  });
-
-  it("surfaces a table read error by throwing instead of serving partial data", async () => {
-    seedSupabaseMswState({ tableErrors: { agent_finding_select: { message: "rls denied" } } });
-    await expect(agentSessionsService.getFindings(ctx({ appId: APP }))).rejects.toThrow(/agent_finding read/);
-
-    seedSupabaseMswState({ tableErrors: { agent_theme_select: { message: "boom" } } });
-    await expect(agentSessionsService.getFindings(ctx({ appId: APP }))).rejects.toThrow(/agent_theme read/);
   });
 });
 

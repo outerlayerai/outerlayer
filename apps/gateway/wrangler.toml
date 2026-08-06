@@ -55,7 +55,7 @@ port = 9001
 # - Daily 03:00 UTC: entitlement-driven retention sweep.
 #   Keep in sync with RETENTION_SWEEP_CRON in src/jobs/retention-sweep-handler.ts —
 #   scheduled() routes that exact cron string to the sweep only.
-crons = [ "* * * * *", "0 3 * * *", "30 3 * * *" ]
+crons = [ "* * * * *", "0 3 * * *" ]
 
 [env.staging]
 route = "api-stg.agentmark.co/*"

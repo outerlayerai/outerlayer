@@ -216,12 +216,6 @@ export const EnvSchema = z.object({
   /** Max traces enriched per cron tick. Default 25 — bounds Workers CPU/IO per tick. */
   TOPICS_BATCH_LIMIT: z.string().optional(),
 
-  // The nightly agent-findings compute gates on the SAME
-  // TOPICS_ENRICHMENT_ENABLED / TOPICS_TENANT_ALLOWLIST pair above, and its
-  // theme labeler rides the same TOPICS_MODEL_PROVIDER / TOPICS_MODEL_API_KEY
-  // stack — findings and enrichment are one insight layer with one switch,
-  // one allowlist, and one model key.
-
   // Entitlement-driven physical retention. Default OFF — the
   // daily retention cron returns immediately unless RETENTION_SWEEP_ENABLED
   // is "true". Hosted-only: the sweep resolves per-tenant

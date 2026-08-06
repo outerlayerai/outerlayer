@@ -4813,17 +4813,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@outerlayer/insights-core@npm:*, @outerlayer/insights-core@workspace:packages/insights-core":
-  version: 0.0.0-use.local
-  resolution: "@outerlayer/insights-core@workspace:packages/insights-core"
-  dependencies:
-    "@outerlayer/session-schema": "workspace:*"
-    tsup: "npm:^8.5.0"
-    typescript: "npm:^5.5.3"
-    vitest: "npm:^4.1.8"
-  languageName: unknown
-  linkType: soft
-
 "@outerlayer/locales@workspace:^, @outerlayer/locales@workspace:packages/locales":
   version: 0.0.0-use.local
   resolution: "@outerlayer/locales@workspace:packages/locales"
@@ -11555,7 +11544,6 @@ __metadata:
     "@cloudflare/workers-types": "npm:^4.20250214.0"
     "@logtail/edge": "npm:^0.5.7"
     "@opentelemetry/api": "npm:^1.9.0"
-    "@outerlayer/insights-core": "npm:*"
     "@repo/entitlements": "workspace:*"
     "@repo/error-reporting-core": "npm:*"
     "@repo/eslint-config": "npm:*"

@@ -44,14 +44,6 @@
 -- therefore be NOT NULL on every table listed here for the constraint to mean
 -- anything -- see the comment on api_key.tenant_id.
 
-ALTER TABLE public.agent_finding
-    ADD CONSTRAINT agent_finding_tenant_app_fk
-    FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
-
-ALTER TABLE public.agent_theme
-    ADD CONSTRAINT agent_theme_tenant_app_fk
-    FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
-
 ALTER TABLE public.api_key
     ADD CONSTRAINT api_key_tenant_app_fk
     FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;

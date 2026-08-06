@@ -176,7 +176,7 @@ describe("PERMISSION_GROUPS (full-shape pin)", () => {
       {
         label: 'Observability',
         permissions: [
-          { key: 'observability_view', displayName: 'View session traces, findings & topics', dbPermissions: ['trace.read'] },
+          { key: 'observability_view', displayName: 'View session traces & topics', dbPermissions: ['trace.read'] },
         ],
         entitlementGate: 'traces_enabled',
       },

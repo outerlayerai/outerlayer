@@ -148,8 +148,8 @@ CREATE INDEX IF NOT EXISTS idx_context_head_tenant_id ON public.context_head(ten
 -- Row Level Security — all four tables: read-only for authenticated users,
 -- gated on context.read + app membership; no INSERT/UPDATE/DELETE policies
 -- for authenticated at all. Each table also carries an explicit
--- service_role_all policy (house pattern from agent_finding in 71-agent-insights.sql)
--- so the mirror is written exclusively by server-side sync via the
+-- service_role_all policy (house pattern also used in 28-dashboard.sql) so
+-- the mirror is written exclusively by server-side sync via the
 -- service_role client.
 -- -----------------------------------------------------------------------------
 

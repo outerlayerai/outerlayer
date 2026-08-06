@@ -21,7 +21,7 @@ import { resolveAgentSessionScope, scopedActorId } from "./scope";
 import { resolveActorNames } from "./resolve-actor-names";
 import { findEditRetryLoop } from "./trajectory-signals";
 import { ORIGIN_LITERALS, type ListSessionsQuery } from "./list-query";
-import type { AgentSessionDetail, AgentFinding, AgentFindingsResponse, SessionsPage } from "./types";
+import type { AgentSessionDetail, SessionsPage } from "./types";
 
 /** The verified tenant context plus the RLS-scoped client to run Supabase
  * reads through — the service takes both, never constructs either. */
@@ -129,31 +129,6 @@ const SIGNAL_PREDICATES = {
   "provider-errors": "ApiErrorCount > 0",
   clean: "UserTurnCount <= 1 AND RejectedToolCallCount = 0 AND ErrorCount = 0 AND ApiErrorCount = 0",
 } as const;
-
-interface FindingRow {
-  id: string;
-  detector_id: string;
-  severity: string;
-  summary: string;
-  suggestion: string | null;
-  cost_usd: number | null;
-  session_count: number;
-  session_ids: unknown;
-  project: string | null;
-  computed_at: string;
-}
-
-interface ThemeRow {
-  id: string;
-  label: string;
-  description: string;
-  severity: string;
-  evidence_session_ids: unknown;
-  computed_at: string;
-}
-
-const asStringArray = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 
 class AgentSessionsService {
   /**
@@ -385,66 +360,6 @@ class AgentSessionsService {
         slowestHookCommand: (summary?.slowestHookCommand as string) || "",
       },
       spans,
-    };
-  }
-
-  /**
-   * Findings + error themes for one app — a Supabase/RLS read, no
-   * ClickHouse. Rows are computed offline by the gateway's nightly findings
-   * job (the only writer); this is a read-only projection.
-   */
-  async getFindings(ctx: AgentSessionsContext): Promise<AgentFindingsResponse> {
-    const supabase = ctx.db;
-
-    const [findingsRes, themesRes] = await Promise.all([
-      supabase
-        .from("agent_finding")
-        .select(
-          "id, detector_id, severity, summary, suggestion, cost_usd, session_count, session_ids, project, computed_at",
-        )
-        .eq("app_id", ctx.appId)
-        // Dollars first, nulls last — the same order the detectors rank by.
-        .order("cost_usd", { ascending: false, nullsFirst: false })
-        .order("session_count", { ascending: false }),
-      supabase
-        .from("agent_theme")
-        .select("id, label, description, severity, evidence_session_ids, computed_at")
-        .eq("app_id", ctx.appId)
-        .order("severity", { ascending: true }),
-    ]);
-    if (findingsRes.error) throw new Error(`agent_finding read: ${findingsRes.error.message}`);
-    if (themesRes.error) throw new Error(`agent_theme read: ${themesRes.error.message}`);
-
-    const findings = (findingsRes.data ?? []) as FindingRow[];
-    const themes = (themesRes.data ?? []) as ThemeRow[];
-    const computedAt =
-      [...findings, ...themes]
-        .map((r) => r.computed_at)
-        .sort()
-        .at(-1) ?? null;
-
-    return {
-      findings: findings.map(
-        (f): AgentFinding => ({
-          id: f.id,
-          detectorId: f.detector_id,
-          severity: f.severity,
-          summary: f.summary,
-          suggestion: f.suggestion,
-          costUsd: f.cost_usd === null ? null : Number(f.cost_usd),
-          sessionCount: f.session_count,
-          sessionIds: asStringArray(f.session_ids),
-          project: f.project,
-        }),
-      ),
-      themes: themes.map((t) => ({
-        id: t.id,
-        label: t.label,
-        description: t.description,
-        severity: t.severity,
-        evidenceSessionIds: asStringArray(t.evidence_session_ids),
-      })),
-      computedAt,
     };
   }
 

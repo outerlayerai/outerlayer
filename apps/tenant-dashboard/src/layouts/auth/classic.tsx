@@ -108,9 +108,9 @@ export default function AuthClassicLayout({ children, title }: Props) {
   );
 
   // The proof artifact: the evidence loop in four lines. The fleet's week
-  // distilled to what needs a human, the top finding, its cost in outcomes,
-  // and the measured fix. Sample figures mirror our own fleet, never
-  // customer data.
+  // distilled to what needs a human, the top pattern worth attention, its
+  // cost in outcomes, and the measured fix. Sample figures mirror our own
+  // fleet, never customer data.
   const artifactLineSx = {
     fontFamily: "monospace",
     fontSize: 13,

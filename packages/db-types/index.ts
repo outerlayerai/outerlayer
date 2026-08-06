@@ -34,134 +34,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      agent_finding: {
-        Row: {
-          app_id: string
-          computed_at: string
-          cost_usd: number | null
-          detector_id: string
-          evidence: Json
-          id: string
-          project: string | null
-          session_count: number
-          session_ids: Json
-          severity: string
-          suggestion: string | null
-          summary: string
-          tenant_id: string
-        }
-        Insert: {
-          app_id: string
-          computed_at?: string
-          cost_usd?: number | null
-          detector_id: string
-          evidence?: Json
-          id?: string
-          project?: string | null
-          session_count?: number
-          session_ids?: Json
-          severity: string
-          suggestion?: string | null
-          summary: string
-          tenant_id: string
-        }
-        Update: {
-          app_id?: string
-          computed_at?: string
-          cost_usd?: number | null
-          detector_id?: string
-          evidence?: Json
-          id?: string
-          project?: string | null
-          session_count?: number
-          session_ids?: Json
-          severity?: string
-          suggestion?: string | null
-          summary?: string
-          tenant_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "agent_finding_app_id_fkey"
-            columns: ["app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "agent_finding_tenant_app_fk"
-            columns: ["tenant_id", "app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["tenant_id", "id"]
-          },
-          {
-            foreignKeyName: "agent_finding_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["tenant_id"]
-          },
-        ]
-      }
-      agent_theme: {
-        Row: {
-          app_id: string
-          cluster_keys: Json
-          computed_at: string
-          description: string
-          evidence_session_ids: Json
-          id: string
-          label: string
-          severity: string
-          tenant_id: string
-        }
-        Insert: {
-          app_id: string
-          cluster_keys?: Json
-          computed_at?: string
-          description: string
-          evidence_session_ids?: Json
-          id?: string
-          label: string
-          severity: string
-          tenant_id: string
-        }
-        Update: {
-          app_id?: string
-          cluster_keys?: Json
-          computed_at?: string
-          description?: string
-          evidence_session_ids?: Json
-          id?: string
-          label?: string
-          severity?: string
-          tenant_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "agent_theme_app_id_fkey"
-            columns: ["app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "agent_theme_tenant_app_fk"
-            columns: ["tenant_id", "app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["tenant_id", "id"]
-          },
-          {
-            foreignKeyName: "agent_theme_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["tenant_id"]
-          },
-        ]
-      }
       ai_cost_config: {
         Row: {
           cost_per_seat_usd: number
@@ -3316,7 +3188,6 @@ export type Database = {
         | "context.delete"
         | "agents.sessions.self.read"
         | "agents.sessions.team.read"
-        | "agents.findings.read"
         | "agents.settings.write"
         | "worker_run.read"
         | "worker_run.insert"
@@ -4191,7 +4062,6 @@ export const Constants = {
         "context.delete",
         "agents.sessions.self.read",
         "agents.sessions.team.read",
-        "agents.findings.read",
         "agents.settings.write",
         "worker_run.read",
         "worker_run.insert",

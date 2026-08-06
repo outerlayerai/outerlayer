@@ -233,14 +233,10 @@ grant update on table "public"."platform_user_role" to "supabase_auth_admin";
 -- `yarn codegen:permissions` — never hand-edit between the markers.
 
 -- Agent sessions are self-by-default: every active role reads its own
--- sessions and the team-level findings aggregate. Team-wide session read
--- (other members' sessions and transcripts) and agents/capture-tier
--- settings are admin-granted, so they go to owner/admin only.
+-- sessions. Team-wide session read (other members' sessions and
+-- transcripts) and agents/capture-tier settings are admin-granted, so they
+-- go to owner/admin only.
 INSERT INTO public.role_permissions (role, permission) VALUES
-    ('owner', 'agents.findings.read'),
-    ('admin', 'agents.findings.read'),
-    ('write', 'agents.findings.read'),
-    ('read', 'agents.findings.read'),
     ('owner', 'agents.sessions.self.read'),
     ('admin', 'agents.sessions.self.read'),
     ('write', 'agents.sessions.self.read'),

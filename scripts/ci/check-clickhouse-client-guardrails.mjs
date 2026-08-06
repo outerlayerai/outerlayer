@@ -39,7 +39,6 @@ const ALLOWLIST = new Set([
   "apps/gateway/src/stores/clickhouse/topics-store.ts",
   // Legacy constructor sites, grandfathered: migrate to a guarded factory
   // (or grow caps of their own) before adding anything new here.
-  "apps/gateway/src/stores/clickhouse/findings-store.ts",
   "apps/tenant-dashboard/src/lib/analytics/client.ts",
   "packages/gateway-core/src/openapi/analytics-factory.ts",
   "packages/gateway-core/src/openapi/routes/agents.ts",

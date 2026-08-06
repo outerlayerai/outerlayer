@@ -1,8 +1,7 @@
 /**
  * Tests: `GET /api/orgs/{orgName}/apps/{appId}/agents/blob/{sha256}` — the
  * only route in the agent-sessions domain (a first-party binary-asset route).
- * Sessions list, session detail, and findings are served by
- * `AgentSessionsService`
+ * Sessions list and session detail are served by `AgentSessionsService`
  * (`../../../../../../../../../features/agent-sessions/service.test.ts`)
  * straight to their React Server Components.
  *

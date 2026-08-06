@@ -17,7 +17,6 @@ import {
   shortModel,
   shortProject,
   agentColor,
-  SEVERITY_COLOR,
 } from '../agent-format';
 
 describe('money', () => {
@@ -86,7 +85,7 @@ describe('shortProject', () => {
   });
 });
 
-describe('agentColor / SEVERITY_COLOR', () => {
+describe('agentColor', () => {
   it('maps known agents; unknown agents get deterministic, distinct fallbacks', () => {
     expect(agentColor('claude-code')).toBe('#2065D1');
     expect(agentColor('codex')).toBe('#1E7F4F');
@@ -99,10 +98,5 @@ describe('agentColor / SEVERITY_COLOR', () => {
     expect(agentColor('opencode')).toBe('#4D7C0F');
     // ...and never one of the reserved brand colors.
     expect(['#2065D1', '#1E7F4F', '#7A5EA8']).not.toContain(agentColor('gemini-cli'));
-  });
-  it('exposes the severity palette', () => {
-    expect(SEVERITY_COLOR.high).toBe('#B42318');
-    expect(SEVERITY_COLOR.warn).toBe('#B54708');
-    expect(SEVERITY_COLOR.info).toBe('#5B6169');
   });
 });

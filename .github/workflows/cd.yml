@@ -134,8 +134,7 @@ jobs:
             .turbo
             packages/locales/dist
             packages/session-schema/dist
-            packages/insights-core/dist
-          key: workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+          key: workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json') }}
           restore-keys: |
             workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
 
@@ -145,7 +144,7 @@ jobs:
 
       - name: Build shared workspace packages
         if: steps.workspace-cache.outputs.cache-hit != 'true'
-        run: yarn turbo build --filter=@outerlayer/locales --filter=@outerlayer/insights-core
+        run: yarn turbo build --filter=@outerlayer/locales
 
       - name: Save workspace cache (content-keyed)
         if: steps.workspace-cache.outputs.cache-hit != 'true'
@@ -157,8 +156,7 @@ jobs:
             .turbo
             packages/locales/dist
             packages/session-schema/dist
-            packages/insights-core/dist
-          key: workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+          key: workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json') }}
 
       - name: Save workspace cache (run-scoped for downstream jobs)
         uses: actions/cache/save@v6
@@ -169,7 +167,6 @@ jobs:
             .turbo
             packages/locales/dist
             packages/session-schema/dist
-            packages/insights-core/dist
           key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
 
   deploy-staging:
@@ -250,7 +247,6 @@ jobs:
             .turbo
             packages/locales/dist
             packages/session-schema/dist
-            packages/insights-core/dist
           key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
           # A `gh run rerun --failed` opens a new attempt without re-running the
           # already-successful prepare-workspace job, and cleanup-workspace-cache
@@ -261,7 +257,7 @@ jobs:
           # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
           # so a genuine total miss (e.g. LRU eviction) still fails loudly.
           restore-keys: |
-            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json') }}
             workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
           fail-on-cache-miss: true
 
@@ -645,7 +641,6 @@ jobs:
             .turbo
             packages/locales/dist
             packages/session-schema/dist
-            packages/insights-core/dist
           key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
           # A `gh run rerun --failed` opens a new attempt without re-running the
           # already-successful prepare-workspace job, and cleanup-workspace-cache
@@ -656,7 +651,7 @@ jobs:
           # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
           # so a genuine total miss (e.g. LRU eviction) still fails loudly.
           restore-keys: |
-            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json') }}
             workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
           fail-on-cache-miss: true
 
@@ -737,7 +732,6 @@ jobs:
             .turbo
             packages/locales/dist
             packages/session-schema/dist
-            packages/insights-core/dist
           key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
           # A `gh run rerun --failed` opens a new attempt without re-running the
           # already-successful prepare-workspace job, and cleanup-workspace-cache
@@ -748,7 +742,7 @@ jobs:
           # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
           # so a genuine total miss (e.g. LRU eviction) still fails loudly.
           restore-keys: |
-            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json') }}
             workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
           fail-on-cache-miss: true
 
@@ -1046,7 +1040,6 @@ jobs:
             .turbo
             packages/locales/dist
             packages/session-schema/dist
-            packages/insights-core/dist
           key: workspace-${{ github.run_id }}-${{ github.run_attempt }}
           # A `gh run rerun --failed` opens a new attempt without re-running the
           # already-successful prepare-workspace job, and cleanup-workspace-cache
@@ -1057,7 +1050,7 @@ jobs:
           # yarn.lock + the shared packages' sources). fail-on-cache-miss stays on
           # so a genuine total miss (e.g. LRU eviction) still fails loudly.
           restore-keys: |
-            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json', 'packages/insights-core/src/**', 'packages/insights-core/package.json') }}
+            workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-${{ hashFiles('packages/locales/src/**', 'packages/locales/package.json', 'packages/session-schema/src/**', 'packages/session-schema/package.json') }}
             workspace-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('yarn.lock') }}-
           fail-on-cache-miss: true
 

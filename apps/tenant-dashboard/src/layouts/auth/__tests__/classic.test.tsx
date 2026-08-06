@@ -101,7 +101,7 @@ describe('AuthClassicLayout', () => {
     expect(screen.getByTestId('form')).toBeInTheDocument();
   });
 
-  it('renders the evidence-loop card: distillation, finding, cost, measured fix', () => {
+  it('renders the evidence-loop card: distillation, top pattern, cost, measured fix', () => {
     wrap(<AuthClassicLayout>x</AuthClassicLayout>);
 
     expect(screen.getByText('▣ outerlayer')).toBeInTheDocument();

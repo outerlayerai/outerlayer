@@ -11,7 +11,6 @@ type BuiltInRole = 'owner' | 'admin' | 'write' | 'read';
 
 /** Every permission granted to at least one built-in role (the active catalog). */
 export const APP_PERMISSIONS = [
-  'agents.findings.read',
   'agents.sessions.self.read',
   'agents.sessions.team.read',
   'agents.settings.write',
@@ -97,7 +96,6 @@ export const APP_PERMISSIONS = [
 /** Built-in app_role → the exact permission set the role holds. */
 export const BUILT_IN_ROLE_PERMISSIONS = {
   owner: [
-    'agents.findings.read',
     'agents.sessions.self.read',
     'agents.sessions.team.read',
     'agents.settings.write',
@@ -180,7 +178,6 @@ export const BUILT_IN_ROLE_PERMISSIONS = {
     'worker_run.update',
   ],
   admin: [
-    'agents.findings.read',
     'agents.sessions.self.read',
     'agents.sessions.team.read',
     'agents.settings.write',
@@ -260,7 +257,6 @@ export const BUILT_IN_ROLE_PERMISSIONS = {
     'worker_run.update',
   ],
   write: [
-    'agents.findings.read',
     'agents.sessions.self.read',
     'api_key.insert',
     'api_key.read',
@@ -307,7 +303,6 @@ export const BUILT_IN_ROLE_PERMISSIONS = {
     'worker_run.update',
   ],
   read: [
-    'agents.findings.read',
     'agents.sessions.self.read',
     'app.read',
     'app_member_role.read',

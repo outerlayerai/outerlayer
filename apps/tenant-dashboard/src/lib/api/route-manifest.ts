@@ -24,7 +24,8 @@ import '@/app/api/orgs/[orgName]/has-traces/route';
 import '@/app/api/orgs/[orgName]/apps/[appId]/onboarding/checklist/route';
 
 // Agents (blobs) — the domain's one first-party binary-asset route (an <img>
-// needs bytes, which a React Server Component (RSC) can't return). Session detail, findings, and the
-// sessions list serve via RSC (features/agent-sessions); saved views are
-// Server Actions (lib/analytics/saved-filters) — neither has a route here.
+// needs bytes, which a React Server Component (RSC) can't return). Session
+// detail and the sessions list serve via RSC (features/agent-sessions);
+// saved views are Server Actions (lib/analytics/saved-filters) — neither
+// has a route here.
 import '@/app/api/orgs/[orgName]/apps/[appId]/agents/blob/[sha256]/route';
