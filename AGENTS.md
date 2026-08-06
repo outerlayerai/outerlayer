@@ -8,8 +8,8 @@ This file carries only the conventions an agent can't derive from the code.
 ## Repo shape
 
 Yarn 4 workspaces + Turborepo: `apps/*` + `packages/*`. The big app is
-`apps/tenant-dashboard` (Next.js dashboard) — it has its own `AGENTS.md` with
-the architecture contract; read it before editing anything there.
+`apps/tenant-dashboard` (Next.js dashboard) — see its architecture contract
+below before editing anything there.
 
 - `apps/gateway` / `apps/gateway-node` — Hono gateway (Cloudflare Worker + Node entrypoints)
 - `apps/worker` — machine-side runner; deliberately has no `@repo/*` runtime deps — keep it that way
@@ -27,6 +27,39 @@ the architecture contract; read it before editing anything there.
 hook files — even when a hook fails. A failing hook means the code has a
 problem; fix the typecheck/lint/test error it reports. Bypassing it just
 moves the failure to CI and makes the PR red.
+
+## tenant-dashboard architecture
+
+The machine-checked source of truth is
+`apps/tenant-dashboard/eslint.config.mjs` — when in doubt, the lint rules
+win. Stack: TypeScript (strict), Next.js App Router, React 19, MUI 9,
+Supabase (auth + Postgres with RLS), ClickHouse (analytics/traces), Zod,
+SWR, react-hook-form. MUI 9 note: on `Stack`, only `direction`/`spacing`
+are first-class props — put `justifyContent`/`alignItems`/etc. in `sx`.
+
+Where code goes (paths relative to `apps/tenant-dashboard/`):
+
+- New code goes in `src/features/<domain>/` slices or the `src/lib` tiers
+  (`action-kit`, `system`, `adapters`, `app-shell`, `analytics`, `api`,
+  `tenant`). Enterprise slices live in `ee/features/` (`@ee/features/*`).
+- `src/sections`, `src/auth`, and the root `supabase*Client.ts` wrappers
+  (`src/supabaseAdminClient.ts` etc.) are **legacy and shrinking** — do not
+  extend them. New-world imports of them are lint-banned except through
+  `src/lib/adapters/` (server) / `src/lib/app-shell/` (client).
+
+Invariants:
+
+- **Features are leaves**: a feature never imports another feature.
+  Composition happens above the feature layer.
+- The service-role (RLS-bypassing) Supabase client is constructed **only** in
+  `src/lib/system/`; the RLS-scoped request client only in
+  `features/*/service.ts` + `lib/system`. Everything else receives `ctx.db`.
+- Every export of a `"use server"` module in the new world is wrapped in
+  `authorizedAction(...)` or `preTenantAction(...)` (`src/lib/action-kit/`).
+- Tenancy comes from the resolved request tenant (the URL org segment via
+  middleware) — **never** `app_metadata.tenant_id` or an unscoped server
+  client.
+- Slice `service.ts` is framework-free: no React, no `next/*`, no UI imports.
 
 ## Database changes
 
