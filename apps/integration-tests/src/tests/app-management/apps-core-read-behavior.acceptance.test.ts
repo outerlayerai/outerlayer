@@ -20,6 +20,7 @@ import { randomUUID } from 'crypto';
 import { createTenantWithOwner, cleanupTenantAndUsers, type SameTenantUser } from '../app-level-roles/helpers';
 import { createTenantScopedClient } from '../../lib/tenant-scoped-client';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
+import { uniqueInstallationId } from '../../lib/app-test-utils';
 import { appsService } from 'tenant-dashboard/src/features/apps/service';
 import type { ServiceContext } from 'tenant-dashboard/src/lib/action-kit/service-context';
 
@@ -77,7 +78,7 @@ describe('apps-core: apps-list read behavior + tenancy', () => {
         tenant_id: orgA.tenantId,
         app_id: connectedApp.id,
         provider: 'github',
-        installation_id: 999,
+        installation_id: uniqueInstallationId(),
         repository: 'acme/triage',
       });
       if (gcErr) throw new Error(`seed git_connection: ${gcErr.message}`);
@@ -169,7 +170,7 @@ describe('apps-core: apps-list read behavior + tenancy', () => {
         tenant_id: orgA.tenantId,
         app_id: app.id,
         provider: 'github',
-        installation_id: 42,
+        installation_id: uniqueInstallationId(),
         repository: 'acme/embed-check',
       });
 

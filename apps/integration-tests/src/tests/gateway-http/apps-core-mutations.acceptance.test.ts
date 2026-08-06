@@ -28,6 +28,7 @@
 import { randomUUID } from 'crypto';
 import { createTenantWithOwner, addUserToTenant, cleanupTenantAndUsers, type SameTenantUser } from '../app-level-roles/helpers';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
+import { uniqueInstallationId } from '../../lib/app-test-utils';
 import { GATEWAY_URL } from '../../../gateway-http/setup-gateway';
 
 async function bearerFor(user: SameTenantUser): Promise<string> {
@@ -416,7 +417,7 @@ describe('apps-core mutations — gateway HTTP', () => {
           tenant_id: owner.tenantId,
           app_id: appId,
           provider: 'github',
-          installation_id: 1,
+          installation_id: uniqueInstallationId(),
         });
         const { data: keyRow, error: keyInsertError } = await admin
           .from('api_key')
@@ -503,8 +504,8 @@ describe('apps-core mutations — gateway HTTP', () => {
       if (!appA || !appB) throw new Error('seed apps failed');
 
       await admin.from('git_connection').insert([
-        { tenant_id: owner.tenantId, app_id: appA.id, provider: 'github', installation_id: 111, repository: 'acme/shared' },
-        { tenant_id: owner.tenantId, app_id: appB.id, provider: 'github', installation_id: 222 },
+        { tenant_id: owner.tenantId, app_id: appA.id, provider: 'github', installation_id: uniqueInstallationId(), repository: 'acme/shared' },
+        { tenant_id: owner.tenantId, app_id: appB.id, provider: 'github', installation_id: uniqueInstallationId() },
       ]);
       await admin.from('git_branch').insert({
         tenant_id: owner.tenantId,

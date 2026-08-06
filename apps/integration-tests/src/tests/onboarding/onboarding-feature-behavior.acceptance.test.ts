@@ -40,6 +40,7 @@ import { randomUUID } from 'crypto';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createTenantScopedClient } from '../../lib/tenant-scoped-client';
 import { createTenantWithOwner, cleanupTenantAndUsers, type SameTenantUser } from '../app-level-roles/helpers';
+import { uniqueInstallationId } from '../../lib/app-test-utils';
 import { gatherOnboardingSignals } from 'tenant-dashboard/src/features/onboarding/service';
 import { interpretChecklistCounts } from 'tenant-dashboard/src/features/onboarding/checklist';
 import type { TenantContext, VerifiedAppId } from '@repo/observability-service';
@@ -118,7 +119,7 @@ describe('onboarding feature behavior — checklist signal gathering + has-trace
 
       const { error: connError } = await admin
         .from('git_connection')
-        .insert({ app_id: appId, tenant_id: owner.tenantId, provider: 'github', repository: `octo/onb-${suffix}`, installation_id: 12345, created_by: owner.id });
+        .insert({ app_id: appId, tenant_id: owner.tenantId, provider: 'github', repository: `octo/onb-${suffix}`, installation_id: uniqueInstallationId(), created_by: owner.id });
       if (connError) throw new Error(`git_connection insert: ${connError.message}`);
 
       const { error: branchError } = await admin

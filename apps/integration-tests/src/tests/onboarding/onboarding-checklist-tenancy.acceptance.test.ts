@@ -26,6 +26,7 @@ import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createTenantWithOwner, type SameTenantUser } from '../app-level-roles/helpers';
+import { uniqueInstallationId } from '../../lib/app-test-utils';
 import { actAsInOrg, resetRequestScope } from '../../lib/session-cookie';
 import { GET as checklistGet } from '@/app/api/orgs/[orgName]/apps/[appId]/onboarding/checklist/route';
 import { GET as hasTracesGet } from '@/app/api/orgs/[orgName]/has-traces/route';
@@ -80,7 +81,7 @@ describe('onboarding route handlers — real withApi calls (session-cookie fixtu
     if (keyError) throw new Error(`seed api_key: ${keyError.message}`);
     const { error: connError } = await admin
       .from('git_connection')
-      .insert({ app_id: appA, tenant_id: orgA.tenantId, provider: 'github', repository: `octo/onb-${suffix}`, installation_id: 42, created_by: orgA.id });
+      .insert({ app_id: appA, tenant_id: orgA.tenantId, provider: 'github', repository: `octo/onb-${suffix}`, installation_id: uniqueInstallationId(), created_by: orgA.id });
     if (connError) throw new Error(`seed git_connection: ${connError.message}`);
     const { error: branchError } = await admin
       .from('git_branch')

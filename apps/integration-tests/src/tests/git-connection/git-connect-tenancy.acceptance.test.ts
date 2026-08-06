@@ -16,6 +16,7 @@ import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createTenantScopedClient } from '../../lib/tenant-scoped-client';
 import { createTenantWithOwner, addUserToTenant, SameTenantUser } from '../app-level-roles/helpers';
+import { uniqueInstallationId } from '../../lib/app-test-utils';
 import { signGitConnectState } from '@repo/gateway-core/lib/git-connect-state';
 import { verifySignedGitConnectState } from 'tenant-dashboard/src/lib/git-connect/verify-state';
 import type { Database } from 'tenant-dashboard/src/types/db';
@@ -106,7 +107,7 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
 
     const scoped = await createTenantScopedClient(actor, verified.payload.tenant_id);
     const { error } = await scoped.from('git_connection').upsert(
-      { app_id: appAForActor, provider: 'github', installation_id: 111, repository: null } as GitConnectionInsert,
+      { app_id: appAForActor, provider: 'github', installation_id: uniqueInstallationId(), repository: null } as GitConnectionInsert,
       { onConflict: 'tenant_id, app_id' },
     );
     expect(error).toBeNull();
@@ -143,7 +144,7 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
 
     const scoped = await createTenantScopedClient(actor, verified.payload.tenant_id);
     const { error } = await scoped.from('git_connection').upsert(
-      { app_id: appC, provider: 'github', installation_id: 222, repository: null } as GitConnectionInsert,
+      { app_id: appC, provider: 'github', installation_id: uniqueInstallationId(), repository: null } as GitConnectionInsert,
       { onConflict: 'tenant_id, app_id' },
     );
     expect(error).not.toBeNull();
@@ -167,7 +168,7 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
     // orgA's owner is a single-org user; the state names their only org.
     const scoped = await createTenantScopedClient(orgA, verified.payload.tenant_id);
     const { error } = await scoped.from('git_connection').upsert(
-      { app_id: appAForOwner, provider: 'github', installation_id: 333, repository: null } as GitConnectionInsert,
+      { app_id: appAForOwner, provider: 'github', installation_id: uniqueInstallationId(), repository: null } as GitConnectionInsert,
       { onConflict: 'tenant_id, app_id' },
     );
     expect(error).toBeNull();
