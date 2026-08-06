@@ -12,15 +12,9 @@ import { useAppPermissions } from "@/lib/adapters/use-app-permissions";
 import { Permissions } from "@/utils/permissions";
 import { AppPolicyToggle } from "./app-policy-toggle";
 import { setAppPolicyAction } from "../actions";
-import { setPrCommentsEnabledAction } from "@/features/git-connection/actions";
 
 async function saveRequirePullRequest(appId: string, value: boolean): Promise<{ error?: string }> {
   const result = await setAppPolicyAction({ appId, policy: "require_pull_request", value });
-  return result.ok ? {} : { error: result.error.message };
-}
-
-async function savePrCommentsEnabled(appId: string, value: boolean): Promise<{ error?: string }> {
-  const result = await setPrCommentsEnabledAction({ appId, value });
   return result.ok ? {} : { error: result.error.message };
 }
 
@@ -32,7 +26,18 @@ type DetailItem = {
   isProvider?: boolean;
 };
 
-export const AppId = () => {
+interface AppIdProps {
+  /**
+   * Toggles `git_connection.pr_comments_enabled` — owned by the
+   * git-connection feature, not this one. Features are leaves and never
+   * import each other, so the caller (the settings page, above both
+   * features) supplies this rather than `AppId` importing the action
+   * directly.
+   */
+  savePrCommentsEnabled: (appId: string, value: boolean) => Promise<{ error?: string }>;
+}
+
+export const AppId = ({ savePrCommentsEnabled }: AppIdProps) => {
   const { app } = useAppContext();
   const { t } = useTranslate();
   const { hasPermission } = useAppPermissions(app?.id);

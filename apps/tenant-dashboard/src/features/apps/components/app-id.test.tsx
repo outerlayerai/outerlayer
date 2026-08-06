@@ -26,9 +26,6 @@ vi.mock("@outerlayer/locales", () => ({
   useTranslate: () => ({ t: (key: string) => key }),
 }));
 vi.mock("../actions", () => ({ setAppPolicyAction: vi.fn().mockResolvedValue({ ok: true, data: undefined }) }));
-vi.mock("@/features/git-connection/actions", () => ({
-  setPrCommentsEnabledAction: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
-}));
 
 // Stub the toggle so we can read the props AppId passes each instance.
 vi.mock("./app-policy-toggle", () => ({
@@ -72,17 +69,20 @@ const toggleByLabel = (label: string) =>
     .getAllByTestId("policy-toggle")
     .find((el) => el.getAttribute("data-label") === label);
 
+const savePrCommentsEnabled = vi.fn().mockResolvedValue({});
+
 describe("AppId — publish-policy toggles", () => {
   beforeEach(() => {
     hasPermission.mockReset();
     useAppContext.mockReset();
+    savePrCommentsEnabled.mockClear();
   });
 
   it("renders the require-pull-request and pr-comments toggles (previews are no longer per-app)", () => {
     hasPermission.mockReturnValue(true);
     useAppContext.mockReturnValue(appWith({ require_pull_request: true }));
 
-    render(<AppId />);
+    render(<AppId savePrCommentsEnabled={savePrCommentsEnabled} />);
 
     const toggles = screen.getAllByTestId("policy-toggle");
     expect(toggles).toHaveLength(2);
@@ -109,7 +109,7 @@ describe("AppId — publish-policy toggles", () => {
       })
     );
 
-    render(<AppId />);
+    render(<AppId savePrCommentsEnabled={savePrCommentsEnabled} />);
 
     const prComments = toggleByLabel("dashboard.developers.prCommentsEnabled");
     expect(prComments?.getAttribute("data-init")).toBe("false");
@@ -119,7 +119,7 @@ describe("AppId — publish-policy toggles", () => {
     hasPermission.mockImplementation((perm: string) => perm !== "app_policy.update");
     useAppContext.mockReturnValue(appWith({}));
 
-    render(<AppId />);
+    render(<AppId savePrCommentsEnabled={savePrCommentsEnabled} />);
 
     // Not just disabled — restricted members must not see the policy at all.
     expect(toggleByLabel("dashboard.developers.requirePullRequest")).toBeUndefined();
@@ -133,7 +133,7 @@ describe("AppId — publish-policy toggles", () => {
     hasPermission.mockImplementation((perm: string) => perm !== "git_connection.update");
     useAppContext.mockReturnValue(appWith({}));
 
-    render(<AppId />);
+    render(<AppId savePrCommentsEnabled={savePrCommentsEnabled} />);
 
     expect(toggleByLabel("dashboard.developers.prCommentsEnabled")).toBeUndefined();
     expect(
@@ -146,7 +146,7 @@ describe("AppId — publish-policy toggles", () => {
     hasPermission.mockReturnValue(true);
     useAppContext.mockReturnValue(appWith({ git_connection: [] }));
 
-    render(<AppId />);
+    render(<AppId savePrCommentsEnabled={savePrCommentsEnabled} />);
 
     expect(screen.queryAllByTestId("policy-toggle")).toHaveLength(0);
   });
