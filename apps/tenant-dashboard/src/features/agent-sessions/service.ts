@@ -130,6 +130,11 @@ const SIGNAL_PREDICATES = {
   clean: "UserTurnCount <= 1 AND RejectedToolCallCount = 0 AND ErrorCount = 0 AND ApiErrorCount = 0",
 } as const;
 
+/** Bounded scan for the `?pr=` filter's `pull_request_session` lookup — a
+ * list filter, never a full-table walk. Matches the sibling bound in
+ * `pr-session-comment/read.ts` (`MAX_LINKS`). */
+const MAX_PR_LINKED_SESSIONS = 5_000;
+
 class AgentSessionsService {
   /**
    * Full span tree + rollup identity for one trace, tier-aware. Returns
@@ -375,7 +380,7 @@ class AgentSessionsService {
     const ch = createTenantReadClient({ tenantId: ctx.tenantId, appId: ctx.appId });
     if (!ch) throw new Error("ClickHouse not configured");
     const { tenantId, appId } = ctx;
-    const { limit, offset, branch, agentType, model, workerKind, q, from, to, sort, dir, includeSubagents, origin, signal, topicId, topicFacet } = query;
+    const { limit, offset, branch, agentType, model, workerKind, q, from, to, sort, dir, includeSubagents, origin, signal, topicId, topicFacet, pr } = query;
     // A topic drill-down shows the whole cluster, so it spans repos rather than
     // pinning to the app's dominant repo.
     const topicActive = Boolean(topicId && topicFacet);
@@ -406,6 +411,28 @@ class AgentSessionsService {
           )
         )[0]?.repo ??
         "";
+
+    // `?pr=` filter: only sessions CONFIRMED-linked (via `pull_request_session`)
+    // to this app's PR/MR number. `verification = 'confirmed'` excludes
+    // pending/unmatched claims — same rule the PR-comment read layer applies
+    // (`pr-session-comment/read.ts`). Read through `ctx.db` (RLS-scoped to
+    // this caller's tenant) and pinned to `ctx.appId` — a `pr` value from the
+    // URL narrows the existing tenant+app scope, it can never widen it. `null`
+    // means "no pr filter"; an empty (but non-null) array means "filter is
+    // active, nothing confirmed-linked" — must resolve to zero rows, not "no
+    // filter".
+    let prTraceIds: string[] | null = null;
+    if (pr !== undefined) {
+      const { data: prLinks, error: prLinksError } = await ctx.db
+        .from("pull_request_session")
+        .select("trace_id")
+        .eq("app_id", appId)
+        .eq("pr_number", pr)
+        .eq("verification", "confirmed")
+        .limit(MAX_PR_LINKED_SESSIONS);
+      if (prLinksError) throw new Error(`pull_request_session read failed: ${prLinksError.message}`);
+      prTraceIds = [...new Set((prLinks ?? []).map((r) => (r as { trace_id: string }).trace_id))];
+    }
 
     const filters = ["TenantId={tenantId:String}", "AppId={appId:String}"];
     // Repo-pin the list normally; a topic drill-down deliberately spans repos.
@@ -474,6 +501,12 @@ class AgentSessionsService {
     if (q) filters.push("positionCaseInsensitive(Title, {q:String}) > 0");
     if (from) filters.push("StartedAt >= parseDateTimeBestEffort({from:String})");
     if (to) filters.push("StartedAt <= parseDateTimeBestEffort({to:String})");
+    // Empty (not absent) prTraceIds means the filter is active but nothing
+    // confirmed-linked — `TraceId IN ()` is invalid ClickHouse syntax, so an
+    // always-false predicate stands in for "filter to nothing" instead.
+    if (prTraceIds !== null) {
+      filters.push(prTraceIds.length > 0 ? "TraceId IN {prTraceIds:Array(String)}" : "1=0");
+    }
     const baseWhere = filters.join(" AND ");
     // Optional origin filter, composed independently of includeSubagents:
     // origin=agent lists top-level agent runs, origin=agent&includeSubagents=1
@@ -510,6 +543,7 @@ class AgentSessionsService {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
       ...(topicActive ? { topicId, topicFacet } : {}),
+      ...(prTraceIds && prTraceIds.length > 0 ? { prTraceIds } : {}),
     };
 
     // Fire the list + count first so they run concurrently with the filter

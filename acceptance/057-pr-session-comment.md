@@ -47,7 +47,7 @@ an em dash" requirement is dropped for cost specifically, in scenario 11; and
 
 ## Dashboard link
 
-9. **Given** several sessions link one PR, **When** a lead follows the comment's dashboard link, **Then** they land on the sessions list filtered to that PR, showing all linked sessions and totals.
+9. `AC-057-09` **Given** several sessions link one PR, **When** a lead follows the comment's dashboard link, **Then** they land on the sessions list filtered to that PR, showing all linked sessions and totals.
 
 ## Latency
 

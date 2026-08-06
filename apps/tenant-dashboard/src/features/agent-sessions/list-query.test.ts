@@ -141,4 +141,18 @@ describe('parseSessionsUrlParams', () => {
     expect(parseSessionsUrlParams({ includeSubagents: '1' }, false).includeSubagents).toBe('1');
     expect(parseSessionsUrlParams({ includeSubagents: 'true' }, false).includeSubagents).toBeUndefined();
   });
+
+  it('coerces ?pr= to a positive integer', () => {
+    expect(parseSessionsUrlParams({ pr: '812' }, false).pr).toBe(812);
+  });
+
+  it('drops a non-positive or non-numeric pr instead of passing it through', () => {
+    expect(parseSessionsUrlParams({ pr: '0' }, false).pr).toBeUndefined();
+    expect(parseSessionsUrlParams({ pr: '-3' }, false).pr).toBeUndefined();
+    expect(parseSessionsUrlParams({ pr: 'not-a-number' }, false).pr).toBeUndefined();
+  });
+
+  it('leaves pr undefined when absent, never defaulting to a filter', () => {
+    expect(parseSessionsUrlParams({}, false).pr).toBeUndefined();
+  });
 });
