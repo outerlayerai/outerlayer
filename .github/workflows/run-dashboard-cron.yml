@@ -48,7 +48,7 @@ jobs:
           # Hosts are pinned per environment so the bearer can only ever be
           # presented to our own deployments.
           HOST: ${{ inputs.environment == 'production' && 'https://app.agentmark.co' || 'https://stg.outerlayer.ai' }}
-          CRON_SECRET: ${{ inputs.environment == 'production' && secrets.CRON_SECRET_PRODUCTION || secrets.CRON_SECRET }}
+          CRON_SECRET: ${{ inputs.environment == 'production' && secrets.CRON_SECRET_PRODUCTION || secrets.STAGING_CRON_SECRET }}
           CRON_PATH: ${{ inputs.path }}
           QUERY: ${{ inputs.query }}
         run: |
