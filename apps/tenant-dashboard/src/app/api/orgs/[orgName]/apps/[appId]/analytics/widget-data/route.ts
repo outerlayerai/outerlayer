@@ -280,11 +280,11 @@ export const POST = withAnalyticsAuthParams<{ orgName: string; appId: string }>(
     // letting the raw schema failure fall through to the generic 500 mapping.
     const parsed = widgetDataRequestSchema.safeParse(body);
     if (!parsed.success) {
-      const firstIssue = parsed.error.issues[0];
-      throw new ValidationError(
-        firstIssue?.message ?? 'Invalid widget data request',
-        firstIssue?.path.join('.') || undefined
-      );
+      // zod guarantees at least one issue when `safeParse` reports failure,
+      // and every field in this schema is named at the top level, so the
+      // issue always carries a non-empty path — no fallback branch to guard.
+      const firstIssue = parsed.error.issues[0]!;
+      throw new ValidationError(firstIssue.message, firstIssue.path.join('.'));
     }
     const validated = parsed.data;
 

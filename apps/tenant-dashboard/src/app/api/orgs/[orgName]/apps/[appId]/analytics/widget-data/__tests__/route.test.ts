@@ -64,7 +64,7 @@ vi.mock('@/lib/analytics/errors', async () => {
   const actual = await vi.importActual<typeof import('@/lib/analytics/errors')>('@/lib/analytics/errors');
   return {
     ...actual,
-    toErrorResponse: (err: any) => ({ error: err.message }),
+    toErrorResponse: (err: any) => ({ error: err.message, field: err.field }),
     mapClickHouseError: (err: any) => err,
   };
 });
@@ -117,6 +117,7 @@ describe('POST /api/orgs/{orgName}/apps/{appId}/analytics/widget-data (appId pin
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('Invalid metric type');
+    expect(body.field).toBe('metric');
     expect(mockGetMetrics).not.toHaveBeenCalled();
     expect(mockGetExtendedMetrics).not.toHaveBeenCalled();
   });
