@@ -6,7 +6,11 @@
  * - usage-meter-dlq: Dead-letter queue for failed meter events
  * - topics-enrichment: event-driven trace-topics enrichment (no DLQ — the
  *   scheduled scan is the retry of last resort)
+ * - pr-comment-refresh: event-driven PR-session-comment refresh (no DLQ —
+ *   the pull_request webhook and hourly cron sweep are the retry of last
+ *   resort)
  */
 
 export { handleUsageMeterQueue, handleUsageMeterDlq } from './usage-meter-queue';
 export { handleTopicsEnrichmentQueue } from './topics-enrichment-queue';
+export { handlePrCommentQueue } from './pr-comment-queue';

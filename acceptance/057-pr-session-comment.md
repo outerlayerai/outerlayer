@@ -51,7 +51,7 @@ an em dash" requirement is dropped for cost specifically, in scenario 11; and
 
 ## Latency
 
-10. **Given** an online machine with capture installed, **When** its session opens a PR — even mid-turn — **Then** the comment shows that session within the latency target (p50 ≤ 2 minutes, p90 ≤ 5 minutes), with no scheduled batch process in the path.
+10. `AC-057-10` **Given** an online machine with capture installed, **When** its session opens a PR — even mid-turn — **Then** the comment shows that session within the latency target (p50 ≤ 2 minutes, p90 ≤ 5 minutes), with no scheduled batch process in the path.
 
 ## Missing values
 
