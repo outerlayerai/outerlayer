@@ -102,21 +102,21 @@ describe('Custom-role permission-surface cleanup', () => {
   });
 
   describe('the retirement DELETE is scoped exactly — untouched grants survive', () => {
-    it('keeps eval_run.* seeded to owner/admin/write (+ read for eval_run.read)', async () => {
+    it('keeps worker_run.* seeded to owner/admin/write (+ read for worker_run.read)', async () => {
       const { data, error } = await supabaseAdmin
         .from('role_permissions')
         .select('role, permission')
-        .in('permission', ['eval_run.read', 'eval_run.insert', 'eval_run.update', 'eval_run.delete']);
+        .in('permission', ['worker_run.read', 'worker_run.insert', 'worker_run.update', 'worker_run.delete']);
 
       expect(error).toBeNull();
       const pairs = new Set(data!.map((r) => `${r.role}:${r.permission}`));
       for (const role of ['owner', 'admin', 'write']) {
-        for (const perm of ['eval_run.read', 'eval_run.insert', 'eval_run.update', 'eval_run.delete']) {
+        for (const perm of ['worker_run.read', 'worker_run.insert', 'worker_run.update', 'worker_run.delete']) {
           expect(pairs.has(`${role}:${perm}`), `expected ${role}:${perm}`).toBe(true);
         }
       }
-      expect(pairs.has('read:eval_run.read')).toBe(true);
-      expect(pairs.has('read:eval_run.insert')).toBe(false);
+      expect(pairs.has('read:worker_run.read')).toBe(true);
+      expect(pairs.has('read:worker_run.insert')).toBe(false);
     });
 
     it('keeps billing.read seeded to all four roles and billing.insert/update owner-only', async () => {

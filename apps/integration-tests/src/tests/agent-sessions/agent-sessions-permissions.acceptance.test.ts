@@ -22,8 +22,7 @@
  * `NO_ACTOR_SENTINEL` fail-closed case, and the 404-no-oracle branch in
  * `getSessionDetail`) is unit-tested with `checkAppPermission` mocked in
  * `apps/tenant-dashboard/src/features/agent-sessions/scope.test.ts` and
- * `service.test.ts` — real code, the permission seam swapped out exactly the
- * way `escalations/actions.test.ts` swaps `checkRequestPermission`.
+ * `service.test.ts` — real code, with only the permission seam swapped out.
  */
 
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';

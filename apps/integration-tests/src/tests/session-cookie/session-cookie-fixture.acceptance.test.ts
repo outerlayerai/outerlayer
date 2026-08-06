@@ -10,34 +10,28 @@
  * future `@supabase/ssr`/`supabase-js` upgrade changes cookie mechanics, this is
  * the test that reds first.
  *
- * The remaining cases drive `transitionEscalation` (`@/features/escalations/actions.ts`)
- * as a true Server Action call — permission gate, business-rule rejection, and a
- * successful transition. No other escalations suite reaches those paths: the
- * tenancy suite (`escalations/env-escalation-tenancy.acceptance.test.ts`)
- * re-implements the UPDATE policy by hand instead of calling the action.
+ * The remaining cases drive `cancelWorkerAction` (`@/features/workers/actions.ts`)
+ * as a true Server Action call — permission gate, terminal-run no-op, and a
+ * successful cancel. No other workers suite reaches those paths: they exercise
+ * the RLS policies directly instead of calling the action.
  */
 
 import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest';
 import { randomUUID } from 'crypto';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { createSupabaseAdminClient, createSupabaseAdminClientUntyped } from '../../lib/supabase-admin';
+import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createTenantWithOwner, addUserToTenant, SameTenantUser } from '../app-level-roles/helpers';
 import { actAs, actAsInOrg, resetRequestScope } from '../../lib/session-cookie';
 import { createSupabaseServerClient } from '@/supabaseServerClient';
-import { transitionEscalation } from '@/features/escalations/actions';
-
-/** Address env_escalation (absent from the generated Database type) untyped. */
-const untyped = (client: unknown) => client as SupabaseClient;
+import { cancelWorkerAction } from '@/features/workers/actions';
 
 describe('session-cookie fixture', () => {
   const admin = createSupabaseAdminClient();
-  const adminUntyped = createSupabaseAdminClientUntyped();
 
   let owner: SameTenantUser;
-  let reader: SameTenantUser; // read-only role: holds env_escalation.read, not .update
+  let reader: SameTenantUser; // read-only role: holds worker_run.read, not .update
   let appId: string;
-  let escOpen: string; // open — the success-path target
-  let escResolved: string; // resolved — terminal, so any transition off it is illegal
+  let runRunning: string; // running — the success-path target
+  let runCompleted: string; // completed — terminal, so a cancel is a no-op
 
   beforeAll(async () => {
     owner = await createTenantWithOwner();
@@ -55,23 +49,27 @@ describe('session-cookie fixture', () => {
     if (appError) throw new Error(`seed app: ${appError.message}`);
     appId = appRow!.id;
 
-    const seedEscalation = async (status: 'open' | 'resolved'): Promise<string> => {
-      const { data, error } = await untyped(adminUntyped)
-        .from('env_escalation')
+    // dispatch 'local' with no machine and no workspace: the cancel teardown
+    // then has no Fly machine to stop, so the action stays inside this database.
+    const seedRun = async (status: 'running' | 'completed'): Promise<string> => {
+      const { data, error } = await admin
+        .from('worker_run')
         .insert({
           tenant_id: owner.tenantId,
           app_id: appId,
-          repo: `acme/repo-${randomUUID().slice(0, 8)}`,
-          base_commit: 'c0ffee',
+          agent: 'claude-code',
+          task_prompt: 'fixture run',
+          dispatch: 'local',
           status,
+          created_by: owner.id,
         })
         .select('id')
         .single();
-      if (error) throw new Error(`seed escalation (${status}): ${error.message}`);
-      return data!.id as string;
+      if (error) throw new Error(`seed worker_run (${status}): ${error.message}`);
+      return data!.id;
     };
-    escOpen = await seedEscalation('open');
-    escResolved = await seedEscalation('resolved');
+    runRunning = await seedRun('running');
+    runCompleted = await seedRun('completed');
   }, 90000);
 
   afterEach(() => {
@@ -79,7 +77,7 @@ describe('session-cookie fixture', () => {
   });
 
   afterAll(async () => {
-    await untyped(adminUntyped).from('env_escalation').delete().eq('app_id', appId);
+    await admin.from('worker_run').delete().eq('app_id', appId);
     await admin.from('app').delete().eq('id', appId);
     await admin.from('membership').delete().in('user_id', [owner.id, reader.id]);
     for (const user of [owner, reader]) {
@@ -111,56 +109,56 @@ describe('session-cookie fixture', () => {
     expect((apps ?? []).map((a) => a.id)).toEqual([appId]);
   });
 
-  it('transitionEscalation denies a reader who holds .read but not .update', async () => {
+  it('cancelWorkerAction denies a reader who holds worker_run.read but not .update', async () => {
     await actAsInOrg(reader, owner.tenantId);
 
-    const result = await transitionEscalation({ appId, escalationId: escOpen, status: 'acked' });
+    const result = await cancelWorkerAction({ appId, runId: runRunning });
     expect(result).toEqual({
       ok: false,
       error: expect.objectContaining({ code: 'forbidden' }),
     });
 
     // The denied action never reached the service — the row is untouched.
-    const { data: row } = await untyped(adminUntyped)
-      .from('env_escalation')
+    const { data: row } = await admin
+      .from('worker_run')
       .select('status')
-      .eq('id', escOpen)
+      .eq('id', runRunning)
       .single();
-    expect(row!.status).toBe('open');
+    expect(row!.status).toBe('running');
   });
 
-  it('transitionEscalation rejects an illegal transition off a terminal (resolved) escalation', async () => {
+  it('cancelWorkerAction leaves a terminal (completed) run alone and reports its status', async () => {
     await actAsInOrg(owner, owner.tenantId);
 
-    const result = await transitionEscalation({ appId, escalationId: escResolved, status: 'acked' });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('internal_error');
-      expect(result.error.message).toBe('cannot move an escalation from "resolved" to "acked"');
-    }
-
-    const { data: row } = await untyped(adminUntyped)
-      .from('env_escalation')
-      .select('status')
-      .eq('id', escResolved)
-      .single();
-    expect(row!.status).toBe('resolved');
-  });
-
-  it('transitionEscalation acks an open escalation end-to-end, through the real action', async () => {
-    await actAsInOrg(owner, owner.tenantId);
-
-    const result = await transitionEscalation({ appId, escalationId: escOpen, status: 'acked' });
+    const result = await cancelWorkerAction({ appId, runId: runCompleted });
     expect(result).toEqual({
       ok: true,
-      data: { kind: 'ok', escalation: expect.objectContaining({ id: escOpen, status: 'acked' }) },
+      data: { kind: 'noop', status: 'completed' },
     });
 
-    const { data: row } = await untyped(adminUntyped)
-      .from('env_escalation')
+    const { data: row } = await admin
+      .from('worker_run')
       .select('status')
-      .eq('id', escOpen)
+      .eq('id', runCompleted)
       .single();
-    expect(row!.status).toBe('acked');
+    expect(row!.status).toBe('completed');
+  });
+
+  it('cancelWorkerAction cancels a running run end-to-end, through the real action', async () => {
+    await actAsInOrg(owner, owner.tenantId);
+
+    const result = await cancelWorkerAction({ appId, runId: runRunning });
+    expect(result).toEqual({
+      ok: true,
+      data: { kind: 'ok', status: 'cancelled' },
+    });
+
+    const { data: row } = await admin
+      .from('worker_run')
+      .select('status, completed_at')
+      .eq('id', runRunning)
+      .single();
+    expect(row!.status).toBe('cancelled');
+    expect(row!.completed_at).not.toBeNull();
   });
 });

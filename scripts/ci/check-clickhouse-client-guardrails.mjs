@@ -43,7 +43,6 @@ const ALLOWLIST = new Set([
   "apps/tenant-dashboard/src/lib/analytics/client.ts",
   "packages/gateway-core/src/openapi/analytics-factory.ts",
   "packages/gateway-core/src/openapi/routes/agents.ts",
-  "packages/gateway-core/src/openapi/routes/eval-trials.ts",
   "packages/gateway-core/src/openapi/routes/scores.ts",
   "packages/gateway-core/src/openapi/routes/spans.ts",
   "packages/gateway-core/src/services/clickhouse-service.ts",

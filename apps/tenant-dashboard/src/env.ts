@@ -164,9 +164,9 @@ export const env = createEnv({
     // to "true" so the hosted default is unchanged.
     BILLING_ENABLED: z.string().optional().default('true'),
 
-    // Fly Machines API token. Optional: eval dispatch, cloud workers, and git
-    // file removal each degrade to "unavailable" when it is unset rather than
-    // failing startup.
+    // Fly Machines API token. Optional: cloud workers and git file removal
+    // each degrade to "unavailable" when it is unset rather than failing
+    // startup.
     FLY_API_TOKEN: z.string().optional(),
 
     // Node environment

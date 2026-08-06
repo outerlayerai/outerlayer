@@ -268,23 +268,6 @@
       }
     },
     {
-      "key": "env_escalation",
-      "rationale": "Env-build escalation queue: every role reads (the rows explain why a repo's evals aren't running); write roles acknowledge and resolve. Rows are written by the eval worker via service_role.",
-      "grants": {
-        "env_escalation.read": [
-          "owner",
-          "admin",
-          "write",
-          "read"
-        ],
-        "env_escalation.update": [
-          "owner",
-          "admin",
-          "write"
-        ]
-      }
-    },
-    {
       "key": "environment",
       "rationale": "Environment lifecycle: every role reads; write roles create, edit, and promote (promote is the release action and covers both forward promotion and rollback); deleting an environment is owner/admin.",
       "grants": {
@@ -316,35 +299,8 @@
       }
     },
     {
-      "key": "eval_run",
-      "rationale": "Eval runs: every role reads history; write roles dispatch and manage runs.",
-      "grants": {
-        "eval_run.delete": [
-          "owner",
-          "admin",
-          "write"
-        ],
-        "eval_run.insert": [
-          "owner",
-          "admin",
-          "write"
-        ],
-        "eval_run.read": [
-          "owner",
-          "admin",
-          "write",
-          "read"
-        ],
-        "eval_run.update": [
-          "owner",
-          "admin",
-          "write"
-        ]
-      }
-    },
-    {
       "key": "experiment",
-      "rationale": "Experiments: every role views. experiment.run is deliberately ungranted \u2014 its only enforcement was the pending_experiment RLS policies, dropped along with that table; benchmark/eval dispatch gates on eval_run.insert instead (see the eval_run group).",
+      "rationale": "Experiments: every role views. experiment.run is deliberately ungranted \u2014 its only enforcement was the pending_experiment RLS policies, dropped along with that table.",
       "grants": {
         "experiment.read": [
           "owner",

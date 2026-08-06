@@ -324,16 +324,8 @@ CREATE OR REPLACE TRIGGER on_insert_env_var_set_created_columns
     BEFORE INSERT ON public.env_var
     FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
 
-CREATE OR REPLACE TRIGGER on_insert_env_escalation_set_created_columns
-    BEFORE INSERT ON public.env_escalation
-    FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
-
 CREATE OR REPLACE TRIGGER on_insert_environment_set_created_columns
     BEFORE INSERT ON public.environment
-    FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
-
-CREATE OR REPLACE TRIGGER on_insert_eval_run_set_created_columns
-    BEFORE INSERT ON public.eval_run
     FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
 
 CREATE OR REPLACE TRIGGER on_insert_feature_flag_set_created_columns
@@ -383,15 +375,6 @@ CREATE OR REPLACE TRIGGER on_insert_worker_run_set_created_columns
 CREATE OR REPLACE TRIGGER on_insert_worker_workspace_set_created_columns
     BEFORE INSERT ON public.worker_workspace
     FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
-
--- updated_at + updated_by on update
-CREATE OR REPLACE TRIGGER on_update_env_escalation_set_updated_columns
-    BEFORE UPDATE ON public.env_escalation
-    FOR EACH ROW EXECUTE FUNCTION public.set_updated_columns();
-
-CREATE OR REPLACE TRIGGER on_update_eval_run_set_updated_columns
-    BEFORE UPDATE ON public.eval_run
-    FOR EACH ROW EXECUTE FUNCTION public.set_updated_columns();
 
 -- updated_at only (no updated_by column)
 CREATE OR REPLACE TRIGGER on_update_platform_dora_collection_state_set_updated_at

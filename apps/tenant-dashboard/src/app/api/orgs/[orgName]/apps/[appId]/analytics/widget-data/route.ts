@@ -82,7 +82,6 @@ import {
   fetchDecidedPullRequestsForTenant,
 } from '@/lib/system/pr-tracking/pr-lifecycle-read';
 import { fetchAiCostConfigForTenant } from '@/lib/system';
-import { fetchLatestEvalEconomics } from '@/lib/system/eval-economics-read';
 import type { AnalyticsFilter, DateRange } from '@/lib/analytics/types';
 import type { EnvironmentQueryScope } from '@repo/observability-service';
 
@@ -276,7 +275,18 @@ export const POST = withAnalyticsAuthParams<{ orgName: string; appId: string }>(
     }
 
     const body = await request.json();
-    const validated = widgetDataRequestSchema.parse(body);
+    // A saved dashboard can name a metric this build no longer serves. That is
+    // a bad request, not a server fault, so reject it as a 400 rather than
+    // letting the raw schema failure fall through to the generic 500 mapping.
+    const parsed = widgetDataRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      // zod guarantees at least one issue when `safeParse` reports failure,
+      // and every field in this schema is named at the top level, so the
+      // issue always carries a non-empty path — no fallback branch to guard.
+      const firstIssue = parsed.error.issues[0]!;
+      throw new ValidationError(firstIssue.message, firstIssue.path.join('.'));
+    }
+    const validated = parsed.data;
 
     const metric = validated.metric as string;
     const dateRange = resolveTimeRange(validated.timeRange as WidgetDataRequest['timeRange']);
@@ -903,33 +913,6 @@ export const POST = withAnalyticsAuthParams<{ orgName: string; appId: string }>(
         ...statChange(currentValue, priorValue),
       } satisfies WidgetStatResponse;
 
-    // Latest-eval economics — Postgres eval_run, neither fleet nor PR plane.
-    // Episodic (a run happens when someone runs one), so no prior-window
-    // change indicator: the tile is "the best verified $/resolved we have",
-    // not a windowed rate.
-    } else if (metric === 'agent_cost_per_resolved_task') {
-      const economics = await fetchLatestEvalEconomics({
-        tenantId: context.tenantId,
-        appId: context.appId,
-        scope,
-      });
-      response =
-        !economics || economics.bestCostPerResolvedUsd == null
-          ? {
-              type: 'stat',
-              value: 0,
-              label: METRIC_LABELS[metric] ?? metric,
-              unavailable: {
-                reason: economics
-                  ? 'latest benchmark resolved zero tasks'
-                  : 'no completed benchmarks yet',
-              },
-            }
-          : {
-              type: 'stat',
-              value: Math.round(economics.bestCostPerResolvedUsd * 100) / 100,
-              label: METRIC_LABELS[metric] ?? metric,
-            };
 
     // Agent Fleet metrics — a DIFFERENT row population (agent_session_summary,
     // one row = one coding-agent session) than every other branch below

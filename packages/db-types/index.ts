@@ -1173,106 +1173,6 @@ export type Database = {
           },
         ]
       }
-      env_escalation: {
-        Row: {
-          app_id: string
-          attempts: number
-          base_commit: string
-          cost_usd: number
-          created_at: string
-          created_by: string | null
-          eval_run_id: string | null
-          id: string
-          last_errors: Json
-          repo: string
-          status: string
-          suggested_next_steps: string
-          task_ids: string[]
-          tenant_id: string
-          updated_at: string | null
-          updated_by: string | null
-        }
-        Insert: {
-          app_id: string
-          attempts?: number
-          base_commit: string
-          cost_usd?: number
-          created_at?: string
-          created_by?: string | null
-          eval_run_id?: string | null
-          id?: string
-          last_errors?: Json
-          repo: string
-          status?: string
-          suggested_next_steps?: string
-          task_ids?: string[]
-          tenant_id: string
-          updated_at?: string | null
-          updated_by?: string | null
-        }
-        Update: {
-          app_id?: string
-          attempts?: number
-          base_commit?: string
-          cost_usd?: number
-          created_at?: string
-          created_by?: string | null
-          eval_run_id?: string | null
-          id?: string
-          last_errors?: Json
-          repo?: string
-          status?: string
-          suggested_next_steps?: string
-          task_ids?: string[]
-          tenant_id?: string
-          updated_at?: string | null
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "env_escalation_app_id_fkey"
-            columns: ["app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "env_escalation_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profile"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "env_escalation_eval_run_id_fkey"
-            columns: ["eval_run_id"]
-            isOneToOne: false
-            referencedRelation: "eval_run"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "env_escalation_tenant_app_fk"
-            columns: ["tenant_id", "app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["tenant_id", "id"]
-          },
-          {
-            foreignKeyName: "env_escalation_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["tenant_id"]
-          },
-          {
-            foreignKeyName: "env_escalation_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profile"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       env_var: {
         Row: {
           app_id: string
@@ -1447,100 +1347,6 @@ export type Database = {
           },
           {
             foreignKeyName: "environment_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profile"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      eval_run: {
-        Row: {
-          app_id: string
-          card: Json | null
-          cost_usd: number
-          created_at: string
-          created_by: string | null
-          environment_id: string | null
-          error: string | null
-          id: string
-          repo_label: string
-          request: Json
-          status: string
-          tenant_id: string
-          updated_at: string | null
-          updated_by: string | null
-        }
-        Insert: {
-          app_id: string
-          card?: Json | null
-          cost_usd?: number
-          created_at?: string
-          created_by?: string | null
-          environment_id?: string | null
-          error?: string | null
-          id?: string
-          repo_label?: string
-          request?: Json
-          status?: string
-          tenant_id: string
-          updated_at?: string | null
-          updated_by?: string | null
-        }
-        Update: {
-          app_id?: string
-          card?: Json | null
-          cost_usd?: number
-          created_at?: string
-          created_by?: string | null
-          environment_id?: string | null
-          error?: string | null
-          id?: string
-          repo_label?: string
-          request?: Json
-          status?: string
-          tenant_id?: string
-          updated_at?: string | null
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "eval_run_app_id_fkey"
-            columns: ["app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "eval_run_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profile"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "eval_run_environment_app_fkey"
-            columns: ["environment_id", "app_id"]
-            isOneToOne: false
-            referencedRelation: "environment"
-            referencedColumns: ["id", "app_id"]
-          },
-          {
-            foreignKeyName: "eval_run_tenant_app_fk"
-            columns: ["tenant_id", "app_id"]
-            isOneToOne: false
-            referencedRelation: "app"
-            referencedColumns: ["tenant_id", "id"]
-          },
-          {
-            foreignKeyName: "eval_run_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["tenant_id"]
-          },
-          {
-            foreignKeyName: "eval_run_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profile"
@@ -3504,10 +3310,6 @@ export type Database = {
         | "environment.promote"
         | "app_policy.update"
         | "audit_log.read"
-        | "eval_run.read"
-        | "eval_run.insert"
-        | "eval_run.update"
-        | "eval_run.delete"
         | "context.read"
         | "context.insert"
         | "context.update"
@@ -3516,8 +3318,6 @@ export type Database = {
         | "agents.sessions.team.read"
         | "agents.findings.read"
         | "agents.settings.write"
-        | "env_escalation.read"
-        | "env_escalation.update"
         | "worker_run.read"
         | "worker_run.insert"
         | "worker_run.update"
@@ -4385,10 +4185,6 @@ export const Constants = {
         "environment.promote",
         "app_policy.update",
         "audit_log.read",
-        "eval_run.read",
-        "eval_run.insert",
-        "eval_run.update",
-        "eval_run.delete",
         "context.read",
         "context.insert",
         "context.update",
@@ -4397,8 +4193,6 @@ export const Constants = {
         "agents.sessions.team.read",
         "agents.findings.read",
         "agents.settings.write",
-        "env_escalation.read",
-        "env_escalation.update",
         "worker_run.read",
         "worker_run.insert",
         "worker_run.update",

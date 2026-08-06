@@ -189,7 +189,7 @@ describe('tenant/app consistency is a database invariant', () => {
     expect(survivors).toEqual([]);
   });
 
-  it('declares ON DELETE CASCADE on every composite key, on all 22 tables', async () => {
+  it('declares ON DELETE CASCADE on every composite key, on all 20 tables', async () => {
     // This reads the catalog rather than deleting an app and watching the rows
     // vanish, because the behavioural version of this test cannot fail: each of
     // these tables also carries a single-column app_id cascade that deletes the
@@ -217,7 +217,7 @@ describe('tenant/app consistency is a database invariant', () => {
          ORDER BY conname`
       );
 
-      expect(rows).toHaveLength(22);
+      expect(rows).toHaveLength(20);
       // 'c' = CASCADE. Any 'a' (NO ACTION) in here is the order-dependent bug.
       expect(rows.filter((r) => r.confdeltype !== 'c')).toEqual([]);
       expect(rows.filter((r) => !r.convalidated)).toEqual([]);

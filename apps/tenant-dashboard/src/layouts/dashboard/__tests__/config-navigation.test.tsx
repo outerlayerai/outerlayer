@@ -35,7 +35,6 @@ vi.mock('../../../routes/paths', () => ({
     insights: { root: (org: string, app: string) => `/${org}/${app}/insights` },
     dashboards: { root: (org: string, app: string) => `/${org}/${app}/dashboards` },
     workers: { root: (org: string, app: string) => `/${org}/${app}/workers` },
-    benchmarks: { root: (org: string, app: string) => `/${org}/${app}/benchmarks` },
     context: { root: (org: string, app: string) => `/${org}/${app}/context` },
     agents: {
       sessions: (org: string, app: string) => `/${org}/${app}/agents/sessions`,
@@ -104,7 +103,6 @@ describe('useNavData — permission filtering', () => {
       'Workers',
       'Sessions', 'Findings',
       'dashboard.sidebar.topics',
-      'dashboard.sidebar.benchmarks',
       'dashboard.sidebar.settings',
     ]);
     expect(items.map((i) => i.path)).toEqual([
@@ -114,7 +112,6 @@ describe('useNavData — permission filtering', () => {
       '/test-org/test-app/agents/sessions',
       '/test-org/test-app/agents/findings',
       '/test-org/test-app/insights',
-      '/test-org/test-app/benchmarks',
       '/test-org/test-app/settings',
     ]);
   });

@@ -119,16 +119,6 @@ describe('getAllPrerequisites', () => {
     expect(prereqs).toHaveLength(1);
   });
 
-  it('should return direct prerequisites for escalations_resolve', () => {
-    const prereqs = getAllPrerequisites('escalations_resolve');
-    expect(prereqs).toContain('escalations_view');
-    expect(prereqs).toHaveLength(1);
-  });
-
-  it('experiments_view has no prerequisite', () => {
-    expect(getAllPrerequisites('experiments_view')).toEqual([]);
-  });
-
   it('should return prerequisites for api_keys_create', () => {
     const prereqs = getAllPrerequisites('api_keys_create');
     expect(prereqs).toContain('api_keys_view');
@@ -156,15 +146,6 @@ describe('getAllDependents', () => {
     expect(deps).toEqual(['workers_manage']);
   });
 
-  it('should return direct dependents of escalations_view', () => {
-    const deps = getAllDependents('escalations_view');
-    expect(deps).toEqual(['escalations_resolve']);
-  });
-
-  it('experiments_view has no dependents (nothing in the picker requires it as a prerequisite)', () => {
-    expect(getAllDependents('experiments_view')).toEqual([]);
-  });
-
   it('should return transitive dependents of api_keys_view', () => {
     const deps = getAllDependents('api_keys_view');
     expect(deps).toContain('api_keys_create');
@@ -188,10 +169,6 @@ describe('REVERSE_DEPS', () => {
   it('should not have entries for permissions with no dependents', () => {
     expect(REVERSE_DEPS['context_manage']).toBeUndefined();
     expect(REVERSE_DEPS['workers_manage']).toBeUndefined();
-  });
-
-  it('experiments_view is absent from REVERSE_DEPS (nothing depends on it)', () => {
-    expect(REVERSE_DEPS['experiments_view']).toBeUndefined();
   });
 });
 
@@ -265,16 +242,5 @@ describe('PermissionPicker - group toggle with prerequisites', () => {
     const result = onChange.mock.calls[0]![0] as string[];
     expect(result).toContain('api_keys_create');
     expect(result).toContain('api_keys_view');
-  });
-
-  it('checking experiments_view enables only itself (it has no prerequisite)', async () => {
-    const user = userEvent.setup(FAST_USER_EVENT);
-    const { onChange } = renderPicker([], new Set(['evals_enabled']));
-
-    const viewExpCheckbox = screen.getByLabelText(/view benchmarks/i);
-    await user.click(viewExpCheckbox);
-
-    const result = onChange.mock.calls[0]![0] as string[];
-    expect(result).toEqual(['experiments_view']);
   });
 });

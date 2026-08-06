@@ -30,7 +30,7 @@ interface WidgetStatCardProps {
 // the stat card entirely — they're now AGENT_FLEET_TREND_METRICS, rendered
 // as multi-series line charts by widget-chart.tsx (see METRIC_CHART_TYPE /
 // getTooltipFormatter there), never a single blended stat.
-const COST_METRICS = new Set(['total_cost', 'total_agent_cost', 'avg_cost', 'cost_per_request', 'cost_per_token', 'cost_per_error', 'cost_per_user', 'agent_cost_per_merged_pr', 'agent_direct_cost_per_merged_pr', 'agent_spend_per_active_dev', 'total_cost_of_ai', 'agent_cost_per_resolved_task']);
+const COST_METRICS = new Set(['total_cost', 'total_agent_cost', 'avg_cost', 'cost_per_request', 'cost_per_token', 'cost_per_error', 'cost_per_user', 'agent_cost_per_merged_pr', 'agent_direct_cost_per_merged_pr', 'agent_spend_per_active_dev', 'total_cost_of_ai']);
 const TOKEN_METRICS = new Set(['total_tokens', 'avg_tokens', 'tokens_per_request', 'tokens_per_user']);
 const LATENCY_METRICS = new Set(['avg_latency', 'p50_latency', 'p95_latency', 'p99_latency', 'latency_cost_ratio']);
 const RATE_METRICS = new Set(['error_rate', 'success_rate', 'tool_error_rate', 'clean_session_rate', 'agent_hands_on_rate', 'agent_clean_job_rate', 'agent_pr_merge_rate', 'agent_pr_unreviewed_merge_rate', 'agent_pr_reopen_rate', 'agent_pr_revert_rate', 'agent_share_of_merged_prs', 'agent_unshipped_spend_share', 'agent_tool_denial_rate', 'agent_auto_approved_rate']);

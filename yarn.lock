@@ -976,13 +976,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@bufbuild/protobuf@npm:^2.12.1":
-  version: 2.13.0
-  resolution: "@bufbuild/protobuf@npm:2.13.0"
-  checksum: 10c0/bb4d39512302887399355ac2ba1228e562c1cae818ff88b4b85b3060758aba5fec94786fe80f69de8878f98e730911c0bd145741adb582d0abf6b42de921e50c
-  languageName: node
-  linkType: hard
-
 "@clickhouse/client-web@npm:^1.10.0, @clickhouse/client-web@npm:^1.4.0":
   version: 1.23.1
   resolution: "@clickhouse/client-web@npm:1.23.1"
@@ -1486,25 +1479,6 @@ __metadata:
     style-mod: "npm:^4.1.0"
     w3c-keyname: "npm:^2.2.4"
   checksum: 10c0/930b043b8d48e02421a1cb15eb311fb39edbb9709a107eeea8de133aad8ab3fb9bbfae9e829216914cb997026d06d26a71768ff0e2a8d679c9d27d3cb1b940eb
-  languageName: node
-  linkType: hard
-
-"@connectrpc/connect-web@npm:^2.1.2":
-  version: 2.1.2
-  resolution: "@connectrpc/connect-web@npm:2.1.2"
-  peerDependencies:
-    "@bufbuild/protobuf": ^2.7.0
-    "@connectrpc/connect": 2.1.2
-  checksum: 10c0/304667186990d79e61ace8af03a39c5474e6ecb21282eeaa9e216a0e214524003891005ff3cfbda33230c21b779cfece530bf8cfdd48550b7861621513d18e0e
-  languageName: node
-  linkType: hard
-
-"@connectrpc/connect@npm:^2.1.2":
-  version: 2.1.2
-  resolution: "@connectrpc/connect@npm:2.1.2"
-  peerDependencies:
-    "@bufbuild/protobuf": ^2.7.0
-  checksum: 10c0/4e1500089023b752efd44fa940a5ae1e1fa00e1bebc4ba0ced272bb935920d8c3b85b77450e644ad442bb8ca9a275b0c17136f896ba8eff036178131db01d615
   languageName: node
   linkType: hard
 
@@ -4826,35 +4800,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@outerlayer/eval-runner@workspace:packages/eval-runner":
-  version: 0.0.0-use.local
-  resolution: "@outerlayer/eval-runner@workspace:packages/eval-runner"
-  dependencies:
-    "@outerlayer/capture": "workspace:*"
-    "@outerlayer/env-prep": "workspace:*"
-    "@outerlayer/eval-stats": "workspace:*"
-    "@outerlayer/provider-e2b": "workspace:*"
-    "@outerlayer/report-card": "workspace:*"
-    "@outerlayer/runner-core": "workspace:*"
-    "@outerlayer/session-schema": "workspace:*"
-    "@outerlayer/task-format": "workspace:*"
-    "@outerlayer/trial-harness": "workspace:*"
-    tsup: "npm:^8.5.0"
-    typescript: "npm:^5.5.3"
-    vitest: "npm:^4.1.8"
-  languageName: unknown
-  linkType: soft
-
-"@outerlayer/eval-stats@workspace:*, @outerlayer/eval-stats@workspace:packages/eval-stats":
-  version: 0.0.0-use.local
-  resolution: "@outerlayer/eval-stats@workspace:packages/eval-stats"
-  dependencies:
-    tsup: "npm:^8.5.0"
-    typescript: "npm:^5.5.3"
-    vitest: "npm:^4.1.8"
-  languageName: unknown
-  linkType: soft
-
 "@outerlayer/fleet-slo@workspace:packages/fleet-slo":
   version: 0.0.0-use.local
   resolution: "@outerlayer/fleet-slo@workspace:packages/fleet-slo"
@@ -4906,31 +4851,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@outerlayer/provider-e2b@workspace:*, @outerlayer/provider-e2b@workspace:packages/provider-e2b":
-  version: 0.0.0-use.local
-  resolution: "@outerlayer/provider-e2b@workspace:packages/provider-e2b"
-  dependencies:
-    "@outerlayer/runner-core": "workspace:*"
-    e2b: "npm:^2.32.0"
-    tsup: "npm:^8.5.0"
-    typescript: "npm:^5.5.3"
-    vitest: "npm:^4.1.8"
-  languageName: unknown
-  linkType: soft
-
 "@outerlayer/repo-report@workspace:packages/repo-report":
   version: 0.0.0-use.local
   resolution: "@outerlayer/repo-report@workspace:packages/repo-report"
-  dependencies:
-    tsup: "npm:^8.5.0"
-    typescript: "npm:^5.5.3"
-    vitest: "npm:^4.1.8"
-  languageName: unknown
-  linkType: soft
-
-"@outerlayer/report-card@workspace:*, @outerlayer/report-card@workspace:packages/report-card":
-  version: 0.0.0-use.local
-  resolution: "@outerlayer/report-card@workspace:packages/report-card"
   dependencies:
     tsup: "npm:^8.5.0"
     typescript: "npm:^5.5.3"
@@ -9779,13 +9702,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"compare-versions@npm:^6.1.0":
-  version: 6.1.1
-  resolution: "compare-versions@npm:6.1.1"
-  checksum: 10c0/415205c7627f9e4f358f571266422980c9fe2d99086be0c9a48008ef7c771f32b0fbe8e97a441ffedc3910872f917a0675fe0fe3c3b6d331cda6d8690be06338
-  languageName: node
-  linkType: hard
-
 "conf@npm:^15.0.2":
   version: 15.0.2
   resolution: "conf@npm:15.0.2"
@@ -10194,16 +10110,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dockerfile-ast@npm:^0.7.1":
-  version: 0.7.1
-  resolution: "dockerfile-ast@npm:0.7.1"
-  dependencies:
-    vscode-languageserver-textdocument: "npm:^1.0.8"
-    vscode-languageserver-types: "npm:^3.17.3"
-  checksum: 10c0/7afbef27bb7d59d677d3d0537016093207633ada351c83edcae225dda832de64df8271ae3df3a9b5199dfed37081849453b0984c71190a9d49675dbe386412df
-  languageName: node
-  linkType: hard
-
 "dockerode@npm:^5.0.1":
   version: 5.0.1
   resolution: "dockerode@npm:5.0.1"
@@ -10332,29 +10238,6 @@ __metadata:
     es-errors: "npm:^1.3.0"
     gopd: "npm:^1.2.0"
   checksum: 10c0/199f2a0c1c16593ca0a145dbf76a962f8033ce3129f01284d48c45ed4e14fea9bbacd7b3610b6cdc33486cef20385ac054948fefc6272fcce645c09468f93031
-  languageName: node
-  linkType: hard
-
-"e2b@npm:^2.32.0":
-  version: 2.37.0
-  resolution: "e2b@npm:2.37.0"
-  dependencies:
-    "@bufbuild/protobuf": "npm:^2.12.1"
-    "@connectrpc/connect": "npm:^2.1.2"
-    "@connectrpc/connect-web": "npm:^2.1.2"
-    chalk: "npm:^5.3.0"
-    compare-versions: "npm:^6.1.0"
-    dockerfile-ast: "npm:^0.7.1"
-    glob: "npm:^13.0.6"
-    openapi-fetch: "npm:^0.14.1"
-    platform: "npm:^1.3.6"
-    tar: "npm:^7.5.19"
-    undici: "npm:^7.28.0"
-    undici8: "npm:undici@8.8.0"
-  dependenciesMeta:
-    undici8:
-      optional: true
-  checksum: 10c0/01b1e9b7255bfe45bdad7a8e60a466de52426bfc839417e72e5a4a7bf5be675a557c754cfa31b9fb203e85515178ec15a533b60aeaaecbac60502ac7ed3a2d2b
   languageName: node
   linkType: hard
 
@@ -15405,28 +15288,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"openapi-fetch@npm:^0.14.1":
-  version: 0.14.1
-  resolution: "openapi-fetch@npm:0.14.1"
-  dependencies:
-    openapi-typescript-helpers: "npm:^0.0.15"
-  checksum: 10c0/e1b5375f0461969ff08e951b6308a115a582cca84ed3e0ecc2e41919d44a86038144a7a0b2e217ddb1bb7160a6779f459a2ca0224ff7634a9e89f19afe2a83db
-  languageName: node
-  linkType: hard
-
 "openapi-fetch@npm:^0.17.0":
   version: 0.17.0
   resolution: "openapi-fetch@npm:0.17.0"
   dependencies:
     openapi-typescript-helpers: "npm:^0.1.0"
   checksum: 10c0/7e981d28c7839469662a73d44f3a85e05c1a5842a8afd5d6e36c75cbf085aa7f705862871cc7ce07c04605ddc936af3d5850c2cc66d193ee1fea07e7135da192
-  languageName: node
-  linkType: hard
-
-"openapi-typescript-helpers@npm:^0.0.15":
-  version: 0.0.15
-  resolution: "openapi-typescript-helpers@npm:0.0.15"
-  checksum: 10c0/5eb68d487b787e3e31266470b1a310726549dd45a1079655ab18066ab291b0b3c343fdf629991013706a2329b86964f8798d56ef0272b94b931fe6c19abd7a88
   languageName: node
   linkType: hard
 
@@ -16043,13 +15910,6 @@ __metadata:
     exsolve: "npm:^1.0.7"
     pathe: "npm:^2.0.3"
   checksum: 10c0/d2bbddc5b81bd4741e1529c08ef4c5f1542bbdcf63498b73b8e1d84cff71806d1b8b1577800549bb569cb7aa20056257677b979bff48c97967cba7e64f72ae12
-  languageName: node
-  linkType: hard
-
-"platform@npm:^1.3.6":
-  version: 1.3.6
-  resolution: "platform@npm:1.3.6"
-  checksum: 10c0/69f2eb692e15f1a343dd0d9347babd9ca933824c8673096be746ff66f99f2bdc909fadd8609076132e6ec768349080babb7362299f2a7f885b98f1254ae6224b
   languageName: node
   linkType: hard
 
@@ -18434,7 +18294,6 @@ __metadata:
     "@opentelemetry/sdk-trace-base": "npm:^2.2.0"
     "@outerlayer/capture": "workspace:*"
     "@outerlayer/locales": "workspace:^"
-    "@outerlayer/report-card": "workspace:*"
     "@outerlayer/session-schema": "workspace:*"
     "@react-email/render": "npm:^2.0.0"
     "@repo/api-key-service": "npm:*"
@@ -19186,13 +19045,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"undici8@npm:undici@^8.9.0":
-  version: 8.10.0
-  resolution: "undici@npm:8.10.0"
-  checksum: 10c0/37ae2b1db8f65c3a003504e2040e96887b99f9db16ba07dcf49c37ed8b7f8c72f4452f2d46f52f7c9e49518fe8325e3b5e7e02ac3a2424886bd67d4b62a0ecab
-  languageName: node
-  linkType: hard
-
 "undici@npm:^7.29.0":
   version: 7.29.0
   resolution: "undici@npm:7.29.0"
@@ -19649,20 +19501,6 @@ __metadata:
   bin:
     vitest: ./vitest.mjs
   checksum: 10c0/ff07294a57f9c62f3b503f7cf88a52ee0753ed26389a49cda430387a3898f39d80af47180b0af19e27acab5bd11ae95706bd4b44ce8befc97d3ae49af6ca4fc1
-  languageName: node
-  linkType: hard
-
-"vscode-languageserver-textdocument@npm:^1.0.8":
-  version: 1.0.13
-  resolution: "vscode-languageserver-textdocument@npm:1.0.13"
-  checksum: 10c0/1de174f1de3bfa9e1660a4b3c1b1c711497196d761e33f4d00785fdbfc556ae5a1f440db04771cbc0f6bd66c2a6f303062bc17d8dc46e76820e39fa2d5626564
-  languageName: node
-  linkType: hard
-
-"vscode-languageserver-types@npm:^3.17.3":
-  version: 3.18.0
-  resolution: "vscode-languageserver-types@npm:3.18.0"
-  checksum: 10c0/d8c51cd286cc55b4c1f333e87fa3cefc66d2aae8c65f6209e7ecf88032d3326308b333d62b05243c194be8a3304760445b87630b298116c6c612607f011b4de0
   languageName: node
   linkType: hard
 

@@ -137,9 +137,8 @@ const costImpactTemplate: TemplateDefinition = {
     { title: 'Cost per Merged PR', metric: 'agent_cost_per_merged_pr', visualization: 'stat' },
     { title: 'Total Cost of AI', metric: 'total_cost_of_ai', visualization: 'stat' },
     { title: 'Spend per Active Dev', metric: 'agent_spend_per_active_dev', visualization: 'stat' },
-    // The waste lever + the controlled-experiment complement.
+    // The waste lever.
     { title: 'Unshipped Spend', metric: 'agent_unshipped_spend_share', visualization: 'stat' },
-    { title: 'Cost per Resolved Task (Latest Benchmark)', metric: 'agent_cost_per_resolved_task', visualization: 'stat' },
     { title: 'Agent Share of Merged PRs', metric: 'agent_share_of_merged_prs', visualization: 'stat' },
     // "Compared to what?" — the within-org control group.
     { title: 'Cycle Time: Agent vs Human', metric: 'agent_vs_human_cycle_time', visualization: 'bar' },
@@ -154,10 +153,9 @@ const costImpactTemplate: TemplateDefinition = {
     { widgetId: '', x: 0, y: 0, w: 4, h: 2 },
     { widgetId: '', x: 4, y: 0, w: 4, h: 2 },
     { widgetId: '', x: 8, y: 0, w: 4, h: 2 },
-    // Row 2 — waste, verified complement, coverage
+    // Row 2 — waste and coverage
     { widgetId: '', x: 0, y: 2, w: 4, h: 2 },
     { widgetId: '', x: 4, y: 2, w: 4, h: 2 },
-    { widgetId: '', x: 8, y: 2, w: 4, h: 2 },
     // Row 3 — the agent-vs-human comparison bars
     { widgetId: '', x: 0, y: 4, w: 4, h: 3 },
     { widgetId: '', x: 4, y: 4, w: 4, h: 3 },

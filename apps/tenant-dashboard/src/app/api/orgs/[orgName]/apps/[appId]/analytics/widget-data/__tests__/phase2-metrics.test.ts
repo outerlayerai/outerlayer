@@ -1,13 +1,11 @@
 /**
- * Tests: POST /api/analytics/widget-data — Autonomy Ladder + eval economics.
+ * Tests: POST /api/analytics/widget-data — Autonomy Ladder.
  *
  * Pins the wiring (the classification math lives in pr-metrics.test.ts and
  * the SQL cut points in observability-service's tests): the ladder widgets
  * fetch the ladder attribution set and reduce it against merged PRs; the
  * delegated-share tile goes `unavailable` on an empty classified cohort
- * (never a confident 0%); the eval tile reads the latest succeeded
- * eval_run's card via MSW and treats 0-resolved (null in JSON) as
- * unavailable, never $0.
+ * (never a confident 0%).
  */
 
 // @vitest-environment node
@@ -97,20 +95,8 @@ function seedPullRequests(rows: Array<Record<string, unknown>>) {
   server.use(http.get(`${API}/pull_request`, () => HttpResponse.json(rows)));
 }
 
-let evalRunUrls: URL[];
-
-function seedEvalRuns(rows: Array<Record<string, unknown>>) {
-  server.use(
-    http.get(`${API}/eval_run`, ({ request }) => {
-      evalRunUrls.push(new URL(request.url));
-      return HttpResponse.json(rows);
-    })
-  );
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
-  evalRunUrls = [];
   mockGetAgentPrAttribution.mockResolvedValue({
     branches: ['agent/x'],
     prNumbers: [],
@@ -191,78 +177,5 @@ describe('agent_delegated_share', () => {
       label: 'Delegated+ Share of Merged PRs (%)',
       unavailable: { reason: 'no classifiable merged PRs in this window' },
     });
-  });
-});
-
-describe('agent_cost_per_resolved_task', () => {
-  it('reads the latest succeeded run and shows the CHEAPER config, app-scoped by default', async () => {
-    seedEvalRuns([
-      {
-        card: { stats: { dollarsPerResolved: { a: 18.5, b: 12.25 } } },
-        cost_usd: 300,
-        created_at: '2026-02-01T10:00:00Z',
-      },
-    ]);
-
-    const res = await POST(
-      makeRequest({ metric: 'agent_cost_per_resolved_task', visualization: 'stat', timeRange: { preset: '7d' } })
-    , { params: Promise.resolve({ orgName: 'test-org', appId: 'app-789' }) });
-    const body = await res.json();
-
-    expect(body).toEqual({
-      type: 'stat',
-      value: 12.25,
-      label: 'Cost per Resolved Task (Latest Benchmark)',
-    });
-    const params = evalRunUrls[0]!.searchParams;
-    expect(params.get('tenant_id')).toBe('eq.tenant-456');
-    expect(params.get('app_id')).toBe('eq.app-789');
-    expect(params.get('status')).toBe('eq.succeeded');
-  });
-
-  it('org scope drops the app filter (tenant-wide latest run)', async () => {
-    seedEvalRuns([]);
-
-    await POST(
-      makeRequest({
-        metric: 'agent_cost_per_resolved_task',
-        visualization: 'stat',
-        timeRange: { preset: '7d' },
-        scope: 'org',
-      })
-    , { params: Promise.resolve({ orgName: 'test-org', appId: 'app-789' }) });
-
-    expect(evalRunUrls[0]!.searchParams.get('app_id')).toBeNull();
-  });
-
-  it('treats a 0-resolved card (Infinity → null in JSON) as unavailable, never $0', async () => {
-    seedEvalRuns([
-      { card: { stats: { dollarsPerResolved: { a: null, b: null } } }, cost_usd: 50, created_at: '2026-02-01T10:00:00Z' },
-    ]);
-
-    const res = await POST(
-      makeRequest({ metric: 'agent_cost_per_resolved_task', visualization: 'stat', timeRange: { preset: '7d' } })
-    , { params: Promise.resolve({ orgName: 'test-org', appId: 'app-789' }) });
-    const body = await res.json();
-
-    expect(body).toEqual({
-      type: 'stat',
-      value: 0,
-      label: 'Cost per Resolved Task (Latest Benchmark)',
-      unavailable: { reason: 'latest benchmark resolved zero tasks' },
-    });
-  });
-
-  it('says so when no benchmark has ever completed', async () => {
-    seedEvalRuns([]);
-
-    const res = await POST(
-      makeRequest({ metric: 'agent_cost_per_resolved_task', visualization: 'stat', timeRange: { preset: '7d' } })
-    , { params: Promise.resolve({ orgName: 'test-org', appId: 'app-789' }) });
-    const body = await res.json();
-
-    expect(body).toEqual(
-      expect.objectContaining({ unavailable: { reason: 'no completed benchmarks yet' } })
-    );
   });
 });

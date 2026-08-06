@@ -49,40 +49,40 @@
 #       carries environment.promote, so the override_custom answers are unchanged.
 #
 # === ORG PERMISSION SETS (get_org_permission_set) ===
-SETORG owner = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
-SETORG admin = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.read,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
-SETORG write = [agents.findings.read,agents.sessions.self.read,api_key.insert,api_key.read,app.read,app_member_role.read,billing.read,context.delete,context.insert,context.read,context.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.read,git_connection.insert,git_connection.read,git_connection.update,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,score.write,session.read,span.read,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
-SETORG read = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETORG owner = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETORG admin = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.read,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETORG write = [agents.findings.read,agents.sessions.self.read,api_key.insert,api_key.read,app.read,app_member_role.read,billing.read,context.delete,context.insert,context.read,context.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.read,git_connection.insert,git_connection.read,git_connection.update,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,score.write,session.read,span.read,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETORG read = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 SETORG disabled = []
 SETORG org_custom = [app.read,dashboard.read,environment.read,trace.read,worker_run.read]
-SETORG app_scoped_read = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETORG app_scoped_read = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 #
 # === APP PERMISSION SETS (effective_app_permissions) ===
-SETAPP owner override_builtin = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
-SETAPP owner override_custom = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
-SETAPP owner org_fallback = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP owner override_builtin = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP owner override_custom = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP owner org_fallback = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.insert,billing.read,billing.update,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.delete,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
 SETAPP owner other_tenant = []
-SETAPP admin override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP admin override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 SETAPP admin override_custom = [app.read,environment.promote,worker_run.insert]
-SETAPP admin org_fallback = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.read,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP admin org_fallback = [agents.findings.read,agents.sessions.self.read,agents.sessions.team.read,agents.settings.write,ai_cost_config.delete,ai_cost_config.insert,ai_cost_config.read,ai_cost_config.update,api_key.delete,api_key.insert,api_key.read,api_key.update,app.delete,app.insert,app.read,app.update,app_member_role.delete,app_member_role.insert,app_member_role.read,app_member_role.update,app_policy.update,audit_log.read,billing.read,context.delete,context.insert,context.read,context.update,custom_role.delete,custom_role.insert,custom_role.read,custom_role.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.delete,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.delete,git_branch.insert,git_branch.read,git_branch.update,git_connection.delete,git_connection.insert,git_connection.read,git_connection.update,membership.delete,membership.insert,membership.read,membership.update,metrics.read,profile.delete,profile.insert,profile.read,profile.update,score.delete,score.read,score.write,session.read,span.read,sso_config.insert,sso_config.read,sso_config.update,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
 SETAPP admin other_tenant = []
-SETAPP write override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP write override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 SETAPP write override_custom = [app.read,environment.promote,worker_run.insert]
-SETAPP write org_fallback = [agents.findings.read,agents.sessions.self.read,api_key.insert,api_key.read,app.read,app_member_role.read,billing.read,context.delete,context.insert,context.read,context.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_escalation.read,env_escalation.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.insert,environment.promote,environment.read,environment.update,eval_run.delete,eval_run.insert,eval_run.read,eval_run.update,experiment.read,git_branch.read,git_connection.insert,git_connection.read,git_connection.update,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,score.write,session.read,span.read,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
+SETAPP write org_fallback = [agents.findings.read,agents.sessions.self.read,api_key.insert,api_key.read,app.read,app_member_role.read,billing.read,context.delete,context.insert,context.read,context.update,dashboard.delete,dashboard.insert,dashboard.read,dashboard.update,env_var.delete,env_var.insert,env_var.read,env_var.update,environment.insert,environment.promote,environment.read,environment.update,experiment.read,git_branch.read,git_connection.insert,git_connection.read,git_connection.update,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,score.write,session.read,span.read,tenant.read,tenant.update,trace.read,trace.write,worker_run.delete,worker_run.insert,worker_run.read,worker_run.update]
 SETAPP write other_tenant = []
-SETAPP read override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP read override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 SETAPP read override_custom = [app.read,environment.promote,worker_run.insert]
-SETAPP read org_fallback = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP read org_fallback = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 SETAPP read other_tenant = []
 SETAPP disabled override_builtin = []
 SETAPP disabled override_custom = []
 SETAPP disabled org_fallback = []
 SETAPP disabled other_tenant = []
-SETAPP org_custom override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP org_custom override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 SETAPP org_custom override_custom = [app.read,environment.promote,worker_run.insert]
 SETAPP org_custom org_fallback = [app.read,dashboard.read,environment.read,trace.read,worker_run.read]
 SETAPP org_custom other_tenant = []
-SETAPP app_scoped_read override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_escalation.read,env_var.read,environment.read,eval_run.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
+SETAPP app_scoped_read override_builtin = [agents.findings.read,agents.sessions.self.read,app.read,app_member_role.read,billing.read,context.read,dashboard.read,env_var.read,environment.read,experiment.read,git_branch.read,git_connection.read,membership.read,metrics.read,profile.insert,profile.read,profile.update,score.read,session.read,span.read,tenant.read,trace.read,worker_run.read]
 SETAPP app_scoped_read override_custom = [app.read,environment.promote,worker_run.insert]
 SETAPP app_scoped_read org_fallback = []
 SETAPP app_scoped_read other_tenant = []
@@ -134,8 +134,6 @@ BOOL owner dashboard.delete org=t override_builtin=t override_custom=t org_fallb
 BOOL owner dashboard.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner dashboard.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner dashboard.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
-BOOL owner env_escalation.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
-BOOL owner env_escalation.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner env_var.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner env_var.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner env_var.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
@@ -145,10 +143,6 @@ BOOL owner environment.insert org=t override_builtin=t override_custom=t org_fal
 BOOL owner environment.promote org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner environment.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner environment.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
-BOOL owner eval_run.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
-BOOL owner eval_run.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
-BOOL owner eval_run.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
-BOOL owner eval_run.update org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner experiment.read org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner git_branch.delete org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
 BOOL owner git_branch.insert org=t override_builtin=t override_custom=t org_fallback=t other_tenant=f
@@ -221,8 +215,6 @@ BOOL admin dashboard.delete org=t override_builtin=f override_custom=f org_fallb
 BOOL admin dashboard.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL admin dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL admin dashboard.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL admin env_escalation.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
-BOOL admin env_escalation.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL admin env_var.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL admin env_var.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL admin env_var.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
@@ -232,10 +224,6 @@ BOOL admin environment.insert org=t override_builtin=f override_custom=f org_fal
 BOOL admin environment.promote org=t override_builtin=f override_custom=t org_fallback=t other_tenant=f
 BOOL admin environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL admin environment.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL admin eval_run.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL admin eval_run.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL admin eval_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
-BOOL admin eval_run.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL admin experiment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL admin git_branch.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL admin git_branch.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
@@ -308,8 +296,6 @@ BOOL write dashboard.delete org=t override_builtin=f override_custom=f org_fallb
 BOOL write dashboard.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL write dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL write dashboard.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL write env_escalation.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
-BOOL write env_escalation.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL write env_var.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL write env_var.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL write env_var.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
@@ -319,10 +305,6 @@ BOOL write environment.insert org=t override_builtin=f override_custom=f org_fal
 BOOL write environment.promote org=t override_builtin=f override_custom=t org_fallback=t other_tenant=f
 BOOL write environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL write environment.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL write eval_run.delete org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL write eval_run.insert org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
-BOOL write eval_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
-BOOL write eval_run.update org=t override_builtin=f override_custom=f org_fallback=t other_tenant=f
 BOOL write experiment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL write git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL write git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -395,8 +377,6 @@ BOOL read dashboard.delete org=f override_builtin=f override_custom=f org_fallba
 BOOL read dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL read dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL read dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL read env_escalation.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
-BOOL read env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL read env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL read env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL read env_var.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
@@ -406,10 +386,6 @@ BOOL read environment.insert org=f override_builtin=f override_custom=f org_fall
 BOOL read environment.promote org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
 BOOL read environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL read environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL read eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL read eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL read eval_run.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
-BOOL read eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL read experiment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL read git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL read git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -482,8 +458,6 @@ BOOL disabled dashboard.delete org=f override_builtin=f override_custom=f org_fa
 BOOL disabled dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled dashboard.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL disabled env_escalation.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL disabled env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled env_var.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -493,10 +467,6 @@ BOOL disabled environment.insert org=f override_builtin=f override_custom=f org_
 BOOL disabled environment.promote org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled environment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL disabled eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL disabled eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL disabled eval_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL disabled eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled experiment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL disabled git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -569,8 +539,6 @@ BOOL org_custom dashboard.delete org=f override_builtin=f override_custom=f org_
 BOOL org_custom dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL org_custom dashboard.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL org_custom dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL org_custom env_escalation.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
-BOOL org_custom env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL org_custom env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL org_custom env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL org_custom env_var.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
@@ -580,10 +548,6 @@ BOOL org_custom environment.insert org=f override_builtin=f override_custom=f or
 BOOL org_custom environment.promote org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
 BOOL org_custom environment.read org=t override_builtin=t override_custom=f org_fallback=t other_tenant=f
 BOOL org_custom environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL org_custom eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL org_custom eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL org_custom eval_run.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
-BOOL org_custom eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL org_custom experiment.read org=f override_builtin=t override_custom=f org_fallback=f other_tenant=f
 BOOL org_custom git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL org_custom git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -656,8 +620,6 @@ BOOL app_scoped_read dashboard.delete org=f override_builtin=f override_custom=f
 BOOL app_scoped_read dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read dashboard.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL app_scoped_read env_escalation.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
-BOOL app_scoped_read env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read env_var.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
@@ -667,10 +629,6 @@ BOOL app_scoped_read environment.insert org=f override_builtin=f override_custom
 BOOL app_scoped_read environment.promote org=f override_builtin=f override_custom=t org_fallback=f other_tenant=f
 BOOL app_scoped_read environment.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL app_scoped_read eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL app_scoped_read eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL app_scoped_read eval_run.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
-BOOL app_scoped_read eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read experiment.read org=t override_builtin=t override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL app_scoped_read git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -743,8 +701,6 @@ BOOL platform_admin dashboard.delete org=f override_builtin=f override_custom=f 
 BOOL platform_admin dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin dashboard.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL platform_admin env_escalation.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL platform_admin env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin env_var.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -754,10 +710,6 @@ BOOL platform_admin environment.insert org=f override_builtin=f override_custom=
 BOOL platform_admin environment.promote org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin environment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL platform_admin eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL platform_admin eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL platform_admin eval_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL platform_admin eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin experiment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL platform_admin git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -830,8 +782,6 @@ BOOL non_member dashboard.delete org=f override_builtin=f override_custom=f org_
 BOOL non_member dashboard.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member dashboard.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member dashboard.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL non_member env_escalation.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL non_member env_escalation.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member env_var.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member env_var.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member env_var.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
@@ -841,10 +791,6 @@ BOOL non_member environment.insert org=f override_builtin=f override_custom=f or
 BOOL non_member environment.promote org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member environment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member environment.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL non_member eval_run.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL non_member eval_run.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL non_member eval_run.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
-BOOL non_member eval_run.update org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member experiment.read org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member git_branch.delete org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f
 BOOL non_member git_branch.insert org=f override_builtin=f override_custom=f org_fallback=f other_tenant=f

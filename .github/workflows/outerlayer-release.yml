@@ -2,7 +2,7 @@ name: OuterLayer Release
 
 # Manual, deliberate publish: version bumps land in package.json via PR;
 # this workflow builds, tests, and publishes the outerlayer packages in
-# dependency order (the eval packages before the CLI that depends on them).
+# dependency order (libraries before the CLI that depends on them).
 # `--tolerate-republish` makes re-runs safe (already-published versions are
 # skipped, not errors).
 on:
@@ -56,12 +56,9 @@ jobs:
             --filter=@outerlayer/capture \
             --filter=@outerlayer/runner-core \
             --filter=@outerlayer/task-format \
-            --filter=@outerlayer/eval-stats \
             --filter=@outerlayer/env-prep \
             --filter=@outerlayer/trial-harness \
-            --filter=@outerlayer/report-card \
             --filter=@outerlayer/repo-report \
-            --filter=@outerlayer/eval-runner \
             --filter=outerlayer
 
       - name: Test
@@ -72,12 +69,9 @@ jobs:
             --filter=@outerlayer/capture \
             --filter=@outerlayer/runner-core \
             --filter=@outerlayer/task-format \
-            --filter=@outerlayer/eval-stats \
             --filter=@outerlayer/env-prep \
             --filter=@outerlayer/trial-harness \
-            --filter=@outerlayer/report-card \
             --filter=@outerlayer/repo-report \
-            --filter=@outerlayer/eval-runner \
             --filter=outerlayer
 
       # Yarn packs, npm publishes. Neither tool can do the other's job:
@@ -117,12 +111,9 @@ jobs:
           publish packages/capture
           publish packages/runner-core
           publish packages/task-format
-          publish packages/eval-stats
           publish packages/env-prep
           publish packages/trial-harness
-          publish packages/report-card
           publish packages/repo-report
-          publish packages/eval-runner
           publish packages/cli
 
       - name: Smoke the published CLI

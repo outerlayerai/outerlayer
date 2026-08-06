@@ -116,11 +116,6 @@ jobs:
           - { path: packages/gateway-core, name: gateway-routes-agents-health, pkg: '@repo/gateway-core',
               vitestDir: 'src/openapi',
               mutate: 'src/openapi/routes/agents.ts,src/openapi/routes/health.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
-          # eval-runs.ts and eval-trials.ts (355 + 345 LOC) bundle to ~700
-          # LOC — the two smallest of the mid-size route files.
-          - { path: packages/gateway-core, name: gateway-routes-evals, pkg: '@repo/gateway-core',
-              vitestDir: 'src/openapi',
-              mutate: 'src/openapi/routes/eval-runs.ts,src/openapi/routes/eval-trials.ts,!src/**/*.test.ts,!src/**/*.spec.ts,!src/**/__tests__/**,!src/**/*.d.ts' }
           # git/ moved to packages/gateway-core in the runtime-decoupling
           # extraction. crypto.ts (token encryption) holds the real
           # logic worth mutating; the rest of git/ is thin provider wrappers

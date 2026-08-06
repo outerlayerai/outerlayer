@@ -9,8 +9,8 @@
 --
 --          Runs are dispatched by an authenticated user (RLS INSERT), then
 --          status-transitioned exclusively by the worker's event/callback
---          routes and the reaper cron via the service role (bypasses RLS) —
---          matching the eval_run / env_escalation posture.
+--          routes and the reaper cron via the service role (bypasses RLS), so
+--          a tenant can never move a run's status by hand.
 -- Dependencies: 10-tenant.sql, 11-profile.sql, 20-app.sql, 52-environment.sql,
 --               01-types.sql (app_permission extended with worker_run.*).
 -- =============================================================================
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS public.worker_run (
     tenant_id UUID NOT NULL REFERENCES public.tenant(tenant_id) ON DELETE CASCADE,
     app_id UUID NOT NULL REFERENCES public.app(id) ON DELETE CASCADE,
     -- NULL = the app's default environment; SET NULL so run history survives
-    -- environment deletion (eval_run convention — no epoch denormalization).
+    -- environment deletion, with no epoch denormalization to keep in sync.
     environment_id UUID REFERENCES public.environment(id) ON DELETE SET NULL,
 
     -- Which agent adapter executes the task (e.g. 'claude-code'). TEXT, not a
@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS public.worker_run (
     duration_ms BIGINT,
 
     -- Audit columns. Set explicitly by callers (dispatch route + service-role
-    -- worker) — NO set_* triggers, matching eval_run / env_escalation.
+    -- worker) — NO set_* triggers, so a service-role write never silently
+    -- overwrites the dispatching user's identity.
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_by UUID REFERENCES public.profile(id) ON DELETE SET NULL,
     updated_at TIMESTAMPTZ
@@ -159,7 +160,8 @@ GRANT ALL ON public.worker_run TO service_role;
 CREATE TABLE IF NOT EXISTS public.worker_run_event (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     worker_run_id UUID NOT NULL REFERENCES public.worker_run(id) ON DELETE CASCADE,
-    -- Denormalized for direct RLS (env_escalation posture).
+    -- Denormalized so RLS reads this row directly, with no join back to
+    -- worker_run.
     tenant_id UUID NOT NULL REFERENCES public.tenant(tenant_id) ON DELETE CASCADE,
     app_id UUID NOT NULL REFERENCES public.app(id) ON DELETE CASCADE,
 

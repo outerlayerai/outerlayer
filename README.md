@@ -36,9 +36,9 @@ worth looking at out.
 - **Mines the corrections.** Steering topics cluster the moments a human had
   to step in, so a mistake the fleet keeps repeating surfaces as one finding
   instead of fifty scattered transcripts.
-- **Versions context, benchmarks the gain.** Agent context (CLAUDE.md files,
-  skills, rules) is mirrored and versioned, and evals built from your own
-  merged PRs measure whether a context fix actually improved the fleet.
+- **Versions context, measures the gain.** Agent context (CLAUDE.md files,
+  skills, rules) is mirrored and versioned, and session outcomes joined to
+  your own merged PRs measure whether a context fix improved the fleet.
 - **Speaks OpenTelemetry.** Point your existing OTLP trace instrumentation at
   the gateway and spans land next to your sessions; no proprietary trace
   format to adopt.
@@ -96,7 +96,7 @@ from needing Stripe credentials.
 Handing a fleet more of the work is the goal, and it is a result you build
 toward, not a toggle you flip on day one. Every autonomy claim in OuterLayer
 is anchored to evidence: sessions joined to PR outcomes, corrections mined
-into findings, context changes benchmarked against your own history. When the
+into findings, context changes measured against your own history. When the
 numbers say the last increase in scope held, you grant the next one.
 
 ## Built to be trusted with your sessions

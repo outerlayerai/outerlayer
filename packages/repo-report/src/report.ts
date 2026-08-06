@@ -7,8 +7,8 @@
  * qualification artifact. NO agent runs happen here (cheap → free tier).
  *
  * The upstream contracts aren't imported: the report takes narrow structural
- * inputs so it composes whatever those packages emit. `mde` is injected —
- * eval-stats is the single source of truth for it.
+ * inputs so it composes whatever those packages emit. `mde` is injected by the
+ * caller, which owns the statistics that produce it.
  */
 
 import type { StackVerdict } from "./matrix.js";
@@ -44,7 +44,7 @@ export interface ValidationSummary {
   suiteRuntimeMs?: number;
 }
 
-/** One row of the statistical-power table (from eval-stats' mde). */
+/** One row of the statistical-power table, keyed on the injected mde. */
 export interface PowerRow {
   trials: number;
   mdePct: number;

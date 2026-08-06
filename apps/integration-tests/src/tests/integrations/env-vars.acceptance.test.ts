@@ -11,8 +11,7 @@
  * `EnvVarService` — its metadata queries ride the caller's `ctx.db`
  * (RLS-scoped, not an admin client) and its Vault calls are delegated to
  * `lib/system/env-var-secrets.ts` (a service-role client the service body
- * never touches directly). This suite drives that service directly, the same
- * pattern `evals/evals-feature-behavior.acceptance.test.ts` uses —
+ * never touches directly). This suite drives that service directly:
  * `authorizedAction` needs the Next.js request scope this harness doesn't
  * have, but the service underneath it is a plain class over `ServiceContext`.
  *

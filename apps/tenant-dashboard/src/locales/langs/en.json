@@ -35,8 +35,7 @@
       "settings": "Settings",
       "home": "Home",
       "dashboards": "Dashboards",
-      "topics": "Topics",
-      "benchmarks": "Benchmarks"
+      "topics": "Topics"
     },
     "tabs": {
       "editor": "Editor",

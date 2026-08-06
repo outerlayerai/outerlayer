@@ -1,6 +1,6 @@
 # Self-hosting OuterLayer
 
-OuterLayer runs on your own machines. This page covers the hobby-grade path: one script that brings up the gateway, the analytics store, the blob store, and the database, so you can evaluate OuterLayer against your own traces without sending them anywhere.
+OuterLayer runs on your own machines. This page covers the hobby-grade path: one script that brings up the gateway, the analytics store, the blob store, and the database, so you can evaluate OuterLayer against your own coding-agent sessions without sending them anywhere.
 
 > **Warning:** **This is a hobby-grade deployment, not a production one.** Everything runs on a single host. There's no high availability, no backup or restore procedure, no rate limiting, and no per-consumer API keys. It suits evaluation and small internal use. Read [What you don't get](#what-you-dont-get) before you point production traffic at it.
 
@@ -8,13 +8,13 @@ OuterLayer runs on your own machines. This page covers the hobby-grade path: one
 
 | Service | Runs as | Purpose |
 |---|---|---|
-| Gateway | Docker | Trace ingest, prompt dispatch, the OpenAPI surface your SDKs call |
-| ClickHouse | Docker | Trace and score analytics |
+| Gateway | Docker | Session ingest, worker dispatch, the OpenAPI surface your SDKs and CLI call |
+| ClickHouse | Docker | Session-span and score analytics |
 | MinIO | Docker | S3-compatible store for span payloads too large to inline |
 | Postgres + Auth | Supabase CLI, on the host | Tenants, apps, users, RBAC, RLS |
 | Dashboard | Node, on the host | The web UI |
 
-Traces, prompts, evals, dashboards, alerts, and the full API surface all work. Nothing caps your usage: the gateway resolves entitlements in self-host mode rather than against the hosted tier matrix, so no monthly span limit applies and no billing sits in the request path.
+Sessions, topics, dashboards, workers, and the full API surface all work. Nothing caps your usage: the gateway resolves entitlements in self-host mode rather than against the hosted tier matrix, so no monthly span limit applies and no billing sits in the request path.
 
 ## What you don't get
 
@@ -135,7 +135,7 @@ FROM_EMAIL=outerlayer@example.com
 Two of these have to match across services, and a mismatch fails in ways that are hard to read:
 
 - **`API_KEY_PEPPER`** needs to be byte-identical in the dashboard and the gateway. The dashboard mints API keys by hashing them with this pepper and the gateway verifies against it, so a mismatch rejects every key the UI hands out.
-- **`CLICKHOUSE_READ_USER`** and **`CLICKHOUSE_READ_PASSWORD`** are the row-policy read identity. Tenant-scoped reads authenticate as this user, and the row policies that isolate one tenant's traces from those of another attach to its role. Without it, reads run as the writer identity, which no row policy covers, leaving app-layer `WHERE` clauses as the only isolation.
+- **`CLICKHOUSE_READ_USER`** and **`CLICKHOUSE_READ_PASSWORD`** are the row-policy read identity. Tenant-scoped reads authenticate as this user, and the row policies that isolate one tenant's spans from those of another attach to its role. Without it, reads run as the writer identity, which no row policy covers, leaving app-layer `WHERE` clauses as the only isolation.
 
 ### Choose an API-key posture
 
@@ -201,12 +201,12 @@ The script re-applies both the Postgres and the ClickHouse migrations and rebuil
 
 ## How the hosted service differs
 
-The hosted service runs the same gateway and the same dashboard, so prompts, evals, and traces behave identically. The differences are operational:
+The hosted service runs the same gateway and the same dashboard, so sessions, topics, and dashboards behave identically. The differences are operational:
 
 - **API keys** are per-consumer and independently revocable, rather than one shared secret.
 - **Rate limiting, high availability, and backups** come managed.
 - **Builds and managed deployments** work. Self-host has no build path.
-- **Enterprise features** (custom roles, app-level roles, SSO, audit log) stay license-gated on self-host. Non-enterprise features like alerts and GitLab linking turn on once `OUTERLAYER_SELF_HOSTED=true` is present, which the stack does for you.
+- **Enterprise features** (custom roles, app-level roles, SSO, audit log) stay license-gated on self-host. Every other entitlement-gated feature resolves as enabled once `OUTERLAYER_SELF_HOSTED=true` is present, which the stack does for you.
 - **Billing** is absent entirely on self-host, and no quota applies.
 
 ## Troubleshooting
@@ -217,10 +217,10 @@ The hosted service runs the same gateway and the same dashboard, so prompts, eva
 
 **A container fails to bind its port.** ClickHouse (`8123`), MinIO (`9300` and `9301`), and the gateway (`9001`) all publish to the host. If you already run something on one of them, and a ClickHouse from another project is the common case, change `CLICKHOUSE_PORT`, `MINIO_API_PORT`, `MINIO_CONSOLE_PORT`, or `GATEWAY_PORT` in `docker/.env.selfhost`. Only the published side moves, and the compose network keeps talking on the internal ports.
 
-**The first trace query takes 30 seconds.** ClickHouse compiles and caches query pipelines on first use against fresh tables. Later queries settle to a few seconds. That's a cold-start cost rather than a broken setting.
+**The first analytics query takes 30 seconds.** ClickHouse compiles and caches query pipelines on first use against fresh tables. Later queries settle to a few seconds. That's a cold-start cost rather than a broken setting.
 
 **The dashboard rejects every API key it mints.** `API_KEY_PEPPER` differs between the dashboard and the gateway. Both read it from `docker/.env.selfhost`, so this usually means the dashboard started without sourcing that file.
 
-**Traces reach the gateway but never appear in the dashboard.** Either the ClickHouse migrations didn't run, or the dashboard's `CLICKHOUSE_HOST` points somewhere else. Re-run `./docker/selfhost-up.sh`.
+**Sessions reach the gateway but never appear in the dashboard.** Either the ClickHouse migrations didn't run, or the dashboard's `CLICKHOUSE_HOST` points somewhere else. Re-run `./docker/selfhost-up.sh`.
 
 For the gateway runtime's own reference, covering every variable it reads, the connection-broker model, and the full caveat list, see `apps/gateway-node/README.md` in the repository.

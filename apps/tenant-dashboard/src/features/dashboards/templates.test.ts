@@ -122,8 +122,6 @@ describe('getTemplate', () => {
       'total_cost_of_ai:stat',
       'agent_spend_per_active_dev:stat',
       'agent_unshipped_spend_share:stat',
-      // The controlled-experiment complement to the observational cost tiles.
-      'agent_cost_per_resolved_task:stat',
       'agent_share_of_merged_prs:stat',
       'agent_vs_human_cycle_time:bar',
       'agent_vs_human_first_pass_ci:bar',

@@ -107,15 +107,8 @@ CREATE TYPE public.app_permission AS ENUM (
     -- where tenant_id = the caller's tenant). Read-only:
     -- the trail is written exclusively by service_role (single write seam +
     -- SECURITY DEFINER transaction functions), so no insert/update/delete
-    -- permissions exist. Seeded to owner + admin in 12-rbac.sql. Ordered before
-    -- eval_run.* to match the DB (audit migration 090000 precedes eval 130000).
+    -- permissions exist. Seeded to owner + admin in 12-rbac.sql.
     'audit_log.read',
-    -- Eval runs: dispatch / poll / history of Report Card runs.
-    -- Appended at the end to match the established ADD VALUE migration pattern.
-    'eval_run.read',
-    'eval_run.insert',
-    'eval_run.update',
-    'eval_run.delete',
     -- Context layer: mirror reads gate on context.read; saves through the
     -- context-core save path require .insert (create) / .update / .delete as
     -- appropriate. Never "manage", per the granular pattern. Appended at the
@@ -134,11 +127,6 @@ CREATE TYPE public.app_permission AS ENUM (
     'agents.sessions.team.read',
     'agents.findings.read',
     'agents.settings.write',
-    -- Env escalation queue: env builds whose repair
-    -- ladder exhausted its budget. Rows are written by the eval worker
-    -- (service role); tenants read their own and ack/resolve them.
-    'env_escalation.read',
-    'env_escalation.update',
     -- Cloud workers: terminal coding-agent runs on managed
     -- machines. read = see runs + transcripts, insert = launch, update =
     -- cancel, delete = remove from history. Granular per the established

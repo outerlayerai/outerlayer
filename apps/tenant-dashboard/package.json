@@ -64,7 +64,6 @@
     "@opentelemetry/sdk-trace-base": "^2.2.0",
     "@outerlayer/capture": "workspace:*",
     "@outerlayer/locales": "workspace:^",
-    "@outerlayer/report-card": "workspace:*",
     "@outerlayer/session-schema": "workspace:*",
     "@react-email/render": "^2.0.0",
     "@repo/api-key-service": "*",

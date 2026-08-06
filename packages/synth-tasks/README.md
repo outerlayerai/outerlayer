@@ -100,7 +100,7 @@ The pipeline (all infra behind injectable seams, so it runs hermetically):
   (generator version, injection class, symptom, calibrated resolve rate) rides
   in a **side** `SyntheticTaskMeta` — the shared `EvalTask` schema is never
   mutated and no new required fields are invented.
-- The stats and report-card layers surface the natural-vs-synthetic split;
+- The reporting layers surface the natural-vs-synthetic split;
   `renderProvenanceSplit` exists so `mined + synthetic` can **never** be
   rendered as one merged headline.
 - **Honesty caption:** synthetic tasks measure *bug-fixing on your codebase*,
