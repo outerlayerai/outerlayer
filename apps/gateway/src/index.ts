@@ -37,11 +37,13 @@ import {
   handleUsageMeterQueue,
   handleUsageMeterDlq,
   handleTopicsEnrichmentQueue,
+  handlePrCommentQueue,
 } from "./queues";
 import { buildGatewayContext } from "./runtime/cloudflare-context";
 import type {
   UsageMeterQueueMessage,
   TopicsEnrichmentQueueMessage,
+  PrCommentQueueMessage,
 } from "@repo/gateway-core/types/queue-messages";
 import { setGatewayContextFactory, setRequiredEnvKeys } from "@repo/gateway-core/openapi";
 
@@ -251,7 +253,7 @@ export const app = {
    */
   async queue(
     batch: MessageBatch<
-      UsageMeterQueueMessage | TopicsEnrichmentQueueMessage
+      UsageMeterQueueMessage | TopicsEnrichmentQueueMessage | PrCommentQueueMessage
     >,
     env: Env,
     ctx: ExecutionContext
@@ -273,6 +275,12 @@ export const app = {
       } else if (queueName.includes("topics-enrichment")) {
         await handleTopicsEnrichmentQueue(
           batch as MessageBatch<TopicsEnrichmentQueueMessage>,
+          env,
+          ctx
+        );
+      } else if (queueName.includes("pr-comment-refresh")) {
+        await handlePrCommentQueue(
+          batch as MessageBatch<PrCommentQueueMessage>,
           env,
           ctx
         );
