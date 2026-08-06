@@ -63,9 +63,12 @@ WHERE permissions && ARRAY[
 
 -- ---------------------------------------------------------------------------
 -- 2. Drop the tables. CASCADE clears their policies, indexes, triggers and the
---    env_escalation -> eval_run foreign key in one step.
+--    env_escalation -> eval_run foreign key in one step. Dropping the tables
+--    is the point of this migration, not an accidental data-loss risk.
 -- ---------------------------------------------------------------------------
+-- squawk-ignore ban-drop-table
 DROP TABLE IF EXISTS public.env_escalation CASCADE;
+-- squawk-ignore ban-drop-table
 DROP TABLE IF EXISTS public.eval_run CASCADE;
 
 -- ---------------------------------------------------------------------------
@@ -269,17 +272,23 @@ CREATE TYPE public.app_permission AS ENUM (
 );
 
 ALTER TABLE public.role_permissions
+    -- squawk-ignore changing-column-type
     ALTER COLUMN permission TYPE public.app_permission
     USING permission::text::public.app_permission;
 
 ALTER TABLE public.custom_role_permission
+    -- squawk-ignore changing-column-type
     ALTER COLUMN permission TYPE public.app_permission
     USING permission::text::public.app_permission;
 
 ALTER TABLE public.api_key
     ALTER COLUMN permissions DROP DEFAULT;
 
+-- Both tables are small permission-grant tables rewritten inside this
+-- transaction to rebind them to the rebuilt enum; the retype is the point of
+-- the migration, not incidental risk.
 ALTER TABLE public.api_key
+    -- squawk-ignore changing-column-type
     ALTER COLUMN permissions TYPE public.app_permission[]
     USING permissions::text[]::public.app_permission[];
 
