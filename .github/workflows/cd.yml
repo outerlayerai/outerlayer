@@ -27,7 +27,7 @@ on:
 env:
   NODE_VERSION: '24'
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 # Prevent concurrent deployments of the SAME environment from overlapping.
 # The group is keyed on ref AND environment so a manual production promotion
@@ -194,7 +194,7 @@ jobs:
       # jobs downstream. Validated here rather than in CI: a fork PR has no
       # access to them, so a CI-side check would fail every external PR on a
       # prerequisite only a deploy needs.
-      STAGING_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+      STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
       STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
       # Gateway Worker secrets — see the deploy step below.
       CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
@@ -334,7 +334,7 @@ jobs:
           # Same staging Supabase project the E2E + probe steps target; kept as
           # one source of truth so the gateway and the suite can never drift
           # onto different projects.
-          SUPABASE_API_BASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_API_BASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
           STRIPE_STORAGE_METER_ID: ${{ secrets.STAGING_STRIPE_STORAGE_METER_ID }}
           # Scopes Trace Topics enrichment to the dogfood tenant; an empty value
           # would enrich every staging tenant, so the deploy requires it.
@@ -363,7 +363,7 @@ jobs:
         id: seed-probe-fixture-staging
         working-directory: apps/e2e
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           E2E_HIST_ORG: agentmark-cd-probe
           E2E_HIST_APP: cd-probe-app
@@ -398,7 +398,7 @@ jobs:
         working-directory: apps/e2e
         env:
           E2E_GATEWAY_URL: "https://api-stg.agentmark.co"
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           # Same account the seed step above provisions — the probe signs in as
           # it to mint the read-only key, so both steps must be given the same
@@ -432,7 +432,7 @@ jobs:
           environment: staging
           status: ${{ steps.deploy-gateway-staging.outcome == 'success' && 'success' || 'failure' }}
           started_at: ${{ steps.deploy-start-staging.outputs.started_at }}
-          ingest_url: ${{ vars.DORA_INGEST_URL }}
+          ingest_url: ${{ secrets.DORA_INGEST_URL }}
           api_key: ${{ secrets.STAGING_DORA_INGEST_API_KEY }}
 
       # The staging tenant-dashboard is deployed by Vercel's Git integration on
@@ -444,7 +444,7 @@ jobs:
       # state, and emit status + start time for the record step below. It does
       # NOT deploy anything (no double-deploy / no fighting the git integration).
       # Only VERCEL_TOKEN is required — the team is auto-resolved from the token
-      # (vars.VERCEL_TEAM_ID is an optional override), so a forgotten team-id var
+      # (secrets.VERCEL_TEAM_ID is an optional override), so a forgotten team-id var
       # cannot make this silently no-op. Degrades loudly (status=skip)
       # only if VERCEL_TOKEN is missing or the deploy doesn't resolve in time —
       # staging gateway DF is unaffected either way.
@@ -454,8 +454,8 @@ jobs:
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
-          VERCEL_STG_PROJECT: ${{ vars.STAGING_VERCEL_PROJECT || 'tenant-dashboard-stg' }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_STG_PROJECT: ${{ secrets.STAGING_VERCEL_PROJECT || 'outerlayer' }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -uo pipefail
@@ -520,7 +520,7 @@ jobs:
           environment: staging
           status: ${{ steps.vercel-stg-dashboard.outputs.status }}
           started_at: ${{ steps.vercel-stg-dashboard.outputs.started_at }}
-          ingest_url: ${{ vars.DORA_INGEST_URL }}
+          ingest_url: ${{ secrets.DORA_INGEST_URL }}
           api_key: ${{ secrets.STAGING_DORA_INGEST_API_KEY }}
 
       # Step 4: Refresh the cloud-worker machine image (last — a registry push
@@ -667,7 +667,7 @@ jobs:
           cd apps/e2e
           npx tsx scripts/seed-staging-fixture.ts
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           # The shared browser-suite fixture user (demo@agentmark.co). Required
           # with no default — the seeder resets the account password to this on
@@ -775,7 +775,7 @@ jobs:
           # project's automation-bypass header (playwright.config.ts) to reach
           # the app instead of Vercel's SSO wall.
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.STAGING_VERCEL_AUTOMATION_BYPASS_SECRET }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           # The authoring write spec (tests/authoring/prompt-create.spec.ts) uses
           # this to (a) verify its commit really landed in the fixture repo via the
@@ -1145,7 +1145,7 @@ jobs:
           # Production events go to the production store; falls back to the
           # staging store until DORA_INGEST_URL_PRODUCTION is configured
           # (rows are inert there — reads are env-pinned per dashboard).
-          ingest_url: ${{ vars.DORA_INGEST_URL_PRODUCTION || vars.DORA_INGEST_URL }}
+          ingest_url: ${{ secrets.DORA_INGEST_URL_PRODUCTION || secrets.DORA_INGEST_URL }}
           api_key: ${{ secrets.DORA_INGEST_API_KEY }}
 
       # Step 4: Capture current production deployment BEFORE deploying (for rollback)
@@ -1237,7 +1237,7 @@ jobs:
           status: ${{ steps.deploy-vercel-production.outcome == 'success' && 'success' || 'failure' }}
           started_at: ${{ steps.deploy-start-dashboard-production.outputs.started_at }}
           # See gateway production step — production store with stg fallback.
-          ingest_url: ${{ vars.DORA_INGEST_URL_PRODUCTION || vars.DORA_INGEST_URL }}
+          ingest_url: ${{ secrets.DORA_INGEST_URL_PRODUCTION || secrets.DORA_INGEST_URL }}
           api_key: ${{ secrets.DORA_INGEST_API_KEY }}
 
       - name: Notify deployment status (Production)

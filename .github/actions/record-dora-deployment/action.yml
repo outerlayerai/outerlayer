@@ -20,7 +20,7 @@ inputs:
     description: 'ISO-8601 UTC timestamp captured immediately before the deploy step'
     required: true
   ingest_url:
-    description: 'Base URL of the DORA store dashboard (vars.DORA_INGEST_URL)'
+    description: 'Base URL of the DORA store dashboard (secrets.DORA_INGEST_URL)'
     required: true
   api_key:
     description: 'DORA ingest API key (secrets.DORA_INGEST_API_KEY)'

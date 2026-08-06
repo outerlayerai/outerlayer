@@ -16,7 +16,7 @@ env:
   # environment of every step, including `yarn install`, which runs third-party
   # lifecycle scripts. It is passed only to the steps that invoke turbo (and to
   # the setup-workspace action's `turbo-token` input).
-  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 # Least-privilege default; jobs elevate as needed.
 # detect-changes' dorny/paths-filter calls GitHub's listFiles API on
