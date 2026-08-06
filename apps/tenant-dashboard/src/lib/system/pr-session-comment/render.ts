@@ -144,9 +144,11 @@ export function renderComment(
   );
   // Header totals are sums over every linked session, never a per-PR cost
   // claim (decision 12) — a session spanning 3 PRs counts fully in all 3.
+  // AC-057-01 requires the header be labeled with that exact phrase, so a
+  // reader never mistakes it for a per-PR attribution.
   const totalCost = rows.reduce((sum, row) => sum + row.costUsd, 0);
   const sessionWord = rows.length === 1 ? "session" : "sessions";
-  const header = `### Agent sessions behind this PR — ${rows.length} linked ${sessionWord} · ${formatDurationMinutes(totalMinutes)} · ${formatCost(totalCost)}`;
+  const header = `### Agent sessions behind this PR — ${rows.length} linked ${sessionWord} · ${formatDurationMinutes(totalMinutes)} · ${formatCost(totalCost)}\n_Totals are sums over linked sessions._`;
 
   const tableHeader = "| Session | Topics | Duration | Cost | Models |\n| ------- | ------ | -------- | ---- | ------ |";
   const tableRows = rows.map((row) => renderRow(row, topics, links));
