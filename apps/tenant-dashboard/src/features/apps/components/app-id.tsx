@@ -28,16 +28,26 @@ type DetailItem = {
 
 interface AppIdProps {
   /**
-   * Toggles `git_connection.pr_comments_enabled` — owned by the
+   * `git_connection.pr_comments_enabled`'s server action — owned by the
    * git-connection feature, not this one. Features are leaves and never
    * import each other, so the caller (the settings page, above both
-   * features) supplies this rather than `AppId` importing the action
-   * directly.
+   * features) supplies it rather than `AppId` importing it directly.
+   *
+   * Passed as the RAW action reference, not a wrapper closure: a Server
+   * Component may only hand a Client Component a function that is itself
+   * a Server Action (a top-level export of a `"use server"` module) — a
+   * plain async function defined in the page module is not serializable
+   * across that boundary and throws at render time. The `{ok, error}` →
+   * `{error?}` adaptation `AppPolicyToggle` needs therefore happens HERE,
+   * client-side, rather than in the caller.
    */
-  savePrCommentsEnabled: (appId: string, value: boolean) => Promise<{ error?: string }>;
+  setPrCommentsEnabledAction: (input: {
+    appId: string;
+    value: boolean;
+  }) => Promise<{ ok: true } | { ok: false; error: { message: string } }>;
 }
 
-export const AppId = ({ savePrCommentsEnabled }: AppIdProps) => {
+export const AppId = ({ setPrCommentsEnabledAction }: AppIdProps) => {
   const { app } = useAppContext();
   const { t } = useTranslate();
   const { hasPermission } = useAppPermissions(app?.id);
@@ -140,7 +150,10 @@ export const AppId = ({ savePrCommentsEnabled }: AppIdProps) => {
             <AppPolicyToggle
               initialValue={gitConnection.pr_comments_enabled ?? true}
               canEdit
-              save={(v) => savePrCommentsEnabled(app.id, v)}
+              save={async (v) => {
+                const result = await setPrCommentsEnabledAction({ appId: app.id, value: v });
+                return result.ok ? {} : { error: result.error.message };
+              }}
               labelKey="dashboard.developers.prCommentsEnabled"
               descriptionKey="dashboard.developers.prCommentsEnabledDescription"
               savedKey="dashboard.developers.prCommentsEnabledSaved"
