@@ -12,9 +12,15 @@ import { useAppPermissions } from "@/lib/adapters/use-app-permissions";
 import { Permissions } from "@/utils/permissions";
 import { AppPolicyToggle } from "./app-policy-toggle";
 import { setAppPolicyAction } from "../actions";
+import { setPrCommentsEnabledAction } from "@/features/git-connection/actions";
 
 async function saveRequirePullRequest(appId: string, value: boolean): Promise<{ error?: string }> {
   const result = await setAppPolicyAction({ appId, policy: "require_pull_request", value });
+  return result.ok ? {} : { error: result.error.message };
+}
+
+async function savePrCommentsEnabled(appId: string, value: boolean): Promise<{ error?: string }> {
+  const result = await setPrCommentsEnabledAction({ appId, value });
   return result.ok ? {} : { error: result.error.message };
 }
 
@@ -113,6 +119,27 @@ export const AppId = () => {
               descriptionKey="dashboard.developers.requirePullRequestDescription"
               savedKey="dashboard.developers.requirePullRequestSaved"
               noPermissionKey="dashboard.developers.requirePullRequestNoPermission"
+            />
+          )}
+
+        {/* pr_comments_enabled lives on git_connection, not app — separately
+            gated on git_connection.update rather than app_policy.update, and
+            hidden entirely (not just disabled) from members who can't change
+            it, matching the require-pull-request toggle above. Default is on
+            (including public repos), so the label/description must make the
+            public-readability of costs unmissable rather than reading as a
+            generic on/off switch. */}
+        {gitConnection?.repository &&
+          app?.id &&
+          hasPermission(Permissions.GIT_CONNECTION_UPDATE) && (
+            <AppPolicyToggle
+              initialValue={gitConnection.pr_comments_enabled ?? true}
+              canEdit
+              save={(v) => savePrCommentsEnabled(app.id, v)}
+              labelKey="dashboard.developers.prCommentsEnabled"
+              descriptionKey="dashboard.developers.prCommentsEnabledDescription"
+              savedKey="dashboard.developers.prCommentsEnabledSaved"
+              noPermissionKey="dashboard.developers.prCommentsEnabledNoPermission"
             />
           )}
       </Stack>
