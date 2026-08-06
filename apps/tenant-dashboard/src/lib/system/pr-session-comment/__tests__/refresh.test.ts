@@ -24,6 +24,13 @@ import {
   type PullRequestSessionMswRow,
 } from "@/test-helpers/msw-handlers";
 
+const mockLoggerInfo = vi.fn();
+vi.mock("@/lib/observability/server-logger", () => ({
+  serverLogger: {
+    info: (...args: unknown[]) => mockLoggerInfo(...args),
+  },
+}));
+
 import { refreshPrSessionComment } from "../refresh";
 import type { IssueCommentResult } from "@/lib/system/git/github/client";
 
@@ -365,5 +372,20 @@ describe("refreshPrSessionComment", () => {
 
     expect(result).toEqual({ status: "not-permitted" });
     expect(getPrSessionCommentRows()).toEqual([]);
+    // Visibility surface (PR 15): the missing-permission path is routed
+    // through `serverLogger.info`, not a bare `console.warn`, so it reaches
+    // Logtail in production and is queryable there — see
+    // docs/pr-session-comment-permission-rollout.md. `.info`, not `.error`:
+    // this is expected steady-state while an installation is pending admin
+    // approval, not an incident.
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      "[pr-session-comment] refresh blocked: issues:write not permitted",
+      expect.objectContaining({
+        event: "pr_session_comment.not_permitted",
+        tenantId: TENANT,
+        repository: REPO,
+        prNumber: PR,
+      }),
+    );
   });
 });

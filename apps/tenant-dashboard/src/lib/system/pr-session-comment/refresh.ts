@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 
 import { APP_URL } from "@/config-global";
 import { getAdminDataClient } from "@/lib/system/admin-client";
+import { serverLogger } from "@/lib/observability/server-logger";
 import { getGithubApp } from "@/octo-kit";
 import { GitHubProvider, type IssueCommentResult } from "@/lib/system/git/github/client";
 import { tenantChQuery } from "@/lib/system/pr-session-reconciler/ch-query";
@@ -159,19 +160,22 @@ async function resolveGithubClient(installationId: number): Promise<PrSessionCom
 
 /** Structured, greppable log for a permission gap — every call fails this
  * way until each org admin approves `issues: write` on the installation
- * (decision 1, risk R1). PR 15 builds a "permission not granted" visibility
- * surface on this event shape; never throw or surface it as an error. */
-function logNotPermitted(params: RefreshPrSessionCommentParams): void {
-  console.warn(
-    "[pr-session-comment] not_permitted",
-    JSON.stringify({
-      event: "pr_session_comment.not_permitted",
-      tenantId: params.tenantId,
-      repository: params.repository,
-      prNumber: params.prNumber,
-      timestamp: new Date().toISOString(),
-    }),
-  );
+ * (decision 1, risk R1). Routed through `serverLogger` (not a bare
+ * `console.warn`) so it reaches Logtail in production, where it is queryable
+ * as `pr_session_comment.not_permitted` — see
+ * `docs/pr-session-comment-permission-rollout.md` for how to query it and
+ * why this event, not an admin page, is the visibility surface (PR 15).
+ * Deliberately `.info`, not `.error`: this is expected steady-state for any
+ * installation pending admin approval, not an incident, and must never page
+ * anyone or land in Sentry. Never throw or surface it as a hard error. */
+async function logNotPermitted(params: RefreshPrSessionCommentParams): Promise<void> {
+  await serverLogger.info("[pr-session-comment] refresh blocked: issues:write not permitted", {
+    event: "pr_session_comment.not_permitted",
+    tenantId: params.tenantId,
+    repository: params.repository,
+    prNumber: params.prNumber,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 export async function refreshPrSessionComment(
@@ -261,7 +265,7 @@ export async function refreshPrSessionComment(
     }
 
     if (result.status === "not_permitted") {
-      logNotPermitted(params);
+      await logNotPermitted(params);
       return { status: "not-permitted" };
     }
     if (result.status === "gone") {
