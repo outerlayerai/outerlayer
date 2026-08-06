@@ -38,6 +38,10 @@ import {
 } from './pull-request-session';
 import { appsListHandlers, resetAppsListMswState } from './apps-list';
 import { aiCostConfigHandlers, resetAiCostConfigMswState } from './ai-cost-config';
+import {
+  prSessionCommentHandlers,
+  resetPrSessionCommentMswState,
+} from './pr-session-comment';
 
 export {
   seedPullRequestSessionMswState,
@@ -119,6 +123,11 @@ export {
   type AppsListMswRow,
 } from './apps-list';
 export { seedAiCostConfigMswState } from './ai-cost-config';
+export {
+  seedPrSessionCommentMswState,
+  getPrSessionCommentRows,
+  type PrSessionCommentMswRow,
+} from './pr-session-comment';
 
 // MSW resolves handlers in registration order; the FIRST matching handler
 // wins. We register managed-deployment-tables BEFORE the shared supabase
@@ -143,6 +152,7 @@ export const mswHandlers = [
   ...contextSnapshotHandlers,
   ...pullRequestSessionHandlers,
   ...aiCostConfigHandlers,
+  ...prSessionCommentHandlers,
 ];
 
 export function resetMswState() {
@@ -165,4 +175,5 @@ export function resetMswState() {
   resetGitConnectionMswState();
   resetAppsListMswState();
   resetAiCostConfigMswState();
+  resetPrSessionCommentMswState();
 }
