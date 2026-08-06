@@ -42,7 +42,7 @@ describe("AppsService.listAppsWithGitStatus — query shape", () => {
 
     const select = getCapturedAppsListSelect();
     expect(select).not.toBeNull();
-    // Explicit projection — never the eval_run/worker_run-class `select("*")`.
+    // Explicit projection — never a `select("*")`.
     expect(select).not.toMatch(/(^|[,\s])\*/);
     expect(select).toContain("id");
     expect(select).toContain("name");

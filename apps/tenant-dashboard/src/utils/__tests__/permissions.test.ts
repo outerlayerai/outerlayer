@@ -181,13 +181,6 @@ describe("PERMISSION_GROUPS (full-shape pin)", () => {
         entitlementGate: 'traces_enabled',
       },
       {
-        label: 'Benchmarks',
-        permissions: [
-          { key: 'experiments_view', displayName: 'View benchmarks', dbPermissions: ['experiment.read', 'eval_run.read'], checkOnPartialMatch: true },
-        ],
-        entitlementGate: 'evals_enabled',
-      },
-      {
         label: 'Context',
         permissions: [
           { key: 'context_view', displayName: 'View context files', dbPermissions: ['context.read'] },
@@ -205,13 +198,6 @@ describe("PERMISSION_GROUPS (full-shape pin)", () => {
         label: 'Agent Sessions',
         permissions: [
           { key: 'sessions_view_team', displayName: "View teammates' agent sessions", dbPermissions: ['agents.sessions.team.read'] },
-        ],
-      },
-      {
-        label: 'Escalations',
-        permissions: [
-          { key: 'escalations_view', displayName: 'View escalations', dbPermissions: ['env_escalation.read'] },
-          { key: 'escalations_resolve', displayName: 'Resolve escalations', dbPermissions: ['env_escalation.update'] },
         ],
       },
       {
@@ -375,24 +361,19 @@ describe("PREREQUISITES (every key and value resolves to a real picker entry)", 
     }
   });
 
-  it("experiments_view has no prerequisite", () => {
-    expect(PREREQUISITES['experiments_view']).toBeUndefined();
-  });
-
   it("experiments_run has no PREREQUISITES row (it isn't a picker key)", () => {
     expect(PREREQUISITES['experiments_run']).toBeUndefined();
   });
 
-  it("pins the three new-group prerequisite rows (context_manage, workers_manage, escalations_resolve)", () => {
+  it("pins the new-group prerequisite rows (context_manage, workers_manage)", () => {
     expect(PREREQUISITES['context_manage']).toEqual(['context_view']);
     expect(PREREQUISITES['workers_manage']).toEqual(['workers_view']);
-    expect(PREREQUISITES['escalations_resolve']).toEqual(['escalations_view']);
   });
 });
 
 // expandKeysToDbPermissions over each new group key returns the exact
 // documented set plus implicit permissions (positional).
-describe("expandKeysToDbPermissions over the new Context/Workers/Agent Sessions/Escalations groups", () => {
+describe("expandKeysToDbPermissions over the new Context/Workers/Agent Sessions groups", () => {
   it("context_view expands to context.read plus implicit perms", () => {
     expect(expandKeysToDbPermissions(['context_view']).sort()).toEqual(
       ['agents.sessions.self.read', 'app.read', 'context.read', 'environment.read'].sort(),
@@ -423,23 +404,6 @@ describe("expandKeysToDbPermissions over the new Context/Workers/Agent Sessions/
     );
   });
 
-  it("escalations_view expands to env_escalation.read plus implicit perms", () => {
-    expect(expandKeysToDbPermissions(['escalations_view']).sort()).toEqual(
-      ['agents.sessions.self.read', 'app.read', 'env_escalation.read', 'environment.read'].sort(),
-    );
-  });
-
-  it("escalations_resolve expands to env_escalation.update plus implicit perms", () => {
-    expect(expandKeysToDbPermissions(['escalations_resolve']).sort()).toEqual(
-      ['agents.sessions.self.read', 'app.read', 'env_escalation.update', 'environment.read'].sort(),
-    );
-  });
-
-  it("experiments_view expands to experiment.read and eval_run.read plus implicit perms", () => {
-    expect(expandKeysToDbPermissions(['experiments_view']).sort()).toEqual(
-      ['agents.sessions.self.read', 'app.read', 'environment.read', 'eval_run.read', 'experiment.read'].sort(),
-    );
-  });
 });
 
 // Entitlement gating of surviving groups is unchanged by the permission cleanup.
@@ -450,7 +414,6 @@ describe("PERMISSION_GROUPS entitlement gates", () => {
     );
     expect(gates).toEqual({
       Observability: 'traces_enabled',
-      Benchmarks: 'evals_enabled',
       Analytics: 'metrics_dashboard',
       Audit: 'audit_log',
     });
@@ -467,8 +430,8 @@ describe("PERMISSION_GROUPS entitlement gates", () => {
     });
   });
 
-  it("the new groups (Context, Workers, Agent Sessions, Escalations) carry no entitlement gate", () => {
-    for (const label of ['Context', 'Workers', 'Agent Sessions', 'Escalations']) {
+  it("the new groups (Context, Workers, Agent Sessions) carry no entitlement gate", () => {
+    for (const label of ['Context', 'Workers', 'Agent Sessions']) {
       const group = PERMISSION_GROUPS.find((g) => g.label === label)!;
       expect(group.entitlementGate).toBeUndefined();
     }
@@ -610,39 +573,6 @@ describe("dbPermissionsToKeys", () => {
     expect(resaved).toEqual(["agents.sessions.self.read", "app.read", "context.read", "environment.read"].sort());
   });
 
-  // Backfill fidelity — a stored set matching the migration backfill for
-  // experiments_view renders CHECKED, and re-saving preserves it exactly
-  // (no silent loss of the paired eval_run.read grant).
-  it("the backfilled experiment.read + eval_run.read set renders experiments_view checked and survives re-save", () => {
-    const stored = ["app.read", "agents.sessions.self.read", "environment.read", "experiment.read", "eval_run.read"];
-    const keys = dbPermissionsToKeys(stored);
-    expect(keys).toEqual(["experiments_view"]);
-
-    const resaved = expandKeysToDbPermissions(keys).sort();
-    expect(resaved).toEqual(stored.sort());
-  });
-
-  // Deploy-order safety: a role that only has experiment.read (the shape
-  // that exists between the dashboard deploying the paired-permission
-  // toggle and the backfill migration adding eval_run.read to that role's
-  // stored grants) still renders experiments_view CHECKED — the toggle
-  // never appears to silently uncheck itself — and re-saving completes the
-  // pair rather than dropping experiment.read.
-  it("renders experiments_view checked from experiment.read alone (checkOnPartialMatch) and completes the pair on re-save", () => {
-    const partiallyStored = ["app.read", "agents.sessions.self.read", "experiment.read"];
-    const keys = dbPermissionsToKeys(partiallyStored);
-    expect(keys).toEqual(["experiments_view"]);
-
-    const resaved = expandKeysToDbPermissions(keys).sort();
-    expect(resaved).toEqual(
-      ["agents.sessions.self.read", "app.read", "environment.read", "eval_run.read", "experiment.read"].sort(),
-    );
-  });
-
-  it("does not check experiments_view from eval_run.read alone (experiment.read is the anchor permission)", () => {
-    const keys = dbPermissionsToKeys(["app.read", "agents.sessions.self.read", "eval_run.read"]);
-    expect(keys).not.toContain("experiments_view");
-  });
 });
 
 // General anti-drift invariant: every db permission the picker can grant

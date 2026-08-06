@@ -96,12 +96,6 @@ const baseConfig = {
         destination: "/orgs",
         permanent: true,
       },
-      // Old /evals links resolve to the current /benchmarks page.
-      {
-        source: "/orgs/:orgName/apps/:appName/env/:envName/evals",
-        destination: "/orgs/:orgName/apps/:appName/env/:envName/benchmarks",
-        permanent: true,
-      },
     ];
   },
   async headers() {

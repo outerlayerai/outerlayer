@@ -56,8 +56,7 @@ export const Permissions = {
   // Trace permissions (non-RLS, checked via app_authorize in API routes)
   TRACE_READ: "trace.read" as const,
 
-  // Non-RLS, checked via app_authorize in server actions. Keeps the enum's
-  // `experiment.*` family name; the surface it gates is Benchmarks.
+  // Non-RLS, checked via app_authorize in server actions.
   EXPERIMENT_READ: "experiment.read" as const,
 
   // Dataset permissions (separate from template; datasets are a distinct
@@ -202,22 +201,6 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     entitlementGate: 'traces_enabled',
   },
   {
-    // There is no run toggle: experiment.run has no enforcement anywhere, so
-    // it grants nothing. Benchmark dispatch is gated on eval_run.insert instead
-    // (features/evals/actions.ts), which has no picker toggle of its own yet.
-    // experiment.read is the Benchmarks nav gate and eval_run.read is the
-    // data read (RLS on eval_run); they are separate permissions, so a role
-    // holding only the first sees the nav item and an empty/denied page.
-    label: 'Benchmarks',
-    permissions: [
-      // checkOnPartialMatch: a role stored with experiment.read alone still
-      // renders this toggle checked, so an admin editing it doesn't watch it
-      // silently uncheck and lose the grant entirely on the next save.
-      { key: 'experiments_view', displayName: 'View benchmarks', dbPermissions: ['experiment.read', 'eval_run.read'], checkOnPartialMatch: true },
-    ],
-    entitlementGate: 'evals_enabled',
-  },
-  {
     // Context sync/mirror + editor (OuterLayer .outerlayer/ mirror).
     label: 'Context',
     permissions: [
@@ -241,14 +224,6 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: 'Agent Sessions',
     permissions: [
       { key: 'sessions_view_team', displayName: "View teammates' agent sessions", dbPermissions: ['agents.sessions.team.read'] },
-    ],
-  },
-  {
-    // Env-build escalation queue.
-    label: 'Escalations',
-    permissions: [
-      { key: 'escalations_view', displayName: 'View escalations', dbPermissions: ['env_escalation.read'] },
-      { key: 'escalations_resolve', displayName: 'Resolve escalations', dbPermissions: ['env_escalation.update'] },
     ],
   },
   {
@@ -292,7 +267,6 @@ export const PREREQUISITES: Record<string, string[]> = {
   'git_manage': ['git_view'],
   'context_manage': ['context_view'],
   'workers_manage': ['workers_view'],
-  'escalations_resolve': ['escalations_view'],
 };
 
 // ---------------------------------------------------------------------------

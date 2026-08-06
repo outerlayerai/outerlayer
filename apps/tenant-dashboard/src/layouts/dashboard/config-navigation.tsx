@@ -15,7 +15,6 @@ const ICONS = {
   settings: iconfiy("material-symbols:settings-outline"),
   agentSessions: iconfiy("fluent:group-list-24-regular"),
   findings: iconfiy("mdi:alert-decagram-outline"),
-  evals: iconfiy("material-symbols:fact-check-outline"),
   topics: iconfiy("fluent:tag-multiple-24-regular"),
   dashboards: iconfiy("material-symbols:dashboard-outline-rounded"),
   fleet: iconfiy("mdi:robot-outline"),
@@ -99,12 +98,6 @@ export function useNavData() {
       path: appPaths.insights.root(params.orgName, params.appName, envName),
       icon: ICONS.topics,
       requiredPermission: "trace.read",
-    },
-    {
-      title: t("dashboard.sidebar.benchmarks"),
-      path: appPaths.benchmarks.root(params.orgName, params.appName, envName),
-      icon: ICONS.evals,
-      requiredPermission: "experiment.read",
     },
     {
       title: t("dashboard.sidebar.settings"),

@@ -122,8 +122,4 @@ export const appPaths = {
     findings: (orgName: string, appName: string, envName: string) =>
       `${envBase(orgName, appName, envName)}/agents/findings`,
   },
-  benchmarks: {
-    root: (orgName: string, appName: string, envName: string) =>
-      `${envBase(orgName, appName, envName)}/benchmarks`,
-  },
 };

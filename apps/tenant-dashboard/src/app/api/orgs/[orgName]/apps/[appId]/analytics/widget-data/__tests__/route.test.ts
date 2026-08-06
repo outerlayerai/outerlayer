@@ -108,6 +108,19 @@ describe('POST /api/orgs/{orgName}/apps/{appId}/analytics/widget-data (appId pin
     expect(mockGetExtendedMetrics).not.toHaveBeenCalled();
   });
 
+  it('answers 400, not 500, for a saved dashboard naming a metric this build no longer serves', async () => {
+    const res = await POST(
+      makeRequest({ metric: 'agent_cost_per_resolved_task', timeRange: { preset: '7d' } }),
+      { params: Promise.resolve({ orgName: 'test-org', appId: 'app-789' }) },
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('Invalid metric type');
+    expect(mockGetMetrics).not.toHaveBeenCalled();
+    expect(mockGetExtendedMetrics).not.toHaveBeenCalled();
+  });
+
   it('serves the widget payload when the path segment matches the verified query appId', async () => {
     mockGetExtendedMetrics.mockResolvedValue({
       summary: { totalRequests: 42, totalCost: 0 },

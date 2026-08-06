@@ -15,8 +15,6 @@ import {
   permissionsHandlers,
   resetPermissionsMswState,
 } from './permissions';
-import { evalRunHandlers, resetEvalRunMswState } from './eval-run';
-import { envEscalationHandlers, resetEnvEscalationMswState } from './env-escalation';
 import { workerRunHandlers, resetWorkerRunMswState } from './worker-run';
 import { workerEnvironmentHandlers, resetWorkerEnvironmentMswState } from './worker-environment';
 import { auditLogHandlers, resetAuditLogMswState } from './audit-log';
@@ -54,16 +52,6 @@ export {
   getDeletedGitBranchTenantHeaders,
   seedGitConnectionUpsertError,
 } from './git-connection';
-export {
-  seedEvalRunMswState,
-  getEvalRunMswState,
-  type EvalRunMswRow,
-} from './eval-run';
-export {
-  seedEnvEscalationMswState,
-  getEnvEscalationMswState,
-  type EnvEscalationMswRow,
-} from './env-escalation';
 export {
   seedWorkerRunMswState,
   getWorkerRunMswState,
@@ -146,8 +134,6 @@ export const mswHandlers = [
   ...environmentsHandlers,
   ...githubChecksHandlers,
   ...permissionsHandlers,
-  ...evalRunHandlers,
-  ...envEscalationHandlers,
   ...workerRunHandlers,
   ...workerEnvironmentHandlers,
   ...auditLogHandlers,
@@ -168,8 +154,6 @@ export function resetMswState() {
   resetGatewaySession();
   resetGithubChecksMswState();
   resetPermissionsMswState();
-  resetEvalRunMswState();
-  resetEnvEscalationMswState();
   resetWorkerRunMswState();
   resetWorkerEnvironmentMswState();
   resetAuditLogMswState();

@@ -115,12 +115,4 @@ export type DashboardErrorCode =
   // sync). 404 — the client shouldn't retry.
   // -----------------------------------------------------------------------
   | 'context_file_not_found'
-  // -----------------------------------------------------------------------
-  // Evals.
-  //
-  // `eval_run_not_found` fires on `/evals/runs/{runId}` when the runId
-  // doesn't resolve for the request tenant's app (missing, or hidden by
-  // RLS). 404 — the poll stops treating it as an in-progress run.
-  // -----------------------------------------------------------------------
-  | 'eval_run_not_found'
   ;

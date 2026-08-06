@@ -6,10 +6,10 @@ import { EmptyState } from "./empty-state";
 
 describe("EmptyState", () => {
   it("renders the title as a level-6 heading with the description beneath it", () => {
-    render(<EmptyState title="No benchmarks yet" description="Run a report card to compare two configs." />);
+    render(<EmptyState title="No dashboards yet" description="Create a dashboard to track your fleet." />);
 
-    expect(screen.getByRole("heading", { level: 6 }).textContent).toBe("No benchmarks yet");
-    expect(screen.getByText("Run a report card to compare two configs.")).not.toBe(
+    expect(screen.getByRole("heading", { level: 6 }).textContent).toBe("No dashboards yet");
+    expect(screen.getByText("Create a dashboard to track your fleet.")).not.toBe(
       screen.getByRole("heading", { level: 6 })
     );
   });

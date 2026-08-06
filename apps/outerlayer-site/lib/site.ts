@@ -12,7 +12,7 @@ export const SITE_NAME = "Outerlayer"
 export const SITE_TITLE = "Outerlayer · The open-source platform for coding-agent fleets"
 
 export const SITE_DESCRIPTION =
-  "Trace every coding-agent session, mine the corrections, version the context, benchmark the gain. The evidence loop that lets you hand your fleet more of the work. Open source and local-first: one command, no account, nothing uploaded."
+  "Trace every coding-agent session, mine the corrections, version the context, measure the gain. The evidence loop that lets you hand your fleet more of the work. Open source and local-first: one command, no account, nothing uploaded."
 
 /**
  * Every custom domain attached to the production project. The retired-brand

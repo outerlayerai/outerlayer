@@ -101,7 +101,7 @@ describe('AuthClassicLayout', () => {
     expect(screen.getByTestId('form')).toBeInTheDocument();
   });
 
-  it('renders the evidence-loop card: distillation, finding, cost, benchmarked fix', () => {
+  it('renders the evidence-loop card: distillation, finding, cost, measured fix', () => {
     wrap(<AuthClassicLayout>x</AuthClassicLayout>);
 
     expect(screen.getByText('▣ outerlayer')).toBeInTheDocument();
@@ -122,7 +122,7 @@ describe('AuthClassicLayout', () => {
       ).toBeInTheDocument();
     }
 
-    // The benchmark proof reads as the win
+    // The measured proof reads as the win
     expect(screen.getByText('repeat rate 31% → 4%')).toHaveStyle({
       color: 'rgb(34, 197, 94)', // success.main
     });

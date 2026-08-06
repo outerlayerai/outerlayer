@@ -163,8 +163,6 @@ export const ENTITLEMENTS = {
   traces_enabled: { type: 'boolean', displayName: 'Traces', hobby: true, growth: true, team: true, enterprise: true },
   /** Prompt versioning and management UI. Available on all tiers. */
   prompt_management: { type: 'boolean', displayName: 'Prompt Management', hobby: true, growth: true, team: true, enterprise: true },
-  /** Evaluation framework for prompt quality. Available on all tiers. */
-  evals_enabled: { type: 'boolean', displayName: 'Experiments', hobby: true, growth: true, team: true, enterprise: true },
   /** Test dataset management. Available on all tiers. */
   datasets_enabled: { type: 'boolean', displayName: 'Datasets', hobby: true, growth: true, team: true, enterprise: true },
   /** Session-based trace grouping. Available on all tiers. */

@@ -148,11 +148,6 @@ type BuiltInMetric =
   // Clean Job Rate — autonomy growth is only good news if quality holds.
   | 'agent_shipped_autonomy_trend'
   | 'agent_delegated_share'
-  // The controlled-experiment complement to Cost per Merged PR: the latest
-  // completed eval Report Card's $-per-resolved-task (the cheaper config's
-  // figure). Evals verify resolution by execution; the dashboard observes
-  // delivery — the two belong on the same ROI surface. Stat tile.
-  | 'agent_cost_per_resolved_task'
   // Eval-score ↔ PR-outcome correlation: a single
   // pass-minus-fail LIFT stat tile (positive/negative = which cohort
   // performed better), not a two-item ranking — a bar chart for two raw
@@ -233,7 +228,6 @@ export const BUILT_IN_METRICS: readonly BuiltInMetric[] = [
   'total_cost_of_ai',
   'agent_shipped_autonomy_trend',
   'agent_delegated_share',
-  'agent_cost_per_resolved_task',
   'agent_pr_outcome_by_score_merge_rate',
   'agent_pr_outcome_by_score_cycle_time',
   'agent_pr_outcome_by_score_revert_rate',
@@ -463,8 +457,6 @@ export const STAT_ONLY_METRICS: readonly BuiltInMetric[] = [
   'total_cost_of_ai',
   // Delegated+ share is a single classified-cohort share with a prior change.
   'agent_delegated_share',
-  // Latest-eval economics is a single dollar figure (episodic, no window).
-  'agent_cost_per_resolved_task',
   // Score-outcome correlation lift — a single pass-minus-fail
   // number, not a two-item ranking (see pr-outcome-correlation): a bar
   // chart for two numbers you have to subtract in your head is decorative,
@@ -546,7 +538,6 @@ export const METRIC_LABELS: Record<string, string> = {
   total_cost_of_ai: 'Total Cost of AI',
   agent_shipped_autonomy_trend: 'Shipped Work by Autonomy Level',
   agent_delegated_share: 'Delegated+ Share of Merged PRs (%)',
-  agent_cost_per_resolved_task: 'Cost per Resolved Task (Latest Benchmark)',
   // Parenthesised, not colon-separated: the widget route prefixes the
   // scoreName ("worker.ci_green: …"), and a second colon in the label made
   // the tile read as two competing headings.
@@ -611,8 +602,6 @@ export const METRIC_DESCRIPTIONS: Record<string, string> = {
     'Seat spend (Settings \u2192 AI costs, prorated) plus metered token spend, org-wide. Token spend is API-equivalent value, not necessarily cash outlay.',
   agent_delegated_share:
     'Share of classifiable merged PRs that ran Delegated or Autonomous \u2014 one hand-off, zero steering, zero denials. Read beside Clean Job Rate; unclassifiable work is excluded, never guessed.',
-  agent_cost_per_resolved_task:
-    'From the latest completed eval: the better config\u2019s spend \u00f7 tasks resolved, verified by execution. The Evals page has the full A/B card. Lower is better.',
   agent_pr_outcome_by_score_merge_rate:
     'Merge rate among agent PRs whose score PASSED, minus merge rate among PRs whose score FAILED \u2014 in percentage points. Positive = passing the score predicts a HIGHER merge rate (a good predictor); negative = the opposite. Cohorts split on the score recorded for the PR\u2019s session, never on the PR\u2019s own fate. For worker.ci_green that is \u201cdid CI pass on the FIRST run\u201d, so the fail cohort is PRs that failed first CI, got fixed, and usually merged anyway \u2014 not PRs that shipped red. PRs with no verdict count on neither side. Fate-derived scores can\u2019t be selected here (they\u2019d be circular).',
   agent_pr_outcome_by_score_cycle_time:
@@ -662,7 +651,6 @@ const METRIC_EVIDENCE: Record<string, MetricEvidenceTier> = {
   agent_direct_cost_per_merged_pr: 'metered',
   agent_spend_per_active_dev: 'metered',
   agent_unshipped_spend_share: 'metered',
-  agent_cost_per_resolved_task: 'metered',
   agent_clean_job_rate: 'session-derived',
   agent_hands_on_rate: 'session-derived',
   agent_delegated_share: 'session-derived',
@@ -757,8 +745,6 @@ const METRIC_BETTER_DIRECTION: Record<string, BetterDirection> = {
   // default dashboard seats it beside Clean Job Rate so a rise is never read
   // without its quality guardrail.
   agent_delegated_share: 'up',
-  // Cheaper verified resolution is unambiguously better.
-  agent_cost_per_resolved_task: 'down',
 };
 
 export function betterDirectionFor(metric: string | undefined): BetterDirection {

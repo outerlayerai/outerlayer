@@ -19,9 +19,9 @@ const ancestorTags = (node: Element, root: Element) => {
 
 describe("PageHeader", () => {
   it("renders the title as a level-4 heading", () => {
-    render(<PageHeader title="Benchmarks" />);
+    render(<PageHeader title="Dashboards" />);
 
-    expect(screen.getByRole("heading", { level: 4 }).textContent).toBe("Benchmarks");
+    expect(screen.getByRole("heading", { level: 4 }).textContent).toBe("Dashboards");
   });
 
   it("renders the caption as a node separate from the title", () => {
