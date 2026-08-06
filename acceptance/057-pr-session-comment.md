@@ -25,8 +25,8 @@ an em dash" requirement is dropped for cost specifically, in scenario 11; and
 ## Comment presence and identity
 
 1. `AC-057-01` **Given** a connected repo and a PR with at least one verified session link, **When** a reviewer opens the PR, **Then** a single bot comment lists each linked session with topic labels when available, duration, cost, and every model the session used, plus a deep link to that session's existing dashboard detail page; the comment header rolls up linked-session count, total agent time, and total cost, labeled as sums over linked sessions.
-2. **Given** the comment exists and another session linking the same PR syncs later — including one addressing review feedback on the open PR — **When** the link is verified, **Then** the existing comment is edited to include it, never a second comment: one comment per `(tenant, repository, PR)`, even when the PR has sessions across more than one connected app in that tenant.
-3. **Given** a listed session accrues more work after its row first renders, **When** the comment is next edited, **Then** that row and the header totals reflect the session's current duration, cost, models, and topics — the comment renders present state, never a first-sight snapshot.
+2. `AC-057-02` **Given** the comment exists and another session linking the same PR syncs later — including one addressing review feedback on the open PR — **When** the link is verified, **Then** the existing comment is edited to include it, never a second comment: one comment per `(tenant, repository, PR)`, even when the PR has sessions across more than one connected app in that tenant.
+3. `AC-057-03` **Given** a listed session accrues more work after its row first renders, **When** the comment is next edited, **Then** that row and the header totals reflect the session's current duration, cost, models, and topics — the comment renders present state, never a first-sight snapshot.
 4. `AC-057-04` **Given** a PR with no verified session links, **When** the bot comments, **Then** the comment states no agent sessions are linked yet, and upgrades in place to the session table if sessions arrive later.
 
 ## Link provenance
