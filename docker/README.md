@@ -14,7 +14,7 @@ OuterLayer runs on your own machines. This page covers the hobby-grade path: one
 | Postgres + Auth | Supabase CLI, on the host | Tenants, apps, users, RBAC, RLS |
 | Dashboard | Node, on the host | The web UI |
 
-Traces, prompts, evals, dashboards, alerts, and the full API surface all work. Nothing caps your usage: the gateway resolves entitlements in self-host mode rather than against the hosted tier matrix, so no monthly span limit applies and no billing sits in the request path.
+Traces, prompts, dashboards, alerts, and the full API surface all work. Nothing caps your usage: the gateway resolves entitlements in self-host mode rather than against the hosted tier matrix, so no monthly span limit applies and no billing sits in the request path.
 
 ## What you don't get
 
@@ -201,7 +201,7 @@ The script re-applies both the Postgres and the ClickHouse migrations and rebuil
 
 ## How the hosted service differs
 
-The hosted service runs the same gateway and the same dashboard, so prompts, evals, and traces behave identically. The differences are operational:
+The hosted service runs the same gateway and the same dashboard, so prompts and traces behave identically. The differences are operational:
 
 - **API keys** are per-consumer and independently revocable, rather than one shared secret.
 - **Rate limiting, high availability, and backups** come managed.
