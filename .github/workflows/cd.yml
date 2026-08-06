@@ -455,12 +455,20 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
-          VERCEL_STG_PROJECT: ${{ vars.STAGING_VERCEL_PROJECT || 'tenant-dashboard-stg' }}
+          # No hardcoded fallback on purpose: the previous default silently
+          # polled the RETIRED staging project after the 2026-08-05 move —
+          # default-when-unset config rots invisibly. Unset now warns + skips.
+          VERCEL_STG_PROJECT: ${{ vars.STAGING_VERCEL_PROJECT }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -uo pipefail
           if [[ -z "${VERCEL_TOKEN:-}" ]]; then
             echo "::warning::VERCEL_TOKEN not set — cannot record the staging tenant-dashboard DORA deploy. (Staging gateway DORA is unaffected.)"
+            echo "status=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -z "${VERCEL_STG_PROJECT:-}" ]]; then
+            echo "::warning::vars.STAGING_VERCEL_PROJECT not set — cannot record the staging tenant-dashboard DORA deploy. Set it to the staging Vercel project name (currently: outerlayer)."
             echo "status=skip" >> "$GITHUB_OUTPUT"
             exit 0
           fi
