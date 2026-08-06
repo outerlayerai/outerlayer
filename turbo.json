@@ -103,8 +103,13 @@
     "dev": {
       "cache": false,
       "persistent": true,
-      "dependsOn": ["^build"],
       "passThroughEnv": ["PORT", "GATEWAY_PORT", "SITE_PORT", "FLY_API_TOKEN"]
+    },
+    "gateway#dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^build"],
+      "passThroughEnv": ["GATEWAY_PORT", "FLY_API_TOKEN"]
     },
     "dev:email": {
       "cache": false,
