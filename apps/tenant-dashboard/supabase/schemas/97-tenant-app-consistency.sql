@@ -88,16 +88,8 @@ ALTER TABLE public.env_var
     ADD CONSTRAINT env_var_tenant_app_fk
     FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
 
-ALTER TABLE public.env_escalation
-    ADD CONSTRAINT env_escalation_tenant_app_fk
-    FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
-
 ALTER TABLE public.environment
     ADD CONSTRAINT environment_tenant_app_fk
-    FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
-
-ALTER TABLE public.eval_run
-    ADD CONSTRAINT eval_run_tenant_app_fk
     FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
 
 ALTER TABLE public.git_branch

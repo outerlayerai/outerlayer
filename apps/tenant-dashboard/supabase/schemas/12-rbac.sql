@@ -407,19 +407,6 @@ INSERT INTO public.role_permissions (role, permission) VALUES
     ('write', 'env_var.update')
 ON CONFLICT (role, permission) DO NOTHING;
 
--- Env-build escalation queue: every role reads (the rows explain why a
--- repo's evals aren't running); write roles acknowledge and resolve. Rows
--- are written by the eval worker via service_role.
-INSERT INTO public.role_permissions (role, permission) VALUES
-    ('owner', 'env_escalation.read'),
-    ('admin', 'env_escalation.read'),
-    ('write', 'env_escalation.read'),
-    ('read', 'env_escalation.read'),
-    ('owner', 'env_escalation.update'),
-    ('admin', 'env_escalation.update'),
-    ('write', 'env_escalation.update')
-ON CONFLICT (role, permission) DO NOTHING;
-
 -- Environment lifecycle: every role reads; write roles create, edit, and
 -- promote (promote is the release action and covers both forward promotion
 -- and rollback); deleting an environment is owner/admin.
@@ -441,28 +428,9 @@ INSERT INTO public.role_permissions (role, permission) VALUES
     ('write', 'environment.update')
 ON CONFLICT (role, permission) DO NOTHING;
 
--- Eval runs: every role reads history; write roles dispatch and manage
--- runs.
-INSERT INTO public.role_permissions (role, permission) VALUES
-    ('owner', 'eval_run.delete'),
-    ('admin', 'eval_run.delete'),
-    ('write', 'eval_run.delete'),
-    ('owner', 'eval_run.insert'),
-    ('admin', 'eval_run.insert'),
-    ('write', 'eval_run.insert'),
-    ('owner', 'eval_run.read'),
-    ('admin', 'eval_run.read'),
-    ('write', 'eval_run.read'),
-    ('read', 'eval_run.read'),
-    ('owner', 'eval_run.update'),
-    ('admin', 'eval_run.update'),
-    ('write', 'eval_run.update')
-ON CONFLICT (role, permission) DO NOTHING;
-
 -- Experiments: every role views. experiment.run is deliberately ungranted —
 -- its only enforcement was the pending_experiment RLS policies, dropped
--- along with that table; benchmark/eval dispatch gates on eval_run.insert
--- instead (see the eval_run group).
+-- along with that table.
 INSERT INTO public.role_permissions (role, permission) VALUES
     ('owner', 'experiment.read'),
     ('admin', 'experiment.read'),
