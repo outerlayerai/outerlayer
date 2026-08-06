@@ -16,27 +16,39 @@ import { renderComment, type RenderLinks } from "./render";
 
 /**
  * The orchestrator: the single idempotent entry point all three trigger
- * paths (pull_request webhook, session-linked event, debounced topic-label
- * refresh — PRs 8/9/12) call to bring one PR's session comment up to date.
+ * paths (the `pull_request` webhook, the debounced queue off session sync,
+ * and the hourly cron gap-repair sweep) call to bring one PR's session
+ * comment up to date.
  *
- * Composes the read layer (PR 3), the topic-label reader (PR 4), the pure
- * renderer (PR 5), and the GitHub issue-comment client (PR 6) into one
- * idempotent write, guarded by the `pr_session_comment` identity row.
+ * Composes the read layer, the topic-label reader, the pure renderer, and
+ * the GitHub issue-comment client into one idempotent write, guarded by the
+ * `pr_session_comment` identity row.
  *
- * Algorithm (see the plan's PR 7 section):
+ * Repository identity: `params.repository` arrives in TWO different formats
+ * depending on the caller — the webhook and the cron sweep pass
+ * `git_connection.repository`'s own `owner/repo` form, while the queue path
+ * passes ClickHouse's `agent_session_summary.GitRepo` join key, which is
+ * host-qualified (`github.com/owner/repo`). Every downstream read/write in
+ * this module (the read layer, the installation lookup, the
+ * `pr_session_comment` row, the GitHub client) must key off ONE canonical
+ * form — `git_connection.repository`'s `owner/repo` — so the first step
+ * below strips a leading `github.com/` before anything else runs. This
+ * feature is GitHub-only today, so a single fixed prefix is sufficient.
+ *
+ * Algorithm:
  *   1. `readLinkedSessions` → `null` (no enabled app) ⇒ no-op.
  *   2. `readTopicLabels` for the returned trace ids.
  *   3. `renderComment`.
  *   4. Hash the body. Equal to the stored `last_body_hash` ⇒ return WITHOUT
- *      touching GitHub (risk R4 — three trigger paths hit one comment, and
- *      at-least-once queue delivery means duplicates are the normal case).
+ *      touching GitHub — three trigger paths hit one comment, and
+ *      at-least-once queue delivery means duplicates are the normal case.
  *   5. Load the `pr_session_comment` row. No `github_comment_id` ⇒ create.
  *      Has one ⇒ update; a `gone` result (comment hand-deleted) ⇒ create
- *      fresh and overwrite the stored id (decision 10).
+ *      fresh and overwrite the stored id.
  *   6. Persist `github_comment_id`, the new hash, and `last_posted_at`.
- *   7. `not_permitted` ⇒ log a structured event and return cleanly (decision
- *      1, risk R1) — every call returns this until each org admin approves
- *      `issues: write`, and the feature must stay silent.
+ *   7. `not_permitted` ⇒ log a structured event and return cleanly — every
+ *      call returns this until each org admin approves `issues: write`, and
+ *      the feature must stay silent.
  *
  * NEVER throws to its caller: a `pull_request` webhook must not 500 because
  * a comment failed. The whole body is wrapped, and every failure mode
@@ -60,7 +72,7 @@ export type RefreshPrSessionCommentResult =
    * returned `null`. Not an error: most repos never opt in. */
   | { status: "skipped-disabled" }
   /** The GitHub App lacks `issues: write` on this installation. Silent by
-   * design (decision 1) — logged as a structured event, never thrown. */
+   * design — logged as a structured event, never thrown. */
   | { status: "not-permitted" }
   /** Anything else that went wrong (a read/write failure, a missing
    * installation, an unexpected exception) — the caller can log `reason`
@@ -97,10 +109,10 @@ type AdminClient = ReturnType<typeof getAdminDataClient>;
  * comment refresh, never a full-table walk. */
 const MAX_GIT_CONNECTIONS = 1_000;
 
-/** Short hash of the rendered body — this is what makes the at-least-once
- * delivery cheap (risk R4): an unchanged body never reaches GitHub. Not a
- * security boundary, so sha256/hex (truncated) is plenty; matches the
- * hashing style already in this codebase (`outcome-scores/score-rows.ts`). */
+/** Hash of the rendered body — this is what makes the at-least-once
+ * delivery cheap: an unchanged body never reaches GitHub. Not a security
+ * boundary, so a full sha256/hex digest is plenty; matches the hashing style
+ * already in this codebase (`outcome-scores/score-rows.ts`). */
 function hashBody(body: string): string {
   return createHash("sha256").update(body).digest("hex");
 }
@@ -159,15 +171,16 @@ async function resolveGithubClient(installationId: number): Promise<PrSessionCom
 }
 
 /** Structured, greppable log for a permission gap — every call fails this
- * way until each org admin approves `issues: write` on the installation
- * (decision 1, risk R1). Routed through `serverLogger` (not a bare
- * `console.warn`) so it reaches Logtail in production, where it is queryable
- * as `pr_session_comment.not_permitted` — see
+ * way until each org admin approves `issues: write` on the installation.
+ * Routed through `serverLogger` (not a bare `console.warn`) so it reaches
+ * Logtail in production, where it is queryable as
+ * `pr_session_comment.not_permitted` — see
  * `docs/pr-session-comment-permission-rollout.md` for how to query it and
- * why this event, not an admin page, is the visibility surface (PR 15).
- * Deliberately `.info`, not `.error`: this is expected steady-state for any
- * installation pending admin approval, not an incident, and must never page
- * anyone or land in Sentry. Never throw or surface it as a hard error. */
+ * why this event, not an admin page, is the visibility surface for the
+ * rollout. Deliberately `.info`, not `.error`: this is expected steady-state
+ * for any installation pending admin approval, not an incident, and must
+ * never page anyone or land in Sentry. Never throw or surface it as a hard
+ * error. */
 async function logNotPermitted(params: RefreshPrSessionCommentParams): Promise<void> {
   await serverLogger.info("[pr-session-comment] refresh blocked: issues:write not permitted", {
     event: "pr_session_comment.not_permitted",
@@ -182,15 +195,16 @@ export async function refreshPrSessionComment(
   params: RefreshPrSessionCommentParams,
   deps: RefreshPrSessionCommentDeps = {},
 ): Promise<RefreshPrSessionCommentResult> {
-  const { tenantId, repository, prNumber } = params;
+  const { tenantId, prNumber } = params;
+  // Canonicalize to git_connection's own owner/repo identity — see the
+  // module doc comment above. Every read/write below uses this, never
+  // params.repository directly.
+  const repository = params.repository.replace(/^github\.com\//, "");
 
   try {
     const chQuery = deps.chQuery ?? tenantChQuery({ tenantId });
 
-    const rows = await readLinkedSessions(
-      { tenantId, repository, prNumber },
-      deps.chQuery ? { chQuery: deps.chQuery } : {},
-    );
+    const rows = await readLinkedSessions({ tenantId, repository, prNumber }, { chQuery });
     // AC-057-04's "no app connected" no-op — the read layer already proved
     // no app has pr_comments_enabled for this repo. Never post or edit.
     if (rows === null) {
@@ -226,7 +240,7 @@ export async function refreshPrSessionComment(
       return { status: "failed", reason: `pr_session_comment read failed: ${readError.message}` };
     }
 
-    // Risk R4: three trigger paths hit one comment and queue delivery is
+    // Three trigger paths hit one comment and queue delivery is
     // at-least-once, so duplicates are the normal case. An unchanged body
     // MUST NOT reach GitHub — this is the entire rate-limit defense.
     if (existing && existing.last_body_hash === bodyHash) {
@@ -250,9 +264,9 @@ export async function refreshPrSessionComment(
     let created = !existing?.github_comment_id;
     if (existing?.github_comment_id) {
       result = await githubClient.updateIssueComment(repository, existing.github_comment_id, body);
-      // Decision 10: the comment was hand-deleted on GitHub (or the stored
-      // id is stale) — post fresh and overwrite the stored id below, rather
-      // than erroring or leaving the PR without a comment.
+      // The comment was hand-deleted on GitHub (or the stored id is stale)
+      // — post fresh and overwrite the stored id below, rather than
+      // erroring or leaving the PR without a comment.
       if (result.status === "gone") {
         result = await githubClient.createIssueComment(repository, prNumber, body);
         created = true;
@@ -265,7 +279,7 @@ export async function refreshPrSessionComment(
     }
 
     if (result.status === "not_permitted") {
-      await logNotPermitted(params);
+      await logNotPermitted({ tenantId, repository, prNumber });
       return { status: "not-permitted" };
     }
     if (result.status === "gone") {

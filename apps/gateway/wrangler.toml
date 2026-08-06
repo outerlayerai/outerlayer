@@ -171,7 +171,7 @@ max_retries = 20
 max_concurrency = 6
 retry_delay = 60
 
-# PR-session-comment refresh: the sync-ingest producer (PR 10) nominates each
+# PR-session-comment refresh: the sync-ingest producer nominates each
 # distinct (tenant, repository, prNumber) a batch touched, delayed by
 # PR_COMMENT_QUEUE_DEBOUNCE_SECONDS so a chatty session's syncs coalesce. This
 # consumer coalesces AGAIN across the delivered batch and makes one POST to

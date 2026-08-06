@@ -81,6 +81,12 @@ export const env = createEnv({
     GITHUB_APP_PRIVATE_KEY: z.string().min(1),
     GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
 
+    // Shared secret the Cloudflare queue consumer presents to
+    // /api/internal/pr-comment-refresh. Optional — a self-host without
+    // queues configured never calls that route, and the route itself fails
+    // closed (401) when this is unset.
+    PR_COMMENT_REFRESH_SECRET: z.string().optional(),
+
     // Email provider selection. 'resend' is the hosted/managed default;
     // 'smtp' routes transactional email through a self-hosted SMTP server
     // (Nodemailer) so an OSS self-hoster needs no Resend account. Audience
@@ -268,6 +274,7 @@ export const env = createEnv({
     GITHUB_APP_ID: process.env.GITHUB_APP_ID,
     GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
     GITHUB_APP_WEBHOOK_SECRET: process.env.GITHUB_APP_WEBHOOK_SECRET,
+    PR_COMMENT_REFRESH_SECRET: process.env.PR_COMMENT_REFRESH_SECRET,
     // `|| 'resend'` is the REAL default (the zod default is dead under Vercel's
     // forced skipValidation — see DORA_ENVIRONMENT / EMAIL_ENABLED).
     EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || 'resend',

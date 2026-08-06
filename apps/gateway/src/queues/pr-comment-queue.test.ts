@@ -283,6 +283,45 @@ describe('handlePrCommentQueue', () => {
     expect(fetchImpl.mock.calls[0]![0]).toBe('https://app.example.test/api/internal/pr-comment-refresh');
   });
 
+  it('skips the fetch entirely and retries every coalesced message when PR_COMMENT_REFRESH_SECRET is unset', async () => {
+    const fetchImpl = vi.fn();
+    const msgA = makeMessage(queueBody({ prNumber: 1 }), 1);
+    const msgB = makeMessage(queueBody({ prNumber: 2 }), 1);
+
+    await handlePrCommentQueue(
+      makeBatch([msgA, msgB]),
+      makeEnv({ PR_COMMENT_REFRESH_SECRET: undefined }),
+      undefined,
+      { fetchImpl },
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(msgA.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
+    expect(msgB.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
+    expect(msgA.ack).not.toHaveBeenCalled();
+    expect(msgB.ack).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      '[pr-comment-queue] PR_COMMENT_REFRESH_SECRET is unset — skipping refresh POST',
+      { targetCount: 2 },
+    );
+  });
+
+  it('gives up (acks) on a missing secret once every coalesced message has hit max attempts', async () => {
+    const fetchImpl = vi.fn();
+    const msg = makeMessage(queueBody(), PR_COMMENT_MAX_RETRY_ATTEMPTS);
+
+    await handlePrCommentQueue(
+      makeBatch([msg]),
+      makeEnv({ PR_COMMENT_REFRESH_SECRET: undefined }),
+      undefined,
+      { fetchImpl },
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+  });
+
   it('defaults to the real global fetch when no fetchImpl is injected', async () => {
     const originalFetch = globalThis.fetch;
     const fetchSpy = vi.fn().mockResolvedValue(

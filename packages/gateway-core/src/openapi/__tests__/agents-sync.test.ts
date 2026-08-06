@@ -706,7 +706,7 @@ describe('SyncAgentSessions', () => {
 });
 
 // ---------------------------------------------------------------------------
-// PR_COMMENT_QUEUE enqueue (PR 10 — queue producer at ingest)
+// PR_COMMENT_QUEUE enqueue (queue producer at ingest)
 // ---------------------------------------------------------------------------
 
 describe('SyncAgentSessions PR_COMMENT_QUEUE enqueue', () => {

@@ -7,8 +7,8 @@ import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 /**
  * Read layer behind the PR session comment: every CONFIRMED session linked
  * to a `(tenant, repository, pr_number)`, with the display fields the
- * renderer needs (PR 5). No I/O beyond the three reads below — this module
- * owns tenancy, the renderer stays pure.
+ * renderer needs. No I/O beyond the three reads below — this module owns
+ * tenancy, the renderer stays pure.
  *
  * The RLS-bypassing admin client is constructed HERE, in the service layer,
  * for the same reason `pr-lifecycle-read.ts` documents: `pull_request_session`
@@ -108,19 +108,30 @@ async function resolveDefaultEnvNames(
  * Returns `null` when the feature is off for this repo — zero
  * `git_connection` rows have `pr_comments_enabled = true` — which the caller
  * reads as "no-op, do not post or edit a comment." Returns `[]` when the
- * feature is on but no session has a CONFIRMED link yet (or ClickHouse is
- * unavailable and no override was injected) — the caller renders the
- * "No agent sessions linked yet" state.
+ * feature is on but no session has a CONFIRMED link yet — the caller renders
+ * the "No agent sessions linked yet" state, which is the true empty state
+ * and needs no ClickHouse round-trip at all.
+ *
+ * THROWS when confirmed links exist but no ClickHouse client resolves
+ * (unconfigured deployment, or an explicit `null` override): those links are
+ * real and unreadable, not empty, and the caller (`refreshPrSessionComment`)
+ * must turn this into a `{status: "failed"}` rather than rendering the empty
+ * state over a comment that already lists real sessions — the whole point of
+ * throwing here is to stop that overwrite before it reaches GitHub.
  *
  * `chQuery` is normally obtained from the `tenantChQuery` seam
- * (`pr-session-reconciler/ch-query.ts`); tests inject a fake instead so they
- * never need a live ClickHouse server. Two apps in one tenant can point at
- * the same repo (no unique index on `git_connection (tenant_id, repository)`),
- * so this fans out over every enabled app rather than trusting one-app-per-repo.
+ * (`pr-session-reconciler/ch-query.ts`) when the caller omits it entirely;
+ * a caller that already resolved its own client (or resolved it to `null`
+ * because ClickHouse is unconfigured) passes it explicitly so this module
+ * never re-resolves it a second time. Tests inject a fake function instead
+ * so they never need a live ClickHouse server. Two apps in one tenant can
+ * point at the same repo (no unique index on
+ * `git_connection (tenant_id, repository)`), so this fans out over every
+ * enabled app rather than trusting one-app-per-repo.
  */
 export async function readLinkedSessions(
   params: { tenantId: string; repository: string; prNumber: number },
-  deps: { chQuery?: ChQueryFn } = {},
+  deps: { chQuery?: ChQueryFn | null } = {},
 ): Promise<LinkedSessionRow[] | null> {
   const { tenantId, repository, prNumber } = params;
   const admin = getAdminDataClient();
@@ -164,8 +175,20 @@ export async function readLinkedSessions(
   const sessionIdByTrace = new Map(confirmed.map((l) => [l.trace_id, l.session_id]));
   const traceIds = [...new Set(confirmed.map((l) => l.trace_id))];
 
-  const chQuery = deps.chQuery ?? tenantChQuery({ tenantId });
-  if (!chQuery) return [];
+  // `'chQuery' in deps` (not `??`) distinguishes "the caller passed its own
+  // resolved client, even if that resolved to null" from "the caller passed
+  // nothing, resolve our own" — a caller like `refreshPrSessionComment` that
+  // already called `tenantChQuery` must not have this module call it AGAIN
+  // and silently diverge if the two calls ever behaved differently.
+  const chQuery = "chQuery" in deps ? deps.chQuery : tenantChQuery({ tenantId });
+  if (!chQuery) {
+    // Confirmed links are real; rendering the empty state over them would
+    // overwrite a populated comment with "No agent sessions linked yet."
+    // Zero confirmed links is the genuine empty state and needs no
+    // ClickHouse round-trip at all — that case returns [] above, before this
+    // point is ever reached.
+    throw new Error(`ClickHouse unavailable; ${confirmed.length} confirmed links unreadable`);
+  }
 
   const chRows: ChSessionRow[] = [];
   for (let i = 0; i < traceIds.length; i += QUERY_CHUNK) {

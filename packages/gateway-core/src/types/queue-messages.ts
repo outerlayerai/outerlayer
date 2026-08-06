@@ -89,16 +89,19 @@ export const TopicsEnrichmentQueueMessageSchema = z.object({
  * batch touching several sessions on the same PR) coalesces into one comment
  * refresh instead of one per sync. This trades a slice of the p50 ≤ 2 min /
  * p90 ≤ 5 min latency budget for write coalescing and GitHub rate-limit
- * protection. Kept in this ONE place — the consumer (PR 11) reads it from
- * here rather than redefining it.
+ * protection. Kept in this ONE place — the queue consumer reads it from here
+ * rather than redefining it.
  */
 export const PR_COMMENT_QUEUE_DEBOUNCE_SECONDS = 30;
 
 /**
  * One `(tenant, repository, prNumber)` observed in a synced session batch,
  * enqueued by `POST /v1/agents/sync` after the insert is confirmed durable.
- * The consumer (PR 11) coalesces a batch of these by key and POSTs a single
- * internal refresh per PR — at-least-once delivery is safe because the
+ * `repository` here is ClickHouse's `agent_session_summary.GitRepo` join
+ * key (host-qualified, `github.com/owner/repo`), not `git_connection`'s own
+ * `owner/repo` form — the consumer's dashboard call canonicalizes it. The
+ * consumer coalesces a batch of these by key and POSTs a single internal
+ * refresh per PR — at-least-once delivery is safe because the
  * orchestrator's body-hash check makes a duplicate refresh a no-op.
  *
  * Enqueue is best-effort: a producer failure (queue unbound, `sendBatch`

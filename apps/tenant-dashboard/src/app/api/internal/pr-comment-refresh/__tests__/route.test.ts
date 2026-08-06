@@ -1,9 +1,9 @@
 /**
  * POST /api/internal/pr-comment-refresh — batch refresh, called by the
- * Cloudflare Worker queue consumer (PR 11) and the cron gap-repair sweep
- * (PR 12). `refreshPrSessionComment` is a true seam here (mocked) — this
- * route's own job is auth, batch validation, and per-item status shaping,
- * not the orchestration itself (covered by `refresh.test.ts`).
+ * Cloudflare Worker queue consumer and the cron gap-repair sweep.
+ * `refreshPrSessionComment` is a true seam here (mocked) — this route's own
+ * job is auth, batch validation, and per-item status shaping, not the
+ * orchestration itself (covered by `refresh.test.ts`).
  */
 
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";

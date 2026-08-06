@@ -2,12 +2,12 @@
  * Read layer behind the PR session comment: pins tenancy scoping (the
  * `git_connection`-enabled fan-out, the `pr_comments_enabled` gate) and the
  * verification filter that makes "unverified links never render" true by
- * construction (see the plan's PR 3). ClickHouse is the injected `chQuery`
- * seam — no live ClickHouse server involved. `git_connection` reads run
- * through a local MSW override (below) because the shared
- * `managed-deployment-tables.ts` handler doesn't emulate the `tenant_id` /
- * `pr_comments_enabled` filters this module actually sends — without that,
- * a test could pass on broken production code that forgot the filter.
+ * construction. ClickHouse is the injected `chQuery` seam — no live
+ * ClickHouse server involved. `git_connection` reads run through a local
+ * MSW override (below) because the shared `managed-deployment-tables.ts`
+ * handler doesn't emulate the `tenant_id` / `pr_comments_enabled` filters
+ * this module actually sends — without that, a test could pass on broken
+ * production code that forgot the filter.
  */
 import { http, HttpResponse } from "msw";
 import { getEqParam } from "@repo/test-msw";
@@ -26,7 +26,7 @@ import { readLinkedSessions } from "../read";
 const SUPABASE_URL = "http://localhost:54321";
 
 const TENANT = "tenant-1";
-const REPO = "github.com/acme/api";
+const REPO = "acme/api";
 const PR = 42;
 
 interface GitConnectionSeedRow {
@@ -320,7 +320,7 @@ describe("readLinkedSessions", () => {
     expect(params).toEqual({ tenantId: TENANT, traceIds: ["t1"] });
   });
 
-  it("degrades to [] when ClickHouse is unavailable (no chQuery override, unconfigured client)", async () => {
+  it("throws when confirmed links exist but no ClickHouse client resolves — never renders the empty state over real links", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
     ]);
@@ -330,8 +330,36 @@ describe("readLinkedSessions", () => {
 
     // No `chQuery` override — falls through to `tenantChQuery`, which
     // returns null in this unit-test environment (no ClickHouse host set).
+    await expect(readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR })).rejects.toThrow(
+      "ClickHouse unavailable; 1 confirmed links unreadable",
+    );
+  });
+
+  it("returns [] (not a throw) when there are zero confirmed links, even with no ClickHouse client", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+
+    // No `chQuery` override and no confirmed links — the genuine empty
+    // state, resolved before ClickHouse ever enters the picture.
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR });
 
     expect(result).toEqual([]);
+  });
+
+  it("throws when the caller explicitly passes a null chQuery despite confirmed links existing", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+
+    // An explicit `null` (what `refreshPrSessionComment` passes when its own
+    // `tenantChQuery` call resolved to null) must not fall back to this
+    // module resolving its own client — the caller already tried.
+    await expect(
+      readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery: null }),
+    ).rejects.toThrow("ClickHouse unavailable; 1 confirmed links unreadable");
   });
 });

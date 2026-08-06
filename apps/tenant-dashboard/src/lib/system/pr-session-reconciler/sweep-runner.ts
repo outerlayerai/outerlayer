@@ -16,8 +16,8 @@ import { sweepChQuery } from "./ch-query";
  * ClickHouse configured skip rather than fail.
  *
  * `changed` is the set of PRs whose links this tick actually moved, already
- * resolved to `(tenantId, repository, prNumber)` — the cron route (PR 12)
- * refreshes exactly these, not every PR the sweep looked at.
+ * resolved to `(tenantId, repository, prNumber)` — the cron route refreshes
+ * exactly these, not every PR the sweep looked at.
  */
 export async function runPrSessionSweep(input: {
   sinceHours: number;

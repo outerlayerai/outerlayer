@@ -32,10 +32,10 @@ import type { ChangedPrTarget } from "@/lib/system/pr-session-reconciler/reconci
  *
  * Finally, refresh the GitHub comment for every PR whose links this tick
  * actually changed (`result.changed`). This is a SAFETY NET, never the
- * comment's primary path — a `pull_request` webhook (PR 9) and a debounced
- * queue off ingest (PRs 10/11) post/update comments within the p50 ≤ 2 min
- * latency budget on their own; this hourly sweep only exists to catch what
- * those miss (an offline machine syncing sessions days late, a dropped queue
+ * comment's primary path — the `pull_request` webhook and a debounced
+ * queue off ingest post/update comments within the p50 ≤ 2 min latency
+ * budget on their own; this hourly sweep only exists to catch what those
+ * miss (an offline machine syncing sessions days late, a dropped queue
  * message). Refreshing every PR the sweep merely looked at — instead of only
  * the ones that changed — would be a rate-limit problem on a busy tenant,
  * so this stays scoped to `result.changed`.

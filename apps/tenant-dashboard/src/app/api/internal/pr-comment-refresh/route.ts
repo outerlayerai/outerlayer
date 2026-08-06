@@ -1,9 +1,9 @@
 /**
  * PR Comment Refresh Route (internal, service-to-service).
  *
- * Called by the Cloudflare Worker queue consumer (PR 11) after coalescing a
- * batch of synced sessions into distinct `(tenant, repository, prNumber)`
- * triples, and by the `pull_request` webhook's cron gap-repair sweep (PR 12).
+ * Called by the Cloudflare Worker queue consumer after coalescing a batch
+ * of synced sessions into distinct `(tenant, repository, prNumber)`
+ * triples, and by the hourly cron gap-repair sweep.
  * At-least-once delivery is expected — duplicates are harmless because
  * `refreshPrSessionComment` short-circuits on an unchanged rendered body
  * hash, so this route adds no caching of its own.

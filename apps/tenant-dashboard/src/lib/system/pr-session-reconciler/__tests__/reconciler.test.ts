@@ -3,9 +3,9 @@
  * mocks); ClickHouse is the injected query seam. Pins the exact link rows
  * written (method tier, verification, conflict-key merge), the
  * never-downgrade rules (pr_link stays pr_link, confirmed stays confirmed),
- * the branch-tier activity-window guard, pending-link aging, and — PR 12 —
- * the `changed` set the cron sweep uses to decide which PRs' GitHub
- * comments to refresh, and its `resolveChangedLinkTargets` repository join.
+ * the branch-tier activity-window guard, pending-link aging, and the
+ * `changed` set the cron sweep uses to decide which PRs' GitHub comments to
+ * refresh, plus its `resolveChangedLinkTargets` repository join.
  */
 import { describe, it, expect, vi } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -155,8 +155,8 @@ describe("reconcileRecentSessions (sweep side)", () => {
     expect(counts.confirmed).toBe(2);
     expect(counts.pending).toBe(1);
     expect(chQuery.mock.calls[0]![1]).toEqual({ sinceHours: 48 });
-    // PR 12: every (app_id, pr_number) that got a brand-new link this tick —
-    // the cron route refreshes exactly these PRs' GitHub comments.
+    // Every (app_id, pr_number) that got a brand-new link this tick — the
+    // cron route refreshes exactly these PRs' GitHub comments.
     expect(counts.changed).toEqual([
       { appId: APP, prNumber: 12 },
       { appId: APP, prNumber: 999 },
@@ -194,9 +194,9 @@ describe("reconcileRecentSessions (sweep side)", () => {
     expect(byId.get("L-found")).toBe("confirmed");
     expect(byId.get("L-fresh")).toBe("pending");
     expect(counts.unmatched).toBe(1);
-    // PR 12: both aging transitions (pending → confirmed, pending →
-    // unmatched) count as a link change — a comment's rendered session list
-    // moves either way. The untouched-fresh link does not.
+    // Both aging transitions (pending → confirmed, pending → unmatched)
+    // count as a link change — a comment's rendered session list moves
+    // either way. The untouched-fresh link does not.
     expect(counts.changed).toEqual([
       { appId: APP, prNumber: 7 },
       { appId: APP, prNumber: 999 },
@@ -204,7 +204,7 @@ describe("reconcileRecentSessions (sweep side)", () => {
   });
 });
 
-describe("resolveChangedLinkTargets (PR 12: changed links → refresh targets)", () => {
+describe("resolveChangedLinkTargets (changed links → refresh targets)", () => {
   const SUPABASE_URL = "http://localhost:54321";
 
   function seedGitConnections(
@@ -228,26 +228,26 @@ describe("resolveChangedLinkTargets (PR 12: changed links → refresh targets)",
 
   it("maps each changed (app_id, pr_number) to (tenantId, repository, prNumber) via git_connection", async () => {
     seedGitConnections([
-      { app_id: "app-1", tenant_id: "tenant-1", repository: "github.com/acme/api" },
-      { app_id: "app-2", tenant_id: "tenant-2", repository: "github.com/acme/web" },
+      { app_id: "app-1", tenant_id: "tenant-1", repository: "acme/api" },
+      { app_id: "app-2", tenant_id: "tenant-2", repository: "acme/web" },
     ]);
     const targets = await resolveChangedLinkTargets(getAdminDataClient(), [
       { appId: "app-1", prNumber: 42 },
       { appId: "app-2", prNumber: 7 },
     ]);
     expect(targets).toEqual([
-      { tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 42 },
-      { tenantId: "tenant-2", repository: "github.com/acme/web", prNumber: 7 },
+      { tenantId: "tenant-1", repository: "acme/api", prNumber: 42 },
+      { tenantId: "tenant-2", repository: "acme/web", prNumber: 7 },
     ]);
   });
 
   it("drops a pair whose app has no git_connection row rather than failing the sweep", async () => {
-    seedGitConnections([{ app_id: "app-1", tenant_id: "tenant-1", repository: "github.com/acme/api" }]);
+    seedGitConnections([{ app_id: "app-1", tenant_id: "tenant-1", repository: "acme/api" }]);
     const targets = await resolveChangedLinkTargets(getAdminDataClient(), [
       { appId: "app-1", prNumber: 42 },
       { appId: "app-missing", prNumber: 8 },
     ]);
-    expect(targets).toEqual([{ tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 42 }]);
+    expect(targets).toEqual([{ tenantId: "tenant-1", repository: "acme/api", prNumber: 42 }]);
   });
 
   it("returns an empty array without querying git_connection when nothing changed", async () => {

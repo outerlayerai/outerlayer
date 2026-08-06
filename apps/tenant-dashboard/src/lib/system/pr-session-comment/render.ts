@@ -1,8 +1,8 @@
 import type { LinkedSessionRow } from "./read";
 
 /**
- * The renderer behind the PR session comment: `rows` (PR 3's
- * `readLinkedSessions`) + `topics` (PR 4's `readTopicLabels`) + `links` (this
+ * The renderer behind the PR session comment: `rows` (from
+ * `readLinkedSessions`) + `topics` (from `readTopicLabels`) + `links` (this
  * module's own data param, see {@link RenderLinks}) → a single markdown
  * string.
  *
@@ -19,17 +19,18 @@ import type { LinkedSessionRow } from "./read";
  */
 
 /**
- * GitHub's issue-comment body limit (risk R3). There is deliberately no row
- * cap on the table (decision 11: "if we have this problem we are in a good
- * spot"), so this module enforces the ceiling itself: a body that would
- * exceed it falls back to the header plus the dashboard link.
+ * GitHub's issue-comment body limit. There is deliberately no row cap on
+ * the table — a PR with enough linked sessions to hit this ceiling means
+ * the feature is working well beyond expectations, not misbehaving — so
+ * this module enforces the ceiling itself: a body that would exceed it
+ * falls back to the header plus the dashboard link.
  * https://docs.github.com/en/rest/issues/comments — body max length.
  */
 const GITHUB_COMMENT_BODY_LIMIT = 65536;
 
 /**
  * `ErrorCount` above this on a single session's rollup counts as an "error
- * storm" for the trouble badge (decision 14). Chosen well above the noise of
+ * storm" for the trouble badge. Chosen well above the noise of
  * a normal session with a handful of retried tool calls, while still well
  * under what a genuinely stuck session accumulates. Provider errors
  * (`ApiErrorCount > 0`) always badge regardless of this threshold — a single
@@ -42,7 +43,7 @@ const ERROR_STORM_THRESHOLD = 10;
  * parameter (never resolved here) so this module stays pure: the read layer
  * resolves `appId`/`appName`/`envName` per row but deliberately does not
  * build URL strings, and `orgName` isn't on the row at all (the read layer
- * has no org context). The orchestrator (PR 7) resolves `orgName` and the
+ * has no org context). The orchestrator resolves `orgName` and the
  * dashboard origin and passes them through.
  */
 export interface RenderLinks {
@@ -143,7 +144,7 @@ export function renderComment(
     0,
   );
   // Header totals are sums over every linked session, never a per-PR cost
-  // claim (decision 12) — a session spanning 3 PRs counts fully in all 3.
+  // claim — a session spanning 3 PRs counts fully in all 3.
   // AC-057-01 requires the header be labeled with that exact phrase, so a
   // reader never mistakes it for a per-PR attribution.
   const totalCost = rows.reduce((sum, row) => sum + row.costUsd, 0);
@@ -153,10 +154,10 @@ export function renderComment(
   const tableHeader = "| Session | Topics | Duration | Cost | Models |\n| ------- | ------ | -------- | ---- | ------ |";
   const tableRows = rows.map((row) => renderRow(row, topics, links));
 
-  // Decision 9: rows can span more than one app in the tenant. A single
-  // whole-PR dashboard link only makes sense when every row resolves to the
-  // same app/env scope; otherwise it's omitted and readers rely on each
-  // row's own deep link.
+  // Rows can span more than one app in the tenant. A single whole-PR
+  // dashboard link only makes sense when every row resolves to the same
+  // app/env scope; otherwise it's omitted and readers rely on each row's
+  // own deep link.
   const distinctAppEnv = new Set(rows.map((row) => `${row.appName} ${row.envName}`));
   const firstRow = rows[0];
   const footer =
@@ -172,9 +173,9 @@ export function renderComment(
     return body;
   }
 
-  // Risk R3: GitHub rejects comment bodies over 65536 characters, and this
-  // feature deliberately has no row cap (decision 11). Fall back to the
-  // header plus the dashboard link (when one exists) rather than posting a
-  // body GitHub will reject outright.
+  // GitHub rejects comment bodies over 65536 characters, and this feature
+  // deliberately has no row cap. Fall back to the header plus the dashboard
+  // link (when one exists) rather than posting a body GitHub will reject
+  // outright.
   return footer ? `${header}\n\n${footer}` : header;
 }

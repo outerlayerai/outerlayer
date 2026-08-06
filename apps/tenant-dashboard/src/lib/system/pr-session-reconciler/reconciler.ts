@@ -26,11 +26,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * `branch`.
  *
  * `reconcileRecentSessions` also reports which `(app_id, pr_number)` pairs
- * it actually changed (`ChangedLink`) — the gap-repair cron sweep (PR 12) is
- * a safety net for offline machines and dropped queue messages, NOT the
- * comment's primary trigger (that's the webhook and the debounced queue,
- * PRs 9/10/11); it only needs to refresh GitHub for PRs whose links moved,
- * never the full set the sweep looked at.
+ * it actually changed (`ChangedLink`) — the gap-repair cron sweep is a
+ * safety net for offline machines and dropped queue messages, NOT the
+ * comment's primary trigger (that's the `pull_request` webhook and the
+ * debounced queue off session sync); it only needs to refresh GitHub for
+ * PRs whose links moved, never the full set the sweep looked at.
  */
 
 const PULL_REQUEST_SESSION_TABLE = "pull_request_session";
@@ -74,11 +74,11 @@ interface LinkUpsert {
 
 /** A `(app_id, pr_number)` pair whose `pull_request_session` links actually
  * changed during a sweep — new row, method upgrade, or a verification
- * transition (pending → confirmed/unmatched). This is what PR 12's cron
- * route refreshes; a pair the sweep merely re-touched with no material
- * change is NOT included, so a fully-converged tenant costs zero GitHub
- * reads on every hourly tick. */
-export interface ChangedLink {
+ * transition (pending → confirmed/unmatched). This is what the cron route
+ * refreshes; a pair the sweep merely re-touched with no material change is
+ * NOT included, so a fully-converged tenant costs zero GitHub reads on
+ * every hourly tick. */
+interface ChangedLink {
   appId: string;
   prNumber: number;
 }
@@ -118,7 +118,8 @@ function chDateTime(iso: string | Date): string {
  * and never regressing `confirmed` to `pending`. Existing rows win ties.
  * Returns the `pr_number`s among `rows` whose stored method or verification
  * actually differs from what was there before (or is a brand-new row) — the
- * signal PR 12's sweep uses to decide which PRs' GitHub comments to refresh. */
+ * signal the cron gap-repair sweep uses to decide which PRs' GitHub comments
+ * to refresh. */
 async function upsertLinks(
   supabase: SupabaseClient,
   appId: string,

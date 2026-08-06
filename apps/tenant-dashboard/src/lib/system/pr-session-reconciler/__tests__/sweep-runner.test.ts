@@ -2,7 +2,7 @@
  * runPrSessionSweep — the service-layer cron entry. Pins the skip contract
  * (no ClickHouse → skipped, no reconcile attempted), the pass-through
  * (admin client + window into reconcileRecentSessions, counts back out),
- * and PR 12's addition: the sweep's `changed` links are resolved to
+ * and that the sweep's `changed` links are resolved to
  * `(tenantId, repository, prNumber)` via `resolveChangedLinkTargets` before
  * reaching the cron route.
  */

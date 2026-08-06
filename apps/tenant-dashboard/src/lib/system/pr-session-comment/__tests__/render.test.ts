@@ -223,9 +223,9 @@ describe("renderComment", () => {
     expect(body).toContain("&src=pr-comment");
   });
 
-  // Risk R3: GitHub rejects issue-comment bodies over 65536 characters, and
-  // this feature has no row cap by design (decision 11) — the renderer must
-  // fall back rather than emit a body GitHub will reject.
+  // GitHub rejects issue-comment bodies over 65536 characters, and this
+  // feature has no row cap by design — the renderer must fall back rather
+  // than emit a body GitHub will reject.
   it("falls back to the header plus dashboard link when the body would exceed GitHub's comment limit", () => {
     const rows: LinkedSessionRow[] = Array.from({ length: 2000 }, (_, i) =>
       row({ traceId: `trace-${i}`, title: `Session number ${i} doing a lot of things` }),

@@ -16,10 +16,10 @@ in `apps/tenant-dashboard/src/lib/system/git/github/client.ts`) need the
 **`issues: write`** permission on the app's manifest. The app does not
 currently hold it.
 
-This is decision 1 in the implementation plan
-(`~/.claude/plans/github-pr-session-comment.md`), and risk R1: **one app,
-one identity, no second GitHub App** — accepting that the permission grant
-itself has a real cost to every existing installation.
+This feature deliberately extends the existing GitHub App rather than
+registering a second one: **one app, one identity, no second GitHub App** —
+accepting that the permission grant itself has a real cost to every existing
+installation.
 
 ## What changing the permission actually does
 
@@ -101,7 +101,7 @@ very different things. Do not guess — check in this order:
    This is an app-level, cross-repo state — if one repo shows it, every repo
    under that installation is in the same state.
 2. **Toggle disabled by the customer.** `git_connection.pr_comments_enabled`
-   is a per-app boolean, default `true` (decision 13). If it's `false`, the
+   is a per-app boolean, default `true`. If it's `false`, the
    customer turned the feature off for that app themselves; existing comments
    are left in place (never deleted) but no further writes happen.
    `readLinkedSessions` (`apps/tenant-dashboard/src/lib/system/pr-session-comment/read.ts`)

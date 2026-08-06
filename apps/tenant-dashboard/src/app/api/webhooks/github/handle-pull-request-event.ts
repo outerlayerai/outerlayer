@@ -10,8 +10,8 @@ import { refreshPrSessionComment } from "@/lib/system/pr-session-comment";
 
 /**
  * Actions that (re)materialize a PR's diff/session set and therefore warrant
- * a comment refresh. `opened`/`reopened` is the empty-state trigger (PR 9) —
- * this is what puts a "No agent sessions linked yet" comment on every PR of
+ * a comment refresh. `opened`/`reopened` is the empty-state trigger — this
+ * is what puts a "No agent sessions linked yet" comment on every PR of
  * a connected repo from the moment it opens, so a *missing* comment reliably
  * means "app not connected". `synchronize` (a new push) is what keeps it
  * current as sessions link in. Everything else (labeled, review activity,

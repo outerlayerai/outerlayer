@@ -1,14 +1,19 @@
 /**
- * refreshPrSessionComment: the orchestrator that composes readLinkedSessions
- * (PR 3), readTopicLabels (PR 4), renderComment (PR 5), and the GitHub
- * issue-comment client (PR 6) into one idempotent write, guarded by the
- * `pr_session_comment` identity row.
+ * refreshPrSessionComment: the orchestrator that composes readLinkedSessions,
+ * readTopicLabels, renderComment, and the GitHub issue-comment client into
+ * one idempotent write, guarded by the `pr_session_comment` identity row.
  *
  * The GitHub client is always injected via `deps.githubClient` — a real
  * installation Octokit client needs a network round-trip to mint, and this
  * module's own installation lookup is skipped entirely once a client is
  * injected (see `refresh.ts`), so these tests never touch `git_connection`
  * for that purpose.
+ *
+ * `REPO` is seeded in `git_connection.repository`'s own `owner/repo` format
+ * — the format the `pull_request` webhook and the cron sweep pass. A
+ * separate test below covers the queue path's host-qualified
+ * `github.com/owner/repo` form to pin the canonicalization at the top of
+ * `refreshPrSessionComment`.
  */
 import { http, HttpResponse } from "msw";
 import { getEqParam } from "@repo/test-msw";
@@ -37,7 +42,7 @@ import type { IssueCommentResult } from "@/lib/system/git/github/client";
 const SUPABASE_URL = "http://localhost:54321";
 
 const TENANT = "tenant-1";
-const REPO = "github.com/acme/api";
+const REPO = "acme/api";
 const PR = 812;
 
 interface GitConnectionSeedRow {
@@ -372,8 +377,8 @@ describe("refreshPrSessionComment", () => {
 
     expect(result).toEqual({ status: "not-permitted" });
     expect(getPrSessionCommentRows()).toEqual([]);
-    // Visibility surface (PR 15): the missing-permission path is routed
-    // through `serverLogger.info`, not a bare `console.warn`, so it reaches
+    // Visibility surface for the rollout: the missing-permission path is
+    // routed through `serverLogger.info`, not a bare `console.warn`, so it reaches
     // Logtail in production and is queryable there — see
     // docs/pr-session-comment-permission-rollout.md. `.info`, not `.error`:
     // this is expected steady-state while an installation is pending admin
@@ -387,5 +392,35 @@ describe("refreshPrSessionComment", () => {
         prNumber: PR,
       }),
     );
+  });
+
+  // Fix for the queue path silently no-op'ing in production: git_connection
+  // stores "acme/api", but the queue delivers ClickHouse's host-qualified
+  // GitRepo join key ("github.com/acme/api"). Every downstream read/write
+  // must key off the canonical "acme/api" form regardless of which format
+  // arrived in `params.repository`.
+  it("canonicalizes a github.com/-prefixed repository (the queue's delivery format) before every downstream call", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue({
+      status: "ok",
+      id: 555,
+      body: "body",
+      htmlUrl: "https://github.com/acme/api/issues/812#issuecomment-555",
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: `github.com/${REPO}`, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 555 });
+    expect(githubClient.createIssueComment).toHaveBeenCalledWith(REPO, PR, expect.any(String));
+    expect(getPrSessionCommentRows()).toEqual([
+      expect.objectContaining({ repository: REPO, tenant_id: TENANT, pr_number: PR }),
+    ]);
   });
 });

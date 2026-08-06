@@ -4,9 +4,9 @@
  * The route is thin: authenticate the cron bearer, clamp the windows,
  * delegate to runPrSessionSweep then runOutcomeScoresSweep (mocked seams —
  * their logic is tested in reconciler.test.ts / emit.test.ts), refresh the
- * GitHub comment for each PR the sweep's `changed` set names (PR 12's
- * gap-repair — refreshPrSessionComment is mocked here too, its own logic is
- * tested in refresh.test.ts), and map the results to a status. Pins the
+ * GitHub comment for each PR the sweep's `changed` set names (the
+ * gap-repair path — refreshPrSessionComment is mocked here too, its own
+ * logic is tested in refresh.test.ts), and map the results to a status. Pins the
  * auth gate, the clamp bounds, the reconcile-before-emit order, the skipped
  * paths, the error → 500 map, and that an unchanged sweep refreshes nothing.
  */
@@ -48,7 +48,7 @@ import { GET } from "../route";
 
 const COUNTS = { candidates: 3, linked: 2, confirmed: 1, pending: 1, unmatched: 0 };
 const OUTCOME_COUNTS = { skipped: false, apps: 1, prs: 2, scoreRows: 6 };
-const CHANGED = [{ tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 42 }];
+const CHANGED = [{ tenantId: "tenant-1", repository: "acme/api", prNumber: 42 }];
 
 function cronRequest(query = "", token = "test-cron-secret"): NextRequest {
   return new NextRequest(`http://localhost/api/cron/pr-session-reconcile${query}`, {
@@ -166,7 +166,7 @@ describe("GET /api/cron/pr-session-reconcile", () => {
   });
 
   it("does not abort the sweep response when a refresh fails or throws", async () => {
-    const target2 = { tenantId: "tenant-1", repository: "github.com/acme/api", prNumber: 43 };
+    const target2 = { tenantId: "tenant-1", repository: "acme/api", prNumber: 43 };
     mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: [CHANGED[0]!, target2] });
     mockRefreshComment
       .mockResolvedValueOnce({ status: "failed", reason: "boom" })
