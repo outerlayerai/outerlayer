@@ -6,6 +6,19 @@ import { parseRevertTarget } from "@/lib/system/pr-tracking/revert-detection";
 import { reconcilePullRequest, tenantChQuery } from "@/lib/system/pr-session-reconciler";
 import { emitOutcomeScoresForPrs, scoresInsertFn } from "@/lib/system/outcome-scores";
 import { repoJoinKey } from "@/lib/system/workers/persist-agent-session";
+import { refreshPrSessionComment } from "@/lib/system/pr-session-comment";
+
+/**
+ * Actions that (re)materialize a PR's diff/session set and therefore warrant
+ * a comment refresh. `opened`/`reopened` is the empty-state trigger (PR 9) —
+ * this is what puts a "No agent sessions linked yet" comment on every PR of
+ * a connected repo from the moment it opens, so a *missing* comment reliably
+ * means "app not connected". `synchronize` (a new push) is what keeps it
+ * current as sessions link in. Everything else (labeled, review activity,
+ * `closed`, ...) leaves the comment untouched — no new session-linking
+ * information arrives on those actions.
+ */
+const COMMENT_REFRESH_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
 
 /**
  * Minimal shape of a GitHub `pull_request` webhook payload (only the fields we
@@ -199,6 +212,30 @@ export async function handlePullRequestEvent(
           app_id,
           pr_number: pr.number,
         });
+      }
+
+      // Refresh the PR session comment — AFTER reconciliation, so the
+      // rendered body reflects the links reconciliation just materialized
+      // (an empty result still renders the "No agent sessions linked yet"
+      // empty state; see COMMENT_REFRESH_ACTIONS above). `refreshPrSessionComment`
+      // is documented to never throw, but the call is still wrapped
+      // defensively: a `pull_request` webhook must not 500 because a comment
+      // failed, including on an unanticipated rejection this function didn't
+      // itself anticipate.
+      if (COMMENT_REFRESH_ACTIONS.has(payload.action)) {
+        try {
+          await refreshPrSessionComment({
+            tenantId: tenant_id,
+            repository,
+            prNumber: pr.number,
+          });
+        } catch (commentError) {
+          await serverLogger.error(commentError as Error, {
+            context: "[GitHub Webhook] pr-session comment refresh failed",
+            app_id,
+            pr_number: pr.number,
+          });
+        }
       }
     }
 
