@@ -15,8 +15,6 @@ import type { Env } from '../types';
 
 // Route imports
 import { SyncAgentSessions, GetAgentBlob } from './routes/agents';
-import { IngestEvalTrials } from './routes/eval-trials';
-import { GetEvalRunJob, ReportEvalRunStatus, CreateEvalEscalation } from './routes/eval-runs';
 import { ListSpans, SearchSpans, GetSpan, GetBlob } from './routes/spans';
 import { CreateScore, CreateScoresBatch, ListScores, SearchScores, GetScore, GetScoreAggregations, GetScoreNames, DeleteScore } from './routes/scores';
 import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
@@ -523,7 +521,6 @@ export const openApiApp = fromHono(app, {
     ],
     tags: [
       { name: 'Agents', description: 'Coding-agent session ingest (outerlayer sync) and content-addressed session images.' },
-      { name: 'Evals', description: 'Eval trial-result ingest: per-trial score rows plus full-fidelity artifact blobs.' },
       { name: 'Spans', description: 'Query individual spans across traces.' },
       { name: 'Scoring', description: 'Create, retrieve, list, and delete score records for spans and traces.' },
       { name: 'Search', description: 'Structured-filter search across observability resources.' },
@@ -721,16 +718,6 @@ registerAuthenticatedRoute('get', '/v1/workers/environments/:envId', GetWorkerSe
 registerAuthenticatedRoute('post', '/v1/agents/sync', SyncAgentSessions);
 registerAuthenticatedRoute('get', '/v1/agents/blob/:sha256', GetAgentBlob);
 
-// Eval trial results — the Fly eval worker persists full
-// TrialResults here: thin score rows + a full-fidelity artifact blob.
-registerAuthenticatedRoute('post', '/v1/evals/trials', IngestEvalTrials);
-// Eval worker control plane (least-privilege worker): the per-run key is the
-// worker's ONLY credential — job read, lifecycle reporting (terminal statuses
-// auto-revoke the key), and the escalation sink.
-registerAuthenticatedRoute('get', '/v1/evals/runs/:runId/job', GetEvalRunJob);
-registerAuthenticatedRoute('post', '/v1/evals/runs/:runId/status', ReportEvalRunStatus);
-registerAuthenticatedRoute('post', '/v1/evals/escalations', CreateEvalEscalation);
-
 // ============================================================================
 // Spans routes
 // ============================================================================
@@ -761,7 +748,7 @@ registerAuthenticatedRoute('delete', '/v1/scores/:scoreId', DeleteScore);
 // ============================================================================
 
 // ============================================================================
-// Datasets routes (shared with the evals product — task mining + run inputs)
+// Datasets routes (task mining + run inputs)
 // ============================================================================
 
 // ============================================================================

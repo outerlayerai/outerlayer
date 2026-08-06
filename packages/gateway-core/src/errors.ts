@@ -33,9 +33,6 @@ export type GatewayErrorCode =
   | 'duplicate_api_key_name'
   // Deployments
   | 'deployment_not_found'
-  // Eval runs (worker control plane — the per-run key's endpoints)
-  | 'eval_run_not_found'
-  | 'eval_run_conflict'
   // Cloud workers
   | 'worker_run_not_found'
   | 'worker_session_not_found'

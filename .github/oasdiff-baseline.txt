@@ -288,3 +288,14 @@ in API POST /v1/traces/search api path removed without deprecation
 in API GET /v1/traces/{traceId} api path removed without deprecation
 in API GET /v1/traces/{traceId}/spans api path removed without deprecation
 in API GET /v1/traces/{traceId}/spans/{spanId} api path removed without deprecation
+
+# --- eval/benchmark subsystem retirement ---
+# The eval (benchmark) product is retired: its dashboard surface, DB tables,
+# and the Fly eval worker are gone, so the worker control plane and the
+# trial-result ingest have no callers left. One literal line per retired
+# operation (oasdiff ignore matches substrings, not regex) — an accidental
+# removal of any KEPT route still fails the gate.
+in API GET /v1/evals/runs/{runId}/job api path removed without deprecation
+in API POST /v1/evals/runs/{runId}/status api path removed without deprecation
+in API POST /v1/evals/escalations api path removed without deprecation
+in API POST /v1/evals/trials api path removed without deprecation
