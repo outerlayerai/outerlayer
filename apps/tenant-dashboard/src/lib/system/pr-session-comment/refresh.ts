@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { APP_URL } from "@/config-global";
 import { getAdminDataClient } from "@/lib/system/admin-client";
 import { getGithubApp } from "@/octo-kit";
 import { GitHubProvider, type IssueCommentResult } from "@/lib/system/git/github/client";
@@ -121,16 +122,6 @@ async function resolveOrgName(admin: AdminClient, tenantId: string): Promise<str
 }
 
 /**
- * The dashboard origin for deep links. Same production/dev split
- * `membership-service.ts` uses for its email templates — this codebase has
- * no `NEXT_PUBLIC_APP_URL`-style env var for the server-rendered dashboard
- * origin, just this convention.
- */
-function resolveBaseUrl(): string {
-  return process.env.NODE_ENV === "production" ? "https://app.agentmark.co" : "http://localhost:3002";
-}
-
-/**
  * An installation id for `(tenantId, repository)` from any
  * `pr_comments_enabled` connection — the same scope `readLinkedSessions`
  * already proved non-empty (it returned non-null), so this is a second,
@@ -208,7 +199,7 @@ export async function refreshPrSessionComment(
     const admin = getAdminDataClient();
     const orgName = await resolveOrgName(admin, tenantId);
     const links: RenderLinks = {
-      baseUrl: resolveBaseUrl(),
+      baseUrl: APP_URL,
       orgName: orgName ?? tenantId,
       prNumber,
     };
