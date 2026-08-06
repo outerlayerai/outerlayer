@@ -11,6 +11,13 @@ const LEGACY_HOSTS = ["agentmark.co", "www.agentmark.co"]
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
+  /**
+   * `next dev` writes AGENTS.md and CLAUDE.md into this directory whenever it
+   * detects a coding agent in the environment, so the working tree only comes
+   * back dirty for contributors running dev under one. Agent instructions for
+   * this repo do not live per-app, so there is nothing to keep.
+   */
+  agentRules: false,
   transpilePackages: ["@repo/design-tokens"],
   typescript: {
     ignoreBuildErrors: true,
