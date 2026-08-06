@@ -17,8 +17,8 @@ MUI 9: on `Stack`, only `direction`/`spacing` are first-class props — put
 - New code goes in `src/features/<domain>/` slices or the `src/lib` tiers
   (`action-kit`, `system`, `adapters`, `app-shell`, `analytics`, `api`,
   `tenant`). Enterprise slices live in `ee/features/` (`@ee/features/*`).
-- `src/sections`, `src/services`, `src/auth`, and the root
-  `supabase*Client.ts` wrappers are **legacy and shrinking** — do not extend
+- `src/sections`, `src/auth`, and the root `supabase*Client.ts` wrappers
+  (`src/supabaseAdminClient.ts` etc.) are **legacy and shrinking** — do not extend
   them. New-world imports of them are lint-banned except through
   `src/lib/adapters/` (server) / `src/lib/app-shell/` (client).
 

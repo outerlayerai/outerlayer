@@ -14,7 +14,7 @@ the architecture contract; read it before editing anything there.
 - `apps/gateway` / `apps/gateway-node` — Hono gateway (Cloudflare Worker + Node entrypoints)
 - `apps/worker` — machine-side runner; deliberately has no `@repo/*` runtime deps — keep it that way
 - `packages/*` — shared cores, contracts (`api-schemas`, `api-types`, `db-types`), tooling
-- `supabase/schemas/` — declarative DB source of truth (migrations derive from it)
+- `apps/tenant-dashboard/supabase/schemas/` — declarative DB source of truth (migrations derive from it)
 - `acceptance/` — acceptance criteria bound to tests by CI
 
 ## Commands
@@ -31,7 +31,7 @@ moves the failure to CI and makes the PR red.
 ## Database changes
 
 - Operate on **local** Supabase only — never a linked cloud project.
-- `supabase/schemas/` is the source of truth. Update the schema first, then
+- `apps/tenant-dashboard/supabase/schemas/` is the source of truth. Update the schema first, then
   derive the migration; keep both in sync in the same change.
 - Permission enums are granular (`read`/`write`/`update`/`delete`) — never a
   catch-all `manage`. Follow the existing pattern in `01-types.sql`.
@@ -85,10 +85,11 @@ when you improve a score.
 Removing a feature means removing its whole footprint, not just its UI.
 Grep the feature's identifiers with `rg --hidden` and sweep:
 
-- env schema (`env.ts`, gateway `EnvSchema`), `wrangler.toml`,
-  `.env.example`, turbo `passThroughEnv`, CI placeholder env values
-- i18n namespaces (`src/locales/langs/`), `paths.ts` URL builders and their
-  tests, `next.config.mjs` redirects
+- env schema (tenant-dashboard `src/env.ts`, gateway `EnvSchema`),
+  `apps/gateway/wrangler.toml`, `.env.example`, turbo `passThroughEnv`, CI
+  placeholder env values
+- i18n namespaces (`src/locales/langs/`), `src/routes/paths.ts` URL builders
+  and their tests, `next.config.mjs` redirects
 - workflow paths-filters, cache `hashFiles()` globs, schemathesis tags/paths
 - `knip.json` entries, `scripts/ci/*-floors.json` buckets, eslint exemptions
 - test fixtures and env mocks (plain object mocks don't type-error on removed
