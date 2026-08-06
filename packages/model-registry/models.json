@@ -1,13 +1,13 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-05T00:43:18.000Z",
+  "generatedAt": "2026-08-06T02:50:54.934Z",
   "sources": {
     "litellm": {
-      "fetchedAt": "2026-08-05T00:43:18.000Z",
+      "fetchedAt": "2026-08-06T02:50:54.934Z",
       "modelCount": 1508
     },
     "openrouter": {
-      "fetchedAt": "2026-08-05T00:43:18.000Z",
+      "fetchedAt": "2026-08-06T02:50:54.934Z",
       "modelCount": 129
     }
   },
@@ -29035,9 +29035,9 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.00000275,
-        "outputCostPerToken": 0.0000165,
-        "cacheReadCostPerToken": 2.75e-7
+        "inputCostPerToken": 0.0000022,
+        "outputCostPerToken": 0.0000132,
+        "cacheReadCostPerToken": 2.2e-7
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -29060,9 +29060,9 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.0000011,
-        "outputCostPerToken": 0.0000066,
-        "cacheReadCostPerToken": 1.1e-7
+        "inputCostPerToken": 2.2e-7,
+        "outputCostPerToken": 0.00000132,
+        "cacheReadCostPerToken": 2.2e-8
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -29135,9 +29135,9 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.00000275,
-        "outputCostPerToken": 0.0000165,
-        "cacheReadCostPerToken": 2.75e-7
+        "inputCostPerToken": 0.0000022,
+        "outputCostPerToken": 0.0000132,
+        "cacheReadCostPerToken": 2.2e-7
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -29160,9 +29160,9 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.0000011,
-        "outputCostPerToken": 0.0000066,
-        "cacheReadCostPerToken": 1.1e-7
+        "inputCostPerToken": 2.2e-7,
+        "outputCostPerToken": 0.00000132,
+        "cacheReadCostPerToken": 2.2e-8
       },
       "context": {
         "maxInputTokens": 1050000,
