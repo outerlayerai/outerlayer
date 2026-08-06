@@ -18,6 +18,7 @@ import {
   extendZodWithOpenApi,
 } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
+import type { OpenAPIObject } from 'openapi3-ts/oas30';
 
 extendZodWithOpenApi(z);
 
@@ -26,8 +27,12 @@ export const dashboardApiRegistry = new OpenAPIRegistry();
 /**
  * Generate an OpenAPI 3.0.3 document from the current registry state.
  * Called by `scripts/generate-openapi.ts`.
+ *
+ * The explicit return type pins the `openapi3-ts` version TypeScript resolves
+ * this to — without it, the inferred type points at zod-to-openapi's own
+ * nested `openapi3-ts` copy, which isn't nameable from outside the package.
  */
-export function generateDashboardSpec() {
+export function generateDashboardSpec(): OpenAPIObject {
   const generator = new OpenApiGeneratorV3(dashboardApiRegistry.definitions);
 
   return generator.generateDocument({
