@@ -13,7 +13,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250214.0",
+    "@cloudflare/workers-types": "^5.20260730.1",
     "@repo/typescript-config": "*",
     "@vitest/coverage-v8": "^4.1.8",
     "typescript": "^5.5.3",
