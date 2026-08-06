@@ -29,11 +29,14 @@ describe('deployment-history schema invariant — promotion_history is never cre
       .limit(1);
 
     // Assert — the query did not return rows, and the error names the missing
-    // relation. PostgreSQL reports a missing table with SQLSTATE `42P01`
-    // ("undefined_table"); the message also names the relation.
+    // relation. PostgreSQL itself reports a missing table with SQLSTATE
+    // `42P01` ("undefined_table"); PostgREST's schema cache can also reject
+    // the query upfront with its own `PGRST205` ("table not found in schema
+    // cache") before the query ever reaches Postgres. Either way the relation
+    // is confirmed absent, so both codes prove the invariant.
     expect(data).toBeNull();
     expect(error).not.toBeNull();
-    expect(error!.code).toBe('42P01');
+    expect(['42P01', 'PGRST205']).toContain(error!.code);
     expect(error!.message).toMatch(/promotion_history/i);
   });
 });

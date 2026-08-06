@@ -30,7 +30,7 @@ describe('Supabase API Contract Tests', () => {
       expect(error).not.toBeNull();
       expect(error?.code).toBe('PGRST116');
       // Error message varies by Supabase version - just verify it indicates no/multiple rows issue
-      expect(error?.message).toMatch(/rows|JSON object requested/);
+      expect(error?.message).toMatch(/rows|JSON object requested|Cannot coerce the result to a single/);
     });
 
     it('should return data (not array) when .single() finds exactly one row', async () => {

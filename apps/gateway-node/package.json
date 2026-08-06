@@ -16,12 +16,11 @@
     "@repo/gateway-core": "workspace:*",
     "esbuild": "^0.28.1",
     "hono": "^4.12.21",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.6.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "@types/node-cron": "^3.0.11",
     "tsx": "^4.22.4",
     "typescript": "^5.5.4",
     "vitest": "^4.1.8"
