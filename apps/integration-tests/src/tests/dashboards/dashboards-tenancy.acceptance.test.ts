@@ -26,7 +26,7 @@
  *
  * `dashboard`/`dashboard_widget` are absent from the generated Database type
  * (a pre-existing gap, not introduced by this slice), so they are addressed
- * through an untyped client, matching `env-escalation-tenancy.acceptance.test.ts`.
+ * through an untyped client.
  */
 
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
