@@ -119,6 +119,7 @@ import {
   agentBlobKey,
   MAX_SYNC_REQUEST_BYTES,
 } from '../routes/agents';
+import { PR_COMMENT_QUEUE_DEBOUNCE_SECONDS } from '../../types/queue-messages';
 
 const createClientMock = vi.mocked(createClient);
 
@@ -176,6 +177,7 @@ function ctxFor(
   body: Record<string, unknown>,
   userOver: UserOver = {},
   reqHeaders: Record<string, string> = {},
+  envOver: Record<string, unknown> = {},
 ): { ctx: AppContext; status: () => number; json: () => any; headers: () => Record<string, string> } {
   let captured: { body: unknown; status: number; headers: Record<string, string> } = {
     body: undefined,
@@ -199,7 +201,7 @@ function ctxFor(
       }
       return undefined;
     },
-    env: { CLICKHOUSE_HOST: 'http://localhost:8123', CLICKHOUSE_PASSWORD: 'x' },
+    env: { CLICKHOUSE_HOST: 'http://localhost:8123', CLICKHOUSE_PASSWORD: 'x', ...envOver },
     req: {
       json: async () => body,
       method: 'POST',
@@ -700,6 +702,132 @@ describe('SyncAgentSessions', () => {
     // The response must carry the error envelope + Retry-After header, not be `{}`.
     expect(res503?.description).toContain('temporarily unavailable');
     expect(res503?.headers?.shape).toHaveProperty('Retry-After');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR_COMMENT_QUEUE enqueue (PR 10 — queue producer at ingest)
+// ---------------------------------------------------------------------------
+
+describe('SyncAgentSessions PR_COMMENT_QUEUE enqueue', () => {
+  function queueMock() {
+    return { sendBatch: vi.fn(async () => {}) };
+  }
+
+  it('enqueues one message per distinct (tenant, repo, prNumber)', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000001',
+            outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' },
+          }),
+        ],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).toHaveBeenCalledTimes(1);
+    const requests = queue.sendBatch.mock.calls[0]![0] as Array<{
+      body: { tenantId: string; repository: string; prNumber: number; enqueuedAt: number };
+      delaySeconds: number;
+    }>;
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.body).toMatchObject({
+      tenantId: 'tenant-1',
+      repository: 'github.com/acme/api',
+      prNumber: 512,
+    });
+    // Delayed delivery IS the debounce — asserted against the single named
+    // constant, not a hardcoded literal.
+    expect(requests[0]!.delaySeconds).toBe(PR_COMMENT_QUEUE_DEBOUNCE_SECONDS);
+  });
+
+  it('dedupes multi-PR / multi-session overlap within one request', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000001',
+            outcome: {
+              prs: [
+                { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' },
+                { prNumber: 600, prUrl: 'https://github.com/acme/api/pull/600' },
+              ],
+            },
+          }),
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000002',
+            outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' },
+          }),
+        ],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    // Two distinct sessions both touching PR 512, plus one touching PR 600 —
+    // must collapse to exactly two messages, not three.
+    expect(queue.sendBatch).toHaveBeenCalledTimes(1);
+    const requests = queue.sendBatch.mock.calls[0]![0] as Array<{
+      body: { tenantId: string; repository: string; prNumber: number };
+    }>;
+    const prNumbers = requests.map((r) => r.body.prNumber).sort((a, b) => a - b);
+    expect(prNumbers).toEqual([512, 600]);
+  });
+
+  it('does not enqueue when no session in the batch carries a PR link', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      { schemaVersion: 1, sessions: [agentSession()] },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).not.toHaveBeenCalled();
+  });
+
+  it('no-ops silently when PR_COMMENT_QUEUE is unbound (queue-less deployment degrades to the cron sweep)', async () => {
+    // No PR_COMMENT_QUEUE in envOver at all — mirrors self-host / local dev.
+    const { ctx, status, json } = ctxFor({
+      schemaVersion: 1,
+      sessions: [agentSession({ outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' } })],
+    });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect((json() as { data: { accepted: string[] } }).data.accepted).toHaveLength(1);
+  });
+
+  it('swallows a sendBatch throw without failing the sync', async () => {
+    const queue = {
+      sendBatch: vi.fn(async () => {
+        throw new Error('queue unavailable');
+      }),
+    };
+    const { ctx, status, json } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [agentSession({ outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' } })],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect((json() as { data: { accepted: string[] } }).data.accepted).toHaveLength(1);
+    expect(queue.sendBatch).toHaveBeenCalledTimes(1);
   });
 });
 
