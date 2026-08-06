@@ -1743,6 +1743,7 @@ export type Database = {
           created_by: string | null
           id: string
           installation_id: number | null
+          pr_comments_enabled: boolean
           provider: string
           repository: string | null
           tenant_id: string
@@ -1757,6 +1758,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           installation_id?: number | null
+          pr_comments_enabled?: boolean
           provider?: string
           repository?: string | null
           tenant_id: string
@@ -1771,6 +1773,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           installation_id?: number | null
+          pr_comments_enabled?: boolean
           provider?: string
           repository?: string | null
           tenant_id?: string
@@ -2182,6 +2185,50 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "profile"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      pr_session_comment: {
+        Row: {
+          created_at: string
+          github_comment_id: number | null
+          id: string
+          last_body_hash: string
+          last_posted_at: string | null
+          pr_number: number
+          repository: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          github_comment_id?: number | null
+          id?: string
+          last_body_hash?: string
+          last_posted_at?: string | null
+          pr_number: number
+          repository: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          github_comment_id?: number | null
+          id?: string
+          last_body_hash?: string
+          last_posted_at?: string | null
+          pr_number?: number
+          repository?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pr_session_comment_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["tenant_id"]
           },
         ]
       }

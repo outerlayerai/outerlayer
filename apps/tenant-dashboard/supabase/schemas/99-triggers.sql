@@ -410,6 +410,10 @@ CREATE OR REPLACE TRIGGER on_update_worker_workspace_set_updated_at
     BEFORE UPDATE ON public.worker_workspace
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_only();
 
+CREATE OR REPLACE TRIGGER on_update_pr_session_comment_set_updated_at
+    BEFORE UPDATE ON public.pr_session_comment
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_only();
+
 -- -----------------------------------------------------------------------------
 -- Realtime Subscriptions
 -- -----------------------------------------------------------------------------
