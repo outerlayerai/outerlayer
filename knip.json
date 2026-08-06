@@ -113,19 +113,9 @@
         "vitest.*.config.ts"
       ]
     },
-    "packages/eval-runner": {
-      "entry": [
-        "*.mjs"
-      ]
-    },
     "packages/session-schema": {
       "entry": [
         "scripts/*.mjs"
-      ]
-    },
-    "packages/provider-e2b": {
-      "entry": [
-        "templates/build-template.mjs"
       ]
     },
     "packages/*": {}

@@ -14,10 +14,9 @@ ways: JSON, terminal, and a **self-contained HTML** artifact.
 
 This package's only runtime dependency is `@outerlayer/task-format`. It takes
 narrow structural views of the upstream reports (`MiningFunnel`, `EnvSummary`,
-`ValidationSummary`, `PowerRow`) rather than importing the miner or
-[`@outerlayer/eval-stats`](../eval-stats) — so the report composes whatever
-those packages emit, and MDE stays sourced from eval-stats alone (the
-CLI/qualify layer wires the real functions in).
+`ValidationSummary`, `PowerRow`) rather than importing the miner or the
+statistics layer — so the report composes whatever those packages emit, and
+the caller (the CLI/qualify layer) wires the real functions in.
 
 ```ts
 import { buildRepoReport, renderReportHtml, renderReportText } from "@outerlayer/repo-report";

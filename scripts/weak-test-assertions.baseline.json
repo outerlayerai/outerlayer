@@ -28,7 +28,6 @@
   "packages/cli/src/__tests__/hook-fast.test.ts": 2,
   "packages/cli/src/__tests__/init.test.ts": 1,
   "packages/env-prep/src/__tests__/ladder.test.ts": 3,
-  "packages/eval-runner/src/__tests__/compose.test.ts": 1,
   "packages/fleet-slo/src/__tests__/fleet.test.ts": 1,
   "packages/model-registry/tests/compat.test.ts": 1,
   "packages/model-registry/tests/integration.test.ts": 2,
