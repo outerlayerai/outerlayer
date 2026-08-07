@@ -110,6 +110,7 @@ enum Types {
   REGISTER = "REGISTER",
   LOGOUT = "LOGOUT",
   SESSION_UPDATE = "SESSION_UPDATE",
+  PERMISSIONS_UPDATE = "PERMISSIONS_UPDATE",
 }
 
 type Payload = {
@@ -124,6 +125,9 @@ type Payload = {
   };
   [Types.SESSION_UPDATE]: {
     user: AuthUserType;
+  };
+  [Types.PERMISSIONS_UPDATE]: {
+    permissions: NonNullable<AuthUserType>["permissions"];
   };
   [Types.LOGOUT]: undefined;
 };
@@ -160,6 +164,20 @@ const reducer = (state: AuthStateType, action: ActionsType) => {
     return {
       ...state,
       user: action.payload.user,
+    };
+  }
+  if (action.type === Types.PERMISSIONS_UPDATE) {
+    // Session death can race the in-flight permissions fetch; never
+    // resurrect a logged-out user from a permissions payload.
+    if (!state.user) {
+      return state;
+    }
+    return {
+      ...state,
+      user: {
+        ...state.user,
+        permissions: action.payload.permissions,
+      },
     };
   }
 
@@ -339,6 +357,15 @@ export function AuthProvider({ children }: Props) {
     orgNameRef.current = orgName;
   }, [orgName]);
 
+  // The URL org the stored `user.permissions` were fetched under.
+  // getCurrentUserPermissions() resolves its tenant from the URL of the
+  // request it rides on, so permissions are only valid for the org that was
+  // in the URL at fetch time. Client-side navigation to a different org
+  // (org switcher, the post-create redirect into a brand-new org, the
+  // post-login redirect off the org-less login page) fires no auth event, so
+  // the effect below is what keeps permissions in step with the URL.
+  const permissionsOrgRef = useRef<string | undefined>(orgName);
+
   useEffect(() => {
     const {
       data: { subscription },
@@ -347,6 +374,7 @@ export function AuthProvider({ children }: Props) {
       setTimeout(async () => {
         if (event === "INITIAL_SESSION") {
           if (session) {
+            permissionsOrgRef.current = orgNameRef.current;
             const permissions = await getCurrentUserPermissions();
             const memberships = await fetchUserMemberships(
               supabase,
@@ -402,6 +430,7 @@ export function AuthProvider({ children }: Props) {
           }
         }
         if (event === "TOKEN_REFRESHED" && session) {
+          permissionsOrgRef.current = orgNameRef.current;
           const permissions = await getCurrentUserPermissions();
           const memberships = await fetchUserMemberships(
             supabase,
@@ -456,6 +485,35 @@ export function AuthProvider({ children }: Props) {
     };
   }, []);
 
+  // Refetch permissions whenever the URL org drifts from the org they were
+  // fetched under. `activeTenant` below already recomputes per render, but
+  // permissions come from the server (role → permission mapping, custom
+  // roles) and go stale on any client-side org change — leaving role-gated
+  // UI (e.g. the Create app button) hidden for an owner until a hard reload.
+  const userId = state.user?.id as string | undefined;
+  useEffect(() => {
+    if (state.loading || !userId) return undefined;
+    if (permissionsOrgRef.current === orgName) return undefined;
+
+    permissionsOrgRef.current = orgName;
+    let stale = false;
+    (async () => {
+      // Rides the current request URL, so the middleware resolves the tenant
+      // for the org now in the URL.
+      const permissions = await getCurrentUserPermissions();
+      // A newer navigation superseded this fetch; its own effect run owns
+      // the update.
+      if (stale || permissionsOrgRef.current !== orgName) return;
+      dispatch({
+        type: Types.PERMISSIONS_UPDATE,
+        payload: { permissions },
+      });
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [orgName, state.loading, userId]);
+
   // LOGIN
   const login = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -486,6 +544,7 @@ export function AuthProvider({ children }: Props) {
       
       throw error;
     } else {
+      permissionsOrgRef.current = orgNameRef.current;
       const permissions = await getCurrentUserPermissions();
       revalidateServerPath("/org");
       const memberships = await fetchUserMemberships(supabase, data.user.id);
@@ -620,6 +679,7 @@ export function AuthProvider({ children }: Props) {
       return;
     }
 
+    permissionsOrgRef.current = orgNameRef.current;
     const permissions = await getCurrentUserPermissions();
     const memberships = await fetchUserMemberships(supabase, currentSession.user.id);
     const activeTenantId = resolveTenantIdForOrgName(memberships, orgNameRef.current);

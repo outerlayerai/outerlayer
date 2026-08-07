@@ -18,6 +18,7 @@ import * as Sentry from '@/lib/observability/error-reporting/sentry';
 
 import { AuthContext } from '../auth-context';
 import { server } from '../../../test-helpers/msw-server';
+import { getCurrentUserPermissions } from '@/utils/get-user-permissions';
 
 // login() calls this 'use server' action on success; outside a real Next.js
 // request scope next/cache's revalidatePath throws, so this seam is stubbed
@@ -90,6 +91,9 @@ function AuthProbe() {
       <span data-testid="status">{status}</span>
       <span data-testid="role">{String(ctx.user?.role)}</span>
       <span data-testid="active-tenant">{String(ctx.user?.activeTenant?.tenant_id)}</span>
+      <span data-testid="permissions">
+        {(ctx.user?.permissions ?? []).map((p: { permission: string }) => p.permission).join(',')}
+      </span>
     </>
   );
 }
@@ -341,5 +345,65 @@ describe('AuthProvider — activeTenant/role follow the URL org, never the JWT c
     });
     expect(screen.getByTestId('active-tenant').textContent).toBe('undefined');
     expect(screen.getByTestId('role').textContent).toBe('undefined');
+  });
+});
+
+describe('AuthProvider — permissions follow the URL org across client-side navigation', () => {
+  // getCurrentUserPermissions() resolves its tenant from the URL of the
+  // request it rides on. A client-side org change (org switcher, the redirect
+  // into a freshly created org, the post-login redirect off the org-less
+  // login page) fires no auth event, so the provider must refetch on its own
+  // — otherwise role-gated UI stays hidden for an owner until a hard reload.
+  beforeEach(() => {
+    vi.mocked(getCurrentUserPermissions).mockReset();
+    vi.mocked(getCurrentUserPermissions).mockResolvedValue([]);
+  });
+
+  it('refetches permissions when the URL org changes without an auth event', async () => {
+    const permissionsMock = vi.mocked(getCurrentUserPermissions);
+
+    // Session starts on an org-less page (e.g. /orgs): no tenant, no perms.
+    vi.mocked(useParams).mockReturnValue({});
+
+    const { rerender } = render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+
+    capturedCallback!('INITIAL_SESSION', session);
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('authenticated');
+    });
+    expect(screen.getByTestId('permissions').textContent).toBe('');
+
+    // The user lands in org-a via router.push — no auth event fires. The
+    // server would now resolve org-a's tenant from the new URL.
+    permissionsMock.mockResolvedValue([
+      { id: 1, role: 'owner', permission: 'app.insert' },
+      { id: 2, role: 'owner', permission: 'app.read' },
+    ] as never);
+    vi.mocked(useParams).mockReturnValue({ orgName: 'org-a' });
+    rerender(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('permissions').textContent).toBe('app.insert,app.read');
+    });
+    // Exactly one fetch per org context: INITIAL_SESSION + the org change.
+    expect(permissionsMock).toHaveBeenCalledTimes(2);
+
+    // Re-rendering within the same org must not refetch — the effect keys on
+    // the org actually changing, not on renders.
+    rerender(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+    await act(async () => {});
+    expect(permissionsMock).toHaveBeenCalledTimes(2);
   });
 });
