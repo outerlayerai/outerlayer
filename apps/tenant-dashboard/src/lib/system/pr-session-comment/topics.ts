@@ -37,7 +37,7 @@ export type ChQueryFn = (
   params: Record<string, unknown>,
 ) => Promise<Record<string, unknown>[]>;
 
-export interface ReadTopicLabelsInput {
+interface ReadTopicLabelsInput {
   /** Null when ClickHouse is unconfigured — treated as "no labels". */
   chQuery: ChQueryFn | null;
   traceIds: string[];
