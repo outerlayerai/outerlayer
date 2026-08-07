@@ -31,7 +31,10 @@ export const RUN_ALL_PATHS = '\0__prepush_run_all__';
 export function pushedChangedPaths({ cwd = process.cwd(), base = 'origin/main' } = {}) {
   const res = spawnSync('git', ['diff', '--name-only', `${base}...HEAD`], { cwd, encoding: 'utf8' });
   if (res.error || res.status !== 0 || typeof res.stdout !== 'string') {
-    const why = res.error ? res.error.message : `git exited ${res.status}`;
+    const detail = res.stderr?.toString().trim();
+    const why = res.error
+      ? res.error.message
+      : `git exited ${res.status}${detail ? `: ${detail}` : ''}`;
     process.stderr.write(
       `⚠ pre-push: could not determine changed paths (${why}) — running every scoped gate.\n`,
     );

@@ -15,6 +15,12 @@
  * always runs the full suite.
  *
  * Knobs:
+ *   PREPUSH_BASE=<ref>       base ref the push is graded against (default
+ *   origin/main): both the path-scope predicates and the turbo package
+ *   filter diff against it. Override on forks or when measuring the gate
+ *   against a different base.
+ *   PREPUSH_CONCURRENCY=<n|p%>  turbo concurrency for the typecheck/lint/unit
+ *   gate (default 25% of cores — keeps the machine responsive during a push).
  *   PREPUSH_RUN_MUTATION=1   also run the patch-mutation gate locally.
  *   By default it is DEFERRED TO CI: the required Patch Mutation check
  *   enforces the same gate on every PR, and a local run costs 5–10+ minutes
@@ -107,7 +113,8 @@ spawnSync('git', ['fetch', '--quiet', 'origin', 'main'], {
 // gated on app-code/infra path filters — a superset of anything that can
 // regress these gates — so a wrong local skip is caught server-side (same
 // contract as the openapi/docs gates).
-const changedPaths = pushedChangedPaths();
+const BASE = process.env.PREPUSH_BASE || 'origin/main';
+const changedPaths = pushedChangedPaths({ base: BASE });
 const {
   docsChanged,
   openapiChanged,
@@ -247,8 +254,33 @@ console.log('pre-push: starting gates in parallel\n');
 const results = await Promise.allSettled([
   // Always-on quality gates
   auditGate(),
-  gate('typecheck',             'yarn', ['ci:typecheck']),
-  gate('lint',                  'yarn', ['ci:lint']),
+  // typecheck + lint + unit share ONE turbo scheduler: a single invocation
+  // makes --concurrency=50% a real machine-wide cap (separate invocations
+  // each claim 50% of the cores and oversubscribe the host), and
+  // `--filter=...[BASE]` scopes the run to the packages this push touched
+  // plus their dependents. False-skip is safe: CI runs the full unfiltered
+  // suite via ci:typecheck/ci:lint/ci:unit (same contract as the path-scoped
+  // gates below). integration-tests and e2e are excluded — their test
+  // scripts need live services. VITEST_MAX_THREADS/FORKS cap each package's
+  // worker pool so concurrent suites don't multiply into cores×packages
+  // workers; both reach vitest through test.passThroughEnv (turbo strict env
+  // mode) and are unset on CI, where the runner is dedicated.
+  // Concurrency defaults to 25% of cores: a push runs on a machine someone is
+  // actively working on, and the lower cap costs little wall-clock because the
+  // critical path is the largest single suite (which caps its own workers).
+  // PREPUSH_CONCURRENCY overrides it (e.g. '50%' on an idle machine).
+  // `nice -n 10` keeps the machine interactive while the gate runs: the suite
+  // still gets idle cores at full speed, but foreground work (editor, browser)
+  // wins the scheduler the moment it asks. Priority beats cutting concurrency
+  // further — a lower cap slows the push even when the machine is idle.
+  gate('typecheck+lint+unit', 'nice', [
+    '-n', '10',
+    'yarn', 'turbo', 'run', 'typecheck', 'lint', 'test',
+    `--concurrency=${process.env.PREPUSH_CONCURRENCY || '25%'}`,
+    `--filter=...[${BASE}]`,
+    '--filter=!integration-tests',
+    '--filter=!@outerlayer/e2e',
+  ], { env: { VITEST_MAX_THREADS: '2', VITEST_MAX_FORKS: '2' } }),
   // Repo-wide baseline gates — path-scoped skip (see the predicates above).
   codeOrConfigChanged
     ? gate('knip',              'yarn', ['ci:knip'])
@@ -290,7 +322,6 @@ const results = await Promise.allSettled([
   scriptsChanged
     ? gate('scripts tests', 'npx', ['vitest', 'run', '--project', 'scripts'])
     : skip('scripts tests', 'no scripts/ changes'),
-  gate('unit tests',            'yarn', ['ci:unit']),
   // Path-scoped gates — skipped automatically when no relevant source changed
   openapiPipeline(),
 ]);

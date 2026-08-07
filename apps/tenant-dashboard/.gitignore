@@ -8,6 +8,7 @@
 # testing
 /coverage
 /reports
+.eslintcache
 
 # next.js
 /.next/

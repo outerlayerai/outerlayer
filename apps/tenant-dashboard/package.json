@@ -27,7 +27,7 @@
     "test:mutate": "stryker run",
     "test:mutate:changed": "stryker run --mutate",
     "test:mutate:money-auth": "stryker run stryker.config.money-auth.mjs",
-    "lint": "eslint . && node ../../scripts/check-no-supabase-test-mocks.mjs tenant-dashboard",
+    "lint": "eslint . --cache && node ../../scripts/check-no-supabase-test-mocks.mjs tenant-dashboard",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint:fix": "eslint . --fix",
     "sup": "supabase",

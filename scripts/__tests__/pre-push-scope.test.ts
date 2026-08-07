@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error — .mjs gate helper, no type declarations; exports are plain JS.
 import { pathScopeFlags, pushedChangedPaths, RUN_ALL_PATHS } from '../git/pre-push-scope.mjs';
 
@@ -266,10 +266,22 @@ describe('pushedChangedPaths — reports the push, not upstream drift', () => {
  * everything", so an unknowable diff over-runs rather than silently under-runs.
  */
 describe('pushedChangedPaths — fails closed to run-all on a broken diff', () => {
-  it('returns the run-all sentinel when git cannot resolve the range', () => {
-    // A bogus base ref makes `git diff` exit non-zero regardless of cwd.
-    const out = pushedChangedPaths({ base: 'no-such-ref-QwErTy' });
-    expect(out).toBe(RUN_ALL_PATHS);
+  it('returns the run-all sentinel and warns when git cannot resolve the range', () => {
+    // Capture the warning instead of letting it hit real stderr: this test runs
+    // inside the pre-push `scripts tests` gate, which forwards a passing
+    // suite's stderr — an uncaptured warning surfaces in every push's output
+    // looking like the push's own scope computation failed.
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      // A bogus base ref makes `git diff` exit non-zero regardless of cwd.
+      const out = pushedChangedPaths({ base: 'no-such-ref-QwErTy' });
+      expect(out).toBe(RUN_ALL_PATHS);
+      expect(stderrWrite).toHaveBeenCalledWith(
+        expect.stringContaining('could not determine changed paths'),
+      );
+    } finally {
+      stderrWrite.mockRestore();
+    }
   });
 
   it('the sentinel marks every scoped gate to run', () => {
