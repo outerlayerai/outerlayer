@@ -17,6 +17,11 @@ export {
   type PrSessionCommentGithubClient,
 } from "./refresh";
 
-export { readLinkedSessions, type LinkedSessionRow } from "./read";
+export {
+  readLinkedSessions,
+  LinksUnreadableError,
+  LINKS_UNREADABLE_REASON,
+  type LinkedSessionRow,
+} from "./read";
 export { readTopicLabels, type ReadTopicLabelsInput, type ChQueryFn } from "./topics";
 export { renderComment, type RenderLinks } from "./render";

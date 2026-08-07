@@ -85,7 +85,7 @@ describe("GET /api/cron/pr-session-reconcile", () => {
       sinceHours: 24,
       ...COUNTS,
       outcomeScores: { emitSinceHours: 24, ...OUTCOME_COUNTS },
-      commentRefresh: { attempted: 0, failed: 0 },
+      commentRefresh: { attempted: 0, failed: 0, deferred: 0 },
     });
     // Emission runs AFTER reconciliation so links confirmed this tick emit
     // this tick.
@@ -111,7 +111,7 @@ describe("GET /api/cron/pr-session-reconcile", () => {
       sinceHours: 24,
       ...COUNTS,
       outcomeScores: { skipped: true },
-      commentRefresh: { attempted: 0, failed: 0 },
+      commentRefresh: { attempted: 0, failed: 0, deferred: 0 },
     });
   });
 

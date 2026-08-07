@@ -173,18 +173,19 @@ describe("renderComment", () => {
     expect(body).not.toMatch(/profile/i);
   });
 
-  // AC-057-11: missing title renders "untitled session", missing topics
-  // render an em dash, and cost always renders a dollar amount — $0.00 at
-  // genuine zero, since CostUsd is non-nullable and cannot distinguish
-  // "unrecorded" from "genuinely zero".
-  it("renders untitled session, an em dash for missing topics, and $0.00 for zero cost", () => {
+  // AC-057-11: missing title renders "untitled session", and missing topics
+  // AND unrecorded cost both render an em dash. CostUsd is non-nullable at
+  // rest, so "unrecorded" and "genuinely zero" are indistinguishable in the
+  // data — and of the two readings, the comment must not be the one that
+  // asserts the work was free.
+  it("renders untitled session and an em dash for missing topics and unrecorded cost", () => {
     const rows = [row({ traceId: "t1", title: "", costUsd: 0 })];
 
     const body = renderComment(rows, new Map(), LINKS);
 
     expect(body).toContain("[untitled session]");
     expect(body).toContain("| — |");
-    expect(body).toContain("$0.00");
+    expect(body).not.toContain("$0.00");
   });
 
   it("escapes a title containing a pipe or newline so it cannot break the table", () => {
@@ -203,7 +204,11 @@ describe("renderComment", () => {
     expect(lines.filter((l) => l.includes("Fix auth")).length).toBe(1);
   });
 
-  it("omits the whole-PR dashboard link when rows span multiple apps", () => {
+  // The multi-app PR is the one most likely to have a lead asking "how did
+  // this get built?", so it gets a doorway rather than none. The link can
+  // only scope to one app/env (see the TODO in render.ts), so it points at
+  // the first row's app.
+  it("still renders the whole-PR dashboard link when rows span multiple apps", () => {
     const rows = [
       row({ traceId: "t1", appName: "api" }),
       row({ traceId: "t2", appName: "worker" }),
@@ -211,7 +216,8 @@ describe("renderComment", () => {
 
     const body = renderComment(rows, new Map(), LINKS);
 
-    expect(body).not.toContain("session dashboard");
+    expect(body).toContain("session dashboard");
+    expect(body).toContain("/apps/api/env/production/agents/sessions?pr=812");
   });
 
   it("every session link and the dashboard link carry a src query param", () => {
@@ -224,18 +230,69 @@ describe("renderComment", () => {
   });
 
   // GitHub rejects issue-comment bodies over 65536 characters, and this
-  // feature has no row cap by design — the renderer must fall back rather
-  // than emit a body GitHub will reject.
-  it("falls back to the header plus dashboard link when the body would exceed GitHub's comment limit", () => {
+  // feature has no row cap by design — the renderer TRUNCATES rather than
+  // emitting a body GitHub will reject. Dropping the table entirely (the
+  // earlier behavior) left a reviewer with a cost total and no idea which
+  // sessions produced it.
+  it("truncates the table and names the remainder when the body would exceed GitHub's comment limit", () => {
     const rows: LinkedSessionRow[] = Array.from({ length: 2000 }, (_, i) =>
       row({ traceId: `trace-${i}`, title: `Session number ${i} doing a lot of things` }),
     );
 
     const body = renderComment(rows, new Map(), LINKS);
+    const renderedRows = body.split("\n").filter((l) => l.startsWith("| [Session number"));
 
     expect(body.length).toBeLessThanOrEqual(65536);
     expect(body).toContain("### Agent sessions behind this PR");
     expect(body).toContain("session dashboard");
-    expect(body).not.toContain("| Session | Topics |");
+    // The table survives, with as many rows as fit...
+    expect(body).toContain("| Session | Topics |");
+    expect(renderedRows.length).toBeGreaterThan(100);
+    expect(renderedRows.length).toBeLessThan(2000);
+    // ...and the reader is told exactly how many they aren't seeing.
+    expect(body).toContain(`_…and ${2000 - renderedRows.length} more sessions — see the dashboard._`);
+  });
+
+  it("header totals still cover every session, including truncated ones", () => {
+    const rows: LinkedSessionRow[] = Array.from({ length: 2000 }, (_, i) =>
+      row({ traceId: `trace-${i}`, title: `Session number ${i} doing a lot of things`, costUsd: 1 }),
+    );
+
+    const body = renderComment(rows, new Map(), LINKS);
+
+    // Truncation is a display bound, never an accounting one.
+    expect(body).toContain("2000 linked sessions");
+    expect(body).toContain("$2000.00");
+  });
+
+  // Session titles are transcript-derived and topic labels are
+  // tenant-authored: both are attacker-influenceable text rendered into a
+  // world-readable comment on someone else's repository.
+  it("a title containing markdown link syntax cannot break out of its link", () => {
+    const rows = [
+      row({ traceId: "t1", title: "fix auth](https://evil.example) and [more" }),
+    ];
+
+    const body = renderComment(rows, new Map(), LINKS);
+
+    // The one link in the cell is ours, pointing at the dashboard.
+    expect(body).not.toContain("(https://evil.example)");
+    expect(body).toContain("\\]\\(https://evil.example\\)");
+    expect(body).toContain("/agents/sessions/t1?src=pr-comment)");
+  });
+
+  it("topic labels are escaped the same way as titles", () => {
+    const topics = new Map([["t1", ["fix](https://evil.example)", "a|b"]]]);
+    const body = renderComment([row({ traceId: "t1" })], topics, LINKS);
+
+    expect(body).not.toContain("(https://evil.example)");
+    expect(body).toContain("a\\|b");
+  });
+
+  it("a title containing a raw HTML tag renders as text", () => {
+    const body = renderComment([row({ traceId: "t1", title: "<img src=x>" })], new Map(), LINKS);
+
+    expect(body).not.toContain("<img");
+    expect(body).toContain("&lt;img src=x>");
   });
 });

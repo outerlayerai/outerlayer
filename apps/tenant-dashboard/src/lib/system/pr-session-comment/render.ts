@@ -23,20 +23,21 @@ import type { LinkedSessionRow } from "./read";
  * the table — a PR with enough linked sessions to hit this ceiling means
  * the feature is working well beyond expectations, not misbehaving — so
  * this module enforces the ceiling itself: a body that would exceed it
- * falls back to the header plus the dashboard link.
+ * keeps as many rows as fit and names the remainder (see
+ * {@link fitTableRows}), rather than dropping the table.
  * https://docs.github.com/en/rest/issues/comments — body max length.
  */
 const GITHUB_COMMENT_BODY_LIMIT = 65536;
 
 /**
  * `ErrorCount` above this on a single session's rollup counts as an "error
- * storm" for the trouble badge. Chosen well above the noise of
- * a normal session with a handful of retried tool calls, while still well
- * under what a genuinely stuck session accumulates. Provider errors
- * (`ApiErrorCount > 0`) always badge regardless of this threshold — a single
- * provider error is never expected.
+ * storm" for the trouble badge. Set to 3 as a product call: the badge is
+ * there to catch the "eight sessions of fighting" case, and a session that
+ * accumulated more than three errors is worth a reviewer's glance. Provider
+ * errors (`ApiErrorCount > 0`) always badge regardless of this threshold —
+ * a single provider error is never expected.
  */
-const ERROR_STORM_THRESHOLD = 10;
+const ERROR_STORM_THRESHOLD = 3;
 
 /**
  * Caller-supplied data needed to compose deep links. Kept a plain data
@@ -59,23 +60,47 @@ export interface RenderLinks {
 
 const DEFAULT_SOURCE_TAG = "pr-comment";
 
+/** URL path segments are tenant-authored (`appName`, `envName`) or
+ * ClickHouse-derived (`traceId`). An unencoded `)` in any of them closes the
+ * markdown link early and spills the rest of the URL into the comment text,
+ * so every interpolated segment goes through this. */
+function urlSegment(value: string): string {
+  return encodeURIComponent(value);
+}
+
 function sessionDeepLink(
   links: RenderLinks,
   row: Pick<LinkedSessionRow, "appName" | "envName" | "traceId">,
 ): string {
   const src = links.sourceTag ?? DEFAULT_SOURCE_TAG;
-  return `${links.baseUrl}/orgs/${links.orgName}/apps/${row.appName}/env/${row.envName}/agents/sessions/${row.traceId}?src=${src}`;
+  return `${links.baseUrl}/orgs/${urlSegment(links.orgName)}/apps/${urlSegment(row.appName)}/env/${urlSegment(row.envName)}/agents/sessions/${urlSegment(row.traceId)}?src=${urlSegment(src)}`;
 }
 
 function sessionsListLink(links: RenderLinks, appName: string, envName: string): string {
   const src = links.sourceTag ?? DEFAULT_SOURCE_TAG;
-  return `${links.baseUrl}/orgs/${links.orgName}/apps/${appName}/env/${envName}/agents/sessions?pr=${links.prNumber}&src=${src}`;
+  return `${links.baseUrl}/orgs/${urlSegment(links.orgName)}/apps/${urlSegment(appName)}/env/${urlSegment(envName)}/agents/sessions?pr=${links.prNumber}&src=${urlSegment(src)}`;
 }
 
-/** Markdown-escapes a title so it can't break out of a table cell: `|`
- * would end the cell early, and a raw newline would end the row. */
+/**
+ * Escapes text for a table cell that may also be a link label.
+ *
+ * Everything this renders is attacker-influenceable: session titles are
+ * transcript-derived and topic labels are tenant-authored, and the result is
+ * a world-readable comment in someone else's repository. Cell-breaking is
+ * only half the problem — a title containing `](` breaks out of the
+ * `[label](url)` wrapper in {@link renderRow} and turns the rest of the cell
+ * into a clickable link the tenant chose. So this escapes:
+ *   - `\` first (otherwise it would double-escape the escapes below),
+ *   - `|` and newlines (cell/row structure),
+ *   - `[`, `]`, `(`, `)` (link-syntax breakout),
+ *   - `<` (GitHub renders inline HTML in comments; a raw tag would too).
+ */
 function escapeMarkdownCell(text: string): string {
-  return text.replace(/\|/g, "\\|").replace(/\r\n|\r|\n/g, " ");
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\r\n|\r|\n/g, " ")
+    .replace(/([|[\]()])/g, "\\$1")
+    .replace(/</g, "&lt;");
 }
 
 function durationMinutes(startedAt: string, endedAt: string): number {
@@ -92,7 +117,17 @@ function formatDurationMinutes(totalMinutes: number): string {
   return hours > 0 ? `${hours}h ${remaining}m` : `${remaining}m`;
 }
 
+/**
+ * A cost we don't have renders as an em-dash, never `$0.00` (AC-057-11).
+ *
+ * `CostUsd` is non-nullable at rest, which is a property of the storage and
+ * not of reality: a session whose cost was never captured arrives here as 0,
+ * and printing "$0.00" for it claims the work was free. Zero and unknown are
+ * indistinguishable in the data, so the honest rendering is the one that
+ * doesn't assert. Header totals still sum the numbers as they are.
+ */
 function formatCost(costUsd: number): string {
+  if (!Number.isFinite(costUsd) || costUsd <= 0) return "—";
   return `$${costUsd.toFixed(2)}`;
 }
 
@@ -100,6 +135,30 @@ function troubleBadge(row: Pick<LinkedSessionRow, "apiErrorCount" | "errorCount"
   if (row.apiErrorCount > 0) return " ⚠ provider errors";
   if (row.errorCount > ERROR_STORM_THRESHOLD) return " ⚠ error storm";
   return "";
+}
+
+/**
+ * AC-057-05 — "never presented as certain" — is entirely this predicate.
+ *
+ * Deliberately an allowlist of the ONE method that constitutes an explicit
+ * claim, not a denylist of `branch`: `pull_request_session.method` gaining a
+ * third value (a future inference strategy) must default to badged, not
+ * silently render as certain. The `never` assignment makes that a compile
+ * error at the same time, so a new method can't be added without a decision
+ * being made here.
+ */
+function isCertainMethod(method: LinkedSessionRow["method"]): boolean {
+  switch (method) {
+    case "pr_link":
+      return true;
+    case "branch":
+      return false;
+    default: {
+      const exhaustive: never = method;
+      void exhaustive;
+      return false;
+    }
+  }
 }
 
 function renderRow(
@@ -110,7 +169,7 @@ function renderRow(
   const rawTitle = row.title.trim();
   const label = rawTitle ? escapeMarkdownCell(rawTitle) : "untitled session";
   const url = sessionDeepLink(links, row);
-  const inferredBadge = row.method === "branch" ? " _(inferred)_" : "";
+  const inferredBadge = isCertainMethod(row.method) ? "" : " _(inferred)_";
   const badge = `${inferredBadge}${troubleBadge(row)}`;
 
   const rowTopics = topics.get(row.traceId) ?? [];
@@ -154,28 +213,79 @@ export function renderComment(
   const tableHeader = "| Session | Topics | Duration | Cost | Models |\n| ------- | ------ | -------- | ---- | ------ |";
   const tableRows = rows.map((row) => renderRow(row, topics, links));
 
-  // Rows can span more than one app in the tenant. A single whole-PR
-  // dashboard link only makes sense when every row resolves to the same
-  // app/env scope; otherwise it's omitted and readers rely on each row's
-  // own deep link.
-  const distinctAppEnv = new Set(rows.map((row) => `${row.appName} ${row.envName}`));
+  // Rows can span more than one app in the tenant, but the whole-PR link
+  // always renders: the multi-app PR is the one most likely to have a lead
+  // asking "how did this get built?", and leaving it with no doorway at all
+  // was the worse of the two failures. It points at the app/env of the first
+  // row — one real scope rather than none.
+  //
+  // TODO: this link can only scope to ONE app/env, because the sessions
+  // list's `?pr=` filter is pinned to a single `app_id`
+  // (`features/agent-sessions/service.ts` — the other half of this coupling
+  // is commented there). So on a multi-app PR the page a reader lands on
+  // shows a SUBSET of the rows above, with smaller totals, which is a real
+  // AC-057-09 ("every figure matches the dashboard exactly") gap. The fix is
+  // a tenant-scoped `?pr=` route, or a per-session route that doesn't need
+  // an app in the path; until then this is a knowingly-accepted mismatch.
   const firstRow = rows[0];
-  const footer =
-    distinctAppEnv.size === 1 && firstRow
-      ? `Full transcripts in the [session dashboard](${sessionsListLink(links, firstRow.appName, firstRow.envName)}).`
-      : null;
+  const footer = firstRow
+    ? `Full transcripts in the [session dashboard](${sessionsListLink(links, firstRow.appName, firstRow.envName)}).`
+    : null;
 
-  const bodyParts = [header, `${tableHeader}\n${tableRows.join("\n")}`];
+  const fitted = fitTableRows(tableRows, header, tableHeader, footer);
+  const bodyParts = [header];
+  if (fitted.rows.length > 0) {
+    bodyParts.push(`${tableHeader}\n${fitted.rows.join("\n")}`);
+  }
+  if (fitted.omitted > 0) {
+    const word = fitted.omitted === 1 ? "session" : "sessions";
+    bodyParts.push(`_…and ${fitted.omitted} more ${word} — see the dashboard._`);
+  }
   if (footer) bodyParts.push(footer);
-  const body = bodyParts.join("\n\n");
+  return bodyParts.join("\n\n");
+}
 
-  if (body.length <= GITHUB_COMMENT_BODY_LIMIT) {
-    return body;
+/**
+ * Fits as many table rows as the GitHub body limit allows, keeping the
+ * header, the table header, the overflow line, and the footer.
+ *
+ * A body one character over the ceiling used to fall back to the header plus
+ * the link — the reviewer got a cost total and nothing about which sessions
+ * produced it. Truncating instead degrades to "the most recent N sessions,
+ * and a count of the rest", which is the same ceiling and a far more useful
+ * comment. Rows are newest-first, so the ones kept are the ones a reviewer
+ * is most likely to want.
+ */
+function fitTableRows(
+  tableRows: string[],
+  header: string,
+  tableHeader: string,
+  footer: string | null,
+): { rows: string[]; omitted: number } {
+  const separators = "\n\n".length;
+  const fixed =
+    header.length +
+    separators +
+    tableHeader.length +
+    (footer ? separators + footer.length : 0);
+  // Reserved unconditionally, so dropping the last row can never push the
+  // body back over the limit by adding this line.
+  const overflowLine = `_…and ${tableRows.length} more sessions — see the dashboard._`;
+
+  let used = fixed;
+  const kept: string[] = [];
+  for (const row of tableRows) {
+    const cost = row.length + 1; // the newline joining it to the previous row
+    const reserve = kept.length + 1 === tableRows.length ? 0 : separators + overflowLine.length;
+    if (used + cost + reserve > GITHUB_COMMENT_BODY_LIMIT) break;
+    used += cost;
+    kept.push(row);
   }
 
-  // GitHub rejects comment bodies over 65536 characters, and this feature
-  // deliberately has no row cap. Fall back to the header plus the dashboard
-  // link (when one exists) rather than posting a body GitHub will reject
-  // outright.
-  return footer ? `${header}\n\n${footer}` : header;
+  // Degenerate case — not even one row fits (a single pathological title
+  // near the 64 KB ceiling). `kept` stays empty and the caller drops the
+  // table header with it, leaving the totals, the "…and N more" line, and
+  // the link: the pre-truncation fallback, reached only where truncating
+  // genuinely can't help.
+  return { rows: kept, omitted: tableRows.length - kept.length };
 }

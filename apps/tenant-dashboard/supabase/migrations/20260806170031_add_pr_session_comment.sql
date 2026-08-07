@@ -24,7 +24,9 @@
 
 alter table "public"."pr_session_comment" enable row level security;
 
-alter table "public"."git_connection" add column "pr_comments_enabled" boolean not null default true;
+-- Opt-in by default: this backfills every already-connected repo, and
+-- defaulting on would post a bot comment nobody enabled on their next PR.
+alter table "public"."git_connection" add column "pr_comments_enabled" boolean not null default false;
 
 -- `supabase db diff` did not emit this column-level grant for the new
 -- column (see the header comment above) -- hand-added to match

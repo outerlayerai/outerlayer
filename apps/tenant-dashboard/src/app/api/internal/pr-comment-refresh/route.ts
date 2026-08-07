@@ -25,6 +25,21 @@
  * session-authenticated one, and the caller (the queue consumer) only ever
  * knows tenant ids it already read off a verified sync payload.
  *
+ * BLAST RADIUS of a leaked `PR_COMMENT_REFRESH_SECRET`, stated explicitly
+ * because it is the argument for why the paragraph above is acceptable and
+ * it is otherwise nowhere written down: a caller holding the secret may name
+ * ANY `(tenantId, repository, prNumber)`. What it CANNOT do is choose the
+ * content or the destination. `refreshPrSessionComment` → `readLinkedSessions`
+ * re-checks `git_connection` for that exact `(tenantId, repository)` pair and
+ * no-ops unless an app in THAT tenant has that repo connected with
+ * `pr_comments_enabled`; the installation used to post is resolved from the
+ * same row, and the body is rendered from that tenant's own sessions. So the
+ * damage is bounded to posting a tenant's real session summary onto that
+ * tenant's real, already-connected repository — a comment appearing earlier
+ * than it should, never cross-tenant data and never a write into a repo the
+ * tenant hasn't connected. It is NOT an injection surface: no field of the
+ * request body reaches the rendered comment.
+ *
  * POST /api/internal/pr-comment-refresh
  * Authorization: Bearer {PR_COMMENT_REFRESH_SECRET}
  * Body: { items: Array<{ tenantId, repository, prNumber }> }

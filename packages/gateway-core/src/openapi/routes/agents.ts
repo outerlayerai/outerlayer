@@ -44,6 +44,7 @@ import {
 export { resolveTenantCaptureTier };
 import { safeParseAgentSession, CAPTURE_TIERS } from '@outerlayer/session-schema';
 import { PR_COMMENT_QUEUE_DEBOUNCE_SECONDS } from '../../types/queue-messages';
+import { canonicalPrCommentRepo } from '../../lib/pr-comment-repo-key';
 import type { PrCommentQueueMessage } from '../../types/queue-messages';
 import type { QueueMessageSendRequest } from '../../runtime';
 
@@ -423,13 +424,22 @@ export class SyncAgentSessions extends BaseRoute {
         // scalar-only producer still surfaces through the array view (see
         // agentSessionSummaryRow's PrNumbers doc), so reading either alone
         // would under-notify.
-        if (summary.GitRepo) {
+        // `GitRepo` is the host-qualified join key, but the comment's
+        // identity is the bare `owner/repo`. Canonicalize HERE, through the
+        // shared helper the queue consumer and the dashboard orchestrator
+        // also call, so all three trigger paths name one PR by one key —
+        // two spellings mean two identity rows and two comments on one PR.
+        // A repository the helper can't address (a GHES host, an ssh
+        // remote) is simply not nominated: the feature is GitHub.com-only,
+        // and guessing a key is what posts a duplicate.
+        const commentRepo = canonicalPrCommentRepo(summary.GitRepo);
+        if (commentRepo) {
           const prNumbers = new Set<number>(summary.PrNumbers);
           if (summary.PrNumber > 0) prNumbers.add(summary.PrNumber);
           for (const prNumber of prNumbers) {
             if (prNumber <= 0) continue;
-            const key = `${summary.TenantId} ${summary.GitRepo} ${prNumber}`;
-            prRefreshKeys.set(key, { tenantId: summary.TenantId, repository: summary.GitRepo, prNumber });
+            const key = `${summary.TenantId} ${commentRepo} ${prNumber}`;
+            prRefreshKeys.set(key, { tenantId: summary.TenantId, repository: commentRepo, prNumber });
           }
         }
       } catch (e) {

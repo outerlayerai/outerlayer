@@ -738,9 +738,13 @@ describe('SyncAgentSessions PR_COMMENT_QUEUE enqueue', () => {
       delaySeconds: number;
     }>;
     expect(requests).toHaveLength(1);
+    // The CANONICAL bare owner/repo, not ClickHouse's host-qualified
+    // GitRepo: the producer, the queue consumer and the dashboard
+    // orchestrator all key the comment's identity off one spelling, and two
+    // spellings would mean two identity rows — two comments on one PR.
     expect(requests[0]!.body).toMatchObject({
       tenantId: 'tenant-1',
-      repository: 'github.com/acme/api',
+      repository: 'acme/api',
       prNumber: 512,
     });
     // Delayed delivery IS the debounce — asserted against the single named

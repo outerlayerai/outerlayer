@@ -28,8 +28,15 @@ CREATE TABLE IF NOT EXISTS public.git_connection (
     webhook_secret TEXT,
 
     -- Per-app toggle for posting the agent-sessions summary comment on PRs.
-    -- Defaults on; decision 13.
-    pr_comments_enabled BOOLEAN NOT NULL DEFAULT true,
+    -- OPT-IN: defaults OFF, and that is a made product decision, not an
+    -- omission. The comment carries dollar amounts and is world-readable on
+    -- a public repo, and this column governs every ALREADY-CONNECTED repo at
+    -- migration time — defaulting on would have put a bot comment nobody
+    -- asked for on the first PR opened after deploy, across every existing
+    -- connection. Turning it on is one toggle in app settings (see
+    -- `app-id.tsx`), which is the right amount of friction for a write into
+    -- someone else's repository.
+    pr_comments_enabled BOOLEAN NOT NULL DEFAULT false,
 
     -- Audit columns
     created_at TIMESTAMPTZ DEFAULT now(),

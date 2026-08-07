@@ -20,10 +20,29 @@ CREATE TABLE IF NOT EXISTS public.pr_session_comment (
     github_comment_id BIGINT,
     -- Short hash of the last rendered body. Equal hash ⇒ skip the GitHub
     -- write entirely. This is what makes at-least-once delivery cheap.
+    -- The '' default is LOAD-BEARING, not cosmetic: a claim row (see the
+    -- constraint below) is inserted before anything has been rendered, and
+    -- '' can never collide with a sha256 hex digest, so the short-circuit
+    -- can never mistake a fresh claim for "already posted this body".
     last_body_hash TEXT NOT NULL DEFAULT '',
+    -- Also the freshness stamp for the periodic existence check: past
+    -- COMMENT_VERIFY_INTERVAL_MS (refresh.ts) an unchanged body still costs
+    -- one getIssueComment, so a hand-deleted comment can't hide forever.
     last_posted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Doubles as the age of an unfinished create claim: refresh.ts only
+    -- takes over a claim older than its TTL, and does so with a
+    -- compare-and-set on this column. The BEFORE UPDATE trigger in
+    -- 99-triggers.sql stamps it on every update, which is compatible — the
+    -- compare-and-set matches on the OLD value, and a claim inserted (never
+    -- updated) carries the claimant's own timestamp.
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- "One comment per PR" (AC-057-02), at the schema level. It guarantees
+    -- one ROW; one COMMENT additionally requires that nobody POST to GitHub
+    -- without first winning a row here — which is exactly what
+    -- `claimCreate` in refresh.ts does with an ignore-duplicates insert.
+    -- This constraint is that claim's arbiter, i.e. the actual lock, not
+    -- merely a uniqueness assertion after the fact.
     CONSTRAINT uq_pr_session_comment UNIQUE (tenant_id, repository, pr_number)
 );
 

@@ -413,7 +413,18 @@ class AgentSessionsService {
         "";
 
     // `?pr=` filter: only sessions CONFIRMED-linked (via `pull_request_session`)
-    // to this app's PR/MR number. `verification = 'confirmed'` excludes
+    // to this app's PR/MR number.
+    //
+    // COUPLED to the PR comment's footer link
+    // (`pr-session-comment/render.ts`), which is the landing surface for
+    // every deep link in that comment. This filter is pinned to ONE
+    // `app_id`, but AC-057-02 allows a PR's sessions to span several apps in
+    // a tenant — so a reader following that link on a multi-app PR sees a
+    // SUBSET of the sessions the comment listed, with smaller totals, which
+    // is the AC-057-09 ("every figure matches the dashboard exactly") gap
+    // the TODO in render.ts tracks. Rendering the link anyway is the
+    // deliberate choice (no doorway at all was worse); closing the gap means
+    // making this filter tenant-scoped, and both sides move together. `verification = 'confirmed'` excludes
     // pending/unmatched claims — same rule the PR-comment read layer applies
     // (`pr-session-comment/read.ts`). Read through `ctx.db` (RLS-scoped to
     // this caller's tenant) and pinned to `ctx.appId` — a `pr` value from the

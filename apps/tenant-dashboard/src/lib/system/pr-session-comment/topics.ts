@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverLogger } from "@/lib/observability/server-logger";
+
 /**
  * Topic labels for the PR session comment.
  *
@@ -18,8 +20,13 @@ import "server-only";
  * labels" — never throw and never block the rest of the comment.
  *
  * PRIVACY: `trace_facets.Summary` is transcript-derived free text and must
- * NEVER be selected here — this data reaches a world-readable PR comment.
- * See `__tests__/topics.test.ts` for the regression test on the SQL string.
+ * NEVER reach a caller — this data ends up in a world-readable PR comment,
+ * and AC-057-08 turns on that. The SELECT list is the first line of defense
+ * and `__tests__/topics.test.ts` string-matches it, but a string match dies
+ * the moment someone reformats the query or moves to a builder. The
+ * STRUCTURAL guarantee is {@link projectTopicRow}: every row crosses into
+ * this module through an explicit two-field allowlist, so a column added to
+ * the SQL — deliberately or by accident — cannot reach the renderer.
  */
 
 /** Minimal ClickHouse seam: one parameterized query returning JSON rows.
@@ -76,6 +83,33 @@ WHERE tf.TraceId IN {traceIds:Array(String)}
 `;
 
 /**
+ * The ONLY two fields of a `trace_facets` row this feature is allowed to
+ * see. Named as a type so the allowlist is a declaration, not a convention.
+ */
+interface TopicLabelRow {
+  TraceId: string;
+  Name: string;
+}
+
+/**
+ * Projects one raw ClickHouse row onto {@link TopicLabelRow}, dropping every
+ * other column — `Summary` above all, which is transcript-derived and must
+ * never render (AC-057-08).
+ *
+ * This is the privacy boundary in code rather than in a docstring: the raw
+ * `Record<string, unknown>` from the query never leaves this function, so
+ * whatever the SQL selects, only `TraceId` and `Name` can travel onward.
+ * Returns `null` for a row missing either field — an unusable label, not a
+ * reason to fail the comment.
+ */
+function projectTopicRow(row: Record<string, unknown>): TopicLabelRow | null {
+  const traceId = typeof row.TraceId === "string" ? row.TraceId : String(row.TraceId ?? "");
+  const name = typeof row.Name === "string" ? row.Name : String(row.Name ?? "");
+  if (!traceId || !name) return null;
+  return { TraceId: traceId, Name: name };
+}
+
+/**
  * Reads topic labels for a set of traces, keyed by `TraceId`, deduped and in
  * first-seen (stable) order. Every requested trace id is present in the
  * returned map — traces with no facets, an unconfigured ClickHouse client,
@@ -89,27 +123,37 @@ export async function readTopicLabels({
   const labelsByTrace = new Map<string, string[]>(traceIds.map((id) => [id, []]));
   if (!chQuery || traceIds.length === 0) return labelsByTrace;
 
-  let rows: Record<string, unknown>[];
+  let rawRows: Record<string, unknown>[];
   try {
-    rows = await chQuery(TOPIC_LABELS_SQL, { traceIds });
+    rawRows = await chQuery(TOPIC_LABELS_SQL, { traceIds });
   } catch (error) {
     // Best-effort: labels arrive on a later comment edit, so a ClickHouse
     // hiccup (or Topics simply being off) must never fail the comment.
-    console.error(
-      "[pr-session-comment] readTopicLabels query failed; continuing with no labels",
-      error,
-    );
+    //
+    // Routed through `serverLogger` (not `console.error`, which never leaves
+    // the container) for the same reason as `refresh.ts`'s not-permitted
+    // event: a persistently broken query degrades labels to blank, which is
+    // INDISTINGUISHABLE from Topics being off or not yet clustered. Nothing
+    // else would ever surface it. Structured and metric-tagged so it's
+    // gettable in Logtail by name.
+    await serverLogger.error(error instanceof Error ? error : new Error(String(error)), {
+      context: "[pr-session-comment] readTopicLabels query failed; continuing with no labels",
+      event: "pr_session_comment.topics_query_failed",
+      _metric: true,
+      metric_name: "pr_session_comment.topics_query_failed",
+      metric_value: 1,
+      traceCount: traceIds.length,
+    });
     return labelsByTrace;
   }
 
-  for (const row of rows) {
-    const traceId = typeof row.TraceId === "string" ? row.TraceId : String(row.TraceId ?? "");
-    const name = typeof row.Name === "string" ? row.Name : String(row.Name ?? "");
-    if (!traceId || !name) continue;
-    const existing = labelsByTrace.get(traceId);
+  for (const raw of rawRows) {
+    const row = projectTopicRow(raw);
+    if (!row) continue;
+    const existing = labelsByTrace.get(row.TraceId);
     const labels = existing ?? [];
-    if (!existing) labelsByTrace.set(traceId, labels);
-    if (!labels.includes(name)) labels.push(name);
+    if (!existing) labelsByTrace.set(row.TraceId, labels);
+    if (!labels.includes(row.Name)) labels.push(row.Name);
   }
 
   return labelsByTrace;

@@ -97,12 +97,15 @@ export const PR_COMMENT_QUEUE_DEBOUNCE_SECONDS = 30;
 /**
  * One `(tenant, repository, prNumber)` observed in a synced session batch,
  * enqueued by `POST /v1/agents/sync` after the insert is confirmed durable.
- * `repository` here is ClickHouse's `agent_session_summary.GitRepo` join
- * key (host-qualified, `github.com/owner/repo`), not `git_connection`'s own
- * `owner/repo` form — the consumer's dashboard call canonicalizes it. The
- * consumer coalesces a batch of these by key and POSTs a single internal
- * refresh per PR — at-least-once delivery is safe because the
- * orchestrator's body-hash check makes a duplicate refresh a no-op.
+ * `repository` is the CANONICAL bare `owner/repo` — the producer runs
+ * ClickHouse's host-qualified `agent_session_summary.GitRepo` through
+ * `canonicalPrCommentRepo` before enqueuing, and the consumer re-applies it
+ * so messages predating that still fold to the same key. One repository must
+ * have exactly one spelling across all three trigger paths, or a PR ends up
+ * with two identity rows and two comments. The consumer coalesces a batch of
+ * these by key and POSTs a single internal refresh per PR — at-least-once
+ * delivery is safe because the orchestrator's body-hash check makes a
+ * duplicate refresh a no-op.
  *
  * Enqueue is best-effort: a producer failure (queue unbound, `sendBatch`
  * throw) never fails the sync — the `pull_request` webhook and the hourly

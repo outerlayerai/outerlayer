@@ -81,7 +81,7 @@ beforeEach(() => {
 });
 
 describe("handlePullRequestEvent → pr-session comment wiring", () => {
-  it.each(["opened", "reopened", "synchronize"])(
+  it.each(["opened", "reopened", "synchronize", "ready_for_review"])(
     "refreshes the comment on '%s' with the tenant/repo/PR scope",
     async (action) => {
       seed();
@@ -95,7 +95,7 @@ describe("handlePullRequestEvent → pr-session comment wiring", () => {
     },
   );
 
-  it.each(["labeled", "review_requested", "ready_for_review", "edited"])(
+  it.each(["labeled", "review_requested", "edited"])(
     "does not refresh the comment on '%s'",
     async (action) => {
       seed();
@@ -104,12 +104,16 @@ describe("handlePullRequestEvent → pr-session comment wiring", () => {
     },
   );
 
-  it("does not refresh the comment on 'closed' (merged) even though the PR is decided", async () => {
+  // Issue #10's recommendation ("update indefinitely"), and the only choice
+  // that makes the two paths agree: the cron sweep already refreshes merged
+  // PRs whose links move late, so excluding `closed` here made post-merge
+  // behavior "sometimes frozen" depending on which trigger fired.
+  it("refreshes the comment on 'closed' (merged), so the record keeps updating after merge", async () => {
     seed();
     await handlePullRequestEvent(
       payload("closed", { merged: true, closed_at: "2026-07-12T00:00:00Z", merged_at: "2026-07-12T00:00:00Z" }) as never,
     );
-    expect(m.refreshComment).not.toHaveBeenCalled();
+    expect(m.refreshComment).toHaveBeenCalledTimes(1);
   });
 
   it("calls refreshPrSessionComment AFTER reconciliation completes", async () => {
@@ -149,10 +153,35 @@ describe("handlePullRequestEvent → pr-session comment wiring", () => {
     seed();
     m.refreshComment.mockRejectedValue(new Error("unexpected boom"));
     await expect(handlePullRequestEvent(payload("opened") as never)).resolves.toBeUndefined();
+    // Keyed by tenant, not app: the refresh is hoisted out of the
+    // per-connection loop precisely because its scope carries no app_id.
     expect(m.logError).toHaveBeenCalledWith(new Error("unexpected boom"), {
       context: "[GitHub Webhook] pr-session comment refresh failed",
-      app_id: "app-1",
+      tenant_id: "t-1",
       pr_number: 42,
+    });
+  });
+
+  // The refresh is keyed by (tenant, repository, prNumber) and carries no
+  // app_id, so two apps in ONE tenant sharing a repo must produce ONE call:
+  // a second is a full re-read and re-render to reach the hash
+  // short-circuit, and on a fresh PR it is a second concurrent create.
+  it("refreshes once when two apps in the same tenant share the repo", async () => {
+    server.use(
+      http.get(`${API}/git_connection`, () =>
+        HttpResponse.json([
+          { app_id: "app-1", tenant_id: "t-1" },
+          { app_id: "app-2", tenant_id: "t-1" },
+        ]),
+      ),
+      http.post(`${API}/pull_request`, () => HttpResponse.json([], { status: 201 })),
+    );
+    await handlePullRequestEvent(payload("opened") as never);
+    expect(m.refreshComment).toHaveBeenCalledTimes(1);
+    expect(m.refreshComment).toHaveBeenCalledWith({
+      tenantId: "t-1",
+      repository: "acme/repo",
+      prNumber: 42,
     });
   });
 

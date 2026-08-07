@@ -140,15 +140,23 @@ export const AppId = ({ setPrCommentsEnabledAction }: AppIdProps) => {
         {/* pr_comments_enabled lives on git_connection, not app — separately
             gated on git_connection.update rather than app_policy.update, and
             hidden entirely (not just disabled) from members who can't change
-            it, matching the require-pull-request toggle above. Default is on
-            (including public repos), so the label/description must make the
-            public-readability of costs unmissable rather than reading as a
-            generic on/off switch. */}
+            it, matching the require-pull-request toggle above.
+
+            The default is OFF, and that product call has been MADE (see
+            22-git-connection.sql): posting dollar amounts into a repository
+            is opt-in, because on a public repo the comment is world-readable
+            and permanently indexed, and the column governs every
+            already-connected repo at migration time. `?? false` mirrors the
+            column default exactly — a UI that showed "on" for a connection
+            the database has "off" would misreport the state of a write into
+            a customer's repo. The description copy still has to make the
+            public-readability of costs unmissable, since that is what a
+            person is agreeing to when they flip this. */}
         {gitConnection?.repository &&
           app?.id &&
           hasPermission(Permissions.GIT_CONNECTION_UPDATE) && (
             <AppPolicyToggle
-              initialValue={gitConnection.pr_comments_enabled ?? true}
+              initialValue={gitConnection.pr_comments_enabled ?? false}
               canEdit
               save={async (v) => {
                 const result = await setPrCommentsEnabledAction({ appId: app.id, value: v });

@@ -21,7 +21,7 @@ import {
   type PullRequestSessionMswRow,
 } from "@/test-helpers/msw-handlers";
 
-import { readLinkedSessions } from "../read";
+import { readLinkedSessions, LinksUnreadableError, LINKS_UNREADABLE_REASON } from "../read";
 
 const SUPABASE_URL = "http://localhost:54321";
 
@@ -172,7 +172,9 @@ describe("readLinkedSessions", () => {
     expect(chQuery).not.toHaveBeenCalled();
   });
 
-  it("carries method through per row, resolves appName/envName, and sorts newest-first by StartedAt", async () => {
+  // OLDEST-first: the comment reads as the story of how the branch got
+  // built, unlike the newest-first dashboard list.
+  it("carries method through per row, resolves appName/envName, and sorts oldest-first by StartedAt", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
     ]);
@@ -209,8 +211,8 @@ describe("readLinkedSessions", () => {
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
     expect(result).not.toBeNull();
-    expect(result!.map((r) => r.traceId)).toEqual(["t-newer", "t-older"]);
-    expect(result![0]).toMatchObject({
+    expect(result!.map((r) => r.traceId)).toEqual(["t-older", "t-newer"]);
+    expect(result![1]).toMatchObject({
       traceId: "t-newer",
       appId: "app-1",
       appName: "api",
@@ -221,7 +223,7 @@ describe("readLinkedSessions", () => {
       models: ["haiku-4.5", "opus-5"],
       apiErrorCount: 2,
     });
-    expect(result![1]).toMatchObject({
+    expect(result![0]).toMatchObject({
       traceId: "t-older",
       method: "pr_link",
       title: "Older session",
@@ -265,9 +267,10 @@ describe("readLinkedSessions", () => {
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
     expect(result).not.toBeNull();
+    // Oldest-first, so t-b (Jul 1) precedes t-a (Jul 2).
     expect(result!.map((r) => [r.traceId, r.appName, r.envName])).toEqual([
-      ["t-a", "api", "production"],
       ["t-b", "worker", "staging"],
+      ["t-a", "api", "production"],
     ]);
   });
 
@@ -361,5 +364,61 @@ describe("readLinkedSessions", () => {
     await expect(
       readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery: null }),
     ).rejects.toThrow("ClickHouse unavailable; 1 confirmed links unreadable");
+  });
+
+  it("gives that throw a distinguishable type and a stable, alertable reason prefix", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+
+    // A sustained run of THIS failure is an incident — it is the only state
+    // in which the empty state could overwrite a populated comment — unlike
+    // every other `failed` reason, which is transient noise. It must be
+    // separable from them without string-matching a free-form message.
+    await expect(
+      readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery: null }),
+    ).rejects.toBeInstanceOf(LinksUnreadableError);
+    await expect(
+      readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery: null }),
+    ).rejects.toThrow(LINKS_UNREADABLE_REASON);
+  });
+
+  // AC-057-05: `confirmed` is fanned out over every enabled app for the
+  // repo, so one trace can carry a row per app — `pr_link` for one and
+  // `branch` for another. Collapsing on row order (arbitrary, PostgREST's)
+  // would render a session that explicitly claimed the PR as `_(inferred)_`.
+  it("keeps pr_link precedence when one trace has rows for two apps", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-a", repository: REPO, pr_comments_enabled: true },
+      { tenant_id: TENANT, app_id: "app-b", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        // Branch-inferred row FIRST, so a last-write-wins map would keep the
+        // pr_link one by luck; the reverse order is the failing case, and
+        // both must resolve to pr_link.
+        link({ id: "l1", app_id: "app-b", trace_id: "t1", method: "branch", verification: "confirmed" }),
+        link({ id: "l2", app_id: "app-a", trace_id: "t1", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l3", app_id: "app-a", trace_id: "t2", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l4", app_id: "app-b", trace_id: "t2", method: "branch", verification: "confirmed" }),
+      ],
+    });
+    const chQuery = vi.fn().mockResolvedValue([
+      chRow({ TraceId: "t1", AppId: "app-a", StartedAt: "2026-07-01 09:00:00.000" }),
+      chRow({ TraceId: "t2", AppId: "app-a", StartedAt: "2026-07-02 09:00:00.000" }),
+    ]);
+    seedSupabaseMswState({
+      apps: [
+        { id: "app-a", tenant_id: TENANT, name: "api" },
+        { id: "app-b", tenant_id: TENANT, name: "worker" },
+      ],
+    });
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result!.map((r) => r.method)).toEqual(["pr_link", "pr_link"]);
   });
 });

@@ -14,13 +14,23 @@ re-points at a different criterion the moment a scenario is inserted or
 reordered, and the test keeps passing while proving the wrong thing. Never
 renumber an id. Retire one by deleting the line and the citation together.
 
-These scenarios are transcribed from GitHub issue #10, with the amendments
-recorded in the implementation plan applied so the criteria match what ships:
-scenario 6 narrows to provider errors and error storms (stuck-edit-retry-loop
-badging is deferred — see that scenario's note); the "missing cost renders as
-an em dash" requirement is dropped for cost specifically, in scenario 11; and
-"one bot comment per PR" is restated as one comment per
-`(tenant, repository, PR)` throughout.
+These scenarios are transcribed from GitHub issue #10. Two amendments were
+proposed against the original story; both have now been ruled on by the story
+owner:
+
+- Scenario 6 narrows to provider errors and error storms for the MVP.
+  Stuck-edit-retry-loop badging is **deferred, not dropped** — see the TODO
+  on that scenario.
+- The "missing cost renders as an em dash" requirement is **kept** (scenario
+  11). It was proposed for removal on the grounds that `CostUsd` is
+  non-nullable at rest; that is a property of the storage, not of reality, so
+  a cost we don't have renders as an em dash rather than as `$0.00`.
+
+"One bot comment per PR" is restated as one comment per
+`(tenant, repository, PR)` throughout. This is deliberate and confirmed: two
+tenants that both track the same repository each get their own comment, since
+neither can see the other's sessions and neither may edit the other's
+comment.
 
 ## Comment presence and identity
 
@@ -35,7 +45,11 @@ an em dash" requirement is dropped for cost specifically, in scenario 11; and
 
 ## Trouble signals
 
-6. `AC-057-06` **Given** a session with provider errors or an error storm, **When** the comment renders, **Then** that session's row carries an issue marker. Stuck-edit-retry-loop badging, present in the original story, is **deferred out of this criterion**: the rollup row the comment renders from doesn't carry the span sequence the edit-loop detector needs, and computing it per row would mean a span fetch per session on every comment refresh. Only provider errors and error storms gate the marker.
+6. `AC-057-06` **Given** a session with provider errors or an error storm, **When** the comment renders, **Then** that session's row carries an issue marker. Stuck-edit-retry-loop badging, present in the original story, is **deferred out of this criterion**: the rollup row the comment renders from doesn't carry the span sequence the edit-loop detector needs, and computing it per row would mean a span fetch per session on every comment refresh. Only provider errors and error storms gate the marker. **TODO:** issue #10
+names "did the agent get stuck — edit-retry loops" as one of four motivating
+questions, so this is a gap to close, not a settled scope — it needs a source
+for the span sequence (or a precomputed loop signal on the rollup row) that
+doesn't cost a span fetch per session per refresh.
 
 ## Topic labels
 
@@ -55,4 +69,4 @@ an em dash" requirement is dropped for cost specifically, in scenario 11; and
 
 ## Missing values
 
-11. `AC-057-11` **Given** a session row is missing a title or has no topics, **When** the comment renders, **Then** the title renders as "untitled session" and the topics cell renders an em dash; a session's cost, however, always renders as a dollar amount — `$0.00` when `CostUsd` is genuinely zero — because recorded cost is a non-nullable value at rest and cannot be distinguished from zero, so the em-dash treatment does not apply to cost.
+11. `AC-057-11` **Given** a session row is missing a title or has no topics, **When** the comment renders, **Then** the title renders as "untitled session", the topics cell renders an em dash, and a session with no recorded cost renders an em dash rather than `$0.00` — `CostUsd` being non-nullable at rest makes "unknown" and "zero" indistinguishable in the data, and of the two readings the comment must not be the one that asserts the work was free.

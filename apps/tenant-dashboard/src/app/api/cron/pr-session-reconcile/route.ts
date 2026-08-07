@@ -38,26 +38,85 @@ import type { ChangedPrTarget } from "@/lib/system/pr-session-reconciler/reconci
  * miss (an offline machine syncing sessions days late, a dropped queue
  * message). Refreshing every PR the sweep merely looked at — instead of only
  * the ones that changed — would be a rate-limit problem on a busy tenant,
- * so this stays scoped to `result.changed`.
+ * so this stays scoped to `result.changed`, and even that is capped and
+ * rate-shaped per tick (see {@link MAX_COMMENT_REFRESHES_PER_TICK} and
+ * {@link REPO_REFRESH_CONCURRENCY}) so one backfill can't blow the
+ * `maxDuration` budget or burst-write a single repository.
  */
 export const maxDuration = 300;
 
-/** Refreshes the GitHub comment for each changed PR. One failure must not
- * abort the rest — `refreshPrSessionComment` already never throws, but the
- * try/catch is defensive in case a future change to it does. */
+/**
+ * Ceiling on comment refreshes per tick. `changed` is unbounded — after a
+ * backfill (`sinceHours=720`) it can be thousands of PRs, each costing
+ * several Supabase reads, a ClickHouse query, and a GitHub write. Refreshing
+ * all of them times the route out mid-list, and since the list carries no
+ * cursor, the next tick would redo the same prefix and the tail would never
+ * be reached at all. Capping makes each tick finish; the PRs left over are
+ * reported as `deferred` and picked up by the next tick, which is why the
+ * order below is deterministic rather than whatever order the sweep emitted.
+ */
+const MAX_COMMENT_REFRESHES_PER_TICK = 150;
+
+/**
+ * How many repositories are refreshed at once. Within a repository, refreshes
+ * stay SEQUENTIAL: GitHub's secondary rate limits are per-repository and
+ * punish bursts of writes to one repo, which is exactly the shape a backfill
+ * produces. Across repositories there's no such coupling, so a handful run in
+ * parallel to fit the tick.
+ */
+const REPO_REFRESH_CONCURRENCY = 4;
+
+/** Refreshes the GitHub comment for each changed PR, oldest-first by a
+ * deterministic key, capped, and with one worker per repository. One failure
+ * must not abort the rest — `refreshPrSessionComment` already never throws,
+ * but the try/catch is defensive in case a future change to it does. */
 async function refreshChangedComments(
   changed: ChangedPrTarget[],
-): Promise<{ attempted: number; failed: number }> {
+): Promise<{ attempted: number; failed: number; deferred: number }> {
+  // Stable total order, so successive ticks work through the list instead of
+  // re-attempting an arbitrary prefix.
+  const ordered = [...changed].sort(
+    (a, b) =>
+      a.tenantId.localeCompare(b.tenantId) ||
+      a.repository.localeCompare(b.repository) ||
+      a.prNumber - b.prNumber,
+  );
+  const batch = ordered.slice(0, MAX_COMMENT_REFRESHES_PER_TICK);
+
+  // Group by repository: each group is a serial queue, and the groups
+  // themselves run REPO_REFRESH_CONCURRENCY at a time.
+  const byRepo = new Map<string, ChangedPrTarget[]>();
+  for (const target of batch) {
+    const key = `${target.tenantId} ${target.repository}`;
+    const group = byRepo.get(key);
+    if (group) group.push(target);
+    else byRepo.set(key, [target]);
+  }
+
+  const groups = [...byRepo.values()];
   let failed = 0;
-  for (const target of changed) {
-    try {
-      const result = await refreshPrSessionComment(target);
-      if (result.status === "failed") failed += 1;
-    } catch {
-      failed += 1;
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (let i = next++; i < groups.length; i = next++) {
+      for (const target of groups[i]!) {
+        try {
+          const result = await refreshPrSessionComment(target);
+          if (result.status === "failed") failed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
     }
   }
-  return { attempted: changed.length, failed };
+  await Promise.all(
+    Array.from({ length: Math.min(REPO_REFRESH_CONCURRENCY, groups.length) }, worker),
+  );
+
+  return {
+    attempted: batch.length,
+    failed,
+    deferred: ordered.length - batch.length,
+  };
 }
 
 export async function GET(request: NextRequest): Promise<Response> {

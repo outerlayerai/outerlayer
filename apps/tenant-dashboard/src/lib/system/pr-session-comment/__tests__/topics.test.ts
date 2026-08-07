@@ -5,6 +5,13 @@
  */
 import { describe, it, expect, vi } from "vitest";
 
+const mockLoggerError = vi.fn();
+vi.mock("@/lib/observability/server-logger", () => ({
+  serverLogger: {
+    error: (...args: unknown[]) => mockLoggerError(...args),
+  },
+}));
+
 import { readTopicLabels, type ChQueryFn } from "../topics";
 
 describe("readTopicLabels", () => {
@@ -54,18 +61,37 @@ describe("readTopicLabels", () => {
     expect(result.get("trace-2")).toEqual([]);
   });
 
-  it("a query failure degrades to empty labels instead of throwing", async () => {
+  // Labels degrading to blank is indistinguishable from Topics being off or
+  // not yet clustered, so a persistently broken query is invisible unless it
+  // reaches Logtail — a `console.error` here would never leave the container.
+  it("a query failure degrades to empty labels and reports a structured event", async () => {
+    mockLoggerError.mockClear();
     const chQuery: ChQueryFn = vi.fn().mockRejectedValue(new Error("ClickHouse unreachable"));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const result = await readTopicLabels({ chQuery, traceIds: ["trace-1"] });
 
     expect(result.get("trace-1")).toEqual([]);
-    expect(consoleError).toHaveBeenCalledWith(
-      "[pr-session-comment] readTopicLabels query failed; continuing with no labels",
+    expect(mockLoggerError).toHaveBeenCalledWith(
       expect.any(Error),
+      expect.objectContaining({ event: "pr_session_comment.topics_query_failed" }),
     );
-    consoleError.mockRestore();
+  });
+
+  // The SELECT list is one defense; this is the structural one — whatever
+  // the SQL returns, only TraceId and Name can travel onward (AC-057-08).
+  it("never surfaces a column outside the TraceId/Name allowlist", async () => {
+    const chQuery: ChQueryFn = vi.fn().mockResolvedValue([
+      {
+        TraceId: "trace-1",
+        Name: "Auth flows",
+        Summary: "the user pasted a production database password",
+      },
+    ]);
+
+    const result = await readTopicLabels({ chQuery, traceIds: ["trace-1"] });
+
+    expect(result.get("trace-1")).toEqual(["Auth flows"]);
+    expect(JSON.stringify([...result])).not.toContain("production database password");
   });
 
   it("rows with a blank Name are ignored", async () => {
