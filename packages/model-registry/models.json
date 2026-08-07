@@ -1,14 +1,14 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-06T02:50:54.934Z",
+  "generatedAt": "2026-08-07T02:49:43.818Z",
   "sources": {
     "litellm": {
-      "fetchedAt": "2026-08-06T02:50:54.934Z",
+      "fetchedAt": "2026-08-07T02:49:43.818Z",
       "modelCount": 1508
     },
     "openrouter": {
-      "fetchedAt": "2026-08-06T02:50:54.934Z",
-      "modelCount": 129
+      "fetchedAt": "2026-08-07T02:49:43.818Z",
+      "modelCount": 184
     }
   },
   "models": {
@@ -20539,8 +20539,7 @@
       },
       "capabilities": {
         "vision": true,
-        "functionCalling": true,
-        "structuredOutput": true
+        "functionCalling": true
       }
     },
     "gemini-2.5-pro-preview": {
@@ -29707,7 +29706,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-3.5-flash-lite:batch": {
       "provider": "google",
@@ -29731,7 +29730,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-sonnet-5:batch": {
       "provider": "anthropic",
@@ -29754,7 +29753,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-fable-5:batch": {
       "provider": "anthropic",
@@ -29777,7 +29776,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-opus-4.8:batch": {
       "provider": "anthropic",
@@ -29800,7 +29799,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-3.5-flash:batch": {
       "provider": "google",
@@ -29826,7 +29825,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-3.1-flash-lite:batch": {
       "provider": "google",
@@ -29852,7 +29851,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5.5:batch": {
       "provider": "openai",
@@ -29875,7 +29874,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-opus-4.7:batch": {
       "provider": "anthropic",
@@ -29898,7 +29897,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5.4-nano:batch": {
       "provider": "openai",
@@ -29921,7 +29920,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5.4-mini:batch": {
       "provider": "openai",
@@ -29944,7 +29943,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5.4:batch": {
       "provider": "openai",
@@ -29967,7 +29966,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-3.1-pro-preview:batch": {
       "provider": "google",
@@ -29993,7 +29992,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-opus-4.6:batch": {
       "provider": "anthropic",
@@ -30018,7 +30017,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-3-flash-preview:batch": {
       "provider": "google",
@@ -30036,7 +30035,7 @@
       },
       "context": {
         "maxInputTokens": 1048576,
-        "maxOutputTokens": 65535
+        "maxOutputTokens": 65536
       },
       "capabilities": {
         "vision": true,
@@ -30044,7 +30043,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5.2:batch": {
       "provider": "openai",
@@ -30067,7 +30066,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-opus-4.5:batch": {
       "provider": "anthropic",
@@ -30091,7 +30090,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5.1:batch": {
       "provider": "openai",
@@ -30114,7 +30113,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-haiku-4.5:batch": {
       "provider": "anthropic",
@@ -30140,7 +30139,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-sonnet-4.5:batch": {
       "provider": "anthropic",
@@ -30166,7 +30165,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5:batch": {
       "provider": "openai",
@@ -30189,7 +30188,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5-mini:batch": {
       "provider": "openai",
@@ -30212,7 +30211,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gpt-5-nano:batch": {
       "provider": "openai",
@@ -30235,7 +30234,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "claude-opus-4.1:batch": {
       "provider": "anthropic",
@@ -30259,7 +30258,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-2.5-flash-lite:batch": {
       "provider": "google",
@@ -30285,7 +30284,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-2.5-flash:batch": {
       "provider": "google",
@@ -30311,7 +30310,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "gemini-2.5-pro:batch": {
       "provider": "google",
@@ -30337,7 +30336,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
-      "deprecationDate": "2026-08-01"
+      "deprecationDate": null
     },
     "deepseek-v4-flash-0731": {
       "provider": "deepseek",
@@ -30416,6 +30415,642 @@
         "audioOutput": false,
         "pdfInput": true,
         "webSearch": true
+      }
+    },
+    "claude-opus-5:batch": {
+      "provider": "anthropic",
+      "displayName": "Claude Opus 5 (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.0000025,
+        "outputCostPerToken": 0.0000125
+      },
+      "context": {
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.6-luna-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.6 Luna Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 1e-7,
+        "outputCostPerToken": 6e-7
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.6-luna:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.6 Luna (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 1e-7,
+        "outputCostPerToken": 6e-7
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.6-terra-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.6 Terra Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.000006
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.6-terra:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.6 Terra (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.000006
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.6-sol-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.6 Sol Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.0000025,
+        "outputCostPerToken": 0.000015
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.6-sol:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.6 Sol (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.0000025,
+        "outputCostPerToken": 0.000015
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.5-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.5 Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000015,
+        "outputCostPerToken": 0.00009
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.4-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.4 Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000015,
+        "outputCostPerToken": 0.00009
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "claude-sonnet-4.6:batch": {
+      "provider": "anthropic",
+      "displayName": "Anthropic: Claude Sonnet 4.6 (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.0000015,
+        "outputCostPerToken": 0.0000075
+      },
+      "context": {
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5.2-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5.2 Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.0000105,
+        "outputCostPerToken": 0.000084
+      },
+      "context": {
+        "maxInputTokens": 400000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5 Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.0000075,
+        "outputCostPerToken": 0.00006
+      },
+      "context": {
+        "maxInputTokens": 400000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-5-codex:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-5 Codex (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 6.25e-7,
+        "outputCostPerToken": 0.000005
+      },
+      "context": {
+        "maxInputTokens": 400000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "o3-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o3 Pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.00001,
+        "outputCostPerToken": 0.00004
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "o4-mini-high:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o4 Mini High (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 5.5e-7,
+        "outputCostPerToken": 0.0000022
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "o3:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o3 (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.000004
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "o4-mini:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o4 Mini (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 5.5e-7,
+        "outputCostPerToken": 0.0000022
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-4.1:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-4.1 (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.000004
+      },
+      "context": {
+        "maxInputTokens": 1047576,
+        "maxOutputTokens": 32768
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-4.1-mini:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-4.1 Mini (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 2e-7,
+        "outputCostPerToken": 8e-7
+      },
+      "context": {
+        "maxInputTokens": 1047576,
+        "maxOutputTokens": 32768
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-4.1-nano:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-4.1 Nano (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 5e-8,
+        "outputCostPerToken": 2e-7
+      },
+      "context": {
+        "maxInputTokens": 1047576,
+        "maxOutputTokens": 32768
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "o1-pro:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o1-pro (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000075,
+        "outputCostPerToken": 0.0003
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "vision": true,
+        "structuredOutput": true
+      }
+    },
+    "o3-mini-high:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o3 Mini High (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 5.5e-7,
+        "outputCostPerToken": 0.0000022
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "o3-mini:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o3 Mini (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 5.5e-7,
+        "outputCostPerToken": 0.0000022
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "o1:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: o1 (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.0000075,
+        "outputCostPerToken": 0.00003
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 100000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-4o-mini:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-4o-mini (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 7.5e-8,
+        "outputCostPerToken": 3e-7
+      },
+      "context": {
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 16384
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-4o:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-4o (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.00000125,
+        "outputCostPerToken": 0.000005
+      },
+      "context": {
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 16384
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-4-turbo:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-4 Turbo (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 0.000005,
+        "outputCostPerToken": 0.000015
+      },
+      "context": {
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 4096
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gpt-3.5-turbo:batch": {
+      "provider": "openai",
+      "displayName": "OpenAI: GPT-3.5 Turbo (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 2.5e-7,
+        "outputCostPerToken": 7.5e-7
+      },
+      "context": {
+        "maxInputTokens": 16385,
+        "maxOutputTokens": 4096
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "structuredOutput": true
       }
     }
   }
