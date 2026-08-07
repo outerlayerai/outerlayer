@@ -19,6 +19,10 @@ export type AuthUserType =
   | null
   | ({
       permissions?: RolePermission[];
+      /** The URL org `permissions` were fetched under. The fetch resolves its
+       *  tenant from the request URL, so the set is only valid while the URL
+       *  org matches; the provider refetches when they diverge. */
+      permissionsOrg?: string;
       tenant?: Tenant | null;
       /** All organizations the user belongs to */
       memberships?: MembershipWithTenant[];

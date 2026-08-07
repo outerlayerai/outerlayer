@@ -406,4 +406,77 @@ describe('AuthProvider — permissions follow the URL org across client-side nav
     await act(async () => {});
     expect(permissionsMock).toHaveBeenCalledTimes(2);
   });
+
+  it('recovers when an auth-event fetch started under the previous org lands after navigating', async () => {
+    // Token refresh runs in the background and its permissions fetch rides
+    // the URL at call time. If the user navigates to another org while that
+    // fetch is in flight, the late arrival carries the OLD org's permissions
+    // and must not stick — the provider tracks which org a set was fetched
+    // under and refetches when it diverges from the URL.
+    const permissionsMock = vi.mocked(getCurrentUserPermissions);
+
+    vi.mocked(useParams).mockReturnValue({ orgName: 'org-a' });
+    permissionsMock.mockResolvedValue([
+      { id: 1, role: 'owner', permission: 'app.insert' },
+    ] as never);
+
+    const { rerender } = render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+
+    capturedCallback!('INITIAL_SESSION', session);
+    await waitFor(() => {
+      expect(screen.getByTestId('permissions').textContent).toBe('app.insert');
+    });
+
+    // A background token refresh starts on org-a; its permissions fetch
+    // stalls until we release it.
+    let releaseRefreshFetch!: () => void;
+    permissionsMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseRefreshFetch = () =>
+            resolve([{ id: 1, role: 'owner', permission: 'app.insert' }] as never);
+        }),
+    );
+    capturedCallback!('TOKEN_REFRESHED', session);
+    // The listener defers its handler by a macrotask; flush it so the
+    // refresh fetch is the one holding the deferred promise before the
+    // navigation below issues its own fetch.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Mid-flight, the user navigates to org-b, where they only read.
+    permissionsMock.mockResolvedValue([
+      { id: 2, role: 'read', permission: 'app.read' },
+    ] as never);
+    vi.mocked(useParams).mockReturnValue({ orgName: 'org-b' });
+    rerender(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('permissions').textContent).toBe('app.read');
+    });
+
+    // The stale org-a refresh fetch lands last. It must not win: its
+    // dispatch marks the stored set as fetched-under-org-a, which re-arms
+    // the drift effect and triggers a healing refetch for org-b (the 4th
+    // fetch: initial, org-b switch, token refresh, heal). Waiting on that
+    // call pins that the stale arrival actually landed and was corrected,
+    // rather than sampling before it arrived.
+    await act(async () => {
+      releaseRefreshFetch();
+    });
+    await waitFor(() => {
+      expect(permissionsMock).toHaveBeenCalledTimes(4);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('permissions').textContent).toBe('app.read');
+    });
+  });
 });
