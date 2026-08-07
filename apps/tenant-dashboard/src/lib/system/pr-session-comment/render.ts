@@ -177,7 +177,10 @@ function renderRow(
 
   const duration = formatDurationMinutes(durationMinutes(row.startedAt, row.endedAt));
   const cost = formatCost(row.costUsd);
-  const models = row.models.length > 0 ? row.models.join(", ") : "—";
+  // Escaped for the same reason titles and topics are: model names are
+  // SDK/transcript-supplied and sanitized at no hop on the way here, so an
+  // unescaped `|` forges a column in a world-readable comment.
+  const models = row.models.length > 0 ? row.models.map(escapeMarkdownCell).join(", ") : "—";
 
   return `| [${label}](${url})${badge} | ${topicsCell} | ${duration} | ${cost} | ${models} |`;
 }
@@ -249,12 +252,19 @@ export function renderComment(
  * Fits as many table rows as the GitHub body limit allows, keeping the
  * header, the table header, the overflow line, and the footer.
  *
- * A body one character over the ceiling used to fall back to the header plus
- * the link — the reviewer got a cost total and nothing about which sessions
- * produced it. Truncating instead degrades to "the most recent N sessions,
- * and a count of the rest", which is the same ceiling and a far more useful
- * comment. Rows are newest-first, so the ones kept are the ones a reviewer
- * is most likely to want.
+ * Over the ceiling the comment degrades to "the most recent N sessions, and
+ * a count of the rest" rather than dropping the table entirely — the same
+ * ceiling, a far more useful comment than a cost total with no idea which
+ * sessions produced it.
+ *
+ * Which N is load-bearing. `readLinkedSessions` returns rows OLDEST-first so
+ * the table reads as the story of how the branch got built, and this fitter
+ * must not quietly invert that choice into "drop the newest": the session
+ * that triggered this very refresh is the newest one, and dropping it is the
+ * one omission a reviewer would notice. So the fit is taken from the TAIL —
+ * newest kept, oldest omitted — and the kept rows are then restored to
+ * oldest-first for rendering. Reachable, not pathological: ~385 typical rows
+ * reach 64 KB, well under `MAX_LINKS`.
  */
 function fitTableRows(
   tableRows: string[],
@@ -274,18 +284,23 @@ function fitTableRows(
 
   let used = fixed;
   const kept: string[] = [];
-  for (const row of tableRows) {
+  // Newest-first (from the tail), so the rows that survive the ceiling are
+  // the most recent ones — see the ordering note above.
+  for (let i = tableRows.length - 1; i >= 0; i -= 1) {
+    const row = tableRows[i]!;
     const cost = row.length + 1; // the newline joining it to the previous row
     const reserve = kept.length + 1 === tableRows.length ? 0 : separators + overflowLine.length;
     if (used + cost + reserve > GITHUB_COMMENT_BODY_LIMIT) break;
     used += cost;
     kept.push(row);
   }
+  // Back to the oldest-first reading order the table is built around.
+  kept.reverse();
 
   // Degenerate case — not even one row fits (a single pathological title
   // near the 64 KB ceiling). `kept` stays empty and the caller drops the
   // table header with it, leaving the totals, the "…and N more" line, and
-  // the link: the pre-truncation fallback, reached only where truncating
-  // genuinely can't help.
+  // the link: the fallback, reached only where truncating genuinely can't
+  // help.
   return { rows: kept, omitted: tableRows.length - kept.length };
 }

@@ -73,7 +73,7 @@ import { renderComment, type RenderLinks } from "./render";
  * as `read.ts` and `pr-lifecycle-read.ts`.
  */
 
-export type RefreshPrSessionCommentResult =
+type RefreshPrSessionCommentResult =
   | { status: "created"; commentId: number }
   | { status: "updated"; commentId: number }
   /** The rendered body is byte-identical to the last posted one — no GitHub
@@ -101,7 +101,7 @@ export interface RefreshPrSessionCommentParams {
  * tests never construct a real GitHub App installation Octokit client. The
  * production path resolves a real `GitHubProvider` (see
  * {@link resolveGithubClient}), which satisfies this shape structurally. */
-export interface PrSessionCommentGithubClient {
+interface PrSessionCommentGithubClient {
   createIssueComment(repo: string, issueNumber: number, body: string): Promise<IssueCommentResult>;
   updateIssueComment(repo: string, commentId: number, body: string): Promise<IssueCommentResult>;
   /** Existence probe for the staleness escape hatch — see
@@ -110,7 +110,7 @@ export interface PrSessionCommentGithubClient {
   getIssueComment?(repo: string, commentId: number): Promise<IssueCommentResult>;
 }
 
-export interface RefreshPrSessionCommentDeps {
+interface RefreshPrSessionCommentDeps {
   /** Test seam for ClickHouse — see `read.ts` / `topics.ts`. Also used for
    * production when omitted (`tenantChQuery`). Explicitly `null` means "the
    * caller resolved its own client and got nothing" — an unreachable

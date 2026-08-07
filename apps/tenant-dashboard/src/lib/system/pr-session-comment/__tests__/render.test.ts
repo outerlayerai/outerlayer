@@ -289,6 +289,61 @@ describe("renderComment", () => {
     expect(body).toContain("a\\|b");
   });
 
+  // Models reach us straight off transcript JSONL via the capture adapters,
+  // sanitized at no hop. An unescaped `|` forges an extra column in a
+  // world-readable comment on someone else's repository — the same class of
+  // breakout the title and topic cells are escaped against.
+  it("a model name containing a pipe cannot forge a table column", () => {
+    const body = renderComment(
+      [row({ traceId: "t1", models: ["x | $999.00 |", "opus-5"] })],
+      new Map(),
+      LINKS,
+    );
+
+    const dataRow = body.split("\n").find((l) => l.startsWith("| ["))!;
+    // Exactly the five cells the table declares — the forged ones didn't land.
+    expect(dataRow.split(" | ")).toHaveLength(5);
+    expect(dataRow).toContain("x \\| $999.00 \\|, opus-5");
+  });
+
+  // Truncation drops the OLDEST rows, never the newest. The newest session is
+  // the one whose sync triggered this refresh, so dropping it makes the
+  // comment look broken to the person who just caused it to be written.
+  it("keeps the newest sessions when the table has to be truncated", () => {
+    // Oldest-first, as readLinkedSessions returns them. Only a couple fit.
+    const rows: LinkedSessionRow[] = [
+      row({ traceId: "oldest", title: "x".repeat(35000), startedAt: "2026-07-01T09:00:00.000Z" }),
+      row({ traceId: "middle", title: "y".repeat(35000), startedAt: "2026-07-02T09:00:00.000Z" }),
+      row({ traceId: "newest", title: "the session that just synced", startedAt: "2026-07-03T09:00:00.000Z" }),
+    ];
+
+    const body = renderComment(rows, new Map(), LINKS);
+
+    expect(body.length).toBeLessThanOrEqual(65536);
+    expect(body).toContain("the session that just synced");
+    expect(body).toContain("/agents/sessions/newest?src=pr-comment");
+    // The oldest is what gave way.
+    expect(body).not.toContain("/agents/sessions/oldest?src=pr-comment");
+    expect(body).toContain("_…and 1 more session — see the dashboard._");
+  });
+
+  // Truncating must not also reorder: the kept rows still read oldest-first,
+  // which is the whole reason the read layer sorts that way.
+  it("kept rows stay in oldest-first order after truncation", () => {
+    const rows: LinkedSessionRow[] = [
+      row({ traceId: "a-oldest", title: "z".repeat(65000), startedAt: "2026-07-01T09:00:00.000Z" }),
+      row({ traceId: "b-middle", title: "middle session", startedAt: "2026-07-02T09:00:00.000Z" }),
+      row({ traceId: "c-newest", title: "newest session", startedAt: "2026-07-03T09:00:00.000Z" }),
+    ];
+
+    const body = renderComment(rows, new Map(), LINKS);
+
+    expect(body).not.toContain("/agents/sessions/a-oldest?src=pr-comment");
+    expect(body.indexOf("/agents/sessions/b-middle")).toBeLessThan(
+      body.indexOf("/agents/sessions/c-newest"),
+    );
+  });
+
   it("a title containing a raw HTML tag renders as text", () => {
     const body = renderComment([row({ traceId: "t1", title: "<img src=x>" })], new Map(), LINKS);
 

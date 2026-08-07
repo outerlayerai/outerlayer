@@ -123,11 +123,7 @@ export {
   type AppsListMswRow,
 } from './apps-list';
 export { seedAiCostConfigMswState } from './ai-cost-config';
-export {
-  seedPrSessionCommentMswState,
-  getPrSessionCommentRows,
-  type PrSessionCommentMswRow,
-} from './pr-session-comment';
+export { seedPrSessionCommentMswState, getPrSessionCommentRows } from './pr-session-comment';
 
 // MSW resolves handlers in registration order; the FIRST matching handler
 // wins. We register managed-deployment-tables BEFORE the shared supabase

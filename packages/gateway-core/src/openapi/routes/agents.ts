@@ -438,7 +438,7 @@ export class SyncAgentSessions extends BaseRoute {
           if (summary.PrNumber > 0) prNumbers.add(summary.PrNumber);
           for (const prNumber of prNumbers) {
             if (prNumber <= 0) continue;
-            const key = `${summary.TenantId} ${commentRepo} ${prNumber}`;
+            const key = `${summary.TenantId}\0${commentRepo}\0${prNumber}`;
             prRefreshKeys.set(key, { tenantId: summary.TenantId, repository: commentRepo, prNumber });
           }
         }

@@ -9,19 +9,12 @@ import "server-only";
  * to change without touching every caller.
  */
 
-export {
-  refreshPrSessionComment,
-  type RefreshPrSessionCommentParams,
-  type RefreshPrSessionCommentResult,
-  type RefreshPrSessionCommentDeps,
-  type PrSessionCommentGithubClient,
-} from "./refresh";
-
-export {
-  readLinkedSessions,
-  LinksUnreadableError,
-  LINKS_UNREADABLE_REASON,
-  type LinkedSessionRow,
-} from "./read";
-export { readTopicLabels, type ReadTopicLabelsInput, type ChQueryFn } from "./topics";
-export { renderComment, type RenderLinks } from "./render";
+/**
+ * Deliberately narrow: the entry point and the params every caller has to
+ * name, and nothing else. The read layer, the topic reader and the renderer
+ * are composed BY `refreshPrSessionComment` and have no caller of their own
+ * outside this directory — re-exporting them here would publish internals as
+ * API and freeze them against the very churn this barrel exists to absorb.
+ * Their own tests import them by path.
+ */
+export { refreshPrSessionComment, type RefreshPrSessionCommentParams } from "./refresh";
