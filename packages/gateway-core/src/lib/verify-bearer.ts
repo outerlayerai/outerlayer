@@ -203,7 +203,7 @@ export async function verifyBearerJwt(
     return null;
   }
 
-  let signatureValid = false;
+  let signatureValid: boolean;
 
   if (header.alg === 'HS256') {
     // -- Symmetric verify with SUPABASE_JWT_SECRET --

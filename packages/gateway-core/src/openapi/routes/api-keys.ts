@@ -413,7 +413,7 @@ export class CreateApiKey extends BaseRoute {
     // the same `environment_id` column the dashboard CTA and managed deployment
     // write.
     let environmentId: string | undefined;
-    let envError: { message?: string } | null = null;
+    let envError: { message?: string } | null;
     let envNameNotFound = false;
     if (body.environment_name) {
       const { data: namedEnv, error: namedErr } = await supabase
