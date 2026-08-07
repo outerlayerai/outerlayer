@@ -269,8 +269,13 @@ const results = await Promise.allSettled([
   // actively working on, and the lower cap costs little wall-clock because the
   // critical path is the largest single suite (which caps its own workers).
   // PREPUSH_CONCURRENCY overrides it (e.g. '50%' on an idle machine).
-  gate('typecheck+lint+unit', 'yarn', [
-    'turbo', 'run', 'typecheck', 'lint', 'test',
+  // `nice -n 10` keeps the machine interactive while the gate runs: the suite
+  // still gets idle cores at full speed, but foreground work (editor, browser)
+  // wins the scheduler the moment it asks. Priority beats cutting concurrency
+  // further — a lower cap slows the push even when the machine is idle.
+  gate('typecheck+lint+unit', 'nice', [
+    '-n', '10',
+    'yarn', 'turbo', 'run', 'typecheck', 'lint', 'test',
     `--concurrency=${process.env.PREPUSH_CONCURRENCY || '25%'}`,
     `--filter=...[${BASE}]`,
     '--filter=!integration-tests',
