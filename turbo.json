@@ -55,7 +55,13 @@
         "tsconfig.json",
         "tsconfig.*.json"
       ],
-      "passThroughEnv": ["HOME", "USERPROFILE", "HOMEPATH"]
+      "passThroughEnv": [
+        "HOME",
+        "USERPROFILE",
+        "HOMEPATH",
+        "VITEST_MAX_THREADS",
+        "VITEST_MAX_FORKS"
+      ]
     },
     "test:coverage": {
       "dependsOn": ["^build", "@outerlayer/locales#build"],
