@@ -271,6 +271,50 @@ CREATE TYPE public.app_permission AS ENUM (
     'membership.delete'
 );
 
+-- ---------------------------------------------------------------------------
+-- 4b. Sweep any stored value the NEW enum lacks, whatever its origin.
+--
+--     Step 1 deletes the six values THIS migration retires, which is the
+--     migration's intent. It cannot cover values that were already orphaned
+--     before it ran: staging carried `puzzlet_config.read` in
+--     custom_role_permission, a label present in the old type but absent from
+--     every tracked migration — so no enumerated list would ever have caught
+--     it, and the recast below failed with 22P02.
+--
+--     This runs AFTER the CREATE TYPE above, so `public.app_permission`
+--     resolves to the NEW type while the columns still hold the old one. That
+--     is the only window where "not a label of the new enum" is expressible.
+--     Being derived from pg_enum rather than a hand-kept list, it stays correct
+--     for the next rebuild too.
+-- ---------------------------------------------------------------------------
+DELETE FROM public.role_permissions
+WHERE permission::text NOT IN (
+    SELECT enumlabel::text FROM pg_enum WHERE enumtypid = 'public.app_permission'::regtype
+);
+
+DELETE FROM public.custom_role_permission
+WHERE permission::text NOT IN (
+    SELECT enumlabel::text FROM pg_enum WHERE enumtypid = 'public.app_permission'::regtype
+);
+
+-- api_key holds scopes as an array, so unknown labels are filtered element-wise.
+-- array_agg over the old-typed column yields app_permission_old[], so the empty
+-- fallback must match that type — the column is retyped further down, not here.
+UPDATE public.api_key
+SET permissions = (
+    SELECT COALESCE(array_agg(p ORDER BY ord), '{}'::public.app_permission_old[])
+    FROM unnest(permissions) WITH ORDINALITY AS t(p, ord)
+    WHERE p::text IN (
+        SELECT enumlabel::text FROM pg_enum WHERE enumtypid = 'public.app_permission'::regtype
+    )
+)
+WHERE EXISTS (
+    SELECT 1 FROM unnest(permissions) AS p
+    WHERE p::text NOT IN (
+        SELECT enumlabel::text FROM pg_enum WHERE enumtypid = 'public.app_permission'::regtype
+    )
+);
+
 ALTER TABLE public.role_permissions
     -- squawk-ignore changing-column-type
     ALTER COLUMN permission TYPE public.app_permission
