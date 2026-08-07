@@ -61,5 +61,15 @@ CREATE POLICY "Enable read access for tenant users" ON "public"."pr_session_comm
     FOR SELECT TO "authenticated"
     USING ((( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
 
+-- REVOKE first, then re-grant. Without this the table inherits the legacy
+-- `ALTER DEFAULT PRIVILEGES` from the init migration, which grants
+-- anon/authenticated full CRUD on new tables in this schema — so the GRANT
+-- below would read like a narrow policy while narrowing nothing, and the
+-- single SELECT policy would be the only thing standing between those
+-- grants and cross-tenant writes. Stating the privileges outright also
+-- keeps a fresh install identical to an existing one. Precedent:
+-- 22-git-connection.sql.
+REVOKE ALL ON public.pr_session_comment FROM anon;
+REVOKE ALL ON public.pr_session_comment FROM authenticated;
 GRANT SELECT ON public.pr_session_comment TO authenticated;
 GRANT ALL ON public.pr_session_comment TO service_role;

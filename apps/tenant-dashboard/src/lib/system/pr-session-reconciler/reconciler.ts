@@ -490,6 +490,9 @@ export async function resolveChangedLinkTargets(
     .from("git_connection")
     .select("app_id, tenant_id, repository")
     .in("app_id", appIds)
+    // PR comments are a GitHub-App-only capability; a legacy
+    // `provider='gitlab'` row would nominate a repo nothing can ever post to.
+    .eq("provider", "github")
     .limit(MAX_CHANGED_APP_CONNECTIONS);
   if (error) throw new Error(`git_connection read failed: ${error.message}`);
   const byApp = new Map(

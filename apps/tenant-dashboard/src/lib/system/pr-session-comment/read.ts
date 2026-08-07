@@ -183,6 +183,11 @@ export async function readLinkedSessions(
     .select("app_id")
     .eq("tenant_id", tenantId)
     .eq("repository", repository)
+    // This feature posts through the GitHub App and nothing else. New GitLab
+    // connections can't be created, but the schema still permits legacy
+    // `provider='gitlab'` rows, and the rest of the codebase treats them as
+    // state to defend against rather than assume away.
+    .eq("provider", "github")
     .eq("pr_comments_enabled", true)
     .limit(MAX_GIT_CONNECTIONS);
   if (connectionsError) {

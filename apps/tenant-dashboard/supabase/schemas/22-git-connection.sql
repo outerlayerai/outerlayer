@@ -66,7 +66,7 @@ COMMENT ON COLUMN public.git_connection.installation_id IS 'GitHub App installat
 
 COMMENT ON COLUMN public.git_connection.webhook_id IS 'Provider-specific webhook identifier for cleanup on disconnect';
 COMMENT ON COLUMN public.git_connection.webhook_secret IS 'Per-app webhook secret for signature verification (encrypted)';
-COMMENT ON COLUMN public.git_connection.pr_comments_enabled IS 'Gates whether PR session-summary comments are posted for this app; defaults on';
+COMMENT ON COLUMN public.git_connection.pr_comments_enabled IS 'Gates whether PR session-summary comments are posted for this app; opt-in, defaults OFF';
 
 -- -----------------------------------------------------------------------------
 -- Git Branch Table

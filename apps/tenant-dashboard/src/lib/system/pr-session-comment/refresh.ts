@@ -197,6 +197,9 @@ async function resolveInstallationId(
     .select("installation_id")
     .eq("tenant_id", tenantId)
     .eq("repository", repository)
+    // Same provider gate as the read layer: an installation id only means
+    // anything for a GitHub App connection.
+    .eq("provider", "github")
     .eq("pr_comments_enabled", true)
     .limit(MAX_GIT_CONNECTIONS);
   if (error) {

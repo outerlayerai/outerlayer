@@ -137,4 +137,78 @@ describe("POST /api/internal/pr-comment-refresh", () => {
       { ...ITEM_B, status: "updated", commentId: 77 },
     ]);
   });
+
+  // GitHub's secondary rate limits are per-repository, and the queue consumer
+  // coalesces per (tenant, repo, PR) only — so a busy monorepo delivers many
+  // distinct PRs in ONE batch. Writing them concurrently is the exact shape
+  // that gets throttled, and a fresh Octokit per refresh means the client's
+  // own throttling plugin coordinates nothing across them.
+  it("serializes refreshes that share a repository instead of bursting them", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockRefresh.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      return { status: "updated", commentId: 1 };
+    });
+
+    const sameRepo = Array.from({ length: 8 }, (_, i) => ({
+      tenantId: "tenant-1",
+      repository: "github.com/acme/api",
+      prNumber: 900 + i,
+    }));
+
+    const response = await POST(createAuthedRequest({ items: sameRepo }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.results).toHaveLength(8);
+    expect(maxInFlight).toBe(1);
+  });
+
+  // Different repositories share no rate-limit bucket, so serializing across
+  // them would just make a batch needlessly slow.
+  it("still refreshes distinct repositories in parallel", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockRefresh.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      return { status: "updated", commentId: 1 };
+    });
+
+    const distinctRepos = Array.from({ length: 4 }, (_, i) => ({
+      tenantId: "tenant-1",
+      repository: `github.com/acme/svc-${i}`,
+      prNumber: 1,
+    }));
+
+    await POST(createAuthedRequest({ items: distinctRepos }));
+
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+
+  // Results are zipped back onto the caller's items by index, so a grouped
+  // execution order must not reorder the response.
+  it("returns results in request order even though execution is grouped by repo", async () => {
+    mockRefresh.mockImplementation(async (params: typeof ITEM_A) => ({
+      status: "updated" as const,
+      commentId: params.prNumber,
+    }));
+
+    const items = [
+      { tenantId: "t", repository: "github.com/acme/a", prNumber: 1 },
+      { tenantId: "t", repository: "github.com/acme/b", prNumber: 2 },
+      { tenantId: "t", repository: "github.com/acme/a", prNumber: 3 },
+    ];
+
+    const response = await POST(createAuthedRequest({ items }));
+    const body = await response.json();
+
+    expect(body.results.map((r: { commentId: number }) => r.commentId)).toEqual([1, 2, 3]);
+  });
 });

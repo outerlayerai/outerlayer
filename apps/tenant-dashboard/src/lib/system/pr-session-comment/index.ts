@@ -18,3 +18,10 @@ import "server-only";
  * Their own tests import them by path.
  */
 export { refreshPrSessionComment, type RefreshPrSessionCommentParams } from "./refresh";
+
+// `refreshEachByRepo` is deliberately NOT re-exported here. Callers import it
+// from `./repo-pool` directly, so that a test which mocks this barrel to stub
+// `refreshPrSessionComment` still runs the REAL per-repository
+// serialization — the property those route tests exist to check. Routed
+// through here it would be stubbed out with everything else and the
+// rate-limit behaviour would silently go untested.

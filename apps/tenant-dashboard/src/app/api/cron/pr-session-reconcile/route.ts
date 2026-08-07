@@ -4,6 +4,7 @@ import { safeCompare } from "@/utils/safe-compare";
 import { runPrSessionSweep } from "@/lib/system/pr-session-reconciler";
 import { runOutcomeScoresSweep } from "@/lib/system/outcome-scores";
 import { refreshPrSessionComment } from "@/lib/system/pr-session-comment";
+import { refreshEachByRepo } from "@/lib/system/pr-session-comment/repo-pool";
 import type { ChangedPrTarget } from "@/lib/system/pr-session-reconciler/reconciler";
 
 /**
@@ -57,19 +58,12 @@ export const maxDuration = 300;
  */
 const MAX_COMMENT_REFRESHES_PER_TICK = 150;
 
-/**
- * How many repositories are refreshed at once. Within a repository, refreshes
- * stay SEQUENTIAL: GitHub's secondary rate limits are per-repository and
- * punish bursts of writes to one repo, which is exactly the shape a backfill
- * produces. Across repositories there's no such coupling, so a handful run in
- * parallel to fit the tick.
- */
-const REPO_REFRESH_CONCURRENCY = 4;
-
 /** Refreshes the GitHub comment for each changed PR, oldest-first by a
- * deterministic key, capped, and with one worker per repository. One failure
- * must not abort the rest — `refreshPrSessionComment` already never throws,
- * but the try/catch is defensive in case a future change to it does. */
+ * deterministic key, capped, and serialized per repository by the module's
+ * shared pool (see `pr-session-comment/repo-pool.ts` for the rate-limit
+ * reason). One failure must not abort the rest — `refreshPrSessionComment`
+ * already never throws, but the try/catch is defensive in case a future
+ * change to it does. */
 async function refreshChangedComments(
   changed: ChangedPrTarget[],
 ): Promise<{ attempted: number; failed: number; deferred: number }> {
@@ -83,38 +77,18 @@ async function refreshChangedComments(
   );
   const batch = ordered.slice(0, MAX_COMMENT_REFRESHES_PER_TICK);
 
-  // Group by repository: each group is a serial queue, and the groups
-  // themselves run REPO_REFRESH_CONCURRENCY at a time.
-  const byRepo = new Map<string, ChangedPrTarget[]>();
-  for (const target of batch) {
-    const key = `${target.tenantId} ${target.repository}`;
-    const group = byRepo.get(key);
-    if (group) group.push(target);
-    else byRepo.set(key, [target]);
-  }
-
-  const groups = [...byRepo.values()];
-  let failed = 0;
-  let next = 0;
-  async function worker(): Promise<void> {
-    for (let i = next++; i < groups.length; i = next++) {
-      for (const target of groups[i]!) {
-        try {
-          const result = await refreshPrSessionComment(target);
-          if (result.status === "failed") failed += 1;
-        } catch {
-          failed += 1;
-        }
-      }
+  const outcomes = await refreshEachByRepo(batch, async (target) => {
+    try {
+      const result = await refreshPrSessionComment(target);
+      return result.status === "failed";
+    } catch {
+      return true;
     }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(REPO_REFRESH_CONCURRENCY, groups.length) }, worker),
-  );
+  });
 
   return {
     attempted: batch.length,
-    failed,
+    failed: outcomes.filter(Boolean).length,
     deferred: ordered.length - batch.length,
   };
 }

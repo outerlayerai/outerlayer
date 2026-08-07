@@ -49,7 +49,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { safeCompare } from "@/utils/safe-compare";
-import { refreshPrSessionComment, type RefreshPrSessionCommentParams } from "@/lib/system/pr-session-comment";
+import {
+  refreshPrSessionComment,
+  type RefreshPrSessionCommentParams,
+} from "@/lib/system/pr-session-comment";
+import { refreshEachByRepo } from "@/lib/system/pr-session-comment/repo-pool";
 
 const refreshItemSchema = z.object({
   tenantId: z.string().min(1),
@@ -89,12 +93,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid refresh batch" }, { status: 400 });
   }
 
+  // Through the shared per-repository pool, NOT a flat `Promise.all`. The
+  // queue consumer coalesces per (tenant, repo, PR), so a busy monorepo can
+  // deliver dozens of distinct PRs in one batch — and firing those as
+  // simultaneous comment writes is exactly what GitHub's per-repo secondary
+  // rate limit punishes. See `repo-pool.ts`.
+  //
   // One bad/failing item must not fail the whole batch — refreshPrSessionComment
   // already resolves its own failures to a `{status: "failed"}` result rather
   // than throwing, but an unexpected exception in any one item is still caught
   // here so a sibling item's result is never lost.
-  const results = await Promise.all(
-    parsed.data.items.map(async (item: RefreshPrSessionCommentParams) => {
+  const results = await refreshEachByRepo(
+    parsed.data.items,
+    async (item: RefreshPrSessionCommentParams) => {
       try {
         const result = await refreshPrSessionComment(item);
         return { ...item, ...result };
@@ -105,7 +116,7 @@ export async function POST(request: NextRequest) {
           reason: error instanceof Error ? error.message : String(error),
         };
       }
-    }),
+    },
   );
 
   return NextResponse.json({ results });

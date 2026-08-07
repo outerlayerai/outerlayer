@@ -47,21 +47,21 @@ alter table "public"."pr_session_comment" validate constraint "pr_session_commen
 
 alter table "public"."pr_session_comment" add constraint "uq_pr_session_comment" UNIQUE using index "uq_pr_session_comment";
 
-grant delete on table "public"."pr_session_comment" to "anon";
+-- The init migration bakes in legacy `ALTER DEFAULT PRIVILEGES` granting
+-- full CRUD to anon/authenticated on every new table in this schema, so a
+-- plain `CREATE TABLE` arrives with INSERT/UPDATE/DELETE already granted.
+-- RLS (the single SELECT policy below) is what keeps that inert today, which
+-- makes the policy the ONLY guard on a table whose rows identify
+-- (tenant, repository, pr_number). Strip the inherited grants first and
+-- re-grant only what is actually used, so the privileges are stated here
+-- rather than inherited — and so a fresh install created after the Supabase
+-- default-grant change ends up with the SAME grants as an existing one.
+-- Precedent: 22-git-connection.sql.
+revoke all on table "public"."pr_session_comment" from "anon";
 
-grant insert on table "public"."pr_session_comment" to "anon";
-
-grant select on table "public"."pr_session_comment" to "anon";
-
-grant update on table "public"."pr_session_comment" to "anon";
-
-grant delete on table "public"."pr_session_comment" to "authenticated";
-
-grant insert on table "public"."pr_session_comment" to "authenticated";
+revoke all on table "public"."pr_session_comment" from "authenticated";
 
 grant select on table "public"."pr_session_comment" to "authenticated";
-
-grant update on table "public"."pr_session_comment" to "authenticated";
 
 grant delete on table "public"."pr_session_comment" to "service_role";
 

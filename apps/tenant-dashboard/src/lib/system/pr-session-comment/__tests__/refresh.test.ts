@@ -71,11 +71,13 @@ interface GitConnectionSeedRow {
   /** Only the installation-lookup tests care; the rest inject a client and
    * never reach `resolveInstallationId`. */
   installation_id?: number | null;
+  /** Defaults to "github"; set it to prove the provider gate bites. */
+  provider?: string;
 }
 
 /** Local override, matching `read.test.ts`'s: the shared handlers don't
- * emulate the `tenant_id` / `pr_comments_enabled` filters `readLinkedSessions`
- * actually sends. */
+ * emulate the `tenant_id` / `pr_comments_enabled` / `provider` filters
+ * `readLinkedSessions` actually sends. */
 function seedGitConnections(rows: GitConnectionSeedRow[]) {
   server.use(
     http.get(`${SUPABASE_URL}/rest/v1/git_connection`, ({ request }) => {
@@ -83,10 +85,12 @@ function seedGitConnections(rows: GitConnectionSeedRow[]) {
       const tenantId = getEqParam(url, "tenant_id");
       const repository = getEqParam(url, "repository");
       const prCommentsEnabled = getEqParam(url, "pr_comments_enabled");
+      const provider = getEqParam(url, "provider");
       const matched = rows.filter(
         (r) =>
           (!tenantId || r.tenant_id === tenantId) &&
           (!repository || r.repository === repository) &&
+          (!provider || (r.provider ?? "github") === provider) &&
           (!prCommentsEnabled || String(r.pr_comments_enabled) === prCommentsEnabled),
       );
       return HttpResponse.json(
@@ -164,6 +168,33 @@ function okComment(id: number): IssueCommentResult {
 describe("refreshPrSessionComment", () => {
   it("no-ops cleanly when no app has pr_comments_enabled for this repo", async () => {
     seedGitConnections([{ tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: false }]);
+    const githubClient = fakeGithubClient();
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "skipped-disabled" });
+    expect(githubClient.createIssueComment).not.toHaveBeenCalled();
+    expect(githubClient.updateIssueComment).not.toHaveBeenCalled();
+  });
+
+  // Defense in depth: new GitLab connections can't be created, but the schema
+  // still permits legacy `provider='gitlab'` rows. This writer posts through
+  // the GitHub App only, so such a row must read as "not connected" rather
+  // than as a repo we'll fail to post to in silence.
+  it("treats a non-GitHub connection as no connection at all", async () => {
+    seedGitConnections([
+      {
+        tenant_id: TENANT,
+        app_id: "app-1",
+        repository: REPO,
+        pr_comments_enabled: true,
+        provider: "gitlab",
+        installation_id: 777,
+      },
+    ]);
     const githubClient = fakeGithubClient();
 
     const result = await refreshPrSessionComment(

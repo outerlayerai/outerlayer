@@ -18,11 +18,18 @@ import { setPrCommentsEnabledAction } from "./actions";
 
 const APP_ID = "550e8400-e29b-41d4-a716-446655440000";
 
+/** PostgREST's builder is chainable and thenable: every `.eq()` returns the
+ * builder again, and awaiting it resolves the result. The write filters on
+ * both `app_id` and `provider`, so the fake has to survive more than one. */
 function ctxDb() {
-  const eq = vi.fn().mockResolvedValue({ error: null });
-  const update = vi.fn().mockReturnValue({ eq });
+  const result: { error: { message: string } | null } = { error: null };
+  const builder: Record<string, unknown> = {};
+  const eq = vi.fn(() => builder);
+  builder.eq = eq;
+  builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
+  const update = vi.fn().mockReturnValue(builder);
   const from = vi.fn().mockReturnValue({ update });
-  return { from, update, eq };
+  return { from, update, eq, setError: (message: string) => { result.error = { message }; } };
 }
 
 let db: ReturnType<typeof ctxDb>;
@@ -51,6 +58,9 @@ describe("setPrCommentsEnabledAction", () => {
     expect(db.from).toHaveBeenCalledWith("git_connection");
     expect(db.update).toHaveBeenCalledWith({ pr_comments_enabled: false });
     expect(db.eq).toHaveBeenCalledWith("app_id", APP_ID);
+    // The flag only means anything to the GitHub App writer, so a legacy
+    // gitlab connection must not be settable to a state nothing can honour.
+    expect(db.eq).toHaveBeenCalledWith("provider", "github");
   });
 
   it("writes pr_comments_enabled=true when re-enabled", async () => {
@@ -60,7 +70,7 @@ describe("setPrCommentsEnabledAction", () => {
   });
 
   it("surfaces a DB error message", async () => {
-    db.eq.mockResolvedValueOnce({ error: { message: "update blocked" } });
+    db.setError("update blocked");
 
     const res = await setPrCommentsEnabledAction({ appId: APP_ID, value: false });
 

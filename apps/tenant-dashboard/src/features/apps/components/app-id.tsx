@@ -151,8 +151,14 @@ export const AppId = ({ setPrCommentsEnabledAction }: AppIdProps) => {
             the database has "off" would misreport the state of a write into
             a customer's repo. The description copy still has to make the
             public-readability of costs unmissable, since that is what a
-            person is agreeing to when they flip this. */}
+            person is agreeing to when they flip this.
+
+            Gated on `provider === "github"` as well: the writer posts through
+            the GitHub App only, so on a legacy `provider='gitlab'` row this
+            toggle would be a switch that silently does nothing — the refresh
+            would find no installation and give up without a word. */}
         {gitConnection?.repository &&
+          provider === "github" &&
           app?.id &&
           hasPermission(Permissions.GIT_CONNECTION_UPDATE) && (
             <AppPolicyToggle
