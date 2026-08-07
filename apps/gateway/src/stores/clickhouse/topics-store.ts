@@ -537,7 +537,7 @@ export const createTopicsStore = (config: {
       // The time-range lookup is a pure optimization (see buildTraceSpansSql)
       // — a miss or failure degrades to the unbounded read, never to a wrong
       // answer.
-      let range: { start: string; end: string } | null = null;
+      let range: { start: string; end: string } | null;
       try {
         const rows = await query<{ start: string; end: string }>(
           TRACE_ID_TIME_RANGE_QUERY,
