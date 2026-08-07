@@ -19,6 +19,8 @@
  *   origin/main): both the path-scope predicates and the turbo package
  *   filter diff against it. Override on forks or when measuring the gate
  *   against a different base.
+ *   PREPUSH_CONCURRENCY=<n|p%>  turbo concurrency for the typecheck/lint/unit
+ *   gate (default 25% of cores — keeps the machine responsive during a push).
  *   PREPUSH_RUN_MUTATION=1   also run the patch-mutation gate locally.
  *   By default it is DEFERRED TO CI: the required Patch Mutation check
  *   enforces the same gate on every PR, and a local run costs 5–10+ minutes
@@ -263,9 +265,13 @@ const results = await Promise.allSettled([
   // worker pool so concurrent suites don't multiply into cores×packages
   // workers; both reach vitest through test.passThroughEnv (turbo strict env
   // mode) and are unset on CI, where the runner is dedicated.
+  // Concurrency defaults to 25% of cores: a push runs on a machine someone is
+  // actively working on, and the lower cap costs little wall-clock because the
+  // critical path is the largest single suite (which caps its own workers).
+  // PREPUSH_CONCURRENCY overrides it (e.g. '50%' on an idle machine).
   gate('typecheck+lint+unit', 'yarn', [
     'turbo', 'run', 'typecheck', 'lint', 'test',
-    '--concurrency=50%',
+    `--concurrency=${process.env.PREPUSH_CONCURRENCY || '25%'}`,
     `--filter=...[${BASE}]`,
     '--filter=!integration-tests',
     '--filter=!@outerlayer/e2e',
