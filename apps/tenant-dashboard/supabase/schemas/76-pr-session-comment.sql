@@ -51,8 +51,9 @@ COMMENT ON COLUMN public.pr_session_comment.github_comment_id IS 'GitHub comment
 COMMENT ON COLUMN public.pr_session_comment.last_body_hash IS 'Short hash of the last rendered comment body; an equal hash skips the GitHub write';
 COMMENT ON COLUMN public.pr_session_comment.last_posted_at IS 'Timestamp of the last successful post/update to GitHub';
 
-CREATE INDEX IF NOT EXISTS idx_pr_session_comment_tenant_id
-    ON public.pr_session_comment (tenant_id);
+-- No standalone tenant_id index: uq_pr_session_comment leads with tenant_id,
+-- so it already serves every tenant-scoped lookup. A second one would be dead
+-- weight on write (and the redundant-index guard rejects it).
 
 ALTER TABLE public.pr_session_comment ENABLE ROW LEVEL SECURITY;
 

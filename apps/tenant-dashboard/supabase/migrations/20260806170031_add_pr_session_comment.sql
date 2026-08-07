@@ -35,8 +35,6 @@ alter table "public"."git_connection" add column "pr_comments_enabled" boolean n
 grant select (pr_comments_enabled), insert (pr_comments_enabled), update (pr_comments_enabled)
     on public.git_connection to authenticated;
 
-CREATE INDEX idx_pr_session_comment_tenant_id ON public.pr_session_comment USING btree (tenant_id);
-
 CREATE UNIQUE INDEX pr_session_comment_pkey ON public.pr_session_comment USING btree (id);
 
 CREATE UNIQUE INDEX uq_pr_session_comment ON public.pr_session_comment USING btree (tenant_id, repository, pr_number);

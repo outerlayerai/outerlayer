@@ -30,10 +30,28 @@ import {
 } from "@/test-helpers/msw-handlers";
 
 const mockLoggerInfo = vi.fn();
+const mockLoggerError = vi.fn();
 vi.mock("@/lib/observability/server-logger", () => ({
   serverLogger: {
     info: (...args: unknown[]) => mockLoggerInfo(...args),
+    error: (...args: unknown[]) => mockLoggerError(...args),
   },
+}));
+
+// The installation → client hop is the one seam these tests can't reach for
+// real: `GitHubProvider.fromContext` mints an installation Octokit over the
+// network. Stubbed here (rather than skipped) so the tests below can drive
+// `refreshPrSessionComment` WITHOUT `deps.githubClient` and exercise the
+// production lookup in `resolveInstallationId` — the path every real caller
+// takes and no test previously entered.
+const mockFromContext = vi.fn();
+vi.mock("@/lib/system/git/github/client", () => ({
+  GitHubProvider: {
+    fromContext: (...args: unknown[]) => mockFromContext(...args),
+  },
+}));
+vi.mock("@/octo-kit", () => ({
+  getGithubApp: () => ({ octokitApp: "fake-app" }),
 }));
 
 import { refreshPrSessionComment } from "../refresh";
@@ -50,6 +68,9 @@ interface GitConnectionSeedRow {
   app_id: string;
   repository: string;
   pr_comments_enabled: boolean;
+  /** Only the installation-lookup tests care; the rest inject a client and
+   * never reach `resolveInstallationId`. */
+  installation_id?: number | null;
 }
 
 /** Local override, matching `read.test.ts`'s: the shared handlers don't
@@ -68,7 +89,9 @@ function seedGitConnections(rows: GitConnectionSeedRow[]) {
           (!repository || r.repository === repository) &&
           (!prCommentsEnabled || String(r.pr_comments_enabled) === prCommentsEnabled),
       );
-      return HttpResponse.json(matched.map((r) => ({ app_id: r.app_id })));
+      return HttpResponse.json(
+        matched.map((r) => ({ app_id: r.app_id, installation_id: r.installation_id ?? null })),
+      );
     }),
   );
 }
@@ -664,5 +687,216 @@ describe("refreshPrSessionComment", () => {
 
     expect(result.status).toBe("failed");
     expect(githubClient.createIssueComment).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------
+  // The production client path: no `deps.githubClient`, so the installation
+  // id comes from `git_connection` the way every real caller gets it.
+  // ---------------------------------------------------------------------
+
+  // The lookup must read the installation off the connection that has PR
+  // comments ENABLED. Keying off a disabled connection that happens to share
+  // the repo would post through an installation whose owner opted out.
+  it("resolves the installation id from the pr_comments_enabled connection, ignoring disabled ones", async () => {
+    seedGitConnections([
+      {
+        tenant_id: TENANT,
+        app_id: "app-1",
+        repository: REPO,
+        pr_comments_enabled: true,
+        installation_id: 111,
+      },
+      {
+        tenant_id: TENANT,
+        app_id: "app-2",
+        repository: REPO,
+        pr_comments_enabled: false,
+        installation_id: 222,
+      },
+    ]);
+    seedSupabaseMswState({ apps: [{ id: "app-1", tenant_id: TENANT, name: "api" }] });
+    seedMembershipMswState({ tenants: [{ tenant_id: TENANT, organization_name: "acme" }] });
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const createIssueComment = vi.fn().mockResolvedValue(okComment(4242));
+    mockFromContext.mockResolvedValue({ createIssueComment, updateIssueComment: vi.fn() });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]) },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    expect(mockFromContext).toHaveBeenCalledWith(
+      { provider: "github", installationId: 111 },
+      expect.anything(),
+    );
+    expect(createIssueComment).toHaveBeenCalledWith(REPO, PR, expect.any(String));
+  });
+
+  // An enabled connection with no installation id can't post. Failing here
+  // (rather than falling through to a client built from a junk id) is what
+  // keeps the cron sweep's retry meaningful.
+  it("fails with a named reason when the enabled connection carries no installation id", async () => {
+    seedGitConnections([
+      {
+        tenant_id: TENANT,
+        app_id: "app-1",
+        repository: REPO,
+        pr_comments_enabled: true,
+        installation_id: null,
+      },
+      // Present precisely to prove it is NOT consulted: an opted-out
+      // connection on the same repo, with a perfectly usable installation.
+      {
+        tenant_id: TENANT,
+        app_id: "app-2",
+        repository: REPO,
+        pr_comments_enabled: false,
+        installation_id: 999,
+      },
+    ]);
+    seedSupabaseMswState({ apps: [{ id: "app-1", tenant_id: TENANT, name: "api" }] });
+    seedMembershipMswState({ tenants: [{ tenant_id: TENANT, organization_name: "acme" }] });
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]) },
+    );
+
+    expect(result).toEqual({ status: "failed", reason: "no installation id for this repository" });
+    expect(mockFromContext).not.toHaveBeenCalled();
+    expect(getPrSessionCommentRows()).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------
+  // Failure branches on the write path
+  // ---------------------------------------------------------------------
+
+  // The narrow race the claim can't close: another caller posts while we
+  // render, we take the update path onto THEIR id, and it is deleted before
+  // our PATCH lands. Posting a replacement here would be a second comment.
+  it("does not re-post when the winner's comment disappears between claim and update", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    // A live claim row with nothing posted yet, so our first read finds no
+    // comment to edit and we go to the claim.
+    seedPrSessionCommentMswState([
+      {
+        tenant_id: TENANT,
+        repository: REPO,
+        pr_number: PR,
+        github_comment_id: null,
+        last_body_hash: "",
+        last_posted_at: null,
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+    // The race, staged precisely: the orchestrator's own read sees no
+    // comment id, and by the time the LOST claim re-reads the row, the
+    // winner has stamped theirs on it.
+    let reads = 0;
+    server.use(
+      http.get(`${SUPABASE_URL}/rest/v1/pr_session_comment`, () => {
+        reads += 1;
+        const row = {
+          id: "prc-1",
+          tenant_id: TENANT,
+          repository: REPO,
+          pr_number: PR,
+          github_comment_id: reads === 1 ? null : 321,
+          last_body_hash: "",
+          last_posted_at: null,
+          updated_at: new Date().toISOString(),
+        };
+        return HttpResponse.json(row);
+      }),
+    );
+    const githubClient = fakeGithubClient();
+    // ...but their comment is gone by the time we edit it.
+    githubClient.updateIssueComment.mockResolvedValue({ status: "gone" });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({
+      status: "failed",
+      reason: "comment deleted between claim and update",
+    });
+    expect(githubClient.createIssueComment).not.toHaveBeenCalled();
+  });
+
+  // Defensive: a fresh POST has no prior id to 404 against, so "gone" from
+  // `createIssueComment` is a contract violation, not a recoverable state.
+  // It must surface as a failure rather than be persisted as an identity.
+  it("fails rather than persisting an identity when the create answers 'gone'", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue({ status: "gone" });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({
+      status: "failed",
+      reason: "unexpected 'gone' result from createIssueComment",
+    });
+    expect(getPrSessionCommentRows()).toEqual([
+      expect.objectContaining({ github_comment_id: null }),
+    ]);
+  });
+
+  // The one failure worth alerting on: confirmed links exist and the
+  // sessions behind them can't be read. It is the only state in which the
+  // empty state could overwrite a populated comment, so it gets its own
+  // metric-bearing error event rather than folding into the generic reason.
+  it("logs a dedicated metric event when confirmed links exist but are unreadable", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l2", app_id: "app-1", trace_id: "t2", method: "pr_link", verification: "confirmed" }),
+      ],
+    });
+    const githubClient = fakeGithubClient();
+
+    // `chQuery: null` is the shape an unconfigured/unreachable ClickHouse
+    // resolves to — confirmed links, no way to read them.
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: null, githubClient },
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({
+      reason: expect.stringContaining("pr_session_comment.links_unreadable"),
+    });
+    expect(githubClient.createIssueComment).not.toHaveBeenCalled();
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "LinksUnreadableError" }),
+      expect.objectContaining({
+        event: "pr_session_comment.links_unreadable",
+        _metric: true,
+        metric_name: "pr_session_comment.links_unreadable",
+        metric_value: 1,
+        tenantId: TENANT,
+        repository: REPO,
+        prNumber: PR,
+        confirmedLinkCount: 2,
+      }),
+    );
   });
 });

@@ -112,8 +112,11 @@ export interface PrSessionCommentGithubClient {
 
 export interface RefreshPrSessionCommentDeps {
   /** Test seam for ClickHouse — see `read.ts` / `topics.ts`. Also used for
-   * production when omitted (`tenantChQuery`). */
-  chQuery?: ChQueryFn;
+   * production when omitted (`tenantChQuery`). Explicitly `null` means "the
+   * caller resolved its own client and got nothing" — an unreachable
+   * ClickHouse — and is honoured as such rather than re-resolved, matching
+   * `readLinkedSessions`' own contract. */
+  chQuery?: ChQueryFn | null;
   /** Test seam for the GitHub issue-comment client — see
    * {@link PrSessionCommentGithubClient}. */
   githubClient?: PrSessionCommentGithubClient;
@@ -394,7 +397,11 @@ export async function refreshPrSessionComment(
   }
 
   try {
-    const chQuery = deps.chQuery ?? tenantChQuery({ tenantId });
+    // `'chQuery' in deps` (not `??`), for the reason spelled out on
+    // `readLinkedSessions`: a caller that already resolved its own client —
+    // even to null — must not have this module resolve a SECOND one behind
+    // its back. Only an absent key means "resolve ours".
+    const chQuery = ("chQuery" in deps ? deps.chQuery : tenantChQuery({ tenantId })) ?? null;
 
     const rows = await readLinkedSessions({ tenantId, repository, prNumber }, { chQuery });
     // AC-057-04's "no app connected" no-op — the read layer already proved

@@ -295,4 +295,100 @@ describe("renderComment", () => {
     expect(body).not.toContain("<img");
     expect(body).toContain("&lt;img src=x>");
   });
+
+  // The header is read at a glance and its noun is the first thing that makes
+  // it look machine-generated if it's wrong. One session is "1 linked
+  // session", not "1 linked sessions".
+  it("the header counts one session in the singular", () => {
+    const body = renderComment([row({ traceId: "t1", costUsd: 1.5 })], new Map(), LINKS);
+
+    expect(body).toContain("### Agent sessions behind this PR — 1 linked session · ");
+    expect(body).not.toContain("1 linked sessions");
+  });
+
+  // A title that is only whitespace is not a title. Without the trim it
+  // renders as a link whose visible label is blank — a clickable nothing in
+  // the table's first column.
+  it("a whitespace-only title falls back to the untitled label", () => {
+    const body = renderComment([row({ traceId: "t1", title: "   \n  " })], new Map(), LINKS);
+
+    expect(body).toContain("[untitled session](");
+    expect(body).not.toMatch(/\|\s*\[\s+\]\(/);
+  });
+
+  // Models is a plain array with no not-captured sentinel, so an empty one
+  // has to render as the same em dash an unrecorded cost uses (AC-057-11's
+  // "never assert what wasn't captured"), not as an empty cell.
+  it("a session with no recorded models renders an em dash, not an empty cell", () => {
+    const body = renderComment([row({ traceId: "t1", models: [] })], new Map(), LINKS);
+
+    const dataRow = body.split("\n").find((l) => l.startsWith("| ["))!;
+    expect(dataRow.endsWith("| — |")).toBe(true);
+  });
+
+  // Timestamps come from ClickHouse and an unparseable one must not leak
+  // "NaNm" into a world-readable comment. The guard has to reject the pair if
+  // EITHER end is unparseable — one good endpoint doesn't rescue the
+  // subtraction.
+  it("an unparseable timestamp on either end renders 0m, never NaN", () => {
+    const badEnd = renderComment(
+      [row({ traceId: "t1", startedAt: "2026-07-10T09:00:00.000Z", endedAt: "not-a-date" })],
+      new Map(),
+      LINKS,
+    );
+    const badStart = renderComment(
+      [row({ traceId: "t1", startedAt: "not-a-date", endedAt: "2026-07-10T09:41:00.000Z" })],
+      new Map(),
+      LINKS,
+    );
+
+    for (const body of [badEnd, badStart]) {
+      expect(body).not.toContain("NaN");
+      expect(body).toContain("| 0m |");
+      // The header rollup sums the same helper, so it must be clean too.
+      expect(body).toContain("— 1 linked session · 0m · ");
+    }
+  });
+
+  // The overflow line is a truncation notice. A body where everything fits
+  // must not carry one — "…and 0 more sessions" reads as a bug.
+  it("says nothing about a remainder when every row fits", () => {
+    const body = renderComment(
+      [row({ traceId: "t1" }), row({ traceId: "t2" })],
+      new Map(),
+      LINKS,
+    );
+
+    expect(body).not.toContain("…and");
+    expect(body).not.toContain("see the dashboard._");
+  });
+
+  // The remainder line is prose in the comment, so it agrees with itself when
+  // exactly one session was dropped.
+  it("names a single omitted session in the singular", () => {
+    // Two rows, the first big enough that only it fits: the second is the
+    // lone remainder.
+    const rows: LinkedSessionRow[] = [
+      row({ traceId: "t1", title: "x".repeat(65000) }),
+      row({ traceId: "t2" }),
+    ];
+
+    const body = renderComment(rows, new Map(), LINKS);
+
+    expect(body).toContain("_…and 1 more session — see the dashboard._");
+    expect(body).not.toContain("1 more sessions");
+    expect(body.length).toBeLessThanOrEqual(65536);
+  });
+
+  // The degenerate case: not even one row fits. The table header is dropped
+  // with the rows it would have introduced, rather than left dangling above
+  // nothing.
+  it("drops the table header entirely when no row fits", () => {
+    const body = renderComment([row({ traceId: "t1", title: "x".repeat(66000) })], new Map(), LINKS);
+
+    expect(body).not.toContain("| Session | Topics |");
+    expect(body).toContain("_…and 1 more session — see the dashboard._");
+    expect(body).toContain("### Agent sessions behind this PR — 1 linked session");
+    expect(body).toContain("session dashboard");
+  });
 });

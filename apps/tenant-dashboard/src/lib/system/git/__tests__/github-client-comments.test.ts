@@ -17,6 +17,8 @@ vi.mock('@repo/shared-utils', () => ({
   verifySignature: vi.fn(),
 }));
 
+import type { Octokit } from 'octokit';
+
 import { GitHubProvider } from '../github/client';
 import { AuthenticationError } from '../errors';
 
@@ -42,7 +44,7 @@ type MockOctokit = ReturnType<typeof createMockOctokit>;
 
 function createProvider(octokit?: MockOctokit) {
   const mock = octokit ?? createMockOctokit();
-  return { provider: new GitHubProvider(mock as any), octokit: mock };
+  return { provider: new GitHubProvider(mock as unknown as Octokit), octokit: mock };
 }
 
 // ---------------------------------------------------------------------------
