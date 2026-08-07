@@ -176,4 +176,49 @@ describe("GET /api/cron/pr-session-reconcile", () => {
     expect(mockRefreshComment).toHaveBeenCalledTimes(2);
     expect(await res.json()).toMatchObject({ commentRefresh: { attempted: 2, failed: 2 } });
   });
+
+  // The sweep can name more PRs than one tick should spend on GitHub, so the
+  // batch is capped. The ORDER it caps by has to be a stable total order —
+  // otherwise successive ticks re-attempt an arbitrary prefix and the tail of
+  // a large backlog is never reached at all.
+  it("caps the tick and works through a deterministic order, reporting the remainder as deferred", async () => {
+    // 152 targets over the 150 cap, handed over deliberately shuffled.
+    const targets = Array.from({ length: 152 }, (_, i) => ({
+      tenantId: i % 2 === 0 ? "tenant-a" : "tenant-b",
+      repository: i % 3 === 0 ? "acme/api" : "acme/web",
+      prNumber: 1000 + i,
+    }));
+    const shuffled = [...targets].reverse();
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: shuffled });
+    mockRefreshComment.mockResolvedValue({ status: "updated", commentId: 1 });
+
+    const res = await GET(cronRequest());
+
+    expect(await res.json()).toMatchObject({
+      commentRefresh: { attempted: 150, failed: 0, deferred: 2 },
+    });
+    expect(mockRefreshComment).toHaveBeenCalledTimes(150);
+
+    // The 150 attempted are the first 150 of the sorted order — by tenant,
+    // then repository, then PR number — regardless of the order the sweep
+    // handed them over in.
+    const expectedOrder = [...targets].sort(
+      (a, b) =>
+        a.tenantId.localeCompare(b.tenantId) ||
+        a.repository.localeCompare(b.repository) ||
+        a.prNumber - b.prNumber,
+    );
+    const attempted = mockRefreshComment.mock.calls.map((c) => c[0]);
+    // Execution is grouped per repository, so compare as sets of keys against
+    // the deterministic prefix — the CAP must select those exact 150.
+    const key = (t: { tenantId: string; repository: string; prNumber: number }) =>
+      `${t.tenantId}|${t.repository}|${t.prNumber}`;
+    expect(new Set(attempted.map(key))).toEqual(new Set(expectedOrder.slice(0, 150).map(key)));
+    // ...and the two it deferred are the last two of that same order, so the
+    // next tick picks up exactly where this one stopped.
+    const deferredKeys = expectedOrder.slice(150).map(key);
+    for (const k of deferredKeys) {
+      expect(attempted.map(key)).not.toContain(k);
+    }
+  });
 });

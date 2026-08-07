@@ -11,6 +11,14 @@
  * logged rather than escaping into the webhook response. Supabase runs
  * through MSW; `refreshPrSessionComment` is a mocked seam (its own behavior
  * is covered by refresh.test.ts).
+ *
+ * AC-057-10 — this file covers the webhook half of the criterion's
+ * STRUCTURAL claim: the refresh is dispatched by the `pull_request` event
+ * itself, with no scheduled batch process anywhere in the path. The queue
+ * half is covered in `apps/gateway/src/queues/pr-comment-queue.test.ts`.
+ * The criterion's p50/p90 latency numbers are an SLO tracked against
+ * production telemetry and are deliberately not asserted anywhere — see
+ * `acceptance/057-pr-session-comment.md`.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -104,10 +112,10 @@ describe("handlePullRequestEvent → pr-session comment wiring", () => {
     },
   );
 
-  // Issue #10's recommendation ("update indefinitely"), and the only choice
-  // that makes the two paths agree: the cron sweep already refreshes merged
-  // PRs whose links move late, so excluding `closed` here made post-merge
-  // behavior "sometimes frozen" depending on which trigger fired.
+  // The comment updates indefinitely, which is also the only choice that
+  // makes the two trigger paths agree: the cron sweep already refreshes
+  // merged PRs whose links move late, so excluding `closed` here made
+  // post-merge behavior "sometimes frozen" depending on which fired.
   it("refreshes the comment on 'closed' (merged), so the record keeps updating after merge", async () => {
     seed();
     await handlePullRequestEvent(

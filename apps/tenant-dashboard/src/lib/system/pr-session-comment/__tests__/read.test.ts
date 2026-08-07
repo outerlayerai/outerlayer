@@ -230,6 +230,39 @@ describe("readLinkedSessions", () => {
     });
   });
 
+  // The test above receives its ClickHouse rows already in ascending order,
+  // so it would still pass if the sort were removed entirely. This one hands
+  // them over SCRAMBLED, which is the only way the comparator is observable —
+  // and the ordering is load-bearing twice over: the comment reads as the
+  // story of how the branch got built, and the renderer's 64 KB truncation
+  // keeps the tail on the assumption that the tail is the newest.
+  it("sorts oldest-first even when ClickHouse returns the rows in another order", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-1", trace_id: "t-first", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l2", app_id: "app-1", trace_id: "t-second", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l3", app_id: "app-1", trace_id: "t-third", method: "pr_link", verification: "confirmed" }),
+      ],
+    });
+    // Deliberately newest, oldest, middle.
+    const chQuery = vi.fn().mockResolvedValue([
+      chRow({ TraceId: "t-third", AppId: "app-1", StartedAt: "2026-07-09 09:00:00.000", EndedAt: "2026-07-09 09:10:00.000" }),
+      chRow({ TraceId: "t-first", AppId: "app-1", StartedAt: "2026-07-01 09:00:00.000", EndedAt: "2026-07-01 09:10:00.000" }),
+      chRow({ TraceId: "t-second", AppId: "app-1", StartedAt: "2026-07-05 09:00:00.000", EndedAt: "2026-07-05 09:10:00.000" }),
+    ]);
+    seedSupabaseMswState({ apps: [{ id: "app-1", tenant_id: TENANT, name: "api" }] });
+    seedManagedDeploymentTablesState({
+      environments: [{ id: "env-1", app_id: "app-1", name: "production", is_default: true }],
+    });
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result!.map((r) => r.traceId)).toEqual(["t-first", "t-second", "t-third"]);
+  });
+
   it("maps each session to its OWN app's name and default env when two apps share the repo", async () => {
     // The name/env lookups are batched (`.in('id', …)`), so a mis-keyed map
     // would hand every row the first app's name. Two apps with distinct

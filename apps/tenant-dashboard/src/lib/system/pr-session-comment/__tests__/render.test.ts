@@ -184,7 +184,16 @@ describe("renderComment", () => {
     const body = renderComment(rows, new Map(), LINKS);
 
     expect(body).toContain("[untitled session]");
-    expect(body).toContain("| — |");
+    // Positional, not a bare `toContain("| — |")`: two DIFFERENT cells are
+    // supposed to be em dashes here (topics and cost), and a single
+    // substring check passes when only one of them is.
+    const cells = body
+      .split("\n")
+      .find((l) => l.startsWith("| ["))!
+      .split(" | ");
+    expect(cells[1]).toBe("—"); // topics
+    expect(cells[3]).toBe("—"); // cost — never "$0.00"
+    expect(body).not.toContain("$0.00");
     expect(body).not.toContain("$0.00");
   });
 

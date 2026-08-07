@@ -223,12 +223,66 @@ describe("refreshPrSessionComment", () => {
       { chQuery: fakeChQuery([]), githubClient },
     );
 
-    expect(result.status).toBe("failed");
+    // The reason, not just the status: "failed" is reached from half a dozen
+    // distinct branches, and a test that only checks the status passes when
+    // the call fails for entirely the wrong cause.
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: expect.stringContaining("git_connection read failed"),
+    });
+  });
+
+  // AC-057-04, second half: the empty state is not a terminal state. The
+  // webhook posts "no agent sessions linked yet" the moment a PR opens, and
+  // the sessions that build the branch sync minutes to hours later — so the
+  // upgrade IN PLACE (same comment id, edited, never a second comment) is
+  // the criterion, not the empty state on its own.
+  it("upgrades the empty-state comment in place to the session table when links arrive", async () => {
+    enableFeature();
+    // A PR of a connected repo with nothing linked yet.
+    seedPullRequestSessionMswState({ links: [] });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+
+    const first = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([]), githubClient },
+    );
+
+    expect(first).toEqual({ status: "created", commentId: 4242 });
+    const createdBody = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(createdBody).toContain("No agent sessions linked yet.");
+    expect(createdBody).not.toContain("| Session | Topics |");
+
+    // The session that built the branch finishes and syncs.
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    githubClient.updateIssueComment.mockResolvedValue(okComment(4242));
+
+    const second = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1", Title: "Fix flaky auth test" })]), githubClient },
+    );
+
+    expect(second).toEqual({ status: "updated", commentId: 4242 });
+    // Edited in place — the create ran exactly once across both passes.
+    expect(githubClient.createIssueComment).toHaveBeenCalledTimes(1);
+    expect(githubClient.updateIssueComment).toHaveBeenCalledTimes(1);
+
+    const updatedBody = githubClient.updateIssueComment.mock.calls[0]![2];
+    expect(updatedBody).toContain("| Session | Topics |");
+    expect(updatedBody).toContain("Fix flaky auth test");
+    expect(updatedBody).not.toContain("No agent sessions linked yet.");
+    // Still one identity row for this PR, carrying the original comment id.
+    expect(getPrSessionCommentRows()).toEqual([
+      expect.objectContaining({ github_comment_id: 4242 }),
+    ]);
   });
 
   // AC-057-02: the comment is created once, then edited in place when a
   // later session syncs onto the same PR — never a second comment.
-  it("AC-057-02: creates once, then edits the existing comment in place when a later session syncs", async () => {
+  it("creates once, then edits the existing comment in place when a later session syncs", async () => {
     enableFeature();
     seedPullRequestSessionMswState({
       links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
@@ -298,7 +352,7 @@ describe("refreshPrSessionComment", () => {
   // AC-057-03: a listed session accruing more work updates its row and the
   // header totals on the next edit — the comment renders present state, not
   // a first-sight snapshot.
-  it("AC-057-03: the next edit reflects the session's current duration and cost, not the first-sight values", async () => {
+  it("the next edit reflects the session's current duration and cost, not the first-sight values", async () => {
     enableFeature();
     seedPullRequestSessionMswState({
       links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
@@ -357,8 +411,9 @@ describe("refreshPrSessionComment", () => {
     expect(secondBody).not.toEqual(firstBody);
   });
 
-  // Risk R4: three trigger paths hit one comment and queue delivery is
-  // at-least-once, so an unchanged body must never reach GitHub.
+  // Three trigger paths hit one comment and queue delivery is at-least-once,
+  // so duplicates are the normal case — an unchanged body must never reach
+  // GitHub. This is the whole rate-limit defense.
   it("short-circuits on an unchanged body hash without calling GitHub again", async () => {
     enableFeature();
     seedPullRequestSessionMswState({
@@ -507,7 +562,10 @@ describe("refreshPrSessionComment", () => {
       { chQuery: fakeChQuery([]), githubClient },
     );
 
-    expect(result.status).toBe("failed");
+    expect(result).toEqual({
+      status: "failed",
+      reason: "unparseable repository (expected owner/repo): git.acme-enterprise.com/acme/api",
+    });
     expect(githubClient.createIssueComment).not.toHaveBeenCalled();
     expect(getPrSessionCommentRows()).toEqual([]);
   });
@@ -664,7 +722,12 @@ describe("refreshPrSessionComment", () => {
       { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
     );
 
-    expect(result.status).toBe("failed");
+    // Specifically the back-off, not any other failure: this test would
+    // otherwise still pass if the call died before ever reaching the claim.
+    expect(result).toEqual({
+      status: "failed",
+      reason: "concurrent create in flight for this PR",
+    });
     expect(githubClient.createIssueComment).not.toHaveBeenCalled();
   });
 
@@ -716,7 +779,10 @@ describe("refreshPrSessionComment", () => {
       { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
     );
 
-    expect(result.status).toBe("failed");
+    expect(result).toEqual({
+      status: "failed",
+      reason: `no organization_name for tenant ${TENANT}`,
+    });
     expect(githubClient.createIssueComment).not.toHaveBeenCalled();
   });
 

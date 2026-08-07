@@ -672,7 +672,7 @@ describe("AgentSessionsService.listSessions", () => {
       // that PR, restricted to CONFIRMED links on the caller's own app —
       // this is what makes the header link land instead of silently
       // ignoring the param.
-      it("AC-057-09: filters the list to sessions CONFIRMED-linked to the given PR, scoped to this app", async () => {
+      it("filters the list to sessions CONFIRMED-linked to the given PR, scoped to this app", async () => {
         seedPullRequestSessionMswState({
           links: [
             {

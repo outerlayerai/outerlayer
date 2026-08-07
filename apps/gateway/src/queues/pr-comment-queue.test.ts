@@ -90,11 +90,14 @@ describe('handlePrCommentQueue', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  // AC-057-10: the latency criterion requires the queue path itself — with
-  // no scheduled batch process in the path — to deliver a refresh. This
-  // proves the consumer turns queued messages into the internal POST that
-  // makes the comment appear, purely off queue delivery.
-  it('AC-057-10: coalesces one message per PR into a single POST and acks on success', async () => {
+  // AC-057-10 — the queue half of the criterion's STRUCTURAL claim: the
+  // consumer turns queued messages into the internal POST that makes the
+  // comment appear, purely off queue delivery, with no scheduled batch
+  // process in the path. The webhook half is covered in
+  // handle-pull-request-event-comment.test.ts. The criterion's p50/p90
+  // numbers are an SLO tracked against production telemetry, not asserted
+  // here — a unit test claiming to prove them would be worse than none.
+  it('coalesces one message per PR into a single POST and acks on success', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         results: [{ tenantId: TENANT, repository: 'owner/repo', prNumber: 42, status: 'updated' }],
@@ -108,12 +111,13 @@ describe('handlePrCommentQueue', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0]!;
     expect(url).toBe('https://app.example.test/api/internal/pr-comment-refresh');
-    expect(init).toMatchObject({
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer shh-secret',
-        'Content-Type': 'application/json',
-      },
+    expect(init.method).toBe('POST');
+    // Exact, not `toMatchObject`: this request carries the internal shared
+    // secret, so an EXTRA header appearing here is exactly the kind of thing
+    // a test should fail on rather than tolerate.
+    expect(init.headers).toEqual({
+      Authorization: 'Bearer shh-secret',
+      'Content-Type': 'application/json',
     });
     expect(JSON.parse(init.body as string)).toEqual({
       items: [{ tenantId: TENANT, repository: 'owner/repo', prNumber: 42 }],

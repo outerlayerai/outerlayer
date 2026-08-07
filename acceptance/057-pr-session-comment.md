@@ -14,8 +14,8 @@ re-points at a different criterion the moment a scenario is inserted or
 reordered, and the test keeps passing while proving the wrong thing. Never
 renumber an id. Retire one by deleting the line and the citation together.
 
-These scenarios are transcribed from GitHub issue #10. Two amendments were
-proposed against the original story; both have now been ruled on by the story
+These scenarios are transcribed from the original feature story. Two
+amendments were proposed against it; both have now been ruled on by the story
 owner:
 
 - Scenario 6 narrows to provider errors and error storms for the MVP.
@@ -45,7 +45,7 @@ comment.
 
 ## Trouble signals
 
-6. `AC-057-06` **Given** a session with provider errors or an error storm, **When** the comment renders, **Then** that session's row carries an issue marker. Stuck-edit-retry-loop badging, present in the original story, is **deferred out of this criterion**: the rollup row the comment renders from doesn't carry the span sequence the edit-loop detector needs, and computing it per row would mean a span fetch per session on every comment refresh. Only provider errors and error storms gate the marker. **TODO:** issue #10
+6. `AC-057-06` **Given** a session with provider errors or an error storm, **When** the comment renders, **Then** that session's row carries an issue marker. Stuck-edit-retry-loop badging, present in the original story, is **deferred out of this criterion**: the rollup row the comment renders from doesn't carry the span sequence the edit-loop detector needs, and computing it per row would mean a span fetch per session on every comment refresh. Only provider errors and error storms gate the marker. **TODO:** restore stuck-edit-retry-loop badging once the rollup row carries enough span sequence to detect it without a per-session span fetch.
 names "did the agent get stuck — edit-retry loops" as one of four motivating
 questions, so this is a gap to close, not a settled scope — it needs a source
 for the span sequence (or a precomputed loop signal on the rollup row) that
@@ -61,11 +61,13 @@ doesn't cost a span fetch per session per refresh.
 
 ## Dashboard link
 
-9. `AC-057-09` **Given** several sessions link one PR, **When** a lead follows the comment's dashboard link, **Then** they land on the sessions list filtered to that PR, showing all linked sessions and totals.
+9. `AC-057-09` **Given** several sessions link one PR, **When** a lead follows the comment's dashboard link, **Then** they land on the sessions list filtered to that PR, showing all linked sessions and totals **for the app the link is scoped to**. **Knowingly accepted gap:** the sessions list's `?pr=` filter is pinned to a single `app_id`, so on a PR whose sessions span more than one app the landing page shows a SUBSET of the comment's rows, with smaller totals — the comment's own table remains the complete picture. Closing it needs a tenant-scoped `?pr=` route (or a per-session route that needs no app in the path); until then the criterion is scoped to one app rather than claiming a match the product cannot make. See the TODO in `render.ts`.
 
 ## Latency
 
-10. `AC-057-10` **Given** an online machine with capture installed, **When** its session opens a PR — even mid-turn — **Then** the comment shows that session within the latency target (p50 ≤ 2 minutes, p90 ≤ 5 minutes), with no scheduled batch process in the path.
+10. `AC-057-10` **Given** an online machine with capture installed, **When** its session opens a PR — even mid-turn — **Then** the comment shows that session with **no scheduled batch process in the path**: both the `pull_request` webhook and the session-sync queue deliver a refresh on their own.
+
+    **What the bound tests prove, and what they don't.** The structural half — that neither trigger path routes through a batch process — is testable and is tested on both paths. The p50 ≤ 2 min / p90 ≤ 5 min numbers are **not** unit-testable: they depend on capture upload timing, queue delivery, and GitHub's own write latency. They are tracked as an **SLO against production telemetry**, not asserted here. A test claiming to prove them would be the more dangerous artifact.
 
 ## Missing values
 

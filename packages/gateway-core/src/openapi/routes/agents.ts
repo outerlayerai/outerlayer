@@ -420,10 +420,16 @@ export class SyncAgentSessions extends BaseRoute {
         summaryRows.push(summary as unknown as Record<string, unknown>);
         accepted.push(session.id);
 
-        // Union of the scalar PrNumber and the PrNumbers array — a
-        // scalar-only producer still surfaces through the array view (see
-        // agentSessionSummaryRow's PrNumbers doc), so reading either alone
-        // would under-notify.
+        // Union of the scalar PrNumber and the PrNumbers array. Neither
+        // alone is the complete set: `agentSessionSummaryRow` folds the
+        // scalar into `prs` ONLY when `prs` is otherwise empty, so a session
+        // carrying both a `prs` list and a different last-linked
+        // `outcome.prNumber` has a PR that appears in the scalar and nowhere
+        // in the array. Reading either view alone under-notifies.
+        //
+        // `PrNumber` is 0 when the session linked no PR at all, so the
+        // positivity check below — one gate, applied to the whole union —
+        // is what keeps a "PR 0" out of the queue.
         // `GitRepo` is the host-qualified join key, but the comment's
         // identity is the bare `owner/repo`. Canonicalize HERE, through the
         // shared helper the queue consumer and the dashboard orchestrator
@@ -434,8 +440,7 @@ export class SyncAgentSessions extends BaseRoute {
         // and guessing a key is what posts a duplicate.
         const commentRepo = canonicalPrCommentRepo(summary.GitRepo);
         if (commentRepo) {
-          const prNumbers = new Set<number>(summary.PrNumbers);
-          if (summary.PrNumber > 0) prNumbers.add(summary.PrNumber);
+          const prNumbers = new Set<number>([...summary.PrNumbers, summary.PrNumber]);
           for (const prNumber of prNumbers) {
             if (prNumber <= 0) continue;
             const key = `${summary.TenantId}\0${commentRepo}\0${prNumber}`;

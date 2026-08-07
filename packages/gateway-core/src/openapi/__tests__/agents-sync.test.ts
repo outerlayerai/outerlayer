@@ -841,13 +841,22 @@ describe('SyncAgentSessions PR_COMMENT_QUEUE enqueue', () => {
 
   it('no-ops silently when PR_COMMENT_QUEUE is unbound (queue-less deployment degrades to the cron sweep)', async () => {
     // No PR_COMMENT_QUEUE in envOver at all — mirrors self-host / local dev.
-    const { ctx, status, json } = ctxFor({
-      schemaVersion: 1,
-      sessions: [agentSession({ outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' } })],
-    });
-    await new SyncAgentSessions({} as never).handle(ctx);
-    expect(status()).toBe(200);
-    expect((json() as { data: { accepted: string[] } }).data.accepted).toHaveLength(1);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { ctx, status, json } = ctxFor({
+        schemaVersion: 1,
+        sessions: [agentSession({ outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' } })],
+      });
+      await new SyncAgentSessions({} as never).handle(ctx);
+      expect(status()).toBe(200);
+      expect((json() as { data: { accepted: string[] } }).data.accepted).toHaveLength(1);
+      // SILENTLY is the claim: an absent binding is a supported deployment,
+      // not a fault. Reaching through it and letting the try/catch mop up the
+      // TypeError would log a warning on every sync of a queue-less install.
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('swallows a sendBatch throw without failing the sync', async () => {
@@ -874,6 +883,38 @@ describe('SyncAgentSessions PR_COMMENT_QUEUE enqueue', () => {
   // A repository this feature cannot address (GHES, an ssh remote) must not
   // be NOMINATED at all. Guessing a key here is what puts a second comment on
   // a PR, since the consumer and the dashboard would derive a different one.
+  // `agentSessionSummaryRow` folds the scalar `outcome.prNumber` into `prs`
+  // ONLY when `prs` is empty. So a session with both a `prs` list and a
+  // different last-linked scalar has a PR that lives in the scalar and in
+  // neither the array nor anything derived from it — reading `PrNumbers`
+  // alone would silently never comment on it.
+  it('nominates a last-linked PR that appears only in the scalar, not in the prs array', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000001',
+            outcome: {
+              prs: [{ prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' }],
+              prNumber: 999,
+              prUrl: 'https://github.com/acme/api/pull/999',
+            },
+          }),
+        ],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    const requests = queue.sendBatch.mock.calls[0]![0] as Array<{ body: { prNumber: number } }>;
+    expect(requests.map((r) => r.body.prNumber).sort((a, b) => a - b)).toEqual([512, 999]);
+  });
+
   it('does not nominate a PR whose repo is not a GitHub.com owner/repo', async () => {
     const queue = queueMock();
     const { ctx, status } = ctxFor(
