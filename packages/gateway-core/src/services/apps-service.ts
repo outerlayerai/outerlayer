@@ -430,8 +430,8 @@ export class AppsService {
         created_by: createdBy,
       });
 
-      let inserted: { id: string } | null = null;
-      let insErr: unknown = null;
+      let inserted: { id: string } | null;
+      let insErr: unknown;
       ({ data: inserted, error: insErr } = await this.supabase
         .from('git_branch')
         .insert(buildBranchPayload(userId))

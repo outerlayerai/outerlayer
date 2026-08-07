@@ -309,7 +309,7 @@ export async function resolveEnvironmentFromApiKey(params: {
     return cached.value;
   }
 
-  let resolved: ResolvedEnvironment | null = NO_ENVIRONMENT;
+  let resolved: ResolvedEnvironment | null;
   // Distinguishes a genuine miss (row absent — cache for the full TTL, this is
   // the revocation steady state) from a transient error (DB threw —
   // cache only briefly so the next span re-queries instead of serving a stale
