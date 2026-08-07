@@ -163,6 +163,6 @@ packages/session-schema/scripts/.sanitize-extra-needles
 /*.jpg
 /*.gif
 
-# Agent-harness instructions — local working files, not part of the public tree.
-/CLAUDE.md
+# The root CLAUDE.md is committed (a one-line @AGENTS.md import shim); nested
+# agent-instruction files are local working files, not part of the public tree.
 apps/tenant-dashboard/CLAUDE.md
