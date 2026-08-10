@@ -24,6 +24,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * only when the transcript-side claim meets a provider-fed `pull_request`
  * row. Method precedence: an explicit `pr_link` never downgrades to
  * `branch`.
+ *
+ * `reconcileRecentSessions` also reports which `(app_id, pr_number)` pairs
+ * it actually changed (`ChangedLink`) — the gap-repair cron sweep is a
+ * safety net for offline machines and dropped queue messages, NOT the
+ * comment's primary trigger (that's the `pull_request` webhook and the
+ * debounced queue off session sync); it only needs to refresh GitHub for
+ * PRs whose links moved, never the full set the sweep looked at.
  */
 
 const PULL_REQUEST_SESSION_TABLE = "pull_request_session";
@@ -65,6 +72,26 @@ interface LinkUpsert {
   last_reconciled_at: string;
 }
 
+/** A `(app_id, pr_number)` pair whose `pull_request_session` links actually
+ * changed during a sweep — new row, method upgrade, or a verification
+ * transition (pending → confirmed/unmatched). This is what the cron route
+ * refreshes; a pair the sweep merely re-touched with no material change is
+ * NOT included, so a fully-converged tenant costs zero GitHub reads on
+ * every hourly tick. */
+interface ChangedLink {
+  appId: string;
+  prNumber: number;
+}
+
+/** `refreshPrSessionComment` needs `(tenantId, repository, prNumber)`, but
+ * `pull_request_session` (and therefore `ChangedLink`) has no `repository`
+ * column — only `app_id`. `git_connection` is the join. */
+export interface ChangedPrTarget {
+  tenantId: string;
+  repository: string;
+  prNumber: number;
+}
+
 export interface ReconcileCounts {
   candidates: number;
   linked: number;
@@ -88,13 +115,18 @@ function chDateTime(iso: string | Date): string {
 }
 
 /** Upsert links, never letting an explicit `pr_link` downgrade to `branch`
- * and never regressing `confirmed` to `pending`. Existing rows win ties. */
+ * and never regressing `confirmed` to `pending`. Existing rows win ties.
+ * Returns the `pr_number`s among `rows` whose stored method or verification
+ * actually differs from what was there before (or is a brand-new row) — the
+ * signal the cron gap-repair sweep uses to decide which PRs' GitHub comments
+ * to refresh. */
 async function upsertLinks(
   supabase: SupabaseClient,
   appId: string,
   rows: LinkUpsert[],
-): Promise<void> {
-  if (rows.length === 0) return;
+): Promise<Set<number>> {
+  const changedPrs = new Set<number>();
+  if (rows.length === 0) return changedPrs;
   const keys = rows.map((r) => `${r.pr_number}:${r.trace_id}`);
   const { data: existing } = await supabase
     .from(PULL_REQUEST_SESSION_TABLE)
@@ -106,20 +138,25 @@ async function upsertLinks(
   );
   const merged = rows.map((row, i) => {
     const prior = current.get(keys[i]!);
-    if (!prior) return row;
-    return {
-      ...row,
-      method: prior.method === "pr_link" ? "pr_link" : row.method,
-      verification:
-        prior.verification === "confirmed" && row.verification === "pending"
-          ? "confirmed"
-          : row.verification,
-    } as LinkUpsert;
+    if (!prior) {
+      changedPrs.add(row.pr_number);
+      return row;
+    }
+    const method = prior.method === "pr_link" ? "pr_link" : row.method;
+    const verification =
+      prior.verification === "confirmed" && row.verification === "pending"
+        ? "confirmed"
+        : row.verification;
+    if (method !== prior.method || verification !== prior.verification) {
+      changedPrs.add(row.pr_number);
+    }
+    return { ...row, method, verification } as LinkUpsert;
   });
   const { error } = await supabase
     .from(PULL_REQUEST_SESSION_TABLE)
     .upsert(merged, { onConflict: "app_id,pr_number,trace_id" });
   if (error) throw new Error(`pull_request_session upsert failed: ${error.message}`);
+  return changedPrs;
 }
 
 interface ReconcilePullRequestInput {
@@ -228,11 +265,15 @@ export async function reconcileRecentSessions(
   supabase: SupabaseClient,
   chQuery: ChQueryFn,
   input: SweepInput = {},
-): Promise<ReconcileCounts> {
+): Promise<ReconcileCounts & { changed: ChangedLink[] }> {
   const counts = zeroCounts();
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
   const sinceHours = input.sinceHours ?? 24;
+  const changed = new Map<string, ChangedLink>();
+  const markChanged = (appId: string, prNumber: number): void => {
+    changed.set(`${appId}:${prNumber}`, { appId, prNumber });
+  };
 
   const rows = (await chQuery(
     `WITH ${SESSION_PRS_EXPR} AS sessionPrs
@@ -351,26 +392,35 @@ LIMIT ${MAX_SWEEP_SESSIONS}`,
         }
       }
     }
-    await upsertLinks(supabase, appId, upserts);
+    const changedPrs = await upsertLinks(supabase, appId, upserts);
+    for (const pn of changedPrs) markChanged(appId, pn);
     counts.linked += upserts.length;
   }
 
-  counts.unmatched = await agePendingLinks(supabase, now);
-  return counts;
+  const aged = await agePendingLinks(supabase, now);
+  counts.unmatched = aged.unmatched;
+  for (const c of aged.changed) markChanged(c.appId, c.prNumber);
+
+  return { ...counts, changed: [...changed.values()] };
 }
 
 /**
  * pending → unmatched once the grace window passes without a provider
  * record; pending → confirmed when the record eventually arrives (late
- * webhook backfill, repo connected after the fact).
+ * webhook backfill, repo connected after the fact). Both transitions are
+ * link changes (the comment's pending/confirmed session list moves), so
+ * they feed the same `changed` set as `upsertLinks`.
  */
-async function agePendingLinks(supabase: SupabaseClient, now: Date): Promise<number> {
+async function agePendingLinks(
+  supabase: SupabaseClient,
+  now: Date,
+): Promise<{ unmatched: number; changed: ChangedLink[] }> {
   const { data: pending } = await supabase
     .from(PULL_REQUEST_SESSION_TABLE)
     .select("id, app_id, pr_number, first_linked_at")
     .eq("verification", "pending")
     .limit(5_000);
-  if (!pending?.length) return 0;
+  if (!pending?.length) return { unmatched: 0, changed: [] };
 
   const byApp = new Map<string, typeof pending>();
   for (const link of pending) {
@@ -379,6 +429,7 @@ async function agePendingLinks(supabase: SupabaseClient, now: Date): Promise<num
     byApp.set(link.app_id, list);
   }
   let unmatched = 0;
+  const changed = new Map<string, ChangedLink>();
   const graceMs = PENDING_GRACE_DAYS * 86_400_000;
   for (const [appId, links] of byApp) {
     const { data: prs } = await supabase
@@ -387,27 +438,77 @@ async function agePendingLinks(supabase: SupabaseClient, now: Date): Promise<num
       .eq("app_id", appId)
       .in("pr_number", [...new Set(links.map((l) => l.pr_number))]);
     const known = new Set((prs ?? []).map((p) => Number(p.pr_number)));
-    const toConfirm = links.filter((l) => known.has(Number(l.pr_number))).map((l) => l.id);
-    const toUnmatch = links
-      .filter(
-        (l) =>
-          !known.has(Number(l.pr_number)) &&
-          now.getTime() - new Date(l.first_linked_at).getTime() > graceMs,
-      )
-      .map((l) => l.id);
+    const toConfirm = links.filter((l) => known.has(Number(l.pr_number)));
+    const toUnmatch = links.filter(
+      (l) =>
+        !known.has(Number(l.pr_number)) &&
+        now.getTime() - new Date(l.first_linked_at).getTime() > graceMs,
+    );
     if (toConfirm.length > 0) {
       await supabase
         .from(PULL_REQUEST_SESSION_TABLE)
         .update({ verification: "confirmed", last_reconciled_at: now.toISOString() })
-        .in("id", toConfirm);
+        .in(
+          "id",
+          toConfirm.map((l) => l.id),
+        );
+      for (const l of toConfirm) changed.set(`${appId}:${l.pr_number}`, { appId, prNumber: Number(l.pr_number) });
     }
     if (toUnmatch.length > 0) {
       await supabase
         .from(PULL_REQUEST_SESSION_TABLE)
         .update({ verification: "unmatched", last_reconciled_at: now.toISOString() })
-        .in("id", toUnmatch);
+        .in(
+          "id",
+          toUnmatch.map((l) => l.id),
+        );
       unmatched += toUnmatch.length;
+      for (const l of toUnmatch) changed.set(`${appId}:${l.pr_number}`, { appId, prNumber: Number(l.pr_number) });
     }
   }
-  return unmatched;
+  return { unmatched, changed: [...changed.values()] };
+}
+
+/** Bounded scan — one row per connected app, never a full-table walk. */
+const MAX_CHANGED_APP_CONNECTIONS = 1_000;
+
+/**
+ * Resolves `ChangedLink`s to what `refreshPrSessionComment` needs:
+ * `(tenantId, repository, prNumber)`. `pull_request_session` has no
+ * `repository` column, so `git_connection` (keyed by `app_id`) is the join.
+ * A pair whose app has no `git_connection` row (deleted mid-sweep, or a
+ * bogus `app_id`) is dropped rather than failing the sweep over it — the
+ * next sweep will pick it back up if the connection reappears.
+ */
+export async function resolveChangedLinkTargets(
+  supabase: SupabaseClient,
+  changed: ChangedLink[],
+): Promise<ChangedPrTarget[]> {
+  if (changed.length === 0) return [];
+  const appIds = [...new Set(changed.map((c) => c.appId))];
+  const { data, error } = await supabase
+    .from("git_connection")
+    .select("app_id, tenant_id, repository")
+    .in("app_id", appIds)
+    // PR comments are a GitHub-App-only capability; a legacy
+    // `provider='gitlab'` row would nominate a repo nothing can ever post to.
+    .eq("provider", "github")
+    // A connection with comments disabled is a guaranteed no-op downstream
+    // (`refreshPrSessionComment` returns `skipped-disabled` for it) — it
+    // must not consume the drain cap in `pr-session-reconcile/route.ts`.
+    .eq("pr_comments_enabled", true)
+    .limit(MAX_CHANGED_APP_CONNECTIONS);
+  if (error) throw new Error(`git_connection read failed: ${error.message}`);
+  const byApp = new Map(
+    (data ?? [])
+      .filter((r) => r.repository)
+      .map((r) => [r.app_id as string, { tenantId: r.tenant_id as string, repository: r.repository as string }]),
+  );
+  const targets: ChangedPrTarget[] = [];
+  for (const c of changed) {
+    const conn = byApp.get(c.appId);
+    if (!conn) continue;
+    targets.push({ tenantId: conn.tenantId, repository: conn.repository, prNumber: c.prNumber });
+  }
+  return targets;
 }

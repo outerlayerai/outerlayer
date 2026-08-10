@@ -119,6 +119,7 @@ import {
   agentBlobKey,
   MAX_SYNC_REQUEST_BYTES,
 } from '../routes/agents';
+import { PR_COMMENT_QUEUE_DEBOUNCE_SECONDS } from '../../types/queue-messages';
 
 const createClientMock = vi.mocked(createClient);
 
@@ -176,6 +177,7 @@ function ctxFor(
   body: Record<string, unknown>,
   userOver: UserOver = {},
   reqHeaders: Record<string, string> = {},
+  envOver: Record<string, unknown> = {},
 ): { ctx: AppContext; status: () => number; json: () => any; headers: () => Record<string, string> } {
   let captured: { body: unknown; status: number; headers: Record<string, string> } = {
     body: undefined,
@@ -199,7 +201,7 @@ function ctxFor(
       }
       return undefined;
     },
-    env: { CLICKHOUSE_HOST: 'http://localhost:8123', CLICKHOUSE_PASSWORD: 'x' },
+    env: { CLICKHOUSE_HOST: 'http://localhost:8123', CLICKHOUSE_PASSWORD: 'x', ...envOver },
     req: {
       json: async () => body,
       method: 'POST',
@@ -680,6 +682,43 @@ describe('SyncAgentSessions', () => {
     expect(insertsByTable['agent_blobs']).toBeUndefined();
   });
 
+  // Both size gates are `>`, not `>=`: a payload sitting exactly ON the
+  // documented ceiling is legal. Shedding it would make the number in the
+  // error message a lie and break any client that sizes its batches to fit.
+  it('admits a blob payload whose total is exactly the ceiling', async () => {
+    const atCeiling = 'A'.repeat(MAX_SYNC_REQUEST_BYTES);
+    const { ctx, status, json } = ctxFor({
+      schemaVersion: 1,
+      sessions: [agentSession()],
+      blobs: [{ sha256: helloSha, mediaType: 'image/png', bytes: 5, data: atCeiling }],
+    });
+    await new SyncAgentSessions({} as never).handle(ctx);
+
+    // Not shed: it reaches the per-blob checks and is judged on its own
+    // merits (this one decodes far past the per-blob cap).
+    expect(status()).toBe(200);
+    const data = (json() as { data: { rejected: Array<{ reason: string }> } }).data;
+    expect(data.rejected.map((r) => r.reason)).toEqual([`blob: exceeds ${2 * 1024 * 1024} bytes`]);
+  });
+
+  it('admits a blob whose decoded size is exactly the per-blob cap', async () => {
+    // 2 MiB of zero bytes: 699050 full 3-byte groups plus a 2-byte tail, so
+    // the base64 is 2796203 'A's and one '=' pad.
+    const atCap = 'A'.repeat(2796203) + '=';
+    const { ctx, status, json } = ctxFor({
+      schemaVersion: 1,
+      sessions: [agentSession()],
+      blobs: [{ sha256: 'c'.repeat(64), mediaType: 'image/png', bytes: 5, data: atCap }],
+    });
+    await new SyncAgentSessions({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    const data = (json() as { data: { rejected: Array<{ reason: string }> } }).data;
+    // Past the size gate — it fails on content addressing instead, which is
+    // the proof it was never size-rejected.
+    expect(data.rejected.map((r) => r.reason)).toEqual(['blob: sha256 does not match content']);
+  });
+
   it('declares a 413 payload-too-large response in its schema', () => {
     const route = new SyncAgentSessions({} as never) as unknown as {
       schema: { responses: Record<string, { description?: string }> };
@@ -700,6 +739,310 @@ describe('SyncAgentSessions', () => {
     // The response must carry the error envelope + Retry-After header, not be `{}`.
     expect(res503?.description).toContain('temporarily unavailable');
     expect(res503?.headers?.shape).toHaveProperty('Retry-After');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR_COMMENT_QUEUE enqueue (queue producer at ingest)
+// ---------------------------------------------------------------------------
+
+describe('SyncAgentSessions PR_COMMENT_QUEUE enqueue', () => {
+  function queueMock() {
+    return { sendBatch: vi.fn(async () => {}) };
+  }
+
+  it('enqueues one message per distinct (tenant, repo, prNumber)', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000001',
+            outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' },
+          }),
+        ],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).toHaveBeenCalledTimes(1);
+    const requests = queue.sendBatch.mock.calls[0]![0] as Array<{
+      body: { tenantId: string; repository: string; prNumber: number; enqueuedAt: number };
+      delaySeconds: number;
+    }>;
+    expect(requests).toHaveLength(1);
+    // The CANONICAL bare owner/repo, not ClickHouse's host-qualified
+    // GitRepo: the producer, the queue consumer and the dashboard
+    // orchestrator all key the comment's identity off one spelling, and two
+    // spellings would mean two identity rows — two comments on one PR.
+    expect(requests[0]!.body).toMatchObject({
+      tenantId: 'tenant-1',
+      repository: 'acme/api',
+      prNumber: 512,
+    });
+    // Delayed delivery IS the debounce — asserted against the single named
+    // constant, not a hardcoded literal.
+    expect(requests[0]!.delaySeconds).toBe(PR_COMMENT_QUEUE_DEBOUNCE_SECONDS);
+  });
+
+  it('dedupes multi-PR / multi-session overlap within one request', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000001',
+            outcome: {
+              prs: [
+                { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' },
+                { prNumber: 600, prUrl: 'https://github.com/acme/api/pull/600' },
+              ],
+            },
+          }),
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000002',
+            outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' },
+          }),
+        ],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    // Two distinct sessions both touching PR 512, plus one touching PR 600 —
+    // must collapse to exactly two messages, not three.
+    expect(queue.sendBatch).toHaveBeenCalledTimes(1);
+    const requests = queue.sendBatch.mock.calls[0]![0] as Array<{
+      body: { tenantId: string; repository: string; prNumber: number };
+    }>;
+    const prNumbers = requests.map((r) => r.body.prNumber).sort((a, b) => a - b);
+    expect(prNumbers).toEqual([512, 600]);
+  });
+
+  it('does not enqueue when no session in the batch carries a PR link', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      { schemaVersion: 1, sessions: [agentSession()] },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).not.toHaveBeenCalled();
+  });
+
+  it('no-ops silently when PR_COMMENT_QUEUE is unbound (queue-less deployment degrades to the cron sweep)', async () => {
+    // No PR_COMMENT_QUEUE in envOver at all — mirrors self-host / local dev.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { ctx, status, json } = ctxFor({
+        schemaVersion: 1,
+        sessions: [agentSession({ outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' } })],
+      });
+      await new SyncAgentSessions({} as never).handle(ctx);
+      expect(status()).toBe(200);
+      expect((json() as { data: { accepted: string[] } }).data.accepted).toHaveLength(1);
+      // SILENTLY is the claim: an absent binding is a supported deployment,
+      // not a fault. Reaching through it and letting the try/catch mop up the
+      // TypeError would log a warning on every sync of a queue-less install.
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('swallows a sendBatch throw without failing the sync', async () => {
+    const queue = {
+      sendBatch: vi.fn(async () => {
+        throw new Error('queue unavailable');
+      }),
+    };
+    const { ctx, status, json } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [agentSession({ outcome: { prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' } })],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect((json() as { data: { accepted: string[] } }).data.accepted).toHaveLength(1);
+    expect(queue.sendBatch).toHaveBeenCalledTimes(1);
+  });
+
+  // A repository this feature cannot address (GHES, an ssh remote) must not
+  // be NOMINATED at all. Guessing a key here is what puts a second comment on
+  // a PR, since the consumer and the dashboard would derive a different one.
+  // `agentSessionSummaryRow` folds the scalar `outcome.prNumber` into `prs`
+  // ONLY when `prs` is empty. So a session with both a `prs` list and a
+  // different last-linked scalar has a PR that lives in the scalar and in
+  // neither the array nor anything derived from it — reading `PrNumbers`
+  // alone would silently never comment on it.
+  it('nominates a last-linked PR that appears only in the scalar, not in the prs array', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [
+          agentSession({
+            id: 'aaaaaaaa-0000-4000-8000-000000000001',
+            outcome: {
+              prs: [{ prNumber: 512, prUrl: 'https://github.com/acme/api/pull/512' }],
+              prNumber: 999,
+              prUrl: 'https://github.com/acme/api/pull/999',
+            },
+          }),
+        ],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    const requests = queue.sendBatch.mock.calls[0]![0] as Array<{ body: { prNumber: number } }>;
+    expect(requests.map((r) => r.body.prNumber).sort((a, b) => a - b)).toEqual([512, 999]);
+  });
+
+  it('does not nominate a PR whose repo is not a GitHub.com owner/repo', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      {
+        schemaVersion: 1,
+        sessions: [
+          agentSession({
+            env: {
+              cwd: '/home/dev/acme',
+              gitRepo: 'git.acme-enterprise.com/acme/api',
+              gitBranch: 'main',
+            },
+            outcome: { prNumber: 512, prUrl: 'https://git.acme-enterprise.com/acme/api/pull/512' },
+          }),
+        ],
+      },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).not.toHaveBeenCalled();
+  });
+
+  // Cloudflare Queues rejects a sendBatch over 100 messages, so the producer
+  // chunks. A batch sized at exactly the cap must still be ONE call — an
+  // off-by-one here sends a trailing empty batch, which the API also rejects.
+  /** `n` distinct nominated PRs. `PrNumbers` is capped at 50 per session, so
+   * this spreads them across as many sessions as it takes. */
+  function sessionsNominating(n: number): Record<string, unknown>[] {
+    const sessions: Record<string, unknown>[] = [];
+    for (let start = 0; start < n; start += 50) {
+      const prs = Array.from({ length: Math.min(50, n - start) }, (_, i) => ({
+        prNumber: start + i + 1,
+        prUrl: `https://github.com/acme/api/pull/${start + i + 1}`,
+      }));
+      const seq = String(sessions.length + 1).padStart(12, '0');
+      sessions.push(agentSession({ id: `aaaaaaaa-0000-4000-8000-${seq}`, outcome: { prs } }));
+    }
+    return sessions;
+  }
+
+  it('chunks at the 100-message cap, with no empty trailing batch at an exact multiple', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      { schemaVersion: 1, sessions: sessionsNominating(100) },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).toHaveBeenCalledTimes(1);
+    expect(queue.sendBatch.mock.calls[0]![0]).toHaveLength(100);
+  });
+
+  it('splits an over-cap batch into disjoint chunks, never resending the whole list', async () => {
+    const queue = queueMock();
+    const { ctx, status } = ctxFor(
+      { schemaVersion: 1, sessions: sessionsNominating(150) },
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).toHaveBeenCalledTimes(2);
+    const first = queue.sendBatch.mock.calls[0]![0] as Array<{ body: { prNumber: number } }>;
+    const second = queue.sendBatch.mock.calls[1]![0] as Array<{ body: { prNumber: number } }>;
+    expect(first).toHaveLength(100);
+    expect(second).toHaveLength(50);
+    // Disjoint: every PR is nominated exactly once across the two calls.
+    const all = [...first, ...second].map((r) => r.body.prNumber).sort((a, b) => a - b);
+    expect(new Set(all).size).toBe(150);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-session rejection identity
+// ---------------------------------------------------------------------------
+
+// A rejected entry is the only thing a client can act on, so it has to name
+// WHICH session failed and WHY. The `id` is read off the raw payload —
+// unvalidated, arbitrary JSON — so the read has to survive every shape a
+// caller can put in the array without taking down the batch.
+describe('SyncAgentSessions rejection entries', () => {
+  it('echoes the raw id when the invalid session carries one, and names the failing field', async () => {
+    const bad = agentSession({ id: 'aaaaaaaa-0000-4000-8000-00000000dead', startedAt: 12345 });
+    const { ctx, status, json } = ctxFor({ schemaVersion: 1, sessions: [bad] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    const data = (json() as { data: { rejected: Array<{ index: number; id?: string; reason: string }> } }).data;
+    expect(data.rejected).toHaveLength(1);
+    expect(data.rejected[0]!.id).toBe('aaaaaaaa-0000-4000-8000-00000000dead');
+    // Not just "schema:" — the reason points at the field that failed, which
+    // is the whole reason to surface it.
+    expect(data.rejected[0]!.reason).toMatch(/^schema: startedAt: /);
+  });
+
+  it('omits id — never emits an undefined or stringified one — when the payload has none', async () => {
+    const bad = agentSession();
+    delete (bad as Record<string, unknown>).id;
+    const { ctx, json } = ctxFor({ schemaVersion: 1, sessions: [bad] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+
+    const entry = (json() as { data: { rejected: Array<Record<string, unknown>> } }).data.rejected[0]!;
+    expect('id' in entry).toBe(false);
+  });
+
+  it('survives non-object entries — a string, a number and null are rejected, not thrown on', async () => {
+    const { ctx, status, json } = ctxFor({
+      schemaVersion: 1,
+      sessions: ['not-a-session', 42, null],
+    });
+    await new SyncAgentSessions({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    const rejected = (json() as { data: { rejected: Array<Record<string, unknown>> } }).data.rejected;
+    expect(rejected).toHaveLength(3);
+    expect(rejected.map((r) => r.index)).toEqual([0, 1, 2]);
+    // `'id' in rawSession` would throw on a primitive and on null; none of
+    // these may carry an id, and none may crash the batch.
+    for (const entry of rejected) {
+      expect('id' in entry).toBe(false);
+      expect(entry.reason).toContain('schema:');
+    }
   });
 });
 

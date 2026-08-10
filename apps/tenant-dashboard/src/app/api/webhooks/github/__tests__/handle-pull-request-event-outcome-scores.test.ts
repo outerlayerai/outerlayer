@@ -36,6 +36,10 @@ vi.mock("@/lib/system/outcome-scores", () => ({
   emitOutcomeScoresForPrs: m.emit,
   scoresInsertFn: m.scoresInsertFn,
 }));
+// `handlePullRequestEvent` defers the comment refresh to `after()`, which
+// throws outside a real request scope. The faithful-enough unit-test stand-in
+// runs the callback immediately.
+vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
 
 import { handlePullRequestEvent } from "../handle-pull-request-event";
 
@@ -61,7 +65,7 @@ function mergedPayload({ body }: { body?: string } = {}) {
 function seed({ upsertStatus = 201 }: { upsertStatus?: number } = {}) {
   server.use(
     http.get(`${API}/git_connection`, () =>
-      HttpResponse.json([{ app_id: "app-1", tenant_id: "t-1" }]),
+      HttpResponse.json([{ app_id: "app-1", tenant_id: "t-1", repository: "acme/repo" }]),
     ),
     http.post(`${API}/pull_request`, () =>
       upsertStatus === 201

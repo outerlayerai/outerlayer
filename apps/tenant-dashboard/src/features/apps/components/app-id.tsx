@@ -26,7 +26,28 @@ type DetailItem = {
   isProvider?: boolean;
 };
 
-export const AppId = () => {
+interface AppIdProps {
+  /**
+   * `git_connection.pr_comments_enabled`'s server action — owned by the
+   * git-connection feature, not this one. Features are leaves and never
+   * import each other, so the caller (the settings page, above both
+   * features) supplies it rather than `AppId` importing it directly.
+   *
+   * Passed as the RAW action reference, not a wrapper closure: a Server
+   * Component may only hand a Client Component a function that is itself
+   * a Server Action (a top-level export of a `"use server"` module) — a
+   * plain async function defined in the page module is not serializable
+   * across that boundary and throws at render time. The `{ok, error}` →
+   * `{error?}` adaptation `AppPolicyToggle` needs therefore happens HERE,
+   * client-side, rather than in the caller.
+   */
+  setPrCommentsEnabledAction: (input: {
+    appId: string;
+    value: boolean;
+  }) => Promise<{ ok: true } | { ok: false; error: { message: string } }>;
+}
+
+export const AppId = ({ setPrCommentsEnabledAction }: AppIdProps) => {
   const { app } = useAppContext();
   const { t } = useTranslate();
   const { hasPermission } = useAppPermissions(app?.id);
@@ -113,6 +134,44 @@ export const AppId = () => {
               descriptionKey="dashboard.developers.requirePullRequestDescription"
               savedKey="dashboard.developers.requirePullRequestSaved"
               noPermissionKey="dashboard.developers.requirePullRequestNoPermission"
+            />
+          )}
+
+        {/* pr_comments_enabled lives on git_connection, not app — separately
+            gated on git_connection.update rather than app_policy.update, and
+            hidden entirely (not just disabled) from members who can't change
+            it, matching the require-pull-request toggle above.
+
+            The default is OFF, and that product call has been MADE (see
+            22-git-connection.sql): posting dollar amounts into a repository
+            is opt-in, because on a public repo the comment is world-readable
+            and permanently indexed, and the column governs every
+            already-connected repo at migration time. `?? false` mirrors the
+            column default exactly — a UI that showed "on" for a connection
+            the database has "off" would misreport the state of a write into
+            a customer's repo. The description copy still has to make the
+            public-readability of costs unmissable, since that is what a
+            person is agreeing to when they flip this.
+
+            Gated on `provider === "github"` as well: the writer posts through
+            the GitHub App only, so on a legacy `provider='gitlab'` row this
+            toggle would be a switch that silently does nothing — the refresh
+            would find no installation and give up without a word. */}
+        {gitConnection?.repository &&
+          provider === "github" &&
+          app?.id &&
+          hasPermission(Permissions.GIT_CONNECTION_UPDATE) && (
+            <AppPolicyToggle
+              initialValue={gitConnection.pr_comments_enabled ?? false}
+              canEdit
+              save={async (v) => {
+                const result = await setPrCommentsEnabledAction({ appId: app.id, value: v });
+                return result.ok ? {} : { error: result.error.message };
+              }}
+              labelKey="dashboard.developers.prCommentsEnabled"
+              descriptionKey="dashboard.developers.prCommentsEnabledDescription"
+              savedKey="dashboard.developers.prCommentsEnabledSaved"
+              noPermissionKey="dashboard.developers.prCommentsEnabledNoPermission"
             />
           )}
       </Stack>

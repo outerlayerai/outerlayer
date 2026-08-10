@@ -27,16 +27,22 @@ vi.mock("@outerlayer/locales", () => ({
 }));
 vi.mock("../actions", () => ({ setAppPolicyAction: vi.fn().mockResolvedValue({ ok: true, data: undefined }) }));
 
-// Stub the toggle so we can read the props AppId passes each instance.
+// Stub the toggle so we can read the props AppId passes each instance, and
+// invoke `save` directly to prove the {ok,error} -> {error?} adaptation
+// AppId performs client-side (see app-id.tsx's AppIdProps doc comment).
+const saveByLabel: Record<string, (v: boolean) => Promise<{ error?: string }>> = {};
 vi.mock("./app-policy-toggle", () => ({
-  AppPolicyToggle: ({ initialValue, canEdit, labelKey }: any) => (
-    <div
-      data-testid="policy-toggle"
-      data-label={labelKey}
-      data-init={String(initialValue)}
-      data-canedit={String(canEdit)}
-    />
-  ),
+  AppPolicyToggle: ({ initialValue, canEdit, labelKey, save }: any) => {
+    saveByLabel[labelKey] = save;
+    return (
+      <div
+        data-testid="policy-toggle"
+        data-label={labelKey}
+        data-init={String(initialValue)}
+        data-canedit={String(canEdit)}
+      />
+    );
+  },
 }));
 
 const hasPermission = vi.fn();
@@ -54,7 +60,9 @@ function appWith(overrides: Record<string, unknown>) {
   return {
     app: {
       id: "app-1",
-      git_connection: [{ repository: "owner/repo", provider: "github" }],
+      git_connection: [
+        { repository: "owner/repo", provider: "github", pr_comments_enabled: true },
+      ],
       git_branch: [{ branch_name: "main" }],
       require_pull_request: true,
       ...overrides,
@@ -67,46 +75,110 @@ const toggleByLabel = (label: string) =>
     .getAllByTestId("policy-toggle")
     .find((el) => el.getAttribute("data-label") === label);
 
+const setPrCommentsEnabledAction = vi.fn().mockResolvedValue({ ok: true });
+
 describe("AppId — publish-policy toggles", () => {
   beforeEach(() => {
     hasPermission.mockReset();
     useAppContext.mockReset();
+    setPrCommentsEnabledAction.mockReset().mockResolvedValue({ ok: true });
   });
 
-  it("renders only the require-pull-request toggle (previews are no longer per-app)", () => {
+  it("renders the require-pull-request and pr-comments toggles (previews are no longer per-app)", () => {
     hasPermission.mockReturnValue(true);
     useAppContext.mockReturnValue(appWith({ require_pull_request: true }));
 
-    render(<AppId />);
+    render(<AppId setPrCommentsEnabledAction={setPrCommentsEnabledAction} />);
 
     const toggles = screen.getAllByTestId("policy-toggle");
-    expect(toggles).toHaveLength(1);
+    expect(toggles).toHaveLength(2);
     const reqPr = toggleByLabel("dashboard.developers.requirePullRequest");
     expect(reqPr?.getAttribute("data-init")).toBe("true");
     expect(reqPr?.getAttribute("data-canedit")).toBe("true");
+    const prComments = toggleByLabel("dashboard.developers.prCommentsEnabled");
+    expect(prComments?.getAttribute("data-init")).toBe("true");
+    expect(prComments?.getAttribute("data-canedit")).toBe("true");
     expect(
       toggleByLabel("dashboard.developers.enablePrPreviewEnvs")
     ).toBeUndefined();
     expect(hasPermission).toHaveBeenCalledWith("app_policy.update");
+    expect(hasPermission).toHaveBeenCalledWith("git_connection.update");
   });
 
-  it("hides the toggle entirely when the user lacks app_policy.update", () => {
-    hasPermission.mockReturnValue(false);
+  it("reflects a disabled pr_comments_enabled value on the toggle's initial state", () => {
+    hasPermission.mockReturnValue(true);
+    useAppContext.mockReturnValue(
+      appWith({
+        git_connection: [
+          { repository: "owner/repo", provider: "github", pr_comments_enabled: false },
+        ],
+      })
+    );
+
+    render(<AppId setPrCommentsEnabledAction={setPrCommentsEnabledAction} />);
+
+    const prComments = toggleByLabel("dashboard.developers.prCommentsEnabled");
+    expect(prComments?.getAttribute("data-init")).toBe("false");
+  });
+
+  it("hides the require-pull-request toggle entirely when the user lacks app_policy.update, independent of the pr-comments toggle", () => {
+    hasPermission.mockImplementation((perm: string) => perm !== "app_policy.update");
     useAppContext.mockReturnValue(appWith({}));
 
-    render(<AppId />);
+    render(<AppId setPrCommentsEnabledAction={setPrCommentsEnabledAction} />);
 
     // Not just disabled — restricted members must not see the policy at all.
-    expect(screen.queryAllByTestId("policy-toggle")).toHaveLength(0);
+    expect(toggleByLabel("dashboard.developers.requirePullRequest")).toBeUndefined();
+    expect(
+      toggleByLabel("dashboard.developers.prCommentsEnabled")?.getAttribute("data-canedit")
+    ).toBe("true");
     expect(hasPermission).toHaveBeenCalledWith("app_policy.update");
+  });
+
+  it("hides the pr-comments toggle entirely when the user lacks git_connection.update, independent of the require-pull-request toggle", () => {
+    hasPermission.mockImplementation((perm: string) => perm !== "git_connection.update");
+    useAppContext.mockReturnValue(appWith({}));
+
+    render(<AppId setPrCommentsEnabledAction={setPrCommentsEnabledAction} />);
+
+    expect(toggleByLabel("dashboard.developers.prCommentsEnabled")).toBeUndefined();
+    expect(
+      toggleByLabel("dashboard.developers.requirePullRequest")?.getAttribute("data-canedit")
+    ).toBe("true");
+    expect(hasPermission).toHaveBeenCalledWith("git_connection.update");
   });
 
   it("renders no toggles when no repository is connected", () => {
     hasPermission.mockReturnValue(true);
     useAppContext.mockReturnValue(appWith({ git_connection: [] }));
 
-    render(<AppId />);
+    render(<AppId setPrCommentsEnabledAction={setPrCommentsEnabledAction} />);
 
     expect(screen.queryAllByTestId("policy-toggle")).toHaveLength(0);
+  });
+
+  it("calls setPrCommentsEnabledAction with {appId, value} and adapts an ok result to {}", async () => {
+    hasPermission.mockReturnValue(true);
+    useAppContext.mockReturnValue(appWith({}));
+
+    render(<AppId setPrCommentsEnabledAction={setPrCommentsEnabledAction} />);
+    const result = await saveByLabel["dashboard.developers.prCommentsEnabled"]!(false);
+
+    expect(setPrCommentsEnabledAction).toHaveBeenCalledWith({ appId: "app-1", value: false });
+    expect(result).toEqual({});
+  });
+
+  it("adapts a failed result to {error: message} rather than throwing", async () => {
+    hasPermission.mockReturnValue(true);
+    useAppContext.mockReturnValue(appWith({}));
+    setPrCommentsEnabledAction.mockResolvedValue({
+      ok: false,
+      error: { code: "forbidden", message: "not permitted" },
+    });
+
+    render(<AppId setPrCommentsEnabledAction={setPrCommentsEnabledAction} />);
+    const result = await saveByLabel["dashboard.developers.prCommentsEnabled"]!(true);
+
+    expect(result).toEqual({ error: "not permitted" });
   });
 });

@@ -15,7 +15,13 @@
  */
 
 import { http, HttpResponse } from 'msw';
-import { buildSingleResponse, getEqParam, projectSelectedFields, wantsSingle } from '@repo/test-msw';
+import {
+  buildSingleResponse,
+  filterByEqParams,
+  getEqParam,
+  projectSelectedFields,
+  wantsSingle,
+} from '@repo/test-msw';
 
 const SUPABASE_URL = 'http://localhost:54321';
 
@@ -264,19 +270,20 @@ export const managedDeploymentTablesHandlers = [
   http.get(`${SUPABASE_URL}/rest/v1/environment`, ({ request }) => {
     if (state.environments.length === 0) return undefined;
     const url = new URL(request.url);
-    const id = getEqParam(url, 'id');
-    const appId = getEqParam(url, 'app_id');
-    // `name` / `is_default` eq-filters are honored only when present, so
-    // callers that filter solely by id/app_id keep their existing behavior.
-    const name = getEqParam(url, 'name');
-    const isDefault = getEqParam(url, 'is_default');
-    const row = state.environments.find((e) => {
-      if (id && e.id !== id) return false;
-      if (appId && e.app_id !== appId) return false;
-      if (name && e.name !== name) return false;
-      if (isDefault && String(e.is_default ?? false) !== isDefault) return false;
-      return true;
-    });
-    return buildSingleResponse(request, row ?? null);
+    // `id` / `app_id` / `name` / `is_default` filters are honored only when
+    // present, so callers that filter solely by id/app_id keep their existing
+    // behavior. `filterByEqParams` also honors `in.(…)`, which the batched
+    // default-environment lookup in `pr-session-comment/read.ts` sends.
+    const rows = filterByEqParams(
+      url,
+      state.environments.map((e) => ({ ...e, is_default: e.is_default ?? false })),
+      ['id', 'app_id', 'name', 'is_default'],
+    );
+    // Single-row callers (`.single()`/`.maybeSingle()`) keep their existing
+    // shape; list callers get the full filtered array.
+    if (wantsSingle(request)) {
+      return buildSingleResponse(request, rows[0] ?? null);
+    }
+    return HttpResponse.json(rows);
   }),
 ];

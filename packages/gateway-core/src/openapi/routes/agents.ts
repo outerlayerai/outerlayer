@@ -43,6 +43,10 @@ import {
 } from '../../services/agent-session-converter';
 export { resolveTenantCaptureTier };
 import { safeParseAgentSession, CAPTURE_TIERS } from '@outerlayer/session-schema';
+import { PR_COMMENT_QUEUE_DEBOUNCE_SECONDS } from '../../types/queue-messages';
+import { canonicalPrCommentRepo } from '../../lib/pr-comment-repo-key';
+import type { PrCommentQueueMessage } from '../../types/queue-messages';
+import type { QueueMessageSendRequest } from '../../runtime';
 
 // ---------------------------------------------------------------------------
 // Limits — sized so a worst-case request stays well inside Workers CPU/body
@@ -385,6 +389,13 @@ export class SyncAgentSessions extends BaseRoute {
     const rejected: Array<z.infer<typeof RejectedSchema>> = [];
     const spanRows: Record<string, unknown>[] = [];
     const summaryRows: Record<string, unknown>[] = [];
+    // PR-comment refresh candidates, deduped within the request by
+    // (tenant, repository, prNumber) — a batch touching the same PR from
+    // several sessions must still enqueue exactly one message for it.
+    const prRefreshKeys = new Map<
+      string,
+      { tenantId: string; repository: string; prNumber: number }
+    >();
 
     for (const [index, rawSession] of sessions.entries()) {
       const result = safeParseAgentSession(rawSession);
@@ -408,6 +419,34 @@ export class SyncAgentSessions extends BaseRoute {
         spanRows.push(...(rows as unknown as Record<string, unknown>[]));
         summaryRows.push(summary as unknown as Record<string, unknown>);
         accepted.push(session.id);
+
+        // Union of the scalar PrNumber and the PrNumbers array. Neither
+        // alone is the complete set: `agentSessionSummaryRow` folds the
+        // scalar into `prs` ONLY when `prs` is otherwise empty, so a session
+        // carrying both a `prs` list and a different last-linked
+        // `outcome.prNumber` has a PR that appears in the scalar and nowhere
+        // in the array. Reading either view alone under-notifies.
+        //
+        // `PrNumber` is 0 when the session linked no PR at all, so the
+        // positivity check below — one gate, applied to the whole union —
+        // is what keeps a "PR 0" out of the queue.
+        // `GitRepo` is the host-qualified join key, but the comment's
+        // identity is the bare `owner/repo`. Canonicalize HERE, through the
+        // shared helper the queue consumer and the dashboard orchestrator
+        // also call, so all three trigger paths name one PR by one key —
+        // two spellings mean two identity rows and two comments on one PR.
+        // A repository the helper can't address (a GHES host, an ssh
+        // remote) is simply not nominated: the feature is GitHub.com-only,
+        // and guessing a key is what posts a duplicate.
+        const commentRepo = canonicalPrCommentRepo(summary.GitRepo);
+        if (commentRepo) {
+          const prNumbers = new Set<number>([...summary.PrNumbers, summary.PrNumber]);
+          for (const prNumber of prNumbers) {
+            if (prNumber <= 0) continue;
+            const key = `${summary.TenantId}\0${commentRepo}\0${prNumber}`;
+            prRefreshKeys.set(key, { tenantId: summary.TenantId, repository: commentRepo, prNumber });
+          }
+        }
       } catch (e) {
         rejected.push({ index, id: session.id, reason: `convert: ${String(e)}`.slice(0, 200) });
       }
@@ -510,6 +549,30 @@ export class SyncAgentSessions extends BaseRoute {
             headers: { 'Retry-After': String(SYNC_RETRY_AFTER_SECONDS) },
           } as any,
         );
+      }
+    }
+
+    // Nominate the PRs this batch touched for a comment refresh. Delayed
+    // delivery IS the debounce (PR_COMMENT_QUEUE_DEBOUNCE_SECONDS) — see
+    // its doc comment for why. This must never fail the sync: the queue
+    // binding is optional (self-host / local dev without queues), and even
+    // a bound queue's sendBatch can throw transiently — either way the
+    // `pull_request` webhook and the hourly cron sweep remain the backstop,
+    // so a swallowed failure here only costs latency, never correctness.
+    if (prRefreshKeys.size > 0) {
+      try {
+        const requests: QueueMessageSendRequest<PrCommentQueueMessage>[] = Array.from(
+          prRefreshKeys.values(),
+        ).map((key) => ({
+          body: { ...key, enqueuedAt: Date.now() },
+          delaySeconds: PR_COMMENT_QUEUE_DEBOUNCE_SECONDS,
+        }));
+        // Cloudflare Queues caps sendBatch at 100 messages per call.
+        for (let i = 0; i < requests.length; i += 100) {
+          await env.PR_COMMENT_QUEUE?.sendBatch(requests.slice(i, i + 100));
+        }
+      } catch (e) {
+        console.warn('[agents/sync] PR_COMMENT_QUEUE enqueue failed (cron sweep will repair):', e);
       }
     }
 
