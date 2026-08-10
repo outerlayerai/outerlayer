@@ -29,7 +29,7 @@
     "@repo/transactional": "*",
     "@sentry/nextjs": "^10.29.0",
     "@supabase/ssr": "^0.12.4",
-    "@supabase/supabase-js": "2.111.0",
+    "@supabase/supabase-js": "2.112.0",
     "gateway": "workspace:*",
     "next": "^16.2.12",
     "react": "^19.2.1",

@@ -22,7 +22,7 @@
     "@repo/typescript-config": "*",
     "@stryker-mutator/core": "9.6.1",
     "@stryker-mutator/vitest-runner": "9.6.1",
-    "@supabase/supabase-js": "2.111.0",
+    "@supabase/supabase-js": "2.112.0",
     "msw": "^2.15.0",
     "typescript": "^5.5.3",
     "vitest": "^4.1.8"
