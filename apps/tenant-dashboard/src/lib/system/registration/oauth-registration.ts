@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getAdminDataClient } from "../admin-client";
-import { validateBusinessEmail } from "../../validation";
 import { User } from "@supabase/supabase-js";
 import { OAuthRegistrationServiceConfig } from "./types";
 import { logServerError, logServerInfo } from "../../adapters/server-error-log";
@@ -37,11 +36,6 @@ export class OAuthRegistrationService {
     // Validate email
     if (!user.email) {
       return { error: "Email is required for registration." };
-    }
-
-    const emailValidation = validateBusinessEmail(user.email);
-    if (!emailValidation.isValid) {
-      return { error: emailValidation.error || "Invalid email address" };
     }
 
     // Check if user already has a profile (returning user)

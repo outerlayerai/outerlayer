@@ -56,10 +56,14 @@ export const env = createEnv({
     // Cron
     CRON_SECRET: z.string().min(1),
 
-    // GitHub App
+    // GitHub App. The key and webhook secret are optional because a
+    // deployment without them still serves sessions and traces — only repo
+    // linking and PR-outcome joining fail. Marking them required would refuse
+    // to boot a deployment that works, and `/api/health/config` reports their
+    // absence as a degraded capability instead.
     GITHUB_APP_ID: z.string().min(1),
-    GITHUB_APP_PRIVATE_KEY: z.string().min(1),
-    GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
+    GITHUB_APP_PRIVATE_KEY: z.string().optional(),
+    GITHUB_APP_WEBHOOK_SECRET: z.string().optional(),
 
     // Shared secret the Cloudflare queue consumer presents to
     // /api/internal/pr-comment-refresh. Optional — a self-host without
@@ -107,18 +111,15 @@ export const env = createEnv({
     SMTP_PASS: z.string().optional(),
     SMTP_SECURE: z.string().optional(),
 
-    // Database
-    DATABASE_URL: z.string().min(1),
-
     // ClickHouse (analytics) — optional for local dev without analytics
     CLICKHOUSE_HOST: z.string().optional(),
     CLICKHOUSE_PASSWORD: z.string().optional(),
     // Row-policy read identity. Required in production whenever ClickHouse is
     // configured: without it tenant-scoped reads authenticate as the writer,
     // which no row policy covers, so isolation falls back to app-layer WHERE
-    // clauses alone. Enforced at the call site in lib/analytics/client.ts, not
-    // here — env validation is skipped on every Vercel deployment (see
-    // skipValidation below), which is exactly where it would need to run.
+    // clauses alone. Enforced at the call site in lib/analytics/client.ts
+    // rather than here, because the requirement is conditional on ClickHouse
+    // being configured at all.
     CLICKHOUSE_READ_USER: z.string().optional(),
     CLICKHOUSE_READ_PASSWORD: z.string().optional(),
     // Escape hatch for self-hosters who accept app-layer-only isolation and
@@ -144,6 +145,8 @@ export const env = createEnv({
 
     // Email delivery gate (fail-closed: must be explicitly "true" to send real emails)
     EMAIL_ENABLED: z.string().optional().default('false'),
+
+
 
     // Billing gate (opt-out: hosted keeps Stripe; self-hosters set "false" to
     // disable Stripe customer provisioning + wire MockBillingService). Defaults
@@ -210,9 +213,9 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
 
     // Gateway URL for CLI trace forwarding — defaults to the production gateway.
-    // The default lives in `runtimeEnv` too: the zod `.default()` here is dead on
-    // Vercel (forced skipValidation), so the real fallback must be in runtimeEnv
-    // or GATEWAY_URL resolves `undefined` in prod. See
+    // The default is mirrored in `runtimeEnv` so it still applies when zod is
+    // skipped explicitly (SKIP_ENV_VALIDATION), or GATEWAY_URL resolves
+    // `undefined` in prod. See
     // env-default-invariant.test.ts. Consumers read the validated value, not a
     // hardcoded fallback in config-global.
     NEXT_PUBLIC_GATEWAY_URL: z.string().url().default('https://api.agentmark.co'),
@@ -250,13 +253,11 @@ export const env = createEnv({
     GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
     GITHUB_APP_WEBHOOK_SECRET: process.env.GITHUB_APP_WEBHOOK_SECRET,
     PR_COMMENT_REFRESH_SECRET: process.env.PR_COMMENT_REFRESH_SECRET,
-    // `|| 'resend'` is the REAL default (the zod default is dead under Vercel's
-    // forced skipValidation — see EMAIL_ENABLED).
+    // `|| 'resend'` mirrors the zod default — see EMAIL_ENABLED.
     EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || 'resend',
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     FROM_EMAIL: process.env.FROM_EMAIL,
-    // `|| 'hello@outerlayer.ai'` is the REAL default (any zod default would be
-    // dead under Vercel's forced skipValidation). Override per-env if needed.
+    // `|| 'hello@outerlayer.ai'` is the default; override per-env if needed.
     REPLY_TO_EMAIL: process.env.REPLY_TO_EMAIL || 'hello@outerlayer.ai',
     RESEND_BROADCAST_AUDIENCE_ID: process.env.RESEND_BROADCAST_AUDIENCE_ID,
     SMTP_HOST: process.env.SMTP_HOST,
@@ -264,7 +265,6 @@ export const env = createEnv({
     SMTP_USER: process.env.SMTP_USER,
     SMTP_PASS: process.env.SMTP_PASS,
     SMTP_SECURE: process.env.SMTP_SECURE,
-    DATABASE_URL: process.env.DATABASE_URL,
     CLICKHOUSE_HOST: process.env.CLICKHOUSE_HOST,
     CLICKHOUSE_PASSWORD: process.env.CLICKHOUSE_PASSWORD,
     CLICKHOUSE_READ_USER: process.env.CLICKHOUSE_READ_USER,
@@ -272,10 +272,9 @@ export const env = createEnv({
     CLICKHOUSE_ALLOW_UNSCOPED_READS: process.env.CLICKHOUSE_ALLOW_UNSCOPED_READS,
     TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
     OAUTH_STATE_SECRET: process.env.OAUTH_STATE_SECRET,
-    // `|| <default>`: the schema `.default()` for these is dead on Vercel
-    // (skipValidation bypasses zod), so the real default must live here or the
-    // var resolves `undefined` at runtime when unset. Enforced for every
-    // defaulted var by env-default-invariant.test.ts.
+    // `|| <default>`: mirrors each schema `.default()` so it still applies when
+    // zod is skipped explicitly. Enforced for every defaulted var by
+    // env-default-invariant.test.ts.
     EMAIL_ENABLED: process.env.EMAIL_ENABLED || 'false',
     BILLING_ENABLED: process.env.BILLING_ENABLED || 'true',
     FLY_API_TOKEN: process.env.FLY_API_TOKEN,
@@ -287,18 +286,16 @@ export const env = createEnv({
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-    // `|| '@outerlayer.ai'` is the REAL default (any zod default would be dead
-    // under Vercel's forced skipValidation). Self-hosters set their own domain.
+    // `|| '@outerlayer.ai'` is the default; self-hosters set their own domain.
     NEXT_PUBLIC_PLATFORM_ADMIN_EMAIL_DOMAIN:
       process.env.NEXT_PUBLIC_PLATFORM_ADMIN_EMAIL_DOMAIN || '@outerlayer.ai',
     NEXT_PUBLIC_POSTHOG_UI_HOST: process.env.NEXT_PUBLIC_POSTHOG_UI_HOST,
     NEXT_PUBLIC_POSTHOG_PROJECT_ID: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_ID,
     NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
-    // `|| <default>`: the schema `.default()` for these is dead on Vercel
-    // (skipValidation bypasses zod), so the real default must live here or the
-    // var resolves `undefined` at runtime when unset — silently sending the
-    // dashboard's traffic nowhere instead of to the production gateway.
+    // `|| <default>`: mirrors each schema `.default()` so it still applies when
+    // zod is skipped explicitly — otherwise these resolve `undefined` and send
+    // the dashboard's traffic nowhere instead of to the production gateway.
     // Enforced by env-default-invariant.test.ts.
     NEXT_PUBLIC_GATEWAY_URL: process.env.NEXT_PUBLIC_GATEWAY_URL || 'https://api.agentmark.co',
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://api.agentmark.co',
@@ -310,26 +307,26 @@ export const env = createEnv({
   emptyStringAsUndefined: true,
 
   /**
-   * Skip validation in specific environments.
+   * Skip validation only where there is nothing to validate.
    *
-   * IMPORTANT: We use NEXT_PUBLIC_SKIP_ENV_VALIDATION because regular env vars
-   * are not available in client-side code at runtime. In Next.js, non-NEXT_PUBLIC
-   * vars like 'CI' are replaced at build time and become undefined in browser code.
+   * Deployments are NOT skipped. Validation running everywhere except the
+   * environments that matter is how six staging variables went missing during a
+   * project migration without a single error: the schema declared them
+   * required, and nothing ever checked.
+   *
+   * It runs at build time, so a deployment missing required config fails its
+   * build and the previous deployment keeps serving — loud, and not an outage.
    *
    * Skip conditions:
-   * - NEXT_PUBLIC_SKIP_ENV_VALIDATION=true - explicit skip (used by E2E tests in CI)
-   * - SKIP_ENV_VALIDATION=true - server-side explicit skip
-   * - Jest tests (NODE_ENV=test) - tests mock the env module
-   * - Vercel preview deployments (VERCEL_ENV=preview) - PRs don't have all env vars
-   * - Any Vercel deployment (VERCEL=1) - all Vercel builds (production uses explicit env vars)
-   *
-   * Validation DOES run for:
-   * - Local development (helps developers catch config issues)
+   * - NEXT_PUBLIC_SKIP_ENV_VALIDATION=true — explicit skip. NEXT_PUBLIC_ because
+   *   plain vars are inlined at build time and read as undefined in browser code.
+   * - SKIP_ENV_VALIDATION=true — server-side explicit skip, and the escape hatch
+   *   if a deploy is ever blocked by config this schema describes wrongly. Set it
+   *   on the affected environment, ship, then fix the schema.
+   * - Unit tests (NODE_ENV=test) — the env module is mocked.
    */
   skipValidation:
     !!process.env.NEXT_PUBLIC_SKIP_ENV_VALIDATION ||
     !!process.env.SKIP_ENV_VALIDATION ||
-    process.env.NODE_ENV === 'test' ||
-    process.env.VERCEL_ENV === 'preview' ||
-    !!process.env.VERCEL,
+    process.env.NODE_ENV === 'test',
 });

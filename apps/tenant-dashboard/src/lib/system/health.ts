@@ -7,6 +7,7 @@ import "server-only";
  */
 
 import { getAdminDataClient } from "@/lib/system/admin-client";
+import { checkConfigPosture, postureEnvFromProcess } from "@/lib/system/env-readiness";
 
 interface DependencyHealth {
   name: string;
@@ -38,7 +39,7 @@ export async function checkHealth(): Promise<HealthCheckResponse> {
     checkClickHouse(),
   ]);
 
-  const dependencies = [supabaseHealth, clickhouseHealth];
+  const dependencies = [supabaseHealth, clickhouseHealth, checkConfig()];
 
   // Determine overall status
   const criticalHealthy = dependencies
@@ -61,6 +62,28 @@ export async function checkHealth(): Promise<HealthCheckResponse> {
     timestamp: new Date().toISOString(),
     service: "tenant-dashboard",
     dependencies,
+  };
+}
+
+/**
+ * Config posture. Never unhealthy: missing config now fails the build (env.ts
+ * validates on deployments), so anything this reports is a deliberate setting,
+ * not a fault. "degraded" here means the deployment is doing less than a reader
+ * of the code would assume — which is worth surfacing without paging anyone.
+ *
+ * Counted, not named: this route is unauthenticated, and naming which
+ * capabilities are switched off hands a passer-by a map. `GET
+ * /api/health/config` returns the detail to a caller holding CRON_SECRET.
+ */
+function checkConfig(): DependencyHealth {
+  const { degraded } = checkConfigPosture(postureEnvFromProcess());
+  if (degraded.length === 0) {
+    return { name: "config", status: "healthy" };
+  }
+  return {
+    name: "config",
+    status: "unhealthy",
+    error: `${degraded.length} capability(ies) reduced by configuration`,
   };
 }
 
