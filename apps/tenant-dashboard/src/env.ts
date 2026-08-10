@@ -55,26 +55,6 @@ export const env = createEnv({
 
     // Cron
     CRON_SECRET: z.string().min(1),
-    // BetterStack Uptime API token for DORA incident collection. Optional —
-    // unset in local/preview, set per-environment in staging/production.
-    // Exposed via the validated `env` for a single typed source alongside the
-    // other server config (raw `process.env` reads work too).
-    BETTERSTACK_API_TOKEN: z.string().optional(),
-    // Which deployment environment THIS dashboard is. Drives all DORA
-    // metrics reads/collection — each deployment only pulls the data for
-    // the environment it cares about. The staging Vercel project sets
-    // 'staging'; production relies on the default below.
-    //
-    // NOTE: the `.default('production')` here does NOT apply on Vercel —
-    // `skipValidation` is force-enabled by `!!process.env.VERCEL`, which makes
-    // t3-env pass `runtimeEnv` through raw and never run zod (so zod defaults
-    // are dead). The real default therefore lives in `runtimeEnv` below
-    // (`process.env.DORA_ENVIRONMENT || 'production'`). Without it, prod —
-    // which never sets the var — resolved `undefined` at runtime, and the
-    // collector env-filter (`incident.env !== this.env`) silently dropped
-    // EVERY production incident → CFR/MTTR stuck at 0. The zod default is kept
-    // for the non-skip (local validation) path + type narrowing.
-    DORA_ENVIRONMENT: z.enum(['production', 'staging']).default('production'),
 
     // GitHub App
     GITHUB_APP_ID: z.string().min(1),
@@ -226,7 +206,7 @@ export const env = createEnv({
     // Gateway URL for CLI trace forwarding — defaults to the production gateway.
     // The default lives in `runtimeEnv` too: the zod `.default()` here is dead on
     // Vercel (forced skipValidation), so the real fallback must be in runtimeEnv
-    // or GATEWAY_URL resolves `undefined` in prod. See DORA_ENVIRONMENT above and
+    // or GATEWAY_URL resolves `undefined` in prod. See
     // env-default-invariant.test.ts. Consumers read the validated value, not a
     // hardcoded fallback in config-global.
     NEXT_PUBLIC_GATEWAY_URL: z.string().url().default('https://api.agentmark.co'),
@@ -260,16 +240,11 @@ export const env = createEnv({
     STRIPE_SPAN_METER_ID: process.env.STRIPE_SPAN_METER_ID,
     STRIPE_STORAGE_METER_ID: process.env.STRIPE_STORAGE_METER_ID,
     CRON_SECRET: process.env.CRON_SECRET,
-    BETTERSTACK_API_TOKEN: process.env.BETTERSTACK_API_TOKEN,
-    // `|| 'production'` is the REAL default (the zod `.default` above is dead
-    // under Vercel's forced skipValidation). Staging sets DORA_ENVIRONMENT
-    // explicitly; prod leaves it unset and must resolve to 'production' here.
-    DORA_ENVIRONMENT: process.env.DORA_ENVIRONMENT || 'production',
     GITHUB_APP_ID: process.env.GITHUB_APP_ID,
     GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
     GITHUB_APP_WEBHOOK_SECRET: process.env.GITHUB_APP_WEBHOOK_SECRET,
     // `|| 'resend'` is the REAL default (the zod default is dead under Vercel's
-    // forced skipValidation — see DORA_ENVIRONMENT / EMAIL_ENABLED).
+    // forced skipValidation — see EMAIL_ENABLED).
     EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || 'resend',
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     FROM_EMAIL: process.env.FROM_EMAIL,
@@ -293,7 +268,7 @@ export const env = createEnv({
     // `|| <default>`: the schema `.default()` for these is dead on Vercel
     // (skipValidation bypasses zod), so the real default must live here or the
     // var resolves `undefined` at runtime when unset. Enforced for every
-    // defaulted var by env-default-invariant.test.ts. See DORA_ENVIRONMENT.
+    // defaulted var by env-default-invariant.test.ts.
     EMAIL_ENABLED: process.env.EMAIL_ENABLED || 'false',
     BILLING_ENABLED: process.env.BILLING_ENABLED || 'true',
     FLY_API_TOKEN: process.env.FLY_API_TOKEN,
@@ -317,7 +292,7 @@ export const env = createEnv({
     // (skipValidation bypasses zod), so the real default must live here or the
     // var resolves `undefined` at runtime when unset — silently sending the
     // dashboard's traffic nowhere instead of to the production gateway.
-    // Enforced by env-default-invariant.test.ts. See DORA_ENVIRONMENT.
+    // Enforced by env-default-invariant.test.ts.
     NEXT_PUBLIC_GATEWAY_URL: process.env.NEXT_PUBLIC_GATEWAY_URL || 'https://api.agentmark.co',
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://api.agentmark.co',
   },

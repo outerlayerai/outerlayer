@@ -8,10 +8,10 @@ import { env } from '@/env';
  * role table separately, and a matching domain alone grants nothing.
  *
  * Five surfaces need this check (the server guard, the server-action wrapper,
- * the role-grant action, the DORA API auth, and the client hook), and a
- * boundary duplicated that many times drifts: change four of five and the
- * surfaces disagree, which reads as a UI bug while hiding an authorization
- * gap. One source, one predicate, five importers.
+ * the role-grant action, the platform-admin API auth, and the client hook),
+ * and a boundary duplicated that many times drifts: change four of five and
+ * the surfaces disagree, which reads as a UI bug while hiding an
+ * authorization gap. One source, one predicate, five importers.
  *
  * Isomorphic on purpose — the client hook and the React guard both need it, so
  * nothing here may import `server-only` or touch a server client.

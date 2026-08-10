@@ -286,10 +286,6 @@ jobs:
         run: node ./clickhouse/migrate.mjs --host=$STAGING_CLICKHOUSE_HOST --user=$STAGING_CLICKHOUSE_USER --password=$STAGING_CLICKHOUSE_PASSWORD --db=$STAGING_CLICKHOUSE_DB --migrations-home=./clickhouse/migrations
 
       # Step 3: Deploy gateway with health-gated verification
-      - name: Capture deploy start time (Staging)
-        id: deploy-start-staging
-        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
       - name: Deploy Cloudflare Workers (Staging)
         id: deploy-gateway-staging
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
@@ -418,114 +414,6 @@ jobs:
           echo "✓ Rollback completed"
           echo ""
           echo "::error::Deployment rolled back due to health check or /v1 read probe failure. Check logs above for details."
-
-      - name: Record gateway deployment to DORA (Staging)
-        if: always() && steps.deploy-gateway-staging.outcome != 'skipped'
-        continue-on-error: true
-        uses: ./.github/actions/record-dora-deployment
-        with:
-          service: gateway
-          environment: staging
-          status: ${{ steps.deploy-gateway-staging.outcome == 'success' && 'success' || 'failure' }}
-          started_at: ${{ steps.deploy-start-staging.outputs.started_at }}
-          ingest_url: ${{ vars.DORA_INGEST_URL }}
-          api_key: ${{ secrets.STAGING_DORA_INGEST_API_KEY }}
-
-      # The staging tenant-dashboard is deployed by Vercel's Git integration on
-      # push to main — OUTSIDE this workflow — so unlike production (which runs
-      # `vercel deploy` here and records it) staging never recorded a dashboard
-      # DORA deploy, and the staging store only ever showed gateway rows. This
-      # step records the deploy Vercel already performs: poll the Vercel API for
-      # THIS commit's stg production deployment, wait for it to reach a terminal
-      # state, and emit status + start time for the record step below. It does
-      # NOT deploy anything (no double-deploy / no fighting the git integration).
-      # Only VERCEL_TOKEN is required — the team is auto-resolved from the token
-      # (vars.VERCEL_TEAM_ID is an optional override), so a forgotten team-id var
-      # cannot make this silently no-op. Degrades loudly (status=skip)
-      # only if VERCEL_TOKEN is missing or the deploy doesn't resolve in time —
-      # staging gateway DF is unaffected either way.
-      - name: Resolve staging tenant-dashboard deploy (Vercel)
-        id: vercel-stg-dashboard
-        if: always()
-        continue-on-error: true
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
-          # No hardcoded fallback on purpose: the previous default silently
-          # polled the RETIRED staging project after the 2026-08-05 move —
-          # default-when-unset config rots invisibly. Unset now warns + skips.
-          VERCEL_STG_PROJECT: ${{ vars.STAGING_VERCEL_PROJECT }}
-          COMMIT_SHA: ${{ github.sha }}
-        run: |
-          set -uo pipefail
-          if [[ -z "${VERCEL_TOKEN:-}" ]]; then
-            echo "::warning::VERCEL_TOKEN not set — cannot record the staging tenant-dashboard DORA deploy. (Staging gateway DORA is unaffected.)"
-            echo "status=skip" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -z "${VERCEL_STG_PROJECT:-}" ]]; then
-            echo "::warning::vars.STAGING_VERCEL_PROJECT not set — cannot record the staging tenant-dashboard DORA deploy. Set it to the staging Vercel project name (currently: outerlayer)."
-            echo "status=skip" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Team: explicit override wins; otherwise auto-resolve from the token
-          # (a Vercel token belongs to exactly one team — agentmark). The query
-          # also works token-scoped if neither is available, so teamId is purely
-          # belt-and-suspenders.
-          TEAM="${VERCEL_TEAM_ID:-}"
-          if [[ -z "$TEAM" ]]; then
-            TEAM=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "https://api.vercel.com/v2/teams?limit=1" | jq -r '.teams[0].id // ""' 2>/dev/null || echo "")
-            echo "auto-resolved Vercel team: ${TEAM:-<none — querying token-scoped>}"
-          fi
-          TEAM_PARAM=""
-          [[ -n "$TEAM" ]] && TEAM_PARAM="&teamId=${TEAM}"
-          API="https://api.vercel.com/v6/deployments?app=${VERCEL_STG_PROJECT}&target=production&limit=20${TEAM_PARAM}"
-          # Vercel's git deploy is triggered by the same push and runs alongside
-          # this job; poll until the deployment for our commit reaches a terminal
-          # readyState. 15-min deadline sits well inside the job's 30-min timeout.
-          DEADLINE=$(( SECONDS + 900 ))
-          while (( SECONDS < DEADLINE )); do
-            RESP=$(curl -sS -H "Authorization: Bearer ${VERCEL_TOKEN}" "$API" || echo '{}')
-            MATCH=$(echo "$RESP" | jq -c --arg sha "$COMMIT_SHA" 'first(.deployments[]? | select(.meta.githubCommitSha == $sha))' 2>/dev/null || echo "")
-            if [[ -n "$MATCH" && "$MATCH" != "null" ]]; then
-              STATE=$(echo "$MATCH" | jq -r '.readyState // .state // "UNKNOWN"')
-              case "$STATE" in
-                READY)
-                  CREATED_MS=$(echo "$MATCH" | jq -r '.created // .createdAt // 0')
-                  STARTED=$(date -u -d "@$(( CREATED_MS / 1000 ))" +%Y-%m-%dT%H:%M:%SZ)
-                  echo "status=success" >> "$GITHUB_OUTPUT"
-                  echo "started_at=$STARTED" >> "$GITHUB_OUTPUT"
-                  echo "✓ stg dashboard READY for ${COMMIT_SHA} (started $STARTED)"
-                  exit 0 ;;
-                ERROR|CANCELED)
-                  CREATED_MS=$(echo "$MATCH" | jq -r '.created // .createdAt // 0')
-                  STARTED=$(date -u -d "@$(( CREATED_MS / 1000 ))" +%Y-%m-%dT%H:%M:%SZ)
-                  echo "status=failure" >> "$GITHUB_OUTPUT"
-                  echo "started_at=$STARTED" >> "$GITHUB_OUTPUT"
-                  echo "✗ stg dashboard $STATE for ${COMMIT_SHA}"
-                  exit 0 ;;
-                *)
-                  echo "stg dashboard ${STATE:-pending} for ${COMMIT_SHA}; waiting…" ;;
-              esac
-            else
-              echo "No stg dashboard deploy for ${COMMIT_SHA} yet; waiting…"
-            fi
-            sleep 20
-          done
-          echo "::warning::Timed out waiting for the Vercel stg dashboard deploy of ${COMMIT_SHA}; not recording this run."
-          echo "status=skip" >> "$GITHUB_OUTPUT"
-
-      - name: Record tenant-dashboard deployment to DORA (Staging)
-        if: always() && (steps.vercel-stg-dashboard.outputs.status == 'success' || steps.vercel-stg-dashboard.outputs.status == 'failure')
-        continue-on-error: true
-        uses: ./.github/actions/record-dora-deployment
-        with:
-          service: tenant-dashboard
-          environment: staging
-          status: ${{ steps.vercel-stg-dashboard.outputs.status }}
-          started_at: ${{ steps.vercel-stg-dashboard.outputs.started_at }}
-          ingest_url: ${{ vars.DORA_INGEST_URL }}
-          api_key: ${{ secrets.STAGING_DORA_INGEST_API_KEY }}
 
       # Step 4: Refresh the cloud-worker machine image (last — a registry push
       # only, nothing to roll back). The staging dashboard creates ephemeral
@@ -1079,10 +967,6 @@ jobs:
         run: node ./clickhouse/migrate.mjs --host=$PRODUCTION_CLICKHOUSE_HOST --user=$PRODUCTION_CLICKHOUSE_USER --password=$PRODUCTION_CLICKHOUSE_PASSWORD --db=$PRODUCTION_CLICKHOUSE_DB --migrations-home=./clickhouse/migrations
 
       # Step 3: Deploy gateway with health-gated verification
-      - name: Capture deploy start time (Production Gateway)
-        id: deploy-start-gateway-production
-        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
       - name: Deploy Cloudflare Workers (Production)
         id: deploy-gateway-production
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
@@ -1134,21 +1018,6 @@ jobs:
           echo ""
           echo "::error::PRODUCTION deployment rolled back due to health check failure. Check logs above for details."
 
-      - name: Record gateway deployment to DORA (Production)
-        if: always() && steps.deploy-gateway-production.outcome != 'skipped'
-        continue-on-error: true
-        uses: ./.github/actions/record-dora-deployment
-        with:
-          service: gateway
-          environment: production
-          status: ${{ steps.deploy-gateway-production.outcome == 'success' && 'success' || 'failure' }}
-          started_at: ${{ steps.deploy-start-gateway-production.outputs.started_at }}
-          # Production events go to the production store; falls back to the
-          # staging store until DORA_INGEST_URL_PRODUCTION is configured
-          # (rows are inert there — reads are env-pinned per dashboard).
-          ingest_url: ${{ vars.DORA_INGEST_URL_PRODUCTION || vars.DORA_INGEST_URL }}
-          api_key: ${{ secrets.DORA_INGEST_API_KEY }}
-
       # Step 4: Capture current production deployment BEFORE deploying (for rollback)
       - name: Capture current Vercel production deployment
         id: capture-vercel-previous
@@ -1183,10 +1052,6 @@ jobs:
           fi
 
       # Step 5: Deploy Vercel with health-gated verification
-      - name: Capture deploy start time (Production Dashboard)
-        id: deploy-start-dashboard-production
-        run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
       - name: Deploy Tenant Dashboard (Production)
         id: deploy-vercel-production
         env:
@@ -1227,19 +1092,6 @@ jobs:
           echo "✓ Vercel rollback completed - promoted $PREVIOUS_DEPLOYMENT_ID to production"
           echo ""
           echo "::error::PRODUCTION Dashboard rolled back due to health check failure. Check logs above for details."
-
-      - name: Record dashboard deployment to DORA (Production)
-        if: always() && steps.deploy-vercel-production.outcome != 'skipped'
-        continue-on-error: true
-        uses: ./.github/actions/record-dora-deployment
-        with:
-          service: tenant-dashboard
-          environment: production
-          status: ${{ steps.deploy-vercel-production.outcome == 'success' && 'success' || 'failure' }}
-          started_at: ${{ steps.deploy-start-dashboard-production.outputs.started_at }}
-          # See gateway production step — production store with stg fallback.
-          ingest_url: ${{ vars.DORA_INGEST_URL_PRODUCTION || vars.DORA_INGEST_URL }}
-          api_key: ${{ secrets.DORA_INGEST_API_KEY }}
 
       - name: Notify deployment status (Production)
         if: always()

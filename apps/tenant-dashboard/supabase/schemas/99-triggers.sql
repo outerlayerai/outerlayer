@@ -377,14 +377,6 @@ CREATE OR REPLACE TRIGGER on_insert_worker_workspace_set_created_columns
     FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
 
 -- updated_at only (no updated_by column)
-CREATE OR REPLACE TRIGGER on_update_platform_dora_collection_state_set_updated_at
-    BEFORE UPDATE ON public.platform_dora_collection_state
-    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_only();
-
-CREATE OR REPLACE TRIGGER on_update_platform_incident_set_updated_at
-    BEFORE UPDATE ON public.platform_incident
-    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_only();
-
 CREATE OR REPLACE TRIGGER on_update_worker_run_set_updated_at
     BEFORE UPDATE ON public.worker_run
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_only();

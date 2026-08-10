@@ -185,6 +185,9 @@ CREATE TYPE public.platform_permission AS ENUM (
     'platform.entitlement.read',
     'platform.entitlement.write',
     'platform.entitlement.delete',
+    -- Dead value: the DORA-metrics tables are gone (delivery tracking lives
+    -- outside this app); label retained for the same reason as the
+    -- alert_agent labels below. Do not grant it to a role.
     'platform.dora.read',
     -- No table or policy references the six alert_agent labels below. Postgres
     -- has no DROP VALUE for enums, and rebuilding platform_permission would mean
