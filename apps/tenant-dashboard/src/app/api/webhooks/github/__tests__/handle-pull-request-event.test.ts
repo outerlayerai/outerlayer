@@ -21,6 +21,11 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/observability/server-logger", () => ({
   serverLogger: { error: m.logError, info: m.logInfo },
 }));
+// `handlePullRequestEvent` defers the comment refresh to `after()`, which
+// throws outside a real request scope. The faithful-enough unit-test stand-in
+// runs the callback immediately, so the refresh still happens within the
+// awaited call and existing assertions on its side effects keep working.
+vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
 
 import { handlePullRequestEvent } from "../handle-pull-request-event";
 

@@ -19,6 +19,23 @@ describe('canonicalPrCommentRepo', () => {
     expect(canonicalPrCommentRepo('github.com/acme/api')).toBe('acme/api');
   });
 
+  // GitHub owner/repo routes are case-insensitive, so a casing difference
+  // between where the name came from (a git remote vs. GitHub's own
+  // `full_name`) must not fork one repository into two identity rows.
+  it('lowercases the result — GitHub owner/repo routes are case-insensitive', () => {
+    expect(canonicalPrCommentRepo('Acme/API')).toBe('acme/api');
+    expect(canonicalPrCommentRepo('ACME/api')).toBe('acme/api');
+  });
+
+  it('collapses mixed-case and lowercase spellings of the same repo to one key', () => {
+    expect(canonicalPrCommentRepo('Acme/API')).toBe(canonicalPrCommentRepo('acme/api'));
+  });
+
+  it('lowercases through the host-qualified and URL-form spellings too', () => {
+    expect(canonicalPrCommentRepo('github.com/Acme/API')).toBe('acme/api');
+    expect(canonicalPrCommentRepo('https://github.com/Acme/API.git')).toBe('acme/api');
+  });
+
   it.each([
     ['https://github.com/acme/api', 'acme/api'],
     ['https://www.github.com/acme/api', 'acme/api'],

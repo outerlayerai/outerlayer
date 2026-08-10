@@ -25,6 +25,7 @@ import {
   seedPullRequestSessionMswState,
   seedSupabaseMswState,
   seedPrSessionCommentMswState,
+  seedPrSessionCommentUpsertErrors,
   getPrSessionCommentRows,
   type PullRequestSessionMswRow,
 } from "@/test-helpers/msw-handlers";
@@ -94,7 +95,11 @@ function seedGitConnections(rows: GitConnectionSeedRow[]) {
           (!prCommentsEnabled || String(r.pr_comments_enabled) === prCommentsEnabled),
       );
       return HttpResponse.json(
-        matched.map((r) => ({ app_id: r.app_id, installation_id: r.installation_id ?? null })),
+        matched.map((r) => ({
+          app_id: r.app_id,
+          repository: r.repository,
+          installation_id: r.installation_id ?? null,
+        })),
       );
     }),
   );
@@ -832,6 +837,40 @@ describe("refreshPrSessionComment", () => {
     expect(createIssueComment).toHaveBeenCalledWith(REPO, PR, expect.any(String));
   });
 
+  // git_connection.repository is stamped verbatim at link time — a URL-form
+  // remote here — so the installation lookup must match it
+  // canonical-to-canonical against the already-canonical `repository`
+  // rather than by raw equality.
+  it("resolves the installation id from a stored URL-form git_connection.repository", async () => {
+    seedGitConnections([
+      {
+        tenant_id: TENANT,
+        app_id: "app-1",
+        repository: "https://github.com/acme/api.git",
+        pr_comments_enabled: true,
+        installation_id: 111,
+      },
+    ]);
+    seedSupabaseMswState({ apps: [{ id: "app-1", tenant_id: TENANT, name: "api" }] });
+    seedMembershipMswState({ tenants: [{ tenant_id: TENANT, organization_name: "acme" }] });
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const createIssueComment = vi.fn().mockResolvedValue(okComment(4242));
+    mockFromContext.mockResolvedValue({ createIssueComment, updateIssueComment: vi.fn() });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]) },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    expect(mockFromContext).toHaveBeenCalledWith(
+      { provider: "github", installationId: 111 },
+      expect.anything(),
+    );
+  });
+
   // An enabled connection with no installation id can't post. Failing here
   // (rather than falling through to a client built from a junk id) is what
   // keeps the cron sweep's retry meaningful.
@@ -955,6 +994,72 @@ describe("refreshPrSessionComment", () => {
       expect.objectContaining({ github_comment_id: null }),
     ]);
   });
+
+  // ---------------------------------------------------------------------
+  // Persisting the comment id after a GitHub write (Fix: retry, then alert)
+  // ---------------------------------------------------------------------
+
+  // A GitHub write already happened by the time the identity persist runs —
+  // losing the id there strands the comment (the claim row stays
+  // `github_comment_id = NULL`, and once CREATE_CLAIM_TTL_MS elapses another
+  // caller's takeover POSTs a second one). Retrying past a transient
+  // Supabase blip is what keeps a single flaky write from causing that.
+  it("retries the identity persist past a transient failure and still reports created with exactly one GitHub POST", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+    // The first persist attempt fails; the second (of up to three) succeeds.
+    seedPrSessionCommentUpsertErrors(1);
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    expect(githubClient.createIssueComment).toHaveBeenCalledTimes(1);
+    expect(getPrSessionCommentRows()).toEqual([
+      expect.objectContaining({ github_comment_id: 4242 }),
+    ]);
+    expect(mockLoggerError).not.toHaveBeenCalled();
+  }, 10_000);
+
+  it("reports failed and logs an alertable error carrying the comment id when every persist attempt fails", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+    // All three attempts fail.
+    seedPrSessionCommentUpsertErrors(3);
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: expect.stringContaining("pr_session_comment upsert failed"),
+    });
+    expect(githubClient.createIssueComment).toHaveBeenCalledTimes(1);
+    // The GitHub write happened and is now orphaned: an operator must be
+    // able to find it from this log.
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        event: "pr_session_comment.comment_id_unpersisted",
+        tenantId: TENANT,
+        repository: REPO,
+        prNumber: PR,
+        commentId: 4242,
+      }),
+    );
+  }, 10_000);
 
   // The one failure worth alerting on: confirmed links exist and the
   // sessions behind them can't be read. It is the only state in which the

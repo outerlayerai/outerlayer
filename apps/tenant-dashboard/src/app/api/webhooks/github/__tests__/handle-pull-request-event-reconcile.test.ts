@@ -29,6 +29,10 @@ vi.mock("@/lib/system/pr-session-reconciler", () => ({
   reconcilePullRequest: m.reconcile,
   tenantChQuery: m.tenantChQuery,
 }));
+// `handlePullRequestEvent` defers the comment refresh to `after()`, which
+// throws outside a real request scope. The faithful-enough unit-test stand-in
+// runs the callback immediately.
+vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
 
 import { handlePullRequestEvent } from "../handle-pull-request-event";
 

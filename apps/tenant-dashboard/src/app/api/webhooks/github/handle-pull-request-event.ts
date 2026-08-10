@@ -1,3 +1,5 @@
+import { after } from "next/server";
+
 import { createSupabaseAdminClient } from "@/supabaseAdminClient";
 import { serverLogger } from "@/lib/observability/server-logger";
 import { earliest } from "@/lib/system/pr-tracking/review-milestones";
@@ -301,25 +303,33 @@ export async function handlePullRequestEvent(
   // every connection's reconciliation, so the rendered body reflects all the
   // links this event just materialized (an empty result still renders the
   // "No agent sessions linked yet" empty state; see COMMENT_REFRESH_ACTIONS
-  // above). Sequential, not Promise.all: concurrent refreshes for one repo
-  // are what the create-claim in `refreshPrSessionComment` exists to
-  // survive, and there is no reason to manufacture more of them here.
-  // `refreshPrSessionComment` is documented to never throw, but each call is
-  // still wrapped defensively: a `pull_request` webhook must not 500 because
-  // a comment failed.
-  for (const tenantId of commentRefreshTenantIds) {
-    try {
-      await refreshPrSessionComment({
-        tenantId,
-        repository,
-        prNumber: pr.number,
-      });
-    } catch (commentError) {
-      await serverLogger.error(commentError as Error, {
-        context: "[GitHub Webhook] pr-session comment refresh failed",
-        tenant_id: tenantId,
-        pr_number: pr.number,
-      });
+  // above). Deferred to `after()` so the response can ack the delivery
+  // first: each refresh can do a ClickHouse read, several Supabase reads, an
+  // App-token mint, and up to two GitHub writes, which does not reliably fit
+  // inside GitHub's ~10s webhook delivery budget — a delivery that times out
+  // repeatedly gets marked failed and can get the whole webhook disabled.
+  // `after()` runs post-response, so the "once per distinct tenant, after
+  // all reconciliation" ordering above is unaffected. Sequential, not
+  // Promise.all: concurrent refreshes for one repo are what the
+  // create-claim in `refreshPrSessionComment` exists to survive, and there
+  // is no reason to manufacture more of them here. `refreshPrSessionComment`
+  // is documented to never throw, but each call is still wrapped
+  // defensively so one tenant's failure doesn't stop the rest.
+  after(async () => {
+    for (const tenantId of commentRefreshTenantIds) {
+      try {
+        await refreshPrSessionComment({
+          tenantId,
+          repository,
+          prNumber: pr.number,
+        });
+      } catch (commentError) {
+        await serverLogger.error(commentError as Error, {
+          context: "[GitHub Webhook] pr-session comment refresh failed",
+          tenant_id: tenantId,
+          pr_number: pr.number,
+        });
+      }
     }
-  }
+  });
 }

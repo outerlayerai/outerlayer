@@ -41,8 +41,25 @@ export type PrSessionCommentMswRow = {
 type State = { rows: PrSessionCommentMswRow[]; nextId: number };
 let state: State = { rows: [], nextId: 1 };
 
+/** Remaining count of merge-duplicates upserts (the post-write identity
+ * persist, never the ignore-duplicates create claim) to answer with a
+ * PostgREST error instead of writing — see {@link seedPrSessionCommentUpsertErrors}. */
+let remainingUpsertErrors = 0;
+
 export function resetPrSessionCommentMswState() {
   state = { rows: [], nextId: 1 };
+  remainingUpsertErrors = 0;
+}
+
+/**
+ * Makes the next `count` post-write identity persists (`resolution=merge-duplicates`)
+ * fail with a PostgREST error, so a test can drive `persistCommentId`'s retry
+ * behavior without a live database. Does not affect the create claim
+ * (`resolution=ignore-duplicates`), which is a different write with its own
+ * arbitration semantics.
+ */
+export function seedPrSessionCommentUpsertErrors(count: number) {
+  remainingUpsertErrors = count;
 }
 
 export function seedPrSessionCommentMswState(rows: PrSessionCommentMswRow[]) {
@@ -108,6 +125,10 @@ export const prSessionCommentHandlers = [
         // Conflict, and the caller asked for the insert to be skipped: no
         // write, and nothing returned. This is the losing side of the claim.
         return HttpResponse.json([], { status: 201 });
+      }
+      if (remainingUpsertErrors > 0) {
+        remainingUpsertErrors -= 1;
+        return HttpResponse.json({ message: "boom" }, { status: 500 });
       }
       // ON CONFLICT DO UPDATE SET <only the columns sent>.
       const merged: PrSessionCommentMswRow = {

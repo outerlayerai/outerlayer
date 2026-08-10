@@ -45,6 +45,12 @@ vi.mock("@/lib/system/pr-session-reconciler", () => ({
 vi.mock("@/lib/system/pr-session-comment", () => ({
   refreshPrSessionComment: m.refreshComment,
 }));
+// `handlePullRequestEvent` defers the comment refresh to `after()`, which
+// throws outside a real request scope. The faithful-enough unit-test stand-in
+// runs the callback immediately, so the refresh still lands within the
+// awaited `handlePullRequestEvent` call and every assertion below stays
+// synchronous.
+vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
 
 import { handlePullRequestEvent } from "../handle-pull-request-event";
 

@@ -12,11 +12,16 @@
  *
  * Every downstream read and write of the comment — the `pr_session_comment`
  * identity row, the `git_connection` installation lookup, the GitHub API
- * call — keys off ONE form: bare `owner/repo`. Two spellings of one
- * repository produce two identity rows and therefore two comments on one PR,
- * which AC-057-02 forbids, so this function is deliberately the only place
- * that decides what the key is, and it is shared by the producer, the queue
- * consumer, and the orchestrator rather than re-derived at each boundary.
+ * call — keys off ONE form: LOWERCASE bare `owner/repo`. Two spellings of
+ * one repository produce two identity rows and therefore two comments on one
+ * PR, which AC-057-02 forbids, so this function is deliberately the only
+ * place that decides what the key is, and it is shared by the producer, the
+ * queue consumer, and the orchestrator rather than re-derived at each
+ * boundary. Lowercasing is part of that one form: GitHub owner/repo routes
+ * are case-insensitive, so `Acme/API` and `acme/api` are the same repository
+ * and must collapse to the same identity row rather than fork into two on a
+ * casing difference between where the name came from (a git remote vs.
+ * GitHub's own `full_name`).
  *
  * STRICT BY DESIGN: anything that does not reduce to a GitHub `owner/repo`
  * — a GitHub Enterprise Server host, an ssh/scp remote, a local path — is
@@ -32,9 +37,9 @@ const GITHUB_HOST_PREFIX = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:www\.)?github\.com\//
 const OWNER_REPO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 /**
- * `repository` in any of the accepted spellings → the canonical bare
- * `owner/repo`, or `null` when it isn't a GitHub.com repository this feature
- * can address.
+ * `repository` in any of the accepted spellings → the canonical LOWERCASE
+ * bare `owner/repo`, or `null` when it isn't a GitHub.com repository this
+ * feature can address.
  */
 export function canonicalPrCommentRepo(repository: string | null | undefined): string | null {
   if (!repository) return null;
@@ -46,5 +51,5 @@ export function canonicalPrCommentRepo(repository: string | null | undefined): s
   // anything with a second slash, so this can't eat a path component.
   const withoutSuffix = withoutHost.replace(/\.git$/i, '');
 
-  return OWNER_REPO.test(withoutSuffix) ? withoutSuffix : null;
+  return OWNER_REPO.test(withoutSuffix) ? withoutSuffix.toLowerCase() : null;
 }

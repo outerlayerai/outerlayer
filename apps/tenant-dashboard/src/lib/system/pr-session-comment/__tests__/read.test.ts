@@ -52,7 +52,7 @@ function seedGitConnections(rows: GitConnectionSeedRow[]) {
           (!repository || r.repository === repository) &&
           (!prCommentsEnabled || String(r.pr_comments_enabled) === prCommentsEnabled),
       );
-      return HttpResponse.json(matched.map((r) => ({ app_id: r.app_id })));
+      return HttpResponse.json(matched.map((r) => ({ app_id: r.app_id, repository: r.repository })));
     }),
   );
 }
@@ -158,6 +158,37 @@ describe("readLinkedSessions", () => {
     // Only the confirmed trace ever reached ClickHouse.
     const [, params] = chQuery.mock.calls[0]!;
     expect(params.traceIds).toEqual(["t-confirmed"]);
+  });
+
+  // git_connection.repository is stamped verbatim at link time — a URL-form
+  // remote or a differently-cased spelling of the same GitHub repo — so the
+  // lookup must match it canonical-to-canonical rather than by raw equality
+  // against the caller's already-canonical `repository`.
+  it("matches a stored URL-form git_connection.repository against the canonical repository", async () => {
+    seedGitConnections([
+      {
+        tenant_id: TENANT,
+        app_id: "app-1",
+        repository: "https://github.com/acme/api.git",
+        pr_comments_enabled: true,
+      },
+    ]);
+    const chQuery = vi.fn();
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result).toEqual([]);
+  });
+
+  it("matches a stored differently-cased git_connection.repository against the canonical repository", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: "Acme/API", pr_comments_enabled: true },
+    ]);
+    const chQuery = vi.fn();
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result).toEqual([]);
   });
 
   it("returns [] (not null) when the feature is on but nothing is confirmed-linked yet", async () => {

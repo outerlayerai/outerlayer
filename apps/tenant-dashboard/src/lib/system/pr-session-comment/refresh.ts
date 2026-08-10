@@ -57,7 +57,10 @@ import { renderComment, type RenderLinks } from "./render";
  *      create, is what makes "one comment per PR" true under concurrency).
  *      Has one ⇒ update; a `gone` result (comment hand-deleted) ⇒ create
  *      fresh and overwrite the stored id.
- *   6. Persist `github_comment_id`, the new hash, and `last_posted_at`.
+ *   6. Persist `github_comment_id`, the new hash, and `last_posted_at`,
+ *      retrying past a transient failure (see {@link persistCommentId}) —
+ *      the GitHub write already happened, so losing the id here strands the
+ *      comment rather than merely failing this call.
  *   7. `not_permitted` ⇒ log a structured event and return cleanly — every
  *      call returns this until each org admin approves `issues: write`, and
  *      the feature must stay silent.
@@ -192,11 +195,15 @@ async function resolveInstallationId(
   tenantId: string,
   repository: string,
 ): Promise<number | null> {
+  // No `.eq("repository", repository)`: `git_connection.repository` is
+  // stamped verbatim at link time (URL-form, mixed case), so matching
+  // against the caller's already-canonical `repository` is
+  // canonical-to-canonical in JS below, never a raw `.eq` — same invariant
+  // as `read.ts`'s `git_connection` lookup.
   const { data, error } = await admin
     .from("git_connection")
-    .select("installation_id")
+    .select("installation_id, repository")
     .eq("tenant_id", tenantId)
-    .eq("repository", repository)
     // Same provider gate as the read layer: an installation id only means
     // anything for a GitHub App connection.
     .eq("provider", "github")
@@ -205,7 +212,9 @@ async function resolveInstallationId(
   if (error) {
     throw new Error(`git_connection installation read failed: ${error.message}`);
   }
-  const row = (data ?? []).find((r) => r.installation_id != null);
+  const row = (data ?? []).find(
+    (r) => r.installation_id != null && canonicalPrCommentRepo(r.repository) === repository,
+  );
   return row ? Number(row.installation_id) : null;
 }
 
@@ -337,6 +346,57 @@ async function claimCreate(
   return (taken ?? []).length > 0 ? { outcome: "won" } : { outcome: "in-flight" };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Backoff between persist attempts in {@link persistCommentId} — three
+ * attempts total (the first try plus these two retries). Short because this
+ * is a single Supabase write already on the hot path of a webhook/queue
+ * call; the point is to ride out a blip, not to wait out an outage. */
+const PERSIST_RETRY_DELAYS_MS = [250, 500];
+
+/**
+ * Upserts the comment identity row, retrying past a transient Supabase
+ * failure before giving up.
+ *
+ * By the time this runs, the GitHub write (create or update) already
+ * succeeded — losing the id here doesn't just fail this call, it strands
+ * that comment: the row keeps `github_comment_id = NULL`, and once
+ * {@link CREATE_CLAIM_TTL_MS} elapses another caller's takeover
+ * compare-and-set wins the claim and POSTs a second comment, orphaning the
+ * first forever (nothing dedupes by marker or lists existing comments).
+ * Retrying trades a little latency on the hot path for closing that window.
+ */
+async function persistCommentId(
+  admin: AdminClient,
+  params: RefreshPrSessionCommentParams,
+  commentId: number,
+  bodyHash: string,
+): Promise<{ error: string | null }> {
+  const { tenantId, repository, prNumber } = params;
+  let lastError: string | null = null;
+  for (let attempt = 0; attempt <= PERSIST_RETRY_DELAYS_MS.length; attempt++) {
+    const { error } = await admin.from("pr_session_comment").upsert(
+      {
+        tenant_id: tenantId,
+        repository,
+        pr_number: prNumber,
+        github_comment_id: commentId,
+        last_body_hash: bodyHash,
+        last_posted_at: new Date().toISOString(),
+      },
+      { onConflict: "tenant_id,repository,pr_number" },
+    );
+    if (!error) return { error: null };
+    lastError = error.message;
+    if (attempt < PERSIST_RETRY_DELAYS_MS.length) {
+      await sleep(PERSIST_RETRY_DELAYS_MS[attempt]!);
+    }
+  }
+  return { error: lastError };
+}
+
 /** Structured, greppable log for a permission gap — every call fails this
  * way until each org admin approves `issues: write` on the installation.
  * Routed through `serverLogger` (not a bare `console.warn`) so it reaches
@@ -378,6 +438,30 @@ async function logLinksUnreadable(
     repository: params.repository,
     prNumber: params.prNumber,
     confirmedLinkCount: error.confirmedLinkCount,
+  });
+}
+
+/**
+ * The one failure that orphans a real GitHub write: `createIssueComment` or
+ * `updateIssueComment` already succeeded, but {@link persistCommentId}
+ * exhausted its retries and the id never made it into `pr_session_comment`.
+ * Unlike `not_permitted`, this IS always an incident — a comment now exists
+ * on the PR that no future call can find by id, edit, or account for. Its
+ * own event so an operator can find the orphaned comment id from the log
+ * rather than the PR going unmonitored until someone notices a duplicate.
+ */
+async function logCommentIdUnpersisted(
+  params: RefreshPrSessionCommentParams,
+  commentId: number,
+  persistError: string,
+): Promise<void> {
+  await serverLogger.error(new Error(`pr_session_comment id unpersisted: ${persistError}`), {
+    context: "[pr-session-comment] comment id could not be persisted after GitHub write",
+    event: "pr_session_comment.comment_id_unpersisted",
+    tenantId: params.tenantId,
+    repository: params.repository,
+    prNumber: params.prNumber,
+    commentId,
   });
 }
 
@@ -572,19 +656,21 @@ export async function refreshPrSessionComment(
       return { status: "failed", reason: "unexpected 'gone' result from createIssueComment" };
     }
 
-    const { error: upsertError } = await admin.from("pr_session_comment").upsert(
-      {
-        tenant_id: tenantId,
-        repository,
-        pr_number: prNumber,
-        github_comment_id: result.id,
-        last_body_hash: bodyHash,
-        last_posted_at: new Date().toISOString(),
-      },
-      { onConflict: "tenant_id,repository,pr_number" },
+    // Retried past a transient failure — see {@link persistCommentId}: a
+    // GitHub write already happened by this point, and losing the id here
+    // strands that comment rather than merely failing this call.
+    const { error: persistError } = await persistCommentId(
+      admin,
+      { tenantId, repository, prNumber },
+      result.id,
+      bodyHash,
     );
-    if (upsertError) {
-      return { status: "failed", reason: `pr_session_comment upsert failed: ${upsertError.message}` };
+    if (persistError) {
+      // A GitHub write happened this call (create or update) and its id is
+      // now unrecoverable from here — that's what makes this worth an
+      // operator-facing alert rather than folding into the generic reason.
+      await logCommentIdUnpersisted({ tenantId, repository, prNumber }, result.id, persistError);
+      return { status: "failed", reason: `pr_session_comment upsert failed: ${persistError}` };
     }
 
     return created ? { status: "created", commentId: result.id } : { status: "updated", commentId: result.id };

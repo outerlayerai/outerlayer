@@ -4,6 +4,8 @@ import { getAdminDataClient } from "@/lib/system/admin-client";
 import { tenantChQuery } from "@/lib/system/pr-session-reconciler/ch-query";
 import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 
+import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
+
 /**
  * Read layer behind the PR session comment: every CONFIRMED session linked
  * to a `(tenant, repository, pr_number)`, with the display fields the
@@ -178,11 +180,17 @@ export async function readLinkedSessions(
   const { tenantId, repository, prNumber } = params;
   const admin = getAdminDataClient();
 
+  // No `.eq("repository", repository)` here: `git_connection.repository` is
+  // stamped verbatim at link time (a URL-form remote, a differently-cased
+  // spelling of the same GitHub repo), so a raw equality filter would miss
+  // rows that mean the same repository as the caller's already-canonical
+  // `repository`. Matching is canonical-to-canonical — every stored value is
+  // re-canonicalized in JS below and compared against `repository`, never
+  // matched raw.
   const { data: connections, error: connectionsError } = await admin
     .from("git_connection")
-    .select("app_id")
+    .select("app_id, repository")
     .eq("tenant_id", tenantId)
-    .eq("repository", repository)
     // This feature posts through the GitHub App and nothing else. New GitLab
     // connections can't be created, but the schema still permits legacy
     // `provider='gitlab'` rows, and the rest of the codebase treats them as
@@ -193,7 +201,10 @@ export async function readLinkedSessions(
   if (connectionsError) {
     throw new Error(`git_connection read failed: ${connectionsError.message}`);
   }
-  const appIds = [...new Set((connections ?? []).map((c) => c.app_id))];
+  const matchingConnections = (connections ?? []).filter(
+    (c) => canonicalPrCommentRepo(c.repository) === repository,
+  );
+  const appIds = [...new Set(matchingConnections.map((c) => c.app_id))];
   if (appIds.length === 0) return null;
 
   // `tenant_id` is redundant with `app_id IN (…)` — those ids came from a
