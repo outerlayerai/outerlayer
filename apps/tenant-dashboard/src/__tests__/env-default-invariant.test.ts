@@ -7,9 +7,9 @@
  * Why this invariant exists: whenever `skipValidation` is on, t3-env returns
  * `runtimeEnv` raw and never runs zod, so the schema's `.default()` does not
  * apply. Deployments validate, but an explicit SKIP_ENV_VALIDATION — the escape
- * hatch for a blocked deploy — still bypasses it, and that is exactly the
- * moment a silent `undefined` hurts most: an unset DORA_ENVIRONMENT filters out
- * every incident, so CFR/MTTR sit at 0 with no error anywhere.
+ * hatch for a blocked deploy — still bypasses it, and that is exactly when a
+ * silent `undefined` hurts most: an unset NEXT_PUBLIC_GATEWAY_URL sends the
+ * dashboard's traffic nowhere instead of to the production gateway.
  *
  * This test parses env.ts source (not the evaluated module) so it sees the
  * schema and runtimeEnv shapes directly. Add a new `.default()` without the
@@ -41,7 +41,7 @@ describe('env.ts: every schema .default() is backed by a runtimeEnv fallback', (
 
   // Collect every real schema declaration line of the form `KEY: z....default(X)`.
   // Anchoring on `^\s*KEY: z.` excludes `//`/`*` comment lines that merely
-  // mention `.default(...)` in prose (e.g. the DORA_ENVIRONMENT explainer).
+  // mention `.default(...)` in prose.
   const defaulted: Array<{ key: string; def: string }> = [];
   for (const line of schemaRegion.split('\n')) {
     const key = line.match(/^\s*([A-Z0-9_]+):\s*z\./)?.[1];
@@ -58,7 +58,6 @@ describe('env.ts: every schema .default() is backed by a runtimeEnv fallback', (
     expect(keys).toEqual(
       [
         'BILLING_ENABLED',
-        'DORA_ENVIRONMENT',
         'EMAIL_ENABLED',
         'EMAIL_PROVIDER',
         'NEXT_PUBLIC_API_URL',

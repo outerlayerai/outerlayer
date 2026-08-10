@@ -27,6 +27,17 @@ CREATE TABLE IF NOT EXISTS public.git_connection (
     webhook_id TEXT,
     webhook_secret TEXT,
 
+    -- Per-app toggle for posting the agent-sessions summary comment on PRs.
+    -- OPT-IN: defaults OFF, and that is a made product decision, not an
+    -- omission. The comment carries dollar amounts and is world-readable on
+    -- a public repo, and this column governs every ALREADY-CONNECTED repo at
+    -- migration time — defaulting on would have put a bot comment nobody
+    -- asked for on the first PR opened after deploy, across every existing
+    -- connection. Turning it on is one toggle in app settings (see
+    -- `app-id.tsx`), which is the right amount of friction for a write into
+    -- someone else's repository.
+    pr_comments_enabled BOOLEAN NOT NULL DEFAULT false,
+
     -- Audit columns
     created_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID REFERENCES public.profile(id) ON DELETE SET NULL,
@@ -55,6 +66,7 @@ COMMENT ON COLUMN public.git_connection.installation_id IS 'GitHub App installat
 
 COMMENT ON COLUMN public.git_connection.webhook_id IS 'Provider-specific webhook identifier for cleanup on disconnect';
 COMMENT ON COLUMN public.git_connection.webhook_secret IS 'Per-app webhook secret for signature verification (encrypted)';
+COMMENT ON COLUMN public.git_connection.pr_comments_enabled IS 'Gates whether PR session-summary comments are posted for this app; opt-in, defaults OFF';
 
 -- -----------------------------------------------------------------------------
 -- Git Branch Table
@@ -264,13 +276,13 @@ GRANT ALL ON public.user_git_identity TO service_role;
 REVOKE ALL ON public.git_connection FROM anon;
 REVOKE ALL ON public.git_connection FROM authenticated;
 GRANT SELECT (
-    id, tenant_id, app_id, provider, repository, installation_id, webhook_id,
-    created_at, created_by, updated_at, updated_by
+    id, tenant_id, app_id, provider, pr_comments_enabled, repository,
+    installation_id, webhook_id, created_at, created_by, updated_at, updated_by
 ), INSERT (
-    id, tenant_id, app_id, provider, repository, installation_id, webhook_id,
-    created_at, created_by, updated_at, updated_by
+    id, tenant_id, app_id, provider, pr_comments_enabled, repository,
+    installation_id, webhook_id, created_at, created_by, updated_at, updated_by
 ), UPDATE (
-    app_id, provider, installation_id, repository, webhook_id
+    app_id, provider, pr_comments_enabled, installation_id, repository, webhook_id
 ) ON public.git_connection TO authenticated;
 GRANT DELETE ON public.git_connection TO authenticated;
 GRANT ALL ON public.git_connection TO service_role;

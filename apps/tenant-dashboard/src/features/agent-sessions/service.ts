@@ -11,7 +11,10 @@ import "server-only";
  * (`request-context.ts`).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ForbiddenError } from "@repo/observability-service";
 import { createTenantReadClient } from "@/lib/analytics/client";
+import { checkAppPermission } from "@/utils/permission-check";
+import { Permissions } from "@/utils/permissions";
 import { tenantChQuery, fetchSessionOutcomeScores, getSessionListOutcomes } from "@/lib/adapters";
 import { OAUTH_STATE_SECRET } from "@/config-global.server";
 import type { TenantContext } from "@/lib/analytics/tenant-context";
@@ -129,6 +132,11 @@ const SIGNAL_PREDICATES = {
   "provider-errors": "ApiErrorCount > 0",
   clean: "UserTurnCount <= 1 AND RejectedToolCallCount = 0 AND ErrorCount = 0 AND ApiErrorCount = 0",
 } as const;
+
+/** Bounded scan for the `?pr=` filter's `pull_request_session` lookup — a
+ * list filter, never a full-table walk. Matches the sibling bound in
+ * `pr-session-comment/read.ts` (`MAX_LINKS`). */
+const MAX_PR_LINKED_SESSIONS = 5_000;
 
 class AgentSessionsService {
   /**
@@ -375,10 +383,18 @@ class AgentSessionsService {
     const ch = createTenantReadClient({ tenantId: ctx.tenantId, appId: ctx.appId });
     if (!ch) throw new Error("ClickHouse not configured");
     const { tenantId, appId } = ctx;
-    const { limit, offset, branch, agentType, model, workerKind, q, from, to, sort, dir, includeSubagents, origin, signal, topicId, topicFacet } = query;
+    const { limit, offset, branch, agentType, model, workerKind, q, from, to, sort, dir, includeSubagents, origin, signal, topicId, topicFacet, pr } = query;
     // A topic drill-down shows the whole cluster, so it spans repos rather than
     // pinning to the app's dominant repo.
     const topicActive = Boolean(topicId && topicFacet);
+    // Same for a `?pr=` drill-down, and for a sharper reason: the PR comment's
+    // footer link carries only `?pr=`, so the dominant-repo pin would still
+    // apply — and a PR on any NON-dominant repo of the app then intersects to
+    // zero rows. A reader following a link that says "N sessions" would land
+    // on an empty list. A confirmed link to a PR is a strictly narrower scope
+    // than the repo pin anyway, so the pin adds nothing here.
+    const prActive = pr !== undefined;
+    const repoPinned = !topicActive && !prActive;
 
     // Actor privacy: without team.read, `?actor=` is NOT a free
     // filter — the list is pinned to the caller's own seat, whatever the
@@ -393,7 +409,7 @@ class AgentSessionsService {
     // A topic drill-down spans repos, so it neither pins a repo nor needs the
     // dominant-repo scan (nor the repo-scoped filter vocabularies below).
     const repoPin = pinnedActor !== null ? " AND ActorId={actor:String}" : "";
-    const repo = topicActive
+    const repo = !repoPinned
       ? ""
       : query.repo ??
         (
@@ -407,9 +423,58 @@ class AgentSessionsService {
         )[0]?.repo ??
         "";
 
+    // `?pr=` filter: only sessions CONFIRMED-linked (via `pull_request_session`)
+    // to this app's PR/MR number.
+    //
+    // COUPLED to the PR comment's footer link
+    // (`pr-session-comment/render.ts`), which is the landing surface for
+    // every deep link in that comment. This filter is pinned to ONE
+    // `app_id`, but a PR's sessions can span several apps in
+    // a tenant — so a reader following that link on a multi-app PR sees a
+    // SUBSET of the sessions the comment listed, with smaller totals, which
+    // is a real "every figure matches the dashboard exactly" gap
+    // the TODO in render.ts tracks. Rendering the link anyway is the
+    // deliberate choice (no doorway at all was worse); closing the gap means
+    // making this filter tenant-scoped, and both sides move together. `verification = 'confirmed'` excludes
+    // pending/unmatched claims — same rule the PR-comment read layer applies
+    // (`pr-session-comment/read.ts`). Read through `ctx.db` (RLS-scoped to
+    // this caller's tenant) and pinned to `ctx.appId` — a `pr` value from the
+    // URL narrows the existing tenant+app scope, it can never widen it. `null`
+    // means "no pr filter"; an empty (but non-null) array means "filter is
+    // active, nothing confirmed-linked" — must resolve to zero rows, not "no
+    // filter".
+    let prTraceIds: string[] | null = null;
+    if (prActive) {
+      // `pull_request_session`'s only SELECT policy requires
+      // `git_connection.read` on the app, so a member without it reads ZERO
+      // rows with NO error — indistinguishable, from here, from "this PR has
+      // no linked sessions". Following the comment's footer link, that member
+      // would land on an empty list with no explanation, off a comment that
+      // just listed N sessions. Checked explicitly so the answer is "you
+      // can't see this" rather than a silent empty state. (The sessions
+      // themselves stay readable; it is only the PR↔session mapping this
+      // permission gates.)
+      const linkAccess = await checkAppPermission(Permissions.GIT_CONNECTION_READ, appId);
+      if (linkAccess.error) {
+        throw new ForbiddenError(
+          "You don't have permission to view which sessions are linked to a pull request",
+        );
+      }
+      const { data: prLinks, error: prLinksError } = await ctx.db
+        .from("pull_request_session")
+        .select("trace_id")
+        .eq("app_id", appId)
+        .eq("pr_number", pr)
+        .eq("verification", "confirmed")
+        .limit(MAX_PR_LINKED_SESSIONS);
+      if (prLinksError) throw new Error(`pull_request_session read failed: ${prLinksError.message}`);
+      prTraceIds = [...new Set((prLinks ?? []).map((r) => (r as { trace_id: string }).trace_id))];
+    }
+
     const filters = ["TenantId={tenantId:String}", "AppId={appId:String}"];
-    // Repo-pin the list normally; a topic drill-down deliberately spans repos.
-    if (!topicActive) filters.push("GitRepo={repo:String}");
+    // Repo-pin the list normally; topic and PR drill-downs deliberately span
+    // repos (see `repoPinned`).
+    if (repoPinned) filters.push("GitRepo={repo:String}");
     // Top-level sessions only, unless children are explicitly requested.
     // Subagent rows carry the parent's SessionId in ParentSessionId; they
     // belong inside the parent's detail view, not as list siblings.
@@ -474,6 +539,12 @@ class AgentSessionsService {
     if (q) filters.push("positionCaseInsensitive(Title, {q:String}) > 0");
     if (from) filters.push("StartedAt >= parseDateTimeBestEffort({from:String})");
     if (to) filters.push("StartedAt <= parseDateTimeBestEffort({to:String})");
+    // Empty (not absent) prTraceIds means the filter is active but nothing
+    // confirmed-linked — `TraceId IN ()` is invalid ClickHouse syntax, so an
+    // always-false predicate stands in for "filter to nothing" instead.
+    if (prTraceIds !== null) {
+      filters.push(prTraceIds.length > 0 ? "TraceId IN {prTraceIds:Array(String)}" : "1=0");
+    }
     const baseWhere = filters.join(" AND ");
     // Optional origin filter, composed independently of includeSubagents:
     // origin=agent lists top-level agent runs, origin=agent&includeSubagents=1
@@ -510,6 +581,7 @@ class AgentSessionsService {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
       ...(topicActive ? { topicId, topicFacet } : {}),
+      ...(prTraceIds && prTraceIds.length > 0 ? { prTraceIds } : {}),
     };
 
     // Fire the list + count first so they run concurrently with the filter

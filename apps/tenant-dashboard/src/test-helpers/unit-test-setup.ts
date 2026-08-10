@@ -364,7 +364,6 @@ const mockEnvValues = {
   TOKEN_ENCRYPTION_KEY: 'test-encryption-key-must-be-32-chars!',
   EMAIL_ENABLED: 'false',
   NODE_ENV: 'test' as const,
-  DORA_ENVIRONMENT: 'production' as const,
 
   // Server - Optional
   EMAIL_PROVIDER: 'resend',

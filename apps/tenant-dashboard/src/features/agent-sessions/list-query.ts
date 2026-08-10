@@ -63,6 +63,11 @@ const ListSessionsQuerySchema = z.object({
    * in trace_facets) for the given facet. Set together; spans repos. */
   topicId: z.string().optional(),
   topicFacet: z.enum(["task", "issues", "steering"]).optional(),
+  /** PR filter: show only sessions CONFIRMED-linked (via
+   * `pull_request_session`) to this provider PR/MR number. The header link
+   * in a rendered PR session comment (`…/sessions?pr=<n>`) is the primary
+   * producer of this param. Composes with every other filter. */
+  pr: z.coerce.number().int().positive().optional(),
 });
 
 export type ListSessionsQuery = z.infer<typeof ListSessionsQuerySchema>;
@@ -146,5 +151,6 @@ export function parseSessionsUrlParams(
     origin: rawOrigin || undefined,
     topicId: flat.topicId,
     topicFacet: flat.topicFacet,
+    pr: flat.pr,
   });
 }

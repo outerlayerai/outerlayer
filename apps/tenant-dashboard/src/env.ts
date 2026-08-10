@@ -55,22 +55,6 @@ export const env = createEnv({
 
     // Cron
     CRON_SECRET: z.string().min(1),
-    // BetterStack Uptime API token for DORA incident collection. Optional —
-    // unset in local/preview, set per-environment in staging/production.
-    // Exposed via the validated `env` for a single typed source alongside the
-    // other server config (raw `process.env` reads work too).
-    BETTERSTACK_API_TOKEN: z.string().optional(),
-    // Which deployment environment THIS dashboard is. Drives all DORA
-    // metrics reads/collection — each deployment only pulls the data for
-    // the environment it cares about. The staging Vercel project sets
-    // 'staging'; production relies on the default below.
-    //
-    // The matching `|| 'production'` in `runtimeEnv` is what carries this
-    // default when zod is skipped explicitly (SKIP_ENV_VALIDATION), and prod
-    // never sets the var. Without that fallback it resolved `undefined` and the
-    // collector env-filter (`incident.env !== this.env`) silently dropped
-    // EVERY production incident → CFR/MTTR stuck at 0.
-    DORA_ENVIRONMENT: z.enum(['production', 'staging']).default('production'),
 
     // GitHub App. The key and webhook secret are optional because a
     // deployment without them still serves sessions and traces — only repo
@@ -80,6 +64,12 @@ export const env = createEnv({
     GITHUB_APP_ID: z.string().min(1),
     GITHUB_APP_PRIVATE_KEY: z.string().optional(),
     GITHUB_APP_WEBHOOK_SECRET: z.string().optional(),
+
+    // Shared secret the Cloudflare queue consumer presents to
+    // /api/internal/pr-comment-refresh. Optional — a self-host without
+    // queues configured never calls that route, and the route itself fails
+    // closed (401) when this is unset.
+    PR_COMMENT_REFRESH_SECRET: z.string().optional(),
 
     // Email provider selection. 'resend' is the hosted/managed default;
     // 'smtp' routes transactional email through a self-hosted SMTP server
@@ -230,8 +220,8 @@ export const env = createEnv({
 
     // Gateway URL for CLI trace forwarding — defaults to the production gateway.
     // The default is mirrored in `runtimeEnv` so it still applies when zod is
-    // skipped explicitly (SKIP_ENV_VALIDATION)
-    // or GATEWAY_URL resolves `undefined` in prod. See DORA_ENVIRONMENT above and
+    // skipped explicitly (SKIP_ENV_VALIDATION), or GATEWAY_URL resolves
+    // `undefined` in prod. See
     // env-default-invariant.test.ts. Consumers read the validated value, not a
     // hardcoded fallback in config-global.
     NEXT_PUBLIC_GATEWAY_URL: z.string().url().default('https://api.agentmark.co'),
@@ -265,15 +255,11 @@ export const env = createEnv({
     STRIPE_SPAN_METER_ID: process.env.STRIPE_SPAN_METER_ID,
     STRIPE_STORAGE_METER_ID: process.env.STRIPE_STORAGE_METER_ID,
     CRON_SECRET: process.env.CRON_SECRET,
-    BETTERSTACK_API_TOKEN: process.env.BETTERSTACK_API_TOKEN,
-    // `|| 'production'` mirrors the zod default so it survives an explicit
-    // SKIP_ENV_VALIDATION. Staging sets DORA_ENVIRONMENT
-    // explicitly; prod leaves it unset and must resolve to 'production' here.
-    DORA_ENVIRONMENT: process.env.DORA_ENVIRONMENT || 'production',
     GITHUB_APP_ID: process.env.GITHUB_APP_ID,
     GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
     GITHUB_APP_WEBHOOK_SECRET: process.env.GITHUB_APP_WEBHOOK_SECRET,
-    // `|| 'resend'` mirrors the zod default — see DORA_ENVIRONMENT.
+    PR_COMMENT_REFRESH_SECRET: process.env.PR_COMMENT_REFRESH_SECRET,
+    // `|| 'resend'` mirrors the zod default — see EMAIL_ENABLED.
     EMAIL_PROVIDER: process.env.EMAIL_PROVIDER || 'resend',
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     FROM_EMAIL: process.env.FROM_EMAIL,
@@ -294,7 +280,7 @@ export const env = createEnv({
     OAUTH_STATE_SECRET: process.env.OAUTH_STATE_SECRET,
     // `|| <default>`: mirrors each schema `.default()` so it still applies when
     // zod is skipped explicitly. Enforced for every defaulted var by
-    // env-default-invariant.test.ts. See DORA_ENVIRONMENT.
+    // env-default-invariant.test.ts.
     EMAIL_ENABLED: process.env.EMAIL_ENABLED || 'false',
     EMAIL_RECIPIENT_ALLOWLIST: process.env.EMAIL_RECIPIENT_ALLOWLIST,
     BILLING_ENABLED: process.env.BILLING_ENABLED || 'true',
@@ -317,7 +303,7 @@ export const env = createEnv({
     // `|| <default>`: mirrors each schema `.default()` so it still applies when
     // zod is skipped explicitly — otherwise these resolve `undefined` and send
     // the dashboard's traffic nowhere instead of to the production gateway.
-    // Enforced by env-default-invariant.test.ts. See DORA_ENVIRONMENT.
+    // Enforced by env-default-invariant.test.ts.
     NEXT_PUBLIC_GATEWAY_URL: process.env.NEXT_PUBLIC_GATEWAY_URL || 'https://api.agentmark.co',
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://api.agentmark.co',
   },

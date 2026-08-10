@@ -1,3 +1,5 @@
+import { after } from "next/server";
+
 import { createSupabaseAdminClient } from "@/supabaseAdminClient";
 import { serverLogger } from "@/lib/observability/server-logger";
 import { earliest } from "@/lib/system/pr-tracking/review-milestones";
@@ -6,6 +8,40 @@ import { parseRevertTarget } from "@/lib/system/pr-tracking/revert-detection";
 import { reconcilePullRequest, tenantChQuery } from "@/lib/system/pr-session-reconciler";
 import { emitOutcomeScoresForPrs, scoresInsertFn } from "@/lib/system/outcome-scores";
 import { repoJoinKey } from "@/lib/system/workers/persist-agent-session";
+import { refreshPrSessionComment } from "@/lib/system/pr-session-comment";
+import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
+
+/**
+ * `pull_request` webhook actions that warrant a comment refresh.
+ *
+ * What this path contributes, given sessions arrive on their own path (the
+ * sync-ingest queue): it is the PR-SIDE trigger. Sessions can't tell us a PR
+ * exists before it is opened, so `opened`/`reopened` is what puts the "No
+ * agent sessions linked yet" comment on a connected repo's PR from the
+ * moment it opens — which is what makes a *missing* comment legible as "app
+ * not connected" rather than "no sessions yet". It is also the only trigger
+ * that fires on PR-side state the sessions never mention: a push
+ * (`synchronize`) reconciles branch-inferred links, and `ready_for_review`
+ * is when a draft — where a lot of agent work sits — first gets read by a
+ * human.
+ *
+ * `closed` is included so the comment keeps updating after merge, rather
+ * than freezing at the moment of decision. That also makes the two paths
+ * AGREE: the cron sweep already refreshes merged PRs whose links move
+ * late, so excluding `closed` here made post-merge behavior "sometimes
+ * frozen" depending on which trigger fired. A session that syncs an hour
+ * after merge still belongs on the record of how that PR got built.
+ *
+ * Everything else (labeled, review activity, assignment, ...) leaves the
+ * comment untouched — no new session-linking information arrives on those.
+ */
+const COMMENT_REFRESH_ACTIONS = new Set([
+  "opened",
+  "reopened",
+  "synchronize",
+  "ready_for_review",
+  "closed",
+]);
 
 /**
  * Minimal shape of a GitHub `pull_request` webhook payload (only the fields we
@@ -37,6 +73,51 @@ export interface GitHubPullRequestPayload {
 
 type PrState = "open" | "closed" | "merged";
 
+/** Escapes PostgREST/Postgres `LIKE` wildcards in a literal so it can be
+ * embedded in an `ilike` pattern without matching more than intended — repo
+ * names legally contain `_`, which is itself a single-character wildcard. */
+function escapeLikeWildcards(value: string): string {
+  return value.replace(/[%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * Resolves the `git_connection` rows for a webhook payload's repository.
+ *
+ * `git_connection.repository` is stamped verbatim at link time (URL-form
+ * remotes, mixed case), so a raw `.eq("repository", repository)` against the
+ * payload's `owner/repo` full_name misses connections stored in any other
+ * spelling — the PR then goes untracked and, worse, the PR-open empty-state
+ * comment never posts, while the queue path (already canonical-to-canonical)
+ * works, which reads as unreproducible. Matching is canonical-to-canonical,
+ * same invariant as `pr-session-comment/read.ts` and `refresh.ts`: the
+ * `ilike` below is only a bounded OVER-fetching prefilter (this query has no
+ * tenant scope to narrow it, unlike those two), never the decision — the JS
+ * `canonicalPrCommentRepo` equality after it is. A `repository` that doesn't
+ * parse to a canonical GitHub `owner/repo` (shouldn't happen for a GitHub
+ * webhook payload) falls back to the exact match instead of prefiltering on
+ * nothing and returning every connection in the table.
+ */
+async function resolveConnectionsForRepository(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  repository: string,
+): Promise<{ app_id: string; tenant_id: string }[]> {
+  const canonical = canonicalPrCommentRepo(repository);
+  if (canonical === null) {
+    const { data } = await supabase
+      .from("git_connection")
+      .select("app_id, tenant_id")
+      .eq("repository", repository);
+    return data ?? [];
+  }
+
+  const { data } = await supabase
+    .from("git_connection")
+    .select("app_id, tenant_id, repository")
+    .eq("provider", "github")
+    .ilike("repository", `%${escapeLikeWildcards(canonical)}%`);
+  return (data ?? []).filter((c) => canonicalPrCommentRepo(c.repository) === canonical);
+}
+
 /**
  * Persist a pull request's lifecycle into `pull_request`. EVERY PR on a
  * connected repo is tracked — the agent-fleet PR metrics (merge rate,
@@ -54,11 +135,8 @@ export async function handlePullRequestEvent(
   const baseBranch = pr.base?.ref ?? "";
   const supabase = createSupabaseAdminClient();
 
-  const { data: connections } = await supabase
-    .from("git_connection")
-    .select("app_id, tenant_id")
-    .eq("repository", repository);
-  if (!connections?.length) return;
+  const connections = await resolveConnectionsForRepository(supabase, repository);
+  if (!connections.length) return;
 
   // Fate comes from PAYLOAD TRUTH, never the action name: events that arrive
   // AFTER a PR is decided (labeled, edited, review activity) still carry
@@ -117,6 +195,12 @@ export async function handlePullRequestEvent(
   // anything. Resolved once (repo-wide), applied per connected app below.
   const revertTarget =
     state === "merged" ? parseRevertTarget(pr.body) : null;
+
+  // Tenants whose comment for this (repository, PR) needs refreshing once
+  // the per-connection work below is done. A Set because the refresh is
+  // keyed by (tenant, repository, prNumber) — several connected apps in one
+  // tenant produce ONE refresh, not one each.
+  const commentRefreshTenantIds = new Set<string>();
 
   for (const { app_id, tenant_id } of connections) {
     // ready_for_review transitions resolve first-occurrence against the
@@ -200,6 +284,17 @@ export async function handlePullRequestEvent(
           pr_number: pr.number,
         });
       }
+
+      // The comment refresh is NOT done here, per connection — it is keyed
+      // by (tenant, repository, prNumber), which carries no app_id, so two
+      // apps in one tenant sharing a repo would call it twice with
+      // identical arguments: a second full re-read and re-render just to
+      // reach the body-hash short-circuit, and worse, two concurrent-ish
+      // create attempts on a fresh PR. Collected here, refreshed once per
+      // distinct tenant after the loop.
+      if (COMMENT_REFRESH_ACTIONS.has(payload.action)) {
+        commentRefreshTenantIds.add(tenant_id);
+      }
     }
 
     // Flag the reverted target (a DIFFERENT row than the revert PR just
@@ -245,5 +340,48 @@ export async function handlePullRequestEvent(
         pr_number: pr.number,
       });
     }
+  }
+
+  // Refresh the PR session comment — ONCE per distinct tenant, and AFTER
+  // every connection's reconciliation, so the rendered body reflects all the
+  // links this event just materialized (an empty result still renders the
+  // "No agent sessions linked yet" empty state; see COMMENT_REFRESH_ACTIONS
+  // above). Deferred to `after()` so the response can ack the delivery
+  // first: each refresh can do a ClickHouse read, several Supabase reads, an
+  // App-token mint, and up to two GitHub writes, which does not reliably fit
+  // inside GitHub's ~10s webhook delivery budget — a delivery that times out
+  // repeatedly gets marked failed and can get the whole webhook disabled.
+  // `after()` runs post-response, so the "once per distinct tenant, after
+  // all reconciliation" ordering above is unaffected. Sequential, not
+  // Promise.all: concurrent refreshes for one repo are what the
+  // create-claim in `refreshPrSessionComment` exists to survive, and there
+  // is no reason to manufacture more of them here. `refreshPrSessionComment`
+  // is documented to never throw, but each call is still wrapped
+  // defensively so one tenant's failure doesn't stop the rest.
+  const refreshComments = async () => {
+    for (const tenantId of commentRefreshTenantIds) {
+      try {
+        await refreshPrSessionComment({
+          tenantId,
+          repository,
+          prNumber: pr.number,
+        });
+      } catch (commentError) {
+        await serverLogger.error(commentError as Error, {
+          context: "[GitHub Webhook] pr-session comment refresh failed",
+          tenant_id: tenantId,
+          pr_number: pr.number,
+        });
+      }
+    }
+  };
+  try {
+    after(refreshComments);
+  } catch {
+    // `after` throws synchronously outside a request scope — this handler is
+    // also invoked directly (integration tests, scripts) with no Next
+    // request around it. There is no response to unblock in that case, so
+    // running the refreshes inline is the same behavior minus the deferral.
+    await refreshComments();
   }
 }

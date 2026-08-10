@@ -9,17 +9,15 @@
  * audit.
  *
  * Auth: platform admin only (withPlatformAdminAuth). Query params: appId
- * (optional UUID filter, matching the dora-metrics route's convention) and
- * prNumber (optional — look up one specific PR's links/scores directly,
- * instead of the arbitrary-order `coveredSamples` slice, for a targeted
- * ground-truth-audit check).
+ * (optional UUID filter) and prNumber (optional — look up one specific PR's
+ * links/scores directly, instead of the arbitrary-order `coveredSamples`
+ * slice, for a targeted ground-truth-audit check).
  */
 
 import { NextResponse } from "next/server";
-import { DORA_ENVIRONMENT } from "@/config-global.server";
 import { getScoreCoverage } from "@/lib/system/score-coverage/service";
 
-import { withPlatformAdminAuth } from "../dora-metrics/auth";
+import { withPlatformAdminAuth } from "../auth";
 
 export const GET = withPlatformAdminAuth(async (request, _context) => {
   try {
@@ -37,7 +35,7 @@ export const GET = withPlatformAdminAuth(async (request, _context) => {
     }
 
     const { skipped: _skipped, ...coverage } = result;
-    return NextResponse.json({ environment: DORA_ENVIRONMENT ?? null, ...coverage });
+    return NextResponse.json(coverage);
   } catch (error) {
     console.error("[score-coverage] Failed to compute score coverage:", error);
     return NextResponse.json({ error: "Failed to compute score coverage" }, { status: 500 });

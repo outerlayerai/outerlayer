@@ -7,17 +7,19 @@ const COMPLETE: PostureEnv = {
   GITHUB_APP_PRIVATE_KEY: 'pk',
   GITHUB_APP_WEBHOOK_SECRET: 'whsec',
   EMAIL_ENABLED: 'true',
-  DORA_ENVIRONMENT: 'staging',
+  VERCEL_ENV: 'preview',
 };
 
 describe('checkConfigPosture — environment', () => {
-  it('reports the environment the deployment believes it is', () => {
-    expect(checkConfigPosture(COMPLETE).environment).toBe('staging');
+  it('reports the platform deployment target', () => {
+    expect(checkConfigPosture(COMPLETE).environment).toBe('preview');
   });
 
-  it("defaults to production when unset, mirroring runtimeEnv", () => {
-    expect(checkConfigPosture({ ...COMPLETE, DORA_ENVIRONMENT: undefined }).environment).toBe(
-      'production'
+  // Off-platform (self-hosting) there is no target to report. Saying so beats
+  // guessing 'production' at a self-hoster.
+  it('reports unknown when the platform sets no target', () => {
+    expect(checkConfigPosture({ ...COMPLETE, VERCEL_ENV: undefined }).environment).toBe(
+      'unknown'
     );
   });
 });

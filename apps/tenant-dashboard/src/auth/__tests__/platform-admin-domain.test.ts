@@ -2,7 +2,8 @@
  * The email-domain half of the platform-admin boundary.
  *
  * This predicate is the single gate five surfaces consult (server guard,
- * server-action wrapper, role-grant action, DORA API auth, client hook), so a
+ * server-action wrapper, role-grant action, platform-admin API auth, client
+ * hook), so a
  * false positive here grants platform-admin eligibility everywhere at once. The
  * cases below pin both directions: exactly the configured domain is admitted,
  * and every near-miss shape is refused.

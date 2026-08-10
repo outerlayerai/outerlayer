@@ -34,7 +34,11 @@ interface DegradedCapability {
 }
 
 interface ConfigPosture {
-  /** Which environment this deployment believes it is. */
+  /**
+   * The deployment target, straight from the platform ('production' |
+   * 'preview' | 'development'), so a caller can confirm they are reading the
+   * environment they meant to. 'unknown' off-platform (self-hosting).
+   */
   environment: string;
   /** Capabilities switched off or narrowed by config. Empty means full fat. */
   degraded: DegradedCapability[];
@@ -44,7 +48,7 @@ export type PostureEnv = Record<string, string | undefined>;
 
 /** Every `process.env` name this reads. */
 const POSTURE_ENV_KEYS: readonly string[] = [
-  'DORA_ENVIRONMENT',
+  'VERCEL_ENV',
   'EMAIL_ENABLED',
   'EMAIL_RECIPIENT_ALLOWLIST',
   'GITHUB_APP_PRIVATE_KEY',
@@ -105,9 +109,7 @@ export function checkConfigPosture(env: PostureEnv): ConfigPosture {
   }
 
   return {
-    // runtimeEnv defaults this to 'production'; mirror it so an unset var reads
-    // the same here as it does everywhere else in the app.
-    environment: env.DORA_ENVIRONMENT ?? 'production',
+    environment: env.VERCEL_ENV ?? 'unknown',
     degraded,
   };
 }

@@ -44,15 +44,6 @@ export const STRIPE_STORAGE_METER_ID = env.STRIPE_STORAGE_METER_ID ?? "";
 // Cron
 export const CRON_SECRET = env.CRON_SECRET;
 
-// BetterStack Uptime API token (DORA incident collection). Exposed via the
-// validated env for a single typed source alongside the other server config.
-export const BETTERSTACK_API_TOKEN = env.BETTERSTACK_API_TOKEN;
-
-// DORA metrics: the deployment environment this dashboard instance IS.
-// All DORA reads and incident collection are pinned to it — the staging
-// dashboard can only ever see staging data, production only production.
-export const DORA_ENVIRONMENT = env.DORA_ENVIRONMENT;
-
 // GitHub App (server-only secrets)
 export const GITHUB_APP_ID = env.GITHUB_APP_ID;
 export const GITHUB_APP_PRIVATE_KEY = env.GITHUB_APP_PRIVATE_KEY;

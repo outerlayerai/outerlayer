@@ -51,7 +51,7 @@ describe('scanWorkflow', () => {
       '      KEYCLOAK_URL: https://example.test',
       '      MONKEY_PATCH: enabled',
       '      NODE_VERSION: "22"',
-      '      DORA_ENVIRONMENT: staging',
+      '      DEPLOY_ENVIRONMENT: staging',
     );
     expect(scanWorkflow(source) as Offender[]).toEqual([]);
   });

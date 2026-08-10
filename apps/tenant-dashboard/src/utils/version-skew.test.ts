@@ -51,7 +51,7 @@ describe("isVersionSkewError", () => {
 });
 
 describe("isReactRecoverableError", () => {
-  // The exact production message observed on stg (/platform-admin/dora-metrics).
+  // The exact production message shape observed on staging.
   const minified419 =
     "Minified React error #419; visit https://react.dev/errors/419 for the full message " +
     "or use the non-minified dev environment for full errors and additional helpful warnings.";
@@ -303,14 +303,14 @@ describe("tagSentryEvent", () => {
   });
 
   it("downgrades React recoverable errors to warning and tags them, preserving existing tags", () => {
-    const event = makeEvent({ level: "error", tags: { route: "/platform-admin/dora-metrics" } });
+    const event = makeEvent({ level: "error", tags: { route: "/platform-admin/users" } });
 
     const result = tagSentryEvent(event, hintFor(reactRecoverableError));
 
     expect(result).toBe(event); // never drops the event
     expect(result.level).toBe("warning");
     expect(result.tags).toEqual({
-      route: "/platform-admin/dora-metrics",
+      route: "/platform-admin/users",
       react_recoverable: "true",
     });
   });

@@ -54,7 +54,7 @@ describe('updateSession (unauthenticated)', () => {
   });
 
   it('returns JSON 401 for API routes instead of a login redirect', async () => {
-    const response = await updateSession(makeRequest('/api/platform-admin/dora-metrics'));
+    const response = await updateSession(makeRequest('/api/platform-admin/score-coverage'));
 
     expect(response.status).toBe(401);
     expect(response.headers.get('content-type')).toContain('application/json');
@@ -65,7 +65,7 @@ describe('updateSession (unauthenticated)', () => {
   });
 
   it('redirects page routes to the login page', async () => {
-    const response = await updateSession(makeRequest('/platform-admin/dora-metrics'));
+    const response = await updateSession(makeRequest('/platform-admin/users'));
 
     expect(response.status).toBe(307);
     expect(new URL(response.headers.get('location')!).pathname).toBe('/auth/login');

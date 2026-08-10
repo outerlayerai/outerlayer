@@ -1,0 +1,301 @@
+/**
+ * PR-session-comment queue consumer — the latency path (see
+ * `acceptance/057-pr-session-comment.md`, "Latency"). The producer
+ * (`SyncAgentSessions`, the sync-ingest route) enqueues one
+ * `PrCommentQueueMessage` per `(tenant, repository, prNumber)` observed in a
+ * synced batch, delayed by `PR_COMMENT_QUEUE_DEBOUNCE_SECONDS` so a chatty
+ * session's repeated syncs coalesce.
+ *
+ * This consumer coalesces AGAIN, across the whole batch: several messages —
+ * from different sessions, or redeliveries — can name the same
+ * (tenant, repository, prNumber), and the whole point of this stage is to
+ * turn that into exactly one refresh call per distinct PR per batch rather
+ * than one per message. The coalesced set is POSTed in a single request to
+ * the dashboard's `/api/internal/pr-comment-refresh`, which itself accepts a
+ * batch and resolves each item independently.
+ *
+ * At-least-once delivery is safe with NO dedupe cache beyond this batch
+ * coalescing: the orchestrator behind the internal endpoint short-circuits
+ * on an unchanged rendered-body hash, so a duplicate refresh — from a
+ * redelivered message, or from the `pull_request` webhook / hourly cron
+ * sweep covering the same PR independently — is a cheap no-op, never a
+ * second comment.
+ *
+ * No DLQ: a PR comment refresh is UI freshness, not billing or compliance.
+ * The `pull_request` webhook and the hourly cron gap-repair sweep both
+ * remain behind this queue, so a message that exhausts its retries here is
+ * not lost work — the sweep re-discovers the PR on its next pass. Retries
+ * are for transient failures (network blip, dashboard redeploy); they are
+ * not the correctness backstop.
+ */
+
+import type { MessageBatch, Message, ExecutionContext } from '@cloudflare/workers-types';
+import type { Env } from '@repo/gateway-core/types';
+import {
+  PrCommentQueueMessageSchema,
+  type PrCommentQueueMessage,
+} from '@repo/gateway-core/types/queue-messages';
+import { canonicalPrCommentRepo } from '@repo/gateway-core/lib/pr-comment-repo-key';
+import { createLoggerFromContext, type ILoggerService } from '../services/logger';
+
+/**
+ * Delivery cap, mirrored in wrangler.toml (`max_retries`). Kept small — the
+ * `pull_request` webhook and the hourly cron sweep are the backstop for this
+ * queue, so parking a message through many redeliveries only delays the
+ * moment the sweep would have repaired it anyway.
+ */
+export const PR_COMMENT_MAX_RETRY_ATTEMPTS = 5;
+
+/** Error-retry backoff: linear in attempts, capped at 5 minutes. */
+function errorRetryDelaySeconds(attempts: number): number {
+  return Math.min(60 * attempts, 300);
+}
+
+/** One coalesced refresh target, plus the messages that named it. */
+interface CoalescedTarget {
+  tenantId: string;
+  repository: string;
+  prNumber: number;
+  messages: Message<PrCommentQueueMessage>[];
+}
+
+/** Shape returned per item by `/api/internal/pr-comment-refresh`. */
+interface RefreshResultItem {
+  tenantId: string;
+  repository: string;
+  prNumber: number;
+  status: string;
+  reason?: string;
+}
+
+/**
+ * Optional dependency overrides for {@link handlePrCommentQueue}. Tests
+ * inject `fetchImpl` instead of making a real HTTP call, matching
+ * `createThemesLlmClient`'s injectable-`fetch` convention.
+ */
+export interface PrCommentQueueDeps {
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Consumer for the `pr-comment-refresh` queue: coalesces the batch by
+ * `(tenant, repository, prNumber)`, POSTs one refresh request, then routes
+ * each original message's ack/retry off that PR's result in the response.
+ * A request-level failure (network error, non-2xx, unparseable body) retries
+ * every message in the batch — the request carries no per-item information
+ * to route by, so all-or-nothing is the only sound choice.
+ */
+export async function handlePrCommentQueue(
+  batch: MessageBatch<PrCommentQueueMessage>,
+  env: Env,
+  ctx?: ExecutionContext,
+  deps?: PrCommentQueueDeps,
+): Promise<void> {
+  if (batch.messages.length === 0) return;
+
+  const logger = createLoggerFromContext(env, { source: 'pr-comment-queue' }, ctx);
+  const fetchImpl = deps?.fetchImpl ?? fetch;
+
+  const targets = coalesce(batch.messages, logger);
+
+  if (targets.size === 0) {
+    await logger.flush();
+    return;
+  }
+
+  if (!env.PR_COMMENT_REFRESH_SECRET) {
+    // No secret configured — every request would 401 against the dashboard.
+    // Skip the fetch entirely (an unauthenticated POST burns a retry for a
+    // guaranteed failure) and route every coalesced target through the same
+    // retry/give-up path a request-level failure would take.
+    logger.warn('[pr-comment-queue] PR_COMMENT_REFRESH_SECRET is unset — skipping refresh POST', {
+      targetCount: targets.size,
+    });
+    for (const target of targets.values()) {
+      retryOrGiveUp(target.messages, logger, new Error('PR_COMMENT_REFRESH_SECRET is unset'));
+    }
+    await logger.flush();
+    return;
+  }
+
+  let results: RefreshResultItem[];
+  try {
+    results = await postRefreshBatch(env, Array.from(targets.values()), fetchImpl);
+  } catch (err) {
+    // Request-level failure — no per-PR result to route by. Retry every
+    // message in the batch; the sweep repairs anything that never recovers.
+    for (const target of targets.values()) {
+      retryOrGiveUp(target.messages, logger, err);
+    }
+    await logger.flush();
+    return;
+  }
+
+  const resultByKey = new Map(results.map((r) => [targetKey(r.tenantId, r.repository, r.prNumber), r]));
+
+  for (const [key, target] of targets) {
+    const result = resultByKey.get(key);
+    if (!result) {
+      // Response omitted this PR entirely — treat like a failure so it
+      // retries (or hands off to the sweep) rather than silently acking.
+      retryOrGiveUp(target.messages, logger, new Error('missing result for target'));
+      continue;
+    }
+    if (result.status === 'failed') {
+      retryOrGiveUp(
+        target.messages,
+        logger,
+        new Error(result.reason ?? 'refresh failed'),
+      );
+      continue;
+    }
+
+    for (const msg of target.messages) msg.ack();
+    logger.info('[pr-comment-queue] Refresh delivered', {
+      _metric: true,
+      metric_name: 'pr_comment_queue.refreshed',
+      metric_value: 1,
+      tenantId: target.tenantId,
+      repository: target.repository,
+      prNumber: target.prNumber,
+      status: result.status,
+      messageCount: target.messages.length,
+    });
+  }
+
+  await logger.flush();
+}
+
+function targetKey(tenantId: string, repository: string, prNumber: number): string {
+  return `${tenantId}\0${repository}\0${prNumber}`;
+}
+
+/**
+ * Parses and coalesces every message in the batch by
+ * `(tenant, repository, prNumber)` — this is the whole point of the
+ * consumer: one refresh per PR per batch, not one per session message.
+ * Invalid messages are dropped (acked) rather than retried; they can never
+ * become valid on redelivery.
+ */
+function coalesce(
+  messages: readonly Message<PrCommentQueueMessage>[],
+  logger: ILoggerService,
+): Map<string, CoalescedTarget> {
+  const targets = new Map<string, CoalescedTarget>();
+  for (const msg of messages) {
+    const parsed = PrCommentQueueMessageSchema.safeParse(msg.body);
+    if (!parsed.success) {
+      logger.warn('[pr-comment-queue] Invalid message dropped', {
+        messageId: msg.id,
+        error: parsed.error.message,
+      });
+      msg.ack();
+      continue;
+    }
+    const body = parsed.data;
+    // Coalesce on the CANONICAL repository, via the same shared helper the
+    // producer and the dashboard orchestrator use. Messages enqueued before
+    // the producer canonicalized (or re-driven from an older queue) still
+    // carry the host-qualified `github.com/owner/repo`; folding both
+    // spellings to one key here is what keeps two in-flight spellings of one
+    // repo from becoming two refresh calls — and therefore two comments.
+    const repository = canonicalPrCommentRepo(body.repository);
+    if (!repository) {
+      // Not a GitHub.com repo this feature can address. Never valid on
+      // redelivery either, so ack rather than retry.
+      logger.warn('[pr-comment-queue] Unaddressable repository dropped', {
+        messageId: msg.id,
+        repository: body.repository,
+      });
+      msg.ack();
+      continue;
+    }
+    const key = targetKey(body.tenantId, repository, body.prNumber);
+    const existing = targets.get(key);
+    if (existing) {
+      existing.messages.push(msg);
+    } else {
+      targets.set(key, {
+        tenantId: body.tenantId,
+        repository,
+        prNumber: body.prNumber,
+        messages: [msg],
+      });
+    }
+  }
+  return targets;
+}
+
+/**
+ * POSTs the coalesced batch to the dashboard's internal refresh endpoint.
+ * Throws on a transport error or non-2xx response — the caller retries the
+ * whole batch in that case, since there is no per-item result to route by.
+ * Only ever called once the caller has confirmed `env.PR_COMMENT_REFRESH_SECRET`
+ * is set.
+ */
+async function postRefreshBatch(
+  env: Env,
+  targets: CoalescedTarget[],
+  fetchImpl: typeof fetch,
+): Promise<RefreshResultItem[]> {
+  const base = env.DASHBOARD_BASE_URL.replace(/\/+$/, '');
+  const response = await fetchImpl(`${base}/api/internal/pr-comment-refresh`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.PR_COMMENT_REFRESH_SECRET}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      items: targets.map((t) => ({
+        tenantId: t.tenantId,
+        repository: t.repository,
+        prNumber: t.prNumber,
+      })),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`pr-comment-refresh failed: HTTP ${response.status}`);
+  }
+  const body = (await response.json()) as { results?: RefreshResultItem[] };
+  if (!Array.isArray(body.results)) {
+    throw new Error('pr-comment-refresh returned no results array');
+  }
+  return body.results;
+}
+
+/**
+ * Redelivers with backoff unless every message sharing this target has hit
+ * {@link PR_COMMENT_MAX_RETRY_ATTEMPTS}, in which case it acks and leaves the
+ * PR to the `pull_request` webhook / hourly cron sweep. `msg.attempts` can
+ * differ across coalesced messages (one redelivered, another fresh); the
+ * MAX of the group governs so a fresh message doesn't keep retrying a PR
+ * whose refresh is persistently failing past the point the sweep would
+ * already own it.
+ */
+function retryOrGiveUp(
+  messages: Message<PrCommentQueueMessage>[],
+  logger: ILoggerService,
+  err: unknown,
+): void {
+  const maxAttempts = Math.max(...messages.map((m) => m.attempts));
+  const finalAttempt = maxAttempts >= PR_COMMENT_MAX_RETRY_ATTEMPTS;
+
+  if (finalAttempt) {
+    for (const msg of messages) msg.ack();
+    logger.warn('[pr-comment-queue] Giving up after max attempts (sweep will repair)', {
+      attempts: maxAttempts,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  const delaySeconds = errorRetryDelaySeconds(maxAttempts);
+  for (const msg of messages) msg.retry({ delaySeconds });
+  logger.warn('[pr-comment-queue] Retrying after failure', {
+    _metric: true,
+    metric_name: 'pr_comment_queue.retried',
+    metric_value: 1,
+    attempts: maxAttempts,
+    error: err instanceof Error ? err.message : String(err),
+  });
+}
