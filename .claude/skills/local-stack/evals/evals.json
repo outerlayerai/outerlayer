@@ -1,0 +1,35 @@
+{
+  "skill_name": "local-stack",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Playwright can't complete login against my local dashboard: the page reloads while it's typing into the form, every run. The dashboard was auto-started by Playwright's webServer. What's wrong and how do I fix it?",
+      "expected_output": "The auto-started dev server uses Turbopack, which crash-loops on some app routes and makes its HMR client reload the page mid-test. Pre-start the dashboard with the webpack compiler on port 3002 (SKIP_ENV_VALIDATION, NEXT_PUBLIC_GATEWAY_URL, API_KEY_PEPPER set) so Playwright reuses the stable server.",
+      "assertions": [
+        "Identifies the Turbopack crash-loop → HMR reload as the cause, not flaky selectors or timeouts",
+        "Prescribes pre-starting with `npx next dev --webpack` on PORT=3002 so reuseExistingServer picks it up",
+        "Carries the required env vars (NEXT_PUBLIC_GATEWAY_URL=http://localhost:9101, API_KEY_PEPPER matching the gateway) rather than a bare next dev"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Locally, dispatching a run from the playground returns app_not_connected even though my gateway and dashboard are both up. Where do I look?",
+      "expected_output": "Two local-stack-specific causes: the local Supabase isn't migrated up to date (the gateway's machine-state load selects a column that silently bails when missing → npx supabase migration up), and/or the dashboard wasn't started with NEXT_PUBLIC_GATEWAY_URL=http://localhost:9101, so dispatch goes to the production gateway instead of the local one (the var is baked into the client bundle at start).",
+      "assertions": [
+        "Recommends `npx supabase migration up` and explains the silent-bail on a missing column",
+        "Checks NEXT_PUBLIC_GATEWAY_URL was set when the dashboard STARTED (baked at build/start, not read live)",
+        "Does not misdiagnose toward deployed-infrastructure causes (Fly machines, staging gateway)"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I minted an API key from my local dashboard but the local gateway rejects it as invalid. Both services are running fine. Why?",
+      "expected_output": "API_KEY_PEPPER mismatch: the gateway verifies keys hashed with its pepper (the committed CI value), so the dashboard must be started with the SAME pepper or its minted keys never verify. SKIP_ENV_VALIDATION lets the dashboard boot without one — which is exactly how the mismatch happens silently.",
+      "assertions": [
+        "Identifies API_KEY_PEPPER mismatch between dashboard and gateway as the cause",
+        "Notes the dashboard must be restarted with the matching pepper (keys minted under the old pepper stay invalid)",
+        "Does not suggest disabling gateway auth or bypassing key verification"
+      ]
+    }
+  ]
+}

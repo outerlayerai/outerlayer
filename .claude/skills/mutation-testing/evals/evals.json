@@ -1,0 +1,25 @@
+{
+  "skill_name": "mutation-testing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "My PR's patch-mutation check failed: mutation score on changed code is 44.4% (4/9 killed) against a 71% threshold. The survivors are OptionalChaining, ConditionalExpression, and LogicalOperator mutants. What do I do?",
+      "expected_output": "Read the survivor report to see which changed lines the surviving mutants sit on, then add tests that pin the behavior those mutants alter (branch outcomes, null-path behavior) so the mutants are killed; verify locally with PREPUSH_RUN_MUTATION=1 on the pre-push gate or yarn test:mutate in the affected package. Not: lowering the threshold or restructuring code to dodge the check.",
+      "assertions": [
+        "Explains that each surviving mutant marks changed behavior no test observes, mapping the named mutant types to the missing bug classes (branch flips, null paths)",
+        "Recommends adding tests that assert the specific branch/optional-chain outcomes, not generic coverage",
+        "Names a concrete local verification path (PREPUSH_RUN_MUTATION=1 or yarn test:mutate in the package)",
+        "Does not suggest lowering the threshold or bypassing the gate"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "After this PR, our package's mutation score went from 81% to 85%. Anything else I should do before merging?",
+      "expected_output": "Bump the package's floor in scripts/ci/mutation-score-floors.json to lock in the improvement — floors are ratchet-managed, so an unbumped floor lets the score silently regress later.",
+      "assertions": [
+        "Recommends bumping the package's entry in scripts/ci/mutation-score-floors.json in the same PR",
+        "Explains the ratchet rationale: an unbumped floor allows future silent regression to the old score"
+      ]
+    }
+  ]
+}

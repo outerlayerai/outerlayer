@@ -1,0 +1,19 @@
+{
+  "skill_name": "local-stack",
+  "queries": [
+    { "query": "the dashboard on localhost:3002 just shows a spinner and nothing loads — can you figure out what's wrong?", "should_trigger": true },
+    { "query": "run the traces e2e spec and tell me if it passes", "should_trigger": true },
+    { "query": "I want to click through the new billing dialog myself — get the app running for me", "should_trigger": true },
+    { "query": "supabase start worked but every request from the dashboard 401s locally", "should_trigger": true },
+    { "query": "how do I run the playground dispatch spec against my local gateway?", "should_trigger": true },
+    { "query": "boot everything I need to manually test the org settings flow", "should_trigger": true },
+    { "query": "my traces page is empty locally — did the clickhouse migrations even run?", "should_trigger": true },
+    { "query": "playwright can't log in, the page keeps reloading while it types", "should_trigger": true },
+    { "query": "write a new e2e spec for the traces page", "should_trigger": false },
+    { "query": "why is the staging deployment down?", "should_trigger": false },
+    { "query": "add a redis service to our docker compose setup", "should_trigger": false },
+    { "query": "the production gateway is returning 502s for some tenants", "should_trigger": false },
+    { "query": "add a new env var to the dashboard's env schema", "should_trigger": false },
+    { "query": "what does the gateway's dispatch endpoint do?", "should_trigger": false }
+  ]
+}

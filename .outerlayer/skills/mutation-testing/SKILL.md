@@ -1,0 +1,142 @@
+---
+name: mutation-testing
+description: Run mutation testing with Stryker and act on the results — analyze surviving mutants, identify untested behaviors, write tests that kill survivors. Use when running yarn test:mutate, when the patch-mutation CI gate fails or a changed-code mutation score is below threshold, when a mutation-score floor needs bumping, or when evaluating how effective or trustworthy a package's tests REALLY are — test quality/thoroughness questions that line coverage can't answer.
+license: Apache-2.0
+---
+
+# Mutation Testing Skill
+
+Run Stryker mutation testing to measure how well tests actually verify code behavior. Unlike coverage (which measures what code runs), mutation testing measures what code is **verified** — can the tests detect when the code is wrong?
+
+## How It Works
+
+1. Stryker mutates source code (flips booleans, changes operators, removes statements, swaps strings)
+2. Runs the full test suite against each mutation
+3. If tests fail → mutation **killed** (tests caught the change — good)
+4. If tests pass → mutation **survived** (tests didn't notice — gap in test quality)
+
+## Scoring
+
+| Score | Rating | Meaning |
+|-------|--------|---------|
+| 90%+ | Excellent | High confidence tests catch real bugs |
+| 80-89% | Good | Solid coverage with some gaps |
+| 60-79% | Okay | Covers happy paths, misses edge cases |
+| < 60% | Poor | Tests are mostly smoke tests |
+
+## Usage
+
+### Run on specific files (recommended for PR review)
+
+```bash
+cd apps/tenant-dashboard && npx stryker run --mutate 'src/path/to/file.ts'
+```
+
+### Run on a directory
+
+```bash
+cd apps/tenant-dashboard && npx stryker run --mutate 'src/services/entitlement/**/*.ts'
+```
+
+### Run full suite (expensive — use for baselines only)
+
+```bash
+cd apps/tenant-dashboard && npm run test:mutate
+```
+
+## Analyzing Results
+
+After running Stryker, analyze the output following this process:
+
+### Step 1: Read the summary table
+
+Look for the mutation score table at the end of output:
+```
+File                    | total | covered | # killed | # timeout | # survived | # no cov
+entitlement-service.ts  | 75.19 |   77.52 |      100 |         0 |         29 |        4
+```
+
+### Step 2: Categorize surviving mutations
+
+For each `[Survived]` mutation, classify it:
+
+**Category A — Mock gap (query strings, DB column names)**
+```
+[Survived] StringLiteral
+-  .select('value')
++  .select("")
+```
+These survive because unit tests mock the DB client. Fix: add integration test in `apps/integration-tests/`.
+
+**Category B — Weak assertion (logic operators, boundary conditions)**
+```
+[Survived] ConditionalExpression
+-  if (count >= limit)
++  if (count > limit)  // or: if (true)
+```
+These survive because no test checks the exact boundary. Fix: add a unit test for the boundary case.
+
+**Category C — Dead code (unreachable branches, unused parameters)**
+```
+[Survived] BlockStatement
+-  if (error) { log(error); return; }
++  if (error) { }
+```
+These survive because no test exercises the error path. Fix: add a test, or if truly dead code, remove it.
+
+**Category D — Equivalent mutation (change doesn't affect behavior)**
+```
+[Survived] StringLiteral
+-  const name = 'default'
++  const name = ''
+```
+If the string is never compared or displayed, the mutation is equivalent. No fix needed — document as acceptable.
+
+### Step 3: Prioritize fixes
+
+1. **Category B first** — these are real test gaps, cheapest to fix (add unit tests)
+2. **Category C next** — error paths should be tested
+3. **Category A last** — requires integration test infrastructure
+4. **Category D** — skip, document as acceptable
+
+### Step 4: Report
+
+Provide a summary in this format:
+
+```
+## Mutation Testing Results
+
+**File**: `src/services/entitlement/entitlement-service.ts`
+**Score**: 75% (100 killed, 29 survived, 4 no coverage)
+**Rating**: Okay
+
+### Surviving Mutations
+
+| # | Category | Line | Mutation | Suggested Fix |
+|---|----------|------|----------|---------------|
+| 1 | B - Weak assertion | 42 | `>=` → `>` | Add boundary test: count equals limit |
+| 2 | A - Mock gap | 217 | `.select('value')` → `.select("")` | Integration test for override query |
+| ... | | | | |
+
+### Recommendations
+- Add N unit tests to kill Category B survivors
+- Add N integration tests in apps/integration-tests/ for Category A survivors
+- Estimated score after fixes: ~90%
+```
+
+## Configuration
+
+Stryker config is at `apps/tenant-dashboard/stryker.config.mjs`. Key settings:
+- `testRunner: 'jest'` — uses the existing Jest setup
+- `checkers: []` — TypeScript checker disabled (OSS workspace compatibility)
+- `coverageAnalysis: 'all'` — runs all tests per mutation (slower but reliable)
+- `concurrency: 4` — parallel mutation workers
+- HTML report generated at `reports/mutation/index.html`
+
+## Tips
+
+- **Start small**: Mutate one file at a time. Full-project mutation runs take minutes to hours.
+- **Focus on changed files**: For PR review, only mutate files in the diff.
+- **Surviving ≠ bad tests**: Some mutations are equivalent (same behavior). Categorize before reacting.
+- **Query string survivors are expected** in mocked unit tests. They signal "needs integration test," not "needs better unit test."
+- **Don't chase 100%**: Diminishing returns above 90%. Some survivors are genuinely equivalent mutations.

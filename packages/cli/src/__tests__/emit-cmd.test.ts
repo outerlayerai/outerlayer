@@ -89,14 +89,16 @@ describe("runEmit — claude-code target", () => {
     expect(readWritten(root, result.files)).toEqual(
       [
         {
+          // Frontmatter first (loaders only parse it at line 1); header after.
           path: ".claude/commands/ship.md",
-          content: header(".outerlayer/commands/ship.md") + "---\ndescription: Ship the current branch.\n---\nRun the ship script.\n",
+          content: "---\ndescription: Ship the current branch.\n---\n" + header(".outerlayer/commands/ship.md") + "Run the ship script.\n",
         },
         {
           path: ".claude/skills/deploy-checklist/SKILL.md",
           content:
+            "---\nname: deploy-checklist\ndescription: Steps to deploy safely.\n---\n" +
             header(".outerlayer/skills/deploy-checklist/SKILL.md") +
-            "---\nname: deploy-checklist\ndescription: Steps to deploy safely.\n---\nRun the checklist.\n",
+            "Run the checklist.\n",
         },
         {
           path: ".claude/skills/onboarding/references/setup.md",
@@ -105,8 +107,9 @@ describe("runEmit — claude-code target", () => {
         {
           path: ".claude/skills/onboarding/SKILL.md",
           content:
+            "---\nname: onboarding\ndescription: Onboard a new engineer.\n---\n" +
             header(".outerlayer/skills/onboarding/SKILL.md") +
-            "---\nname: onboarding\ndescription: Onboard a new engineer.\n---\nRead the docs.\n",
+            "Read the docs.\n",
         },
         { path: ".mcp.json", content: MCP_JSON },
         { path: "apps/api/CLAUDE.md", content: header("apps/api/.outerlayer/AGENTS.md") + "API scope instructions.\n" },
@@ -152,8 +155,9 @@ describe("runEmit — cursor target", () => {
         {
           path: ".agents/skills/deploy-checklist/SKILL.md",
           content:
+            "---\nname: deploy-checklist\ndescription: Steps to deploy safely.\n---\n" +
             header(".outerlayer/skills/deploy-checklist/SKILL.md") +
-            "---\nname: deploy-checklist\ndescription: Steps to deploy safely.\n---\nRun the checklist.\n",
+            "Run the checklist.\n",
         },
         {
           path: ".agents/skills/onboarding/references/setup.md",
@@ -162,8 +166,9 @@ describe("runEmit — cursor target", () => {
         {
           path: ".agents/skills/onboarding/SKILL.md",
           content:
+            "---\nname: onboarding\ndescription: Onboard a new engineer.\n---\n" +
             header(".outerlayer/skills/onboarding/SKILL.md") +
-            "---\nname: onboarding\ndescription: Onboard a new engineer.\n---\nRead the docs.\n",
+            "Read the docs.\n",
         },
         {
           path: ".cursor/commands/ship.md",

@@ -1,0 +1,17 @@
+{
+  "skill_name": "mutation-testing",
+  "queries": [
+    { "query": "run mutation testing on the gateway package", "should_trigger": true },
+    { "query": "what do these surviving mutants in my Stryker report mean?", "should_trigger": true },
+    { "query": "the patch-mutation CI job failed at 44% against a 71% threshold — walk me through fixing it", "should_trigger": true },
+    { "query": "should we bump the mutation score floor for shared-utils after this PR?", "should_trigger": true },
+    { "query": "yarn test:mutate printed a wall of output — interpret it for me", "should_trigger": true },
+    { "query": "how good are the tests for worker-core, really — not just coverage?", "should_trigger": true },
+    { "query": "5 ConditionalExpression mutants survived in my diff, what tests kill them?", "should_trigger": true },
+    { "query": "run the unit tests", "should_trigger": false },
+    { "query": "what is mutation testing?", "should_trigger": false },
+    { "query": "the coverage floor check is failing on my branch", "should_trigger": false },
+    { "query": "kill the dev server process on port 3002", "should_trigger": false },
+    { "query": "why are my snapshot tests flaky?", "should_trigger": false }
+  ]
+}

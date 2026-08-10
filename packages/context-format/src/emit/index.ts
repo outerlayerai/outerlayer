@@ -26,6 +26,7 @@ export { cursorEnvRefRewrite, findEnvRefs, rewriteEnvRefs } from './env-refs';
 export type { EnvRef, RewriteEnvRefsResult } from './env-refs';
 export { parseOuterlayerConfig } from './config';
 export type { OuterlayerConfig } from './config';
+export { extractGeneratedSource } from './header';
 
 const TARGET_BUILDERS: Record<TargetId, (input: EmitInput) => TargetBuildResult> = {
   'claude-code': buildClaudeCode,
