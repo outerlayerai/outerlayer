@@ -166,6 +166,13 @@ export const env = createEnv({
     // (staging dogfooding), where anything else is a mistake worth dropping.
     EMAIL_RECIPIENT_ALLOWLIST: z.string().optional(),
 
+    // Self-service registration allowlist, same syntax as the recipient one.
+    // Unset means open registration (the hosted posture). Set it on a
+    // deployment that is reachable publicly but meant for a known set of
+    // people; invited users are created through the admin API and are never
+    // subject to it.
+    SIGNUP_EMAIL_ALLOWLIST: z.string().optional(),
+
     // Billing gate (opt-out: hosted keeps Stripe; self-hosters set "false" to
     // disable Stripe customer provisioning + wire MockBillingService). Defaults
     // to "true" so the hosted default is unchanged.
@@ -303,6 +310,7 @@ export const env = createEnv({
     // defaulted var by env-default-invariant.test.ts. See DORA_ENVIRONMENT.
     EMAIL_ENABLED: process.env.EMAIL_ENABLED || 'false',
     EMAIL_RECIPIENT_ALLOWLIST: process.env.EMAIL_RECIPIENT_ALLOWLIST,
+    SIGNUP_EMAIL_ALLOWLIST: process.env.SIGNUP_EMAIL_ALLOWLIST,
     BILLING_ENABLED: process.env.BILLING_ENABLED || 'true',
     FLY_API_TOKEN: process.env.FLY_API_TOKEN,
     NODE_ENV: process.env.NODE_ENV || 'development',

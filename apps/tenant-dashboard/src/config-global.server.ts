@@ -108,6 +108,9 @@ export const EMAIL_ENABLED = env.EMAIL_ENABLED;
 // Recipient allowlist — empty means unrestricted (hosted production)
 export const EMAIL_RECIPIENT_ALLOWLIST = env.EMAIL_RECIPIENT_ALLOWLIST;
 
+// Self-service registration allowlist — empty means open registration
+export const SIGNUP_EMAIL_ALLOWLIST = env.SIGNUP_EMAIL_ALLOWLIST;
+
 // Billing gate (opt-out: hosted keeps Stripe; self-hosters disable)
 export const BILLING_ENABLED = env.BILLING_ENABLED;
 

@@ -43,8 +43,9 @@ vi.mock('../../adapters/server-error-log', () => ({
   logServerError: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../validation', () => ({
-  validateBusinessEmail: vi.fn().mockReturnValue({ isValid: true }),
+vi.mock('./signup-allowlist', () => ({
+  isSignupEmailAllowed: vi.fn().mockReturnValue(true),
+  SIGNUP_NOT_ALLOWED_ERROR: 'Registration is not open on this deployment.',
 }));
 
 vi.mock('../../../utils/scrub-email', () => ({

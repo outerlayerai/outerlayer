@@ -24,7 +24,8 @@ import {
 } from "../../config-global.server";
 import { InviteEmail, BuildFailureEmail, RoleChangedEmail, RemovedFromOrgEmail, TempAccessNotificationEmail } from "@repo/transactional";
 import { EmailType } from "../../utils/email";
-import { resolveEmailConfig, resolveRecipientAllowlist, isRecipientAllowed } from "./email-config";
+import { resolveEmailConfig, resolveRecipientAllowlist } from "./email-config";
+import { isEmailAllowed } from "../email-allowlist";
 import { resolveBillingConfig } from "./billing-config";
 
 export interface StripeService {
@@ -445,7 +446,7 @@ export class AllowlistEmailService implements EmailService {
   ) {}
 
   async sendEmail(params: EmailParams): Promise<{ error: Error | null }> {
-    if (!isRecipientAllowed(params.to, this.allowlist)) {
+    if (!isEmailAllowed(params.to, this.allowlist)) {
       console.info(
         `[EMAIL_SUPPRESSED_NOT_ALLOWLISTED] to=${params.to} subject="${params.subject}" type=${params.emailType} timestamp=${new Date().toISOString()}`
       );
@@ -459,7 +460,7 @@ export class AllowlistEmailService implements EmailService {
     firstName?: string,
     lastName?: string
   ): Promise<{ success: boolean; error?: unknown }> {
-    if (!isRecipientAllowed(email, this.allowlist)) {
+    if (!isEmailAllowed(email, this.allowlist)) {
       console.info(
         `[BROADCAST_SUPPRESSED_NOT_ALLOWLISTED] email=${email} timestamp=${new Date().toISOString()}`
       );

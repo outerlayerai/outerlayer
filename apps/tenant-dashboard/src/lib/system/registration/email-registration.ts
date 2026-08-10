@@ -5,7 +5,7 @@ import { SUPABASE_API } from "../../../config-global";
 import { createClient } from "@supabase/supabase-js";
 import { ServerActionResponse } from "../../../types/server-action";
 import { z } from "zod";
-import { validateBusinessEmail } from "../../validation";
+import { isSignupEmailAllowed, SIGNUP_NOT_ALLOWED_ERROR } from "./signup-allowlist";
 import { RegistrationServiceConfig } from "./types";
 import { logServerError, logServerInfo } from "../../adapters/server-error-log";
 import { scrubEmail } from "../../../utils/scrub-email";
@@ -81,10 +81,9 @@ export class EmailRegistrationService {
       return { error: message };
     }
 
-    // Step 2: Validate business email
-    const emailValidation = validateBusinessEmail(email);
-    if (!emailValidation.isValid) {
-      return { error: emailValidation.error || "Invalid email address" };
+    // Step 2: Gate on the signup allowlist (open unless the deploy sets one)
+    if (!isSignupEmailAllowed(email)) {
+      return { error: SIGNUP_NOT_ALLOWED_ERROR };
     }
 
     const fullName = `${firstName} ${lastName}`;
