@@ -88,6 +88,7 @@ const DATA: AgentSessionDetailData = {
     span({ spanId: 'b1', name: 'agent.tool.Bash', parentSpanId: 'a2', statusCode: '2', statusMessage: 'command failed', output: 'boom' }),
   ],
   prOutcomes: [],
+  truncated: false,
 };
 
 describe('AgentSessionDetail', () => {

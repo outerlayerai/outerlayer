@@ -18,15 +18,24 @@ function flatten(searchParams: SearchParams): Record<string, string> {
   return flat;
 }
 
+/**
+ * The lifted `listSessions` defaults its own scan to a trailing 30 days when
+ * `from` is absent (a REST/MCP caller with no explicit window shouldn't scan
+ * whole history) — this page's "All time" preset must stay "all time" against
+ * that default, so it sends an explicit lower bound predating the product
+ * instead of leaving `from` unset.
+ */
+const ALL_TIME_FROM = "1970-01-01T00:00:00.000Z";
+
 /** `from` derives from the `range` preset at request time (not a
  * client-computed, possibly-stale `Date.now()`), looked up against the same
  * range table the filter bar renders so the two never drift apart. A plain
  * helper (not inlined in the component body) — `Date.now()` is fine at
  * request time but the render-purity lint can't tell a React Server Component (RSC)'s per-request
  * render from a client re-render, so it stays out of JSX-returning code. */
-function resolveFrom(rangeKey: string | undefined, explicitFrom: string | undefined): string | undefined {
+function resolveFrom(rangeKey: string | undefined, explicitFrom: string | undefined): string {
   const hours = TIME_RANGES.find((r) => r.key === (rangeKey ?? ""))?.hours ?? 0;
-  return hours ? new Date(Date.now() - hours * 3600_000).toISOString() : explicitFrom;
+  return hours ? new Date(Date.now() - hours * 3600_000).toISOString() : (explicitFrom ?? ALL_TIME_FROM);
 }
 
 async function SessionsList({

@@ -64,6 +64,21 @@ const ALLOWLIST = new Set([
   // with a literal TenantId predicate — the interpolation just hides that
   // text from this source scan, not from ClickHouse.
   'topics.ts inline query #27',
+  // agent-sessions.ts builds its WHERE clauses from a JS array of
+  // plain-quoted filter strings (`filters`/`baseWhere`/`vocabWhere`), not a
+  // single template literal — this scanner only reads backtick template
+  // text, so it can't see that `filters`/`vocabWhere` open with the literal
+  // `'TenantId={tenantId:String}'` entry. The identity/repo-resolution
+  // queries interpolate the same way.
+  'agent-sessions.ts inline query #24', // identity predicate ($identity)
+  'agent-sessions.ts inline query #36', // list query, WHERE ${where}
+  'agent-sessions.ts inline query #37', // total count, WHERE ${where}
+  'agent-sessions.ts inline query #38', // origin counts, WHERE ${baseWhere}
+  'agent-sessions.ts inline query #39', // branch vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #40', // actor vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #41', // agentType vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #42', // model vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #43', // workerKind vocab, WHERE ${vocabWhere}
 ]);
 
 function assertTenantId(name: string, sql: string): void {

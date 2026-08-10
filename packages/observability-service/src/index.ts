@@ -21,3 +21,14 @@ export {
   TOPICS_QUERY_SETTINGS,
 } from './services/topics';
 export type { TopicsScope, TopicsRuntimeConfig } from './services/topics';
+export { findEditRetryLoop } from './services/trajectory-signals';
+export type { TrajectorySpan } from './services/trajectory-signals';
+export { AgentSessionsService, ANONYMOUS_ACTOR_LABEL } from './services/agent-sessions';
+export type {
+  AgentSessionsScope,
+  AgentSessionsPorts,
+  SessionAccessPolicy,
+  ActorNameResolver,
+  PrOutcomeReader,
+  ImageRefSigner,
+} from './services/agent-sessions';

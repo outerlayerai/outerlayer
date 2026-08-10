@@ -102,9 +102,13 @@ const stale = [...ALLOWLIST].filter(
 // Scoped to the lifted-service files rather than the whole package: the
 // pre-existing services (traces/scores/metrics/agent-fleet/requests) predate
 // this rule and run their own settings story — bringing them under this gate
-// is a separate, deliberate migration, not a side effect of lifting topics.
+// is a separate, deliberate migration, not a side effect of lifting topics
+// and agent-sessions.
 // ============================================================================
-const BOUNDED_QUERY_FILES = ["packages/observability-service/src/services/topics.ts"];
+const BOUNDED_QUERY_FILES = [
+  "packages/observability-service/src/services/topics.ts",
+  "packages/observability-service/src/services/agent-sessions.ts",
+];
 
 /** Every `.query({ ... })` call's argument object, brace-balanced so a
  * nested `query_params`/`clickhouse_settings` object doesn't truncate it. */

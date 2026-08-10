@@ -153,7 +153,7 @@ export async function verifyAgentBlobToken(params: {
 }
 
 /** An image ref as stored on a span, plus the token that unlocks its bytes. */
-export interface SignedImageRef {
+interface SignedImageRef {
   sha256: string;
   mediaType: string;
   token: string;
