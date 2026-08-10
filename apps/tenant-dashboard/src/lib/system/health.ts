@@ -7,6 +7,7 @@ import "server-only";
  */
 
 import { getAdminDataClient } from "@/lib/system/admin-client";
+import { checkEnvReadiness, readinessEnvFromProcess } from "@/lib/system/env-readiness";
 
 interface DependencyHealth {
   name: string;
@@ -29,7 +30,7 @@ export const STATUS_CODE_MAP = {
 } as const;
 
 // Critical dependencies - if any fail, status is "unhealthy"
-const CRITICAL_DEPENDENCIES = ["supabase"];
+const CRITICAL_DEPENDENCIES = ["supabase", "config"];
 
 export async function checkHealth(): Promise<HealthCheckResponse> {
   // Run all health checks in parallel
@@ -38,7 +39,7 @@ export async function checkHealth(): Promise<HealthCheckResponse> {
     checkClickHouse(),
   ]);
 
-  const dependencies = [supabaseHealth, clickhouseHealth];
+  const dependencies = [supabaseHealth, clickhouseHealth, checkConfig()];
 
   // Determine overall status
   const criticalHealthy = dependencies
@@ -61,6 +62,26 @@ export async function checkHealth(): Promise<HealthCheckResponse> {
     timestamp: new Date().toISOString(),
     service: "tenant-dashboard",
     dependencies,
+  };
+}
+
+/**
+ * Config completeness, counted but not named.
+ *
+ * The route is unauthenticated (CD polls it), so naming which secrets are unset
+ * would hand a passer-by a map of what this deployment cannot do. The count is
+ * enough to trip an alarm; `GET /api/health/config` returns the names to a
+ * caller that can prove it holds CRON_SECRET.
+ */
+function checkConfig(): DependencyHealth {
+  const { missingRequired } = checkEnvReadiness(readinessEnvFromProcess());
+  if (missingRequired.length === 0) {
+    return { name: "config", status: "healthy" };
+  }
+  return {
+    name: "config",
+    status: "unhealthy",
+    error: `${missingRequired.length} required environment variable(s) unset`,
   };
 }
 

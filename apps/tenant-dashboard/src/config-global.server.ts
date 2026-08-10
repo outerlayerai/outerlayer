@@ -4,7 +4,10 @@
  *
  * For client-safe variables (NEXT_PUBLIC_*), use config-global.ts instead.
  */
+import { parseEnvBoolean } from '@repo/adapter-config';
+
 import { env } from './env';
+import { checkEnvReadiness, readinessEnvFromProcess } from './lib/system/env-readiness';
 
 // Supabase (server-only)
 export const SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY;
@@ -26,6 +29,26 @@ if (process.env.VERCEL && !API_KEY_PEPPER) {
       'them with the same pepper the gateway verifies against — set the ' +
       'API_KEY_PEPPER environment variable for this Vercel environment.',
   );
+}
+
+// The same failure mode as the pepper, for every other required var — the
+// generalization of the check above rather than a second special case.
+//
+// Opt-in per environment, because turning it on where config has already
+// drifted takes that deployment down. The rollout is: read
+// `GET /api/health/config`, fix what it names, then set ENV_STRICT_BOOT=true so
+// the environment can never drift back silently. Once every environment carries
+// it, the flag and the pepper check above both collapse into an unconditional
+// assertion.
+if (process.env.VERCEL && parseEnvBoolean(process.env.ENV_STRICT_BOOT) === true) {
+  const { missingRequired } = checkEnvReadiness(readinessEnvFromProcess());
+  if (missingRequired.length > 0) {
+    throw new Error(
+      `Required environment variables are unset or invalid: ${missingRequired.join(', ')}. ` +
+        'This deployment runs with ENV_STRICT_BOOT=true, which refuses to serve on ' +
+        'incomplete config rather than failing later at the first call site.',
+    );
+  }
 }
 
 // OAuth state secret — must match the gateway's OAUTH_STATE_SECRET
