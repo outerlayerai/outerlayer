@@ -37,12 +37,6 @@ const NAV_ITEMS = [
     icon: 'mdi:history',
     href: paths.platformAdmin.auditLogs,
   },
-  {
-    title: 'DORA Metrics',
-    description: 'View software delivery performance metrics across all applications',
-    icon: 'mdi:chart-timeline-variant',
-    href: paths.platformAdmin.doraMetrics,
-  },
 ];
 
 export default function PlatformAdminPage() {

@@ -22,8 +22,8 @@ describe('isSensitive', () => {
     // Money + privileged surfaces — sensitive
     'apps/tenant-dashboard/src/sections/billing/actions.ts',
     'apps/tenant-dashboard/src/app/api/webhooks/stripe/route.ts',
-    'apps/tenant-dashboard/src/app/api/platform-admin/dora-metrics/route.ts',
-    'apps/tenant-dashboard/src/app/api/internal/dora/deployments/route.ts',
+    'apps/tenant-dashboard/src/app/api/platform-admin/score-coverage/route.ts',
+    'apps/tenant-dashboard/src/app/api/internal/worker-callback/route.ts',
     'apps/gateway/src/middleware/verify-key.ts',
     'packages/observability-service/src/dlq-handler.ts',
   ])('treats %s as sensitive', (file) => {
@@ -36,7 +36,7 @@ describe('isSensitive', () => {
     'apps/tenant-dashboard/src/layouts/auth/classic.tsx',
     'apps/tenant-dashboard/src/layouts/auth/modern.tsx',
     // Ordinary product code
-    'apps/tenant-dashboard/src/sections/dora-metrics/dora-metric-card.tsx',
+    'apps/tenant-dashboard/src/sections/error/not-found-view.tsx',
     'apps/tenant-dashboard/src/components/logo/logo.tsx',
   ])('treats %s as NOT sensitive', (file) => {
     expect(isSensitive(file)).toBe(false);

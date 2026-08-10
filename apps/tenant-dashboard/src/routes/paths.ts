@@ -34,7 +34,6 @@ export const paths = {
     featureFlags: `${ROOTS.PLATFORM_ADMIN}/feature-flags`,
     tempAccess: `${ROOTS.PLATFORM_ADMIN}/temp-access`,
     auditLogs: `${ROOTS.PLATFORM_ADMIN}/audit-logs`,
-    doraMetrics: `${ROOTS.PLATFORM_ADMIN}/dora-metrics`,
   },
   orgs: {
     root: ROOTS.ORG,

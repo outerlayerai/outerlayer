@@ -574,7 +574,6 @@ const eslintConfig = defineConfig([
             "src/lib/api/generated/**",
             "vitest.config.ts",
             "vitest.integration.config.ts",
-            "vitest.e2e-local.config.ts",
             "stryker.config.mjs",
             "stryker.config.money-auth.mjs",
             "stryker.config.patch.mjs"

@@ -23,9 +23,9 @@ import { OUTCOME_SCORE_NAMES, outcomeScoreId } from "@/lib/system/outcome-scores
  * scores). Recomputing `Id` sidesteps this — it's the same three-way key
  * (trace, PR, name) the writer already used to make the row unique.
  *
- * Read-only, cross-tenant (platform-admin) — mirrors dora-metrics: the
- * deployment's own ClickHouse/Postgres connection is the isolation boundary
- * (staging sees staging, production sees production), not a query filter.
+ * Read-only, cross-tenant (platform-admin) — the deployment's own
+ * ClickHouse/Postgres connection is the isolation boundary (staging sees
+ * staging, production sees production), not a query filter.
  *
  * The `Source = 'outcome'` filter is a spoofing guard: a row with a
  * coincidentally-matching `Id` but a different provenance must never count

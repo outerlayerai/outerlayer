@@ -61,8 +61,8 @@ export type PlatformAdminHandler = (
  * export const GET = withPlatformAdminAuth(async (request, context) => {
  *   // context.userId is GUARANTEED verified as platform admin
  *   // context.email is GUARANTEED to be on an allowed platform-admin domain
- *   const metrics = await getDoraMetrics();
- *   return NextResponse.json(metrics);
+ *   const data = await loadAdminData();
+ *   return NextResponse.json(data);
  * });
  * ```
  */

@@ -51,7 +51,7 @@ Use MSW for tenant-dashboard component and action tests whenever the code under 
 - Put shared server setup in `src/test-helpers/msw-server.ts`. `unit-test-setup.ts` starts the server with `onUnhandledRequest: 'error'`, resets handlers after each test, and resets feature state before each test.
 - Add feature-scoped handlers under `src/test-helpers/msw-handlers/`. Keep them small and expose explicit seed/reset helpers so tests declare the data they need instead of mocking query-builder chains.
 - Reuse the shared Supabase handler layer for auth and common REST tables. `seedSupabaseAuth()` seeds both the SSR session cookie and the `/auth/v1/user` response, while `seedSupabaseMswState()` covers tables like `app`, `billing`, and `tenant_entitlement_override`.
-- Extend the shared Supabase state before reaching for one-off query mocks. Current shared handlers also cover platform-admin tables used by DORA routes, such as `platform_user_role`, `platform_role_permissions`, `platform_deployment`, and `platform_dora_collection_state`.
+- Extend the shared Supabase state before reaching for one-off query mocks. Current shared handlers also cover platform-admin tables such as `platform_user_role`, `platform_role_permissions`, and `temp_access_grant`.
 - Use dedicated feature handlers when the code crosses into Supabase Storage. `src/test-helpers/msw-handlers/templates.ts` seeds both `rest/v1/template` rows and `storage/v1/object/...` downloads for experiment and template-content tests.
 - Prefer mocking permission gates, billing services, or other true seams over mocking `createSupabaseServerClient()` / `createSupabaseAdminClient()`.
 - Do not add new `vi.mock('@supabase/...')` or Supabase client factory mocks in unit tests. If a test needs a new Supabase interaction, add or extend an MSW handler instead.
@@ -60,7 +60,7 @@ Use MSW for tenant-dashboard component and action tests whenever the code under 
 Examples:
 - `src/features/api-keys/actions.test.ts` seeds Supabase REST responses through `src/test-helpers/msw-handlers/api-keys.ts` instead of mocking `from().select().eq().single()` chains.
 - `src/app/api/analytics/__tests__/with-auth.test.ts` and `src/app/api/analytics/span-usage/route.test.ts` seed authenticated SSR sessions and entitlement data through shared MSW helpers instead of mocking Supabase clients.
-- `src/app/api/platform-admin/dora-metrics/**/__tests__/route.test.ts` seeds platform-admin auth plus shared DORA table state instead of mocking Supabase admin and server clients per route.
+- `src/app/api/platform-admin/score-coverage/__tests__/route.test.ts` seeds platform-admin auth through the shared MSW helpers instead of mocking Supabase admin and server clients.
 - `src/lib/analytics/__tests__/experiments.test.ts` seeds template rows plus storage objects through `src/test-helpers/msw-handlers/templates.ts` instead of constructing an in-memory Supabase client fake.
 
 ## Git Provider Configuration
