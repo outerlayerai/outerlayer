@@ -15,7 +15,7 @@
     "ci:api-tenancy": "node scripts/ci/check-api-tenancy-allowlist.mjs",
     "ci:acceptance-coverage": "node scripts/ci/check-acceptance-coverage.mjs",
     "ci:permission-codegen": "node scripts/ci/check-permission-codegen.mjs",
-    "ci:context-emit": "tsx packages/cli/src/index.ts emit --check",
+    "ci:context-emit": "yarn turbo build --filter=outerlayer --output-logs=errors-only && node packages/cli/dist/index.js emit --check",
     "evals:trigger": "node scripts/agent-context/run-trigger-evals.mjs",
     "ci:migration-versions": "node scripts/ci/check-migration-versions.mjs",
     "ci:stryker-mutate-targets": "node scripts/ci/check-stryker-mutate-targets.mjs",
