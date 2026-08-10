@@ -1,13 +1,13 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-07T02:49:43.818Z",
+  "generatedAt": "2026-08-10T02:04:13.718Z",
   "sources": {
     "litellm": {
-      "fetchedAt": "2026-08-07T02:49:43.818Z",
+      "fetchedAt": "2026-08-10T02:04:13.718Z",
       "modelCount": 1508
     },
     "openrouter": {
-      "fetchedAt": "2026-08-07T02:49:43.818Z",
+      "fetchedAt": "2026-08-10T02:04:13.718Z",
       "modelCount": 184
     }
   },
@@ -19973,12 +19973,12 @@
         "top_p"
       ],
       "pricing": {
-        "inputCostPerToken": 7e-8,
-        "outputCostPerToken": 3.4e-7
+        "inputCostPerToken": 1.2e-7,
+        "outputCostPerToken": 4e-7
       },
       "context": {
         "maxInputTokens": 262144,
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 262144
       },
       "capabilities": {
         "vision": true,
@@ -29705,8 +29705,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-3.5-flash-lite:batch": {
       "provider": "google",
@@ -29729,8 +29728,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-sonnet-5:batch": {
       "provider": "anthropic",
@@ -29752,8 +29750,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-fable-5:batch": {
       "provider": "anthropic",
@@ -29775,8 +29772,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-opus-4.8:batch": {
       "provider": "anthropic",
@@ -29798,8 +29794,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-3.5-flash:batch": {
       "provider": "google",
@@ -29824,8 +29819,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-3.1-flash-lite:batch": {
       "provider": "google",
@@ -29850,8 +29844,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5.5:batch": {
       "provider": "openai",
@@ -29873,8 +29866,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-opus-4.7:batch": {
       "provider": "anthropic",
@@ -29896,8 +29888,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5.4-nano:batch": {
       "provider": "openai",
@@ -29919,8 +29910,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5.4-mini:batch": {
       "provider": "openai",
@@ -29942,8 +29932,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5.4:batch": {
       "provider": "openai",
@@ -29965,8 +29954,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-3.1-pro-preview:batch": {
       "provider": "google",
@@ -29991,8 +29979,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-opus-4.6:batch": {
       "provider": "anthropic",
@@ -30016,8 +30003,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-3-flash-preview:batch": {
       "provider": "google",
@@ -30042,8 +30028,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5.2:batch": {
       "provider": "openai",
@@ -30065,8 +30050,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-opus-4.5:batch": {
       "provider": "anthropic",
@@ -30089,8 +30073,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5.1:batch": {
       "provider": "openai",
@@ -30112,8 +30095,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-haiku-4.5:batch": {
       "provider": "anthropic",
@@ -30138,8 +30120,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-sonnet-4.5:batch": {
       "provider": "anthropic",
@@ -30164,8 +30145,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5:batch": {
       "provider": "openai",
@@ -30187,8 +30167,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5-mini:batch": {
       "provider": "openai",
@@ -30210,8 +30189,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gpt-5-nano:batch": {
       "provider": "openai",
@@ -30233,8 +30211,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "claude-opus-4.1:batch": {
       "provider": "anthropic",
@@ -30257,8 +30234,7 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-2.5-flash-lite:batch": {
       "provider": "google",
@@ -30283,8 +30259,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-2.5-flash:batch": {
       "provider": "google",
@@ -30309,8 +30284,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "gemini-2.5-pro:batch": {
       "provider": "google",
@@ -30335,8 +30309,7 @@
         "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
-      },
-      "deprecationDate": null
+      }
     },
     "deepseek-v4-flash-0731": {
       "provider": "deepseek",
@@ -30357,7 +30330,7 @@
       },
       "context": {
         "maxInputTokens": 1048576,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 384000
       },
       "capabilities": {
         "functionCalling": true,
