@@ -30,8 +30,6 @@ export function buildEnvMock() {
     GITHUB_APP_ID: '12345',
     GITHUB_APP_PRIVATE_KEY: '-----BEGIN RSA PRIVATE KEY-----\ntest-key\n-----END RSA PRIVATE KEY-----',
     GITHUB_APP_WEBHOOK_SECRET: 'test-webhook-secret',
-    DATABASE_URL:
-      process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54332/postgres',
     TOKEN_ENCRYPTION_KEY: 'test-encryption-key-must-be-32-chars!',
     NODE_ENV: 'test',
     RESEND_API_KEY: undefined,
