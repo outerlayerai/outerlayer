@@ -8,15 +8,16 @@ import {
 
 describe('gateway-permissions', () => {
   describe('GATEWAY_PERMISSIONS', () => {
-    it('should have 18 permission entries', () => {
+    it('should have 19 permission entries', () => {
       // 12 grantable permissions are absent because their surfaces are gone:
       // template.read, score_config.read, dataset.{read,write},
       // annotation_queue.{read,write,delete,review}, and
       // alert.{read,insert,update,delete}. Scores (write/read/delete) survive
       // because score WRITES are still shape-validated. experiment.read and
       // environment.promote are gone too — they gated no route and no RLS
-      // policy.
-      expect(GATEWAY_PERMISSIONS).toHaveLength(18);
+      // policy. agents.sessions.team.read is new — it controls actor
+      // identity visibility on session reads for machine keys.
+      expect(GATEWAY_PERMISSIONS).toHaveLength(19);
     });
 
     it('must NOT offer tenant-tier app management permissions', () => {
@@ -103,9 +104,9 @@ describe('gateway-permissions', () => {
       ]);
     });
 
-    it('should assign all 18 permissions to full-access role', () => {
+    it('should assign all 19 permissions to full-access role', () => {
       const fullAccess = GATEWAY_ROLES.find((r) => r.id === 'full-access')!;
-      expect(fullAccess.permissions).toHaveLength(18);
+      expect(fullAccess.permissions).toHaveLength(19);
       const allKeys = GATEWAY_PERMISSIONS.map((p) => p.key);
       expect([...fullAccess.permissions]).toEqual(allKeys);
       // Even "full access" must not be able to grant tenant-tier app mgmt.
@@ -164,7 +165,7 @@ describe('gateway-permissions', () => {
     });
 
     it('should return all permissions when role is full-access', () => {
-      expect(getPermissionsForRole('full-access')).toHaveLength(18);
+      expect(getPermissionsForRole('full-access')).toHaveLength(19);
     });
 
     it('should return empty array when role is custom', () => {

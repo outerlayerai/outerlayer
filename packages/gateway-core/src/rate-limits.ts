@@ -80,6 +80,27 @@ export const OBSERVABILITY_READ_RATE_LIMIT: Record<RateLimitTier, RateLimitConfi
   },
 };
 
+/**
+ * Session-detail reads. The heaviest read on the surface — a span-tree
+ * fetch bounded at the SQL layer but still the most expensive per-request
+ * query of the three tiers — so it gets a tighter ceiling than the general
+ * observability-read bucket rather than sharing it.
+ */
+export const SESSION_DETAIL_RATE_LIMIT: Record<RateLimitTier, RateLimitConfig> = {
+  free: {
+    namespace: 'session-detail',
+    limit: 30,
+    durationMs: ONE_MINUTE_MS,
+    cost: 1,
+  },
+  paid: {
+    namespace: 'session-detail',
+    limit: 300,
+    durationMs: ONE_MINUTE_MS,
+    cost: 1,
+  },
+};
+
 /** A per-tier rate-limit config bundle, as declared on a route. */
 export type RouteRateLimit = Record<RateLimitTier, RateLimitConfig>;
 
@@ -91,4 +112,5 @@ export type RouteRateLimit = Record<RateLimitTier, RateLimitConfig>;
 export const RATE_LIMITS = {
   templateRead: TEMPLATE_READ_RATE_LIMIT,
   observabilityRead: OBSERVABILITY_READ_RATE_LIMIT,
+  sessionDetail: SESSION_DETAIL_RATE_LIMIT,
 } as const satisfies Record<string, RouteRateLimit>;

@@ -104,6 +104,24 @@ describe('ROLE_PERMISSION_SETS', () => {
     expect(ROLE_PERMISSION_SETS['full-access']).toEqual(expect.arrayContaining([...GATEWAY_PERMISSIONS]));
     expect(ROLE_PERMISSION_SETS['full-access']!.length).toBe(GATEWAY_PERMISSIONS.length);
   });
+
+  it('excludes agents.sessions.team.read from read-only', () => {
+    // Read-only keys must keep session reads anonymized — silently gaining
+    // real actor identities would be a privacy regression, not a bugfix.
+    expect(ROLE_PERMISSION_SETS['read-only']).toEqual([
+      'trace.read',
+      'span.read',
+      'session.read',
+      'score.read',
+      'metrics.read',
+      'environment.read',
+      'app.read',
+    ]);
+  });
+
+  it('includes agents.sessions.team.read in full-access', () => {
+    expect(ROLE_PERMISSION_SETS['full-access']).toContain('agents.sessions.team.read');
+  });
 });
 
 // ---------------------------------------------------------------------------

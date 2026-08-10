@@ -23,6 +23,11 @@ export const GATEWAY_PERMISSIONS = [
   { key: 'score.delete', label: 'Delete scores', category: 'Scores', isDefault: false },
   { key: 'span.read', label: 'Read spans', category: 'Spans', isDefault: false },
   { key: 'session.read', label: 'Read sessions', category: 'Sessions', isDefault: false },
+  // Session reads already show sessions without this permission — it only
+  // controls whether actor identities are real (granted) or anonymized
+  // (not granted). No self-scope exists for API keys, so there is no
+  // "read own sessions" analogue to member seats.
+  { key: 'agents.sessions.team.read', label: 'Read team sessions', category: 'Sessions', isDefault: false },
   { key: 'metrics.read', label: 'Read metrics', category: 'Metrics', isDefault: false },
   { key: 'api_key.read', label: 'Read API keys', category: 'API Keys', isDefault: false },
   { key: 'api_key.insert', label: 'Create API keys', category: 'API Keys', isDefault: false },

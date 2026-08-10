@@ -80,7 +80,7 @@ function readGatewayCanonicalPermissions(): Set<string> {
   //   'trace.write',
   //   'annotation_queue.review',
   const out = new Set<string>();
-  for (const [, perm] of body.matchAll(/'([a-z_]+\.[a-z_]+)'/g)) {
+  for (const [, perm] of body.matchAll(/'([a-z_]+(?:\.[a-z_]+)+)'/g)) {
     if (!perm) continue;
     out.add(perm);
   }

@@ -34,6 +34,7 @@ const DORMANT_PERMISSION_ALLOWLIST: Partial<Record<GatewayPermission, string>> =
   // Dormant until the sessions/metrics REST routes ship.
   'session.read': 'activated once GET /v1/sessions and GET /v1/sessions/{traceId} ship',
   'metrics.read': 'activated once GET /v1/metrics/models and GET /v1/metrics/overview ship',
+  'agents.sessions.team.read': 'activated once GET /v1/sessions ships and reads it from the actor-privacy policy',
 };
 
 describe('permission liveness', () => {

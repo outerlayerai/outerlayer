@@ -64,6 +64,10 @@ export const GATEWAY_PERMISSIONS = [
   'span.read',
   'session.read',
   'metrics.read',
+  // Controls actor identity visibility on session reads for machine keys:
+  // a key without this permission still lists sessions, but actor names
+  // are anonymized and `actorId` filters are rejected.
+  'agents.sessions.team.read',
   // API key management. Names mirror the SQL enum
   // (`api_key.read|insert|delete`) — the OpenAPI doc-level aliases
   // `api_key.create` / `api_key.revoke` map to `insert` / `delete` here.
