@@ -5,7 +5,7 @@
   "apps/tenant-dashboard": 71,
   "apps/tenant-dashboard:money-auth": 78,
   "packages/cli": 90,
-  "packages/observability-service": 71,
+  "packages/observability-service": 73,
   "packages/api-key-service": 91,
   "packages/context-sync": 93.5,
   "packages/ee-license": null,
