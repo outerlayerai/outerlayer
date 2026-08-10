@@ -33,6 +33,7 @@ const m = vi.hoisted(() => ({
   tenantChQuery: vi.fn(),
   chQueryFn: vi.fn(),
   refreshComment: vi.fn(),
+  after: vi.fn(),
 }));
 
 vi.mock("@/lib/observability/server-logger", () => ({
@@ -46,11 +47,12 @@ vi.mock("@/lib/system/pr-session-comment", () => ({
   refreshPrSessionComment: m.refreshComment,
 }));
 // `handlePullRequestEvent` defers the comment refresh to `after()`, which
-// throws outside a real request scope. The faithful-enough unit-test stand-in
-// runs the callback immediately, so the refresh still lands within the
-// awaited `handlePullRequestEvent` call and every assertion below stays
-// synchronous.
-vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
+// throws outside a real request scope. The default unit-test stand-in runs
+// the callback immediately, so the refresh still lands within the awaited
+// `handlePullRequestEvent` call and every assertion below stays synchronous.
+// A vi.fn so one test can make it throw the way the real `after` does
+// outside a request scope, pinning the inline-fallback path.
+vi.mock("next/server", () => ({ after: m.after }));
 
 import { handlePullRequestEvent } from "../handle-pull-request-event";
 
@@ -92,6 +94,7 @@ beforeEach(() => {
   m.tenantChQuery.mockReturnValue(m.chQueryFn);
   m.reconcile.mockResolvedValue({ candidates: 0, linked: 0, confirmed: 0, pending: 0, unmatched: 0 });
   m.refreshComment.mockResolvedValue({ status: "skipped-disabled" });
+  m.after.mockImplementation((callback: () => unknown) => callback());
 });
 
 describe("handlePullRequestEvent → pr-session comment wiring", () => {
@@ -117,6 +120,24 @@ describe("handlePullRequestEvent → pr-session comment wiring", () => {
       expect(m.refreshComment).not.toHaveBeenCalled();
     },
   );
+
+  // Outside a Next request scope (direct invocation: integration tests,
+  // scripts) the real `after` throws synchronously — the handler must fall
+  // back to running the refresh inline rather than losing it or escaping.
+  it("runs the refresh inline when after() throws outside a request scope", async () => {
+    seed();
+    m.after.mockImplementation(() => {
+      throw new Error("`after` was called outside a request scope");
+    });
+    await handlePullRequestEvent(payload("opened") as never);
+    expect(m.refreshComment).toHaveBeenCalledTimes(1);
+    expect(m.refreshComment).toHaveBeenCalledWith({
+      tenantId: "t-1",
+      repository: "acme/repo",
+      prNumber: 42,
+    });
+    expect(m.logError).not.toHaveBeenCalled();
+  });
 
   // The comment updates indefinitely, which is also the only choice that
   // makes the two trigger paths agree: the cron sweep already refreshes

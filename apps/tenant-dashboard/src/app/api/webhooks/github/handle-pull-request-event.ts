@@ -315,7 +315,7 @@ export async function handlePullRequestEvent(
   // is no reason to manufacture more of them here. `refreshPrSessionComment`
   // is documented to never throw, but each call is still wrapped
   // defensively so one tenant's failure doesn't stop the rest.
-  after(async () => {
+  const refreshComments = async () => {
     for (const tenantId of commentRefreshTenantIds) {
       try {
         await refreshPrSessionComment({
@@ -331,5 +331,14 @@ export async function handlePullRequestEvent(
         });
       }
     }
-  });
+  };
+  try {
+    after(refreshComments);
+  } catch {
+    // `after` throws synchronously outside a request scope — this handler is
+    // also invoked directly (integration tests, scripts) with no Next
+    // request around it. There is no response to unblock in that case, so
+    // running the refreshes inline is the same behavior minus the deferral.
+    await refreshComments();
+  }
 }
