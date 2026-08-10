@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { renderComment, type RenderLinks } from "../render";
+import { PR_SESSION_COMMENT_MARKER, renderComment, type RenderLinks } from "../render";
 import type { LinkedSessionRow } from "../read";
 
 const LINKS: RenderLinks = {
@@ -85,7 +85,21 @@ describe("renderComment", () => {
   it("renders the empty-state sentence when there are no linked sessions", () => {
     const body = renderComment([], new Map(), LINKS);
 
-    expect(body).toBe("No agent sessions linked yet.");
+    expect(body).toBe(`No agent sessions linked yet.\n\n${PR_SESSION_COMMENT_MARKER}`);
+  });
+
+  // The marker is how a poster recognizes its own comment when the id was
+  // never persisted (refresh.ts `findPostedComment`), so it has to be on
+  // EVERY body — including the empty state, which is the very first thing
+  // posted and therefore the most likely to be orphaned by a crash mid-post.
+  it("carries the identity marker on every rendered body, invisibly", () => {
+    const populated = renderComment([row({ traceId: "t1" })], new Map(), LINKS);
+
+    expect(populated).toContain(PR_SESSION_COMMENT_MARKER);
+    expect(renderComment([], new Map(), LINKS)).toContain(PR_SESSION_COMMENT_MARKER);
+    // An HTML comment: GitHub renders it as nothing at all.
+    expect(PR_SESSION_COMMENT_MARKER.startsWith("<!--")).toBe(true);
+    expect(PR_SESSION_COMMENT_MARKER.endsWith("-->")).toBe(true);
   });
 
   // AC-057-05: a branch-inferred link is visibly marked, never presented as

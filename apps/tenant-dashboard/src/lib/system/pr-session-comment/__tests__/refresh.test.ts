@@ -56,7 +56,11 @@ vi.mock("@/octo-kit", () => ({
 }));
 
 import { refreshPrSessionComment } from "../refresh";
-import type { IssueCommentResult } from "@/lib/system/git/github/client";
+import type {
+  IssueCommentListResult,
+  IssueCommentResult,
+} from "@/lib/system/git/github/client";
+import { PR_SESSION_COMMENT_MARKER } from "../render";
 
 const SUPABASE_URL = "http://localhost:54321";
 
@@ -157,6 +161,12 @@ function fakeGithubClient() {
     updateIssueComment: vi.fn<(repo: string, commentId: number, body: string) => Promise<IssueCommentResult>>(),
     /** The existence probe behind the staleness escape hatch. */
     getIssueComment: vi.fn<(repo: string, commentId: number) => Promise<IssueCommentResult>>(),
+    /** The recovery scan a claim takeover runs before creating. Defaults to
+     * an empty thread — the common case, where nothing was orphaned. */
+    listIssueComments:
+      vi.fn<(repo: string, issueNumber: number) => Promise<IssueCommentListResult>>(
+        async () => ({ status: "ok", comments: [] }),
+      ),
   };
 }
 
@@ -717,7 +727,7 @@ describe("refreshPrSessionComment", () => {
         github_comment_id: null,
         last_body_hash: "",
         last_posted_at: null,
-        updated_at: new Date().toISOString(),
+        claimed_at: new Date().toISOString(),
       },
     ]);
     const githubClient = fakeGithubClient();
@@ -1100,5 +1110,132 @@ describe("refreshPrSessionComment", () => {
         confirmedLinkCount: 2,
       }),
     );
+  });
+  // The duplicate-comment hole the persist retry narrows but cannot close: a
+  // claimant that POSTed and then DIED leaves a comment nothing points at.
+  // Its claim expires, the next caller takes it over — and without a scan it
+  // would post a SECOND comment, publicly, with the first unreachable
+  // forever.
+  it("adopts a comment an abandoned claim already posted instead of posting a second one", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    // An abandoned claim: claimed long ago, never completed.
+    seedPrSessionCommentMswState([
+      {
+        tenant_id: TENANT,
+        repository: REPO,
+        pr_number: PR,
+        github_comment_id: null,
+        last_body_hash: "",
+        last_posted_at: null,
+        claimed_at: "2026-07-01T00:00:00.000Z",
+      },
+    ]);
+    const githubClient = fakeGithubClient();
+    githubClient.listIssueComments.mockResolvedValue({
+      status: "ok",
+      comments: [
+        { id: 111, body: "unrelated review chatter" },
+        { id: 222, body: `### Agent sessions behind this PR\n\n${PR_SESSION_COMMENT_MARKER}` },
+      ],
+    });
+    githubClient.updateIssueComment.mockResolvedValue(okComment(222));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(githubClient.createIssueComment).not.toHaveBeenCalled();
+    expect(githubClient.updateIssueComment).toHaveBeenCalledWith(REPO, 222, expect.any(String));
+    expect(result).toEqual({ status: "updated", commentId: 222 });
+    // ...and the recovered id is stored, so no later caller has to scan again.
+    expect(getPrSessionCommentRows()[0]!.github_comment_id).toBe(222);
+  });
+
+  it("posts fresh on a takeover when no comment of ours is on the PR", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    seedPrSessionCommentMswState([
+      {
+        tenant_id: TENANT,
+        repository: REPO,
+        pr_number: PR,
+        github_comment_id: null,
+        last_body_hash: "",
+        last_posted_at: null,
+        claimed_at: "2026-07-01T00:00:00.000Z",
+      },
+    ]);
+    const githubClient = fakeGithubClient();
+    githubClient.listIssueComments.mockResolvedValue({
+      status: "ok",
+      comments: [{ id: 111, body: "someone else's comment" }],
+    });
+    githubClient.createIssueComment.mockResolvedValue(okComment(555));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 555 });
+  });
+
+  // The scan costs a GitHub read, so it must not become a per-PR tax on the
+  // normal path: a clean first claim has nothing to recover.
+  it("does not scan the PR's comments on a clean first post", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(githubClient.listIssueComments).not.toHaveBeenCalled();
+  });
+
+  // Completing a post is also what takes the PR off the cron sweep's backlog:
+  // the row stops looking like work in progress the moment the comment lands.
+  it("clears the claim and the backlog flag once the comment id is persisted", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    // A backlog marker: flagged for refresh, never claimed.
+    seedPrSessionCommentMswState([
+      {
+        tenant_id: TENANT,
+        repository: REPO,
+        pr_number: PR,
+        github_comment_id: null,
+        last_body_hash: "",
+        last_posted_at: null,
+        needs_refresh: true,
+      },
+    ]);
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4646));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4646 });
+    expect(getPrSessionCommentRows()[0]).toMatchObject({
+      github_comment_id: 4646,
+      claimed_at: null,
+      needs_refresh: false,
+    });
   });
 });

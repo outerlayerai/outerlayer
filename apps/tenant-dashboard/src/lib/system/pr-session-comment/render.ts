@@ -7,8 +7,8 @@ import type { LinkedSessionRow } from "./read";
  * string.
  *
  * PURE. No I/O, no supabase or ClickHouse client imports — this is what lets
- * the acceptance suite prove seven criteria (AC-057-01, -04, -05, -06, -07,
- * -08, -11) against plain objects, no server, no database.
+ * the acceptance suite prove the comment's user-visible guarantees against
+ * plain objects, no server, no database.
  *
  * PRIVACY: `LinkedSessionRow` and `readTopicLabels`'s map never carry a human
  * name, an actor/author/profile field, or transcript content (topic labels
@@ -28,6 +28,23 @@ import type { LinkedSessionRow } from "./read";
  * https://docs.github.com/en/rest/issues/comments — body max length.
  */
 const GITHUB_COMMENT_BODY_LIMIT = 65536;
+
+/**
+ * Invisible identity marker carried by every body this module renders.
+ *
+ * GitHub renders an HTML comment as nothing, so this costs a reader nothing
+ * and buys the one capability the stored `github_comment_id` cannot provide:
+ * recognizing our own comment on a PR when the id was never persisted. That
+ * happens when a poster dies between the successful POST and the row write —
+ * the comment exists, nothing points at it, and the next caller to take over
+ * the abandoned claim would otherwise post a second one. `findPostedComment`
+ * (refresh.ts) scans for this marker before creating on a takeover, adopts
+ * what it finds, and edits instead.
+ *
+ * Therefore: stable forever. Changing this string orphans every comment
+ * already posted with the old one.
+ */
+export const PR_SESSION_COMMENT_MARKER = "<!-- outerlayer:pr-session-comment -->";
 
 /**
  * `ErrorCount` above this on a single session's rollup counts as an "error
@@ -118,7 +135,7 @@ function formatDurationMinutes(totalMinutes: number): string {
 }
 
 /**
- * A cost we don't have renders as an em-dash, never `$0.00` (AC-057-11).
+ * A cost we don't have renders as an em-dash, never `$0.00`.
  *
  * `CostUsd` is non-nullable at rest, which is a property of the storage and
  * not of reality: a session whose cost was never captured arrives here as 0,
@@ -138,7 +155,8 @@ function troubleBadge(row: Pick<LinkedSessionRow, "apiErrorCount" | "errorCount"
 }
 
 /**
- * AC-057-05 — "never presented as certain" — is entirely this predicate.
+ * "An inferred link is never presented as certain" is entirely this
+ * predicate.
  *
  * Deliberately an allowlist of the ONE method that constitutes an explicit
  * claim, not a denylist of `branch`: `pull_request_session.method` gaining a
@@ -194,11 +212,11 @@ export function renderComment(
   topics: Map<string, string[]>,
   links: RenderLinks,
 ): string {
-  // AC-057-04: a connected repo's PR always gets this slot, even with zero
-  // linked sessions — that's what makes a *missing* comment legible as
-  // "app not connected" rather than "no sessions yet".
+  // A connected repo's PR always gets this slot, even with zero linked
+  // sessions — that's what makes a *missing* comment legible as "app not
+  // connected" rather than "no sessions yet".
   if (rows.length === 0) {
-    return "No agent sessions linked yet.";
+    return `No agent sessions linked yet.\n\n${PR_SESSION_COMMENT_MARKER}`;
   }
 
   const totalMinutes = rows.reduce(
@@ -207,7 +225,7 @@ export function renderComment(
   );
   // Header totals are sums over every linked session, never a per-PR cost
   // claim — a session spanning 3 PRs counts fully in all 3.
-  // AC-057-01 requires the header be labeled with that exact phrase, so a
+  // The header carries that exact phrase, so a
   // reader never mistakes it for a per-PR attribution.
   const totalCost = rows.reduce((sum, row) => sum + row.costUsd, 0);
   const sessionWord = rows.length === 1 ? "session" : "sessions";
@@ -227,7 +245,7 @@ export function renderComment(
   // (`features/agent-sessions/service.ts` — the other half of this coupling
   // is commented there). So on a multi-app PR the page a reader lands on
   // shows a SUBSET of the rows above, with smaller totals, which is a real
-  // AC-057-09 ("every figure matches the dashboard exactly") gap. The fix is
+  // "every figure matches the dashboard exactly" gap. The fix is
   // a tenant-scoped `?pr=` route, or a per-session route that doesn't need
   // an app in the path; until then this is a knowingly-accepted mismatch.
   const firstRow = rows[0];
@@ -245,6 +263,9 @@ export function renderComment(
     bodyParts.push(`_…and ${fitted.omitted} more ${word} — see the dashboard._`);
   }
   if (footer) bodyParts.push(footer);
+  // Last, so it never displaces content a reader sees, and so the fitter's
+  // reservation for it (below) is a plain constant.
+  bodyParts.push(PR_SESSION_COMMENT_MARKER);
   return bodyParts.join("\n\n");
 }
 
@@ -277,7 +298,11 @@ function fitTableRows(
     header.length +
     separators +
     tableHeader.length +
-    (footer ? separators + footer.length : 0);
+    (footer ? separators + footer.length : 0) +
+    // The marker is appended unconditionally by the caller and must be
+    // inside the ceiling, not pushed over it by the last row that fits.
+    separators +
+    PR_SESSION_COMMENT_MARKER.length;
   // Reserved unconditionally, so dropping the last row can never push the
   // body back over the limit by adding this line.
   const overflowLine = `_…and ${tableRows.length} more sessions — see the dashboard._`;

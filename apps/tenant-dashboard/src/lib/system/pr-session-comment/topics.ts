@@ -21,7 +21,7 @@ import { serverLogger } from "@/lib/observability/server-logger";
  *
  * PRIVACY: `trace_facets.Summary` is transcript-derived free text and must
  * NEVER reach a caller — this data ends up in a world-readable PR comment,
- * and AC-057-08 turns on that. The SELECT list is the first line of defense
+ * the feature's privacy promise turns on that. The SELECT list is the first line of defense
  * and `__tests__/topics.test.ts` string-matches it, but a string match dies
  * the moment someone reformats the query or moves to a builder. The
  * STRUCTURAL guarantee is {@link projectTopicRow}: every row crosses into
@@ -94,7 +94,7 @@ interface TopicLabelRow {
 /**
  * Projects one raw ClickHouse row onto {@link TopicLabelRow}, dropping every
  * other column — `Summary` above all, which is transcript-derived and must
- * never render (AC-057-08).
+ * never render.
  *
  * This is the privacy boundary in code rather than in a docstring: the raw
  * `Record<string, unknown>` from the query never leaves this function, so

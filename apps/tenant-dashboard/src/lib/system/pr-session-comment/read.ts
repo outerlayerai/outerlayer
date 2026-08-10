@@ -232,7 +232,7 @@ export async function readLinkedSessions(
   // `pr_link` row for one and a `branch` row for another. Building the map
   // from pairs would keep whichever came last in PostgREST's row order
   // (arbitrary), and a session that explicitly claimed the PR would render
-  // `_(inferred)_`: a direct AC-057-05 miss. Same precedence rule the
+  // `_(inferred)_`, presenting an explicit claim as a guess. Same precedence rule the
   // reconciler applies — `pr_link` never downgrades to `branch`.
   const methodByTrace = new Map<string, "pr_link" | "branch">();
   const sessionIdByTrace = new Map<string, string>();

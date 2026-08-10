@@ -44,6 +44,57 @@ vi.mock("@/lib/system/pr-session-comment", () => ({
   refreshPrSessionComment: mockRefreshComment,
 }));
 
+/**
+ * In-memory stand-in for the `pr_session_comment` backlog table.
+ *
+ * The route reads flagged rows, flags whatever it defers or fails, and clears
+ * what it refreshed — the durable half of "a deferred PR is delayed, not
+ * dropped". Only the three query shapes the route issues are supported, and
+ * each write is recorded so a test can assert on the backlog itself rather
+ * than on the response body alone.
+ */
+const backlog = vi.hoisted(() => ({
+  rows: [] as { id: string; tenant_id: string; repository: string; pr_number: number }[],
+  upserted: [] as Record<string, unknown>[][],
+  cleared: [] as string[][],
+  readError: null as { message: string } | null,
+}));
+
+const mockAdmin = vi.hoisted(() => ({
+  from: () => ({
+    select: () => {
+      const builder = {
+        eq: () => builder,
+        order: () => builder,
+        limit: async () => ({
+          data: backlog.readError ? null : backlog.rows,
+          error: backlog.readError,
+        }),
+      };
+      return builder;
+    },
+    upsert: async (rows: Record<string, unknown>[]) => {
+      backlog.upserted.push(rows);
+      return { error: null };
+    },
+    update: () => ({
+      in: async (_column: string, ids: string[]) => {
+        backlog.cleared.push(ids);
+        return { error: null };
+      },
+    }),
+  }),
+}));
+
+vi.mock("@/lib/system/admin-client", () => ({
+  getAdminDataClient: () => mockAdmin,
+}));
+
+const mockLoggerError = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/observability/server-logger", () => ({
+  serverLogger: { error: mockLoggerError, info: vi.fn() },
+}));
+
 import { GET } from "../route";
 
 const COUNTS = { candidates: 3, linked: 2, confirmed: 1, pending: 1, unmatched: 0 };
@@ -58,6 +109,10 @@ function cronRequest(query = "", token = "test-cron-secret"): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  backlog.rows = [];
+  backlog.upserted = [];
+  backlog.cleared = [];
+  backlog.readError = null;
   mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: [] });
   mockOutcomeSweep.mockResolvedValue(OUTCOME_COUNTS);
   mockRefreshComment.mockResolvedValue({ status: "unchanged", commentId: 1 });
@@ -85,7 +140,7 @@ describe("GET /api/cron/pr-session-reconcile", () => {
       sinceHours: 24,
       ...COUNTS,
       outcomeScores: { emitSinceHours: 24, ...OUTCOME_COUNTS },
-      commentRefresh: { attempted: 0, failed: 0, deferred: 0 },
+      commentRefresh: { attempted: 0, failed: 0, deferred: 0, fromBacklog: 0 },
     });
     // Emission runs AFTER reconciliation so links confirmed this tick emit
     // this tick.
@@ -111,7 +166,7 @@ describe("GET /api/cron/pr-session-reconcile", () => {
       sinceHours: 24,
       ...COUNTS,
       outcomeScores: { skipped: true },
-      commentRefresh: { attempted: 0, failed: 0, deferred: 0 },
+      commentRefresh: { attempted: 0, failed: 0, deferred: 0, fromBacklog: 0 },
     });
   });
 
@@ -142,11 +197,23 @@ describe("GET /api/cron/pr-session-reconcile", () => {
     expect(mockOutcomeSweep).not.toHaveBeenCalled();
   });
 
-  it("maps an outcome-sweep failure to 500 with the message", async () => {
+  // Scores are best-effort telemetry, and they run BEFORE the comment
+  // refresh. A throw there used to take the whole tick down — including the
+  // refresh — AFTER the sweep had already persisted the links, and since the
+  // sweep's `changed` set is edge-triggered, that tick's refresh work was
+  // then gone for good. The failure is reported now, not fatal.
+  it("reports an outcome-sweep failure without costing the tick its comment refreshes", async () => {
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: CHANGED });
     mockOutcomeSweep.mockRejectedValue(new Error("insert failed"));
+
     const res = await GET(cronRequest());
-    expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: "insert failed" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      outcomeScores: { error: "insert failed" },
+      commentRefresh: { attempted: 1, failed: 0 },
+    });
+    expect(mockRefreshComment).toHaveBeenCalledWith(CHANGED[0]);
   });
 
   it("refreshes nothing when the sweep's changed set is empty — an unchanged tick costs zero GitHub reads", async () => {
@@ -220,5 +287,87 @@ describe("GET /api/cron/pr-session-reconcile", () => {
     for (const k of deferredKeys) {
       expect(attempted.map(key)).not.toContain(k);
     }
+  });
+
+  // The cap is only a delay if something REMEMBERS the tail. `changed` is
+  // edge-triggered — next tick those links compare equal and vanish from it —
+  // so a deferred PR that isn't written down is a PR that never gets its
+  // comment.
+  it("writes the deferred tail to the backlog instead of dropping it", async () => {
+    const targets = Array.from({ length: 152 }, (_, i) => ({
+      tenantId: "tenant-a",
+      repository: "acme/api",
+      prNumber: 1000 + i,
+    }));
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: targets });
+    mockRefreshComment.mockResolvedValue({ status: "updated", commentId: 1 });
+
+    await GET(cronRequest());
+
+    const flagged = backlog.upserted.flat();
+    expect(flagged).toHaveLength(2);
+    expect(flagged).toEqual([
+      { tenant_id: "tenant-a", repository: "acme/api", pr_number: 1150, needs_refresh: true },
+      { tenant_id: "tenant-a", repository: "acme/api", pr_number: 1151, needs_refresh: true },
+    ]);
+  });
+
+  it("flags a failed refresh for a later tick — the backlog is what repair means", async () => {
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: CHANGED });
+    mockRefreshComment.mockResolvedValue({ status: "failed", reason: "boom" });
+
+    await GET(cronRequest());
+
+    expect(backlog.upserted.flat()).toEqual([
+      { tenant_id: "tenant-1", repository: "acme/api", pr_number: 42, needs_refresh: true },
+    ]);
+  });
+
+  it("drains the backlog FIRST, then clears what it refreshed", async () => {
+    backlog.rows = [
+      { id: "row-1", tenant_id: "tenant-1", repository: "acme/api", pr_number: 7 },
+    ];
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: CHANGED });
+
+    const res = await GET(cronRequest());
+
+    const attempted = mockRefreshComment.mock.calls.map((c) => c[0]);
+    expect(attempted).toEqual([
+      { tenantId: "tenant-1", repository: "acme/api", prNumber: 7 },
+      CHANGED[0],
+    ]);
+    expect(backlog.cleared).toEqual([["row-1"]]);
+    expect(await res.json()).toMatchObject({
+      commentRefresh: { attempted: 2, fromBacklog: 1, deferred: 0 },
+    });
+  });
+
+  // A backlog row and a changed target naming the same PR must be ONE
+  // refresh. The two arrive spelled differently — the backlog stores the
+  // canonical key, the sweep passes `git_connection.repository` verbatim — so
+  // deduplication has to happen on the canonical key, not the raw string.
+  it("does not refresh a PR twice when the backlog and the changed set name it differently", async () => {
+    backlog.rows = [
+      { id: "row-1", tenant_id: "tenant-1", repository: "acme/api", pr_number: 42 },
+    ];
+    mockSweep.mockResolvedValue({
+      skipped: false,
+      counts: COUNTS,
+      changed: [{ tenantId: "tenant-1", repository: "https://github.com/Acme/API.git", prNumber: 42 }],
+    });
+
+    await GET(cronRequest());
+
+    expect(mockRefreshComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("still refreshes this tick's changed PRs when the backlog read fails", async () => {
+    backlog.readError = { message: "backlog unavailable" };
+    mockSweep.mockResolvedValue({ skipped: false, counts: COUNTS, changed: CHANGED });
+
+    const res = await GET(cronRequest());
+
+    expect(res.status).toBe(200);
+    expect(mockRefreshComment).toHaveBeenCalledWith(CHANGED[0]);
   });
 });

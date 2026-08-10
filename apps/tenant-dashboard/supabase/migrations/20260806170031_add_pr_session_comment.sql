@@ -15,6 +15,8 @@
     "repository" text not null,
     "pr_number" bigint not null,
     "github_comment_id" bigint,
+    "claimed_at" timestamp with time zone,
+    "needs_refresh" boolean not null default false,
     "last_body_hash" text not null default ''::text,
     "last_posted_at" timestamp with time zone,
     "created_at" timestamp with time zone not null default now(),
@@ -38,6 +40,10 @@ grant select (pr_comments_enabled), insert (pr_comments_enabled), update (pr_com
 CREATE UNIQUE INDEX pr_session_comment_pkey ON public.pr_session_comment USING btree (id);
 
 CREATE UNIQUE INDEX uq_pr_session_comment ON public.pr_session_comment USING btree (tenant_id, repository, pr_number);
+
+-- Partial: the cron backlog drain reads flagged rows only, and in steady
+-- state there are none (see 76-pr-session-comment.sql).
+CREATE INDEX idx_pr_session_comment_needs_refresh ON public.pr_session_comment USING btree (updated_at) WHERE needs_refresh;
 
 alter table "public"."pr_session_comment" add constraint "pr_session_comment_pkey" PRIMARY KEY using index "pr_session_comment_pkey";
 

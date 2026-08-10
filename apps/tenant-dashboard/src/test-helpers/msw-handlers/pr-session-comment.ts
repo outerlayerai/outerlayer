@@ -16,8 +16,8 @@
  *     way `ON CONFLICT DO UPDATE SET <listed columns>` does. Blanking
  *     unsent columns would silently clear a stored `github_comment_id`.
  *   - PATCH honours its `eq`/`is` filters, so the claim takeover's
- *     compare-and-set (`updated_at` unchanged, `github_comment_id IS NULL`)
- *     can actually fail to match.
+ *     compare-and-set (`claimed_at` unchanged — or still NULL — and
+ *     `github_comment_id IS NULL`) can actually fail to match.
  *   - `updated_at` is stamped on UPDATE, mirroring the BEFORE UPDATE trigger
  *     in `99-triggers.sql`.
  */
@@ -36,6 +36,11 @@ export type PrSessionCommentMswRow = {
   last_body_hash: string;
   last_posted_at: string | null;
   updated_at?: string;
+  /** Claim liveness — see `76-pr-session-comment.sql`. Absent in a seed means
+   * "no create in flight", which is what a row written by the cron backlog
+   * marker looks like. */
+  claimed_at?: string | null;
+  needs_refresh?: boolean;
 };
 
 type State = { rows: PrSessionCommentMswRow[]; nextId: number };
@@ -67,6 +72,11 @@ export function seedPrSessionCommentMswState(rows: PrSessionCommentMswRow[]) {
     rows: rows.map((r, i) => ({
       id: r.id ?? `prc-${i + 1}`,
       updated_at: r.updated_at ?? "2026-07-01T00:00:00.000Z",
+      // PostgREST returns NULL, never `undefined`, for a selected column with
+      // no value — a seed that leaves these out must look to the code under
+      // test exactly like a real row does.
+      claimed_at: r.claimed_at ?? null,
+      needs_refresh: r.needs_refresh ?? false,
       ...r,
     })),
     nextId: rows.length + 1,
@@ -148,6 +158,8 @@ export const prSessionCommentHandlers = [
       github_comment_id: body.github_comment_id ?? null,
       last_body_hash: body.last_body_hash ?? "",
       last_posted_at: body.last_posted_at ?? null,
+      claimed_at: body.claimed_at ?? null,
+      needs_refresh: body.needs_refresh ?? false,
       updated_at: body.updated_at ?? new Date().toISOString(),
     };
     state.rows.push(inserted);
@@ -168,6 +180,14 @@ export const prSessionCommentHandlers = [
     const commentIdRaw = url.searchParams.get("github_comment_id");
     const commentId = commentIdRaw?.startsWith("eq.") ? commentIdRaw.slice(3) : null;
     const updatedAt = getEqParam(url, "updated_at");
+    // `claimed_at` arrives as `eq.<ts>` (taking over a live-but-expired
+    // claim) or as `is.null` (taking over a row that was never claimed — the
+    // cron backlog marker), so it needs the same two-shape handling
+    // `github_comment_id` gets.
+    const claimedAtRaw = url.searchParams.get("claimed_at");
+    const claimedAt = claimedAtRaw?.startsWith("eq.")
+      ? decodeURIComponent(claimedAtRaw.slice(3))
+      : null;
 
     const updated: PrSessionCommentMswRow[] = [];
     state.rows = state.rows.map((row) => {
@@ -178,7 +198,9 @@ export const prSessionCommentHandlers = [
         (!prNumber || String(row.pr_number) === prNumber) &&
         (commentId === null || String(row.github_comment_id) === commentId) &&
         (updatedAt === null || row.updated_at === updatedAt) &&
-        matchesIsNull(url, row, "github_comment_id");
+        (claimedAt === null || (row.claimed_at ?? null) === claimedAt) &&
+        matchesIsNull(url, row, "github_comment_id") &&
+        matchesIsNull(url, row, "claimed_at");
       if (!matches) return row;
       const next = { ...row, ...body, updated_at: new Date().toISOString() };
       updated.push(next);

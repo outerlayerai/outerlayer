@@ -1868,33 +1868,39 @@ export type Database = {
       }
       pr_session_comment: {
         Row: {
+          claimed_at: string | null
           created_at: string
           github_comment_id: number | null
           id: string
           last_body_hash: string
           last_posted_at: string | null
+          needs_refresh: boolean
           pr_number: number
           repository: string
           tenant_id: string
           updated_at: string
         }
         Insert: {
+          claimed_at?: string | null
           created_at?: string
           github_comment_id?: number | null
           id?: string
           last_body_hash?: string
           last_posted_at?: string | null
+          needs_refresh?: boolean
           pr_number: number
           repository: string
           tenant_id: string
           updated_at?: string
         }
         Update: {
+          claimed_at?: string | null
           created_at?: string
           github_comment_id?: number | null
           id?: string
           last_body_hash?: string
           last_posted_at?: string | null
+          needs_refresh?: boolean
           pr_number?: number
           repository?: string
           tenant_id?: string

@@ -1,7 +1,8 @@
 /**
  * GitHubProvider issue-comment method tests.
  *
- * Covers `createIssueComment`, `updateIssueComment`, and `getIssueComment` —
+ * Covers `createIssueComment`, `updateIssueComment`, `getIssueComment`, and
+ * `listIssueComments` —
  * all three hit the *issue*-comment endpoints (PR comments are issue
  * comments in GitHub's API), never the separate pull-request review-comment
  * endpoints. Each test mocks the underlying Octokit API calls, mirroring the
@@ -35,6 +36,7 @@ function createMockOctokit() {
         createComment: vi.fn(),
         updateComment: vi.fn(),
         getComment: vi.fn(),
+        listComments: vi.fn(),
       },
     },
   };
@@ -214,6 +216,71 @@ describe('GitHubProvider issue comments', () => {
       octokit.rest.issues.getComment.mockRejectedValue({ status: 429, message: 'Rate limited' });
 
       await expect(provider.getIssueComment('org/repo', 555)).rejects.toThrow();
+    });
+  });
+  // -----------------------------------------------------------------------
+  // listIssueComments
+  // -----------------------------------------------------------------------
+
+  describe('listIssueComments', () => {
+    it('lists the issue-comment endpoint and maps id/body', async () => {
+      const { provider, octokit } = createProvider();
+      octokit.rest.issues.listComments.mockResolvedValue({
+        data: [
+          { id: 1, body: 'first' },
+          { id: 2, body: null },
+        ],
+      });
+
+      const result = await provider.listIssueComments('acme/api', 812);
+
+      expect(octokit.rest.issues.listComments).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: 'acme', repo: 'api', issue_number: 812 }),
+      );
+      expect(result).toEqual({
+        status: 'ok',
+        comments: [
+          { id: 1, body: 'first' },
+          { id: 2, body: '' },
+        ],
+      });
+    });
+
+    it('stops paginating once a short page arrives', async () => {
+      const { provider, octokit } = createProvider();
+      const fullPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, body: `c${i}` }));
+      octokit.rest.issues.listComments
+        .mockResolvedValueOnce({ data: fullPage })
+        .mockResolvedValueOnce({ data: [{ id: 101, body: 'last' }] });
+
+      const result = await provider.listIssueComments('acme/api', 812);
+
+      expect(octokit.rest.issues.listComments).toHaveBeenCalledTimes(2);
+      expect(result.status).toBe('ok');
+      expect(result.status === 'ok' && result.comments).toHaveLength(101);
+    });
+
+    // A bounded scan, not a full thread walk: a pathological thread must not
+    // turn one recovery check into unbounded API calls.
+    it('stops at the page ceiling rather than paginating forever', async () => {
+      const { provider, octokit } = createProvider();
+      const fullPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, body: `c${i}` }));
+      octokit.rest.issues.listComments.mockResolvedValue({ data: fullPage });
+
+      await provider.listIssueComments('acme/api', 812);
+
+      expect(octokit.rest.issues.listComments).toHaveBeenCalledTimes(5);
+    });
+
+    // Same silence contract as the write methods: every call 403s until each
+    // org admin approves the upgraded permission set.
+    it('returns not_permitted on 403 rather than throwing', async () => {
+      const { provider, octokit } = createProvider();
+      octokit.rest.issues.listComments.mockRejectedValue({ status: 403 });
+
+      await expect(provider.listIssueComments('acme/api', 812)).resolves.toEqual({
+        status: 'not_permitted',
+      });
     });
   });
 });

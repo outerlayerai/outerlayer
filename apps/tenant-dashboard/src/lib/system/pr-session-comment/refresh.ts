@@ -6,7 +6,11 @@ import { APP_URL } from "@/config-global";
 import { getAdminDataClient } from "@/lib/system/admin-client";
 import { serverLogger } from "@/lib/observability/server-logger";
 import { getGithubApp } from "@/octo-kit";
-import { GitHubProvider, type IssueCommentResult } from "@/lib/system/git/github/client";
+import {
+  GitHubProvider,
+  type IssueCommentListResult,
+  type IssueCommentResult,
+} from "@/lib/system/git/github/client";
 import { tenantChQuery } from "@/lib/system/pr-session-reconciler/ch-query";
 import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 
@@ -14,7 +18,7 @@ import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-k
 
 import { LinksUnreadableError, LINKS_UNREADABLE_REASON, readLinkedSessions } from "./read";
 import { readTopicLabels } from "./topics";
-import { renderComment, type RenderLinks } from "./render";
+import { PR_SESSION_COMMENT_MARKER, renderComment, type RenderLinks } from "./render";
 
 /**
  * The orchestrator: the single idempotent entry point all three trigger
@@ -111,6 +115,10 @@ interface PrSessionCommentGithubClient {
    * {@link COMMENT_VERIFY_INTERVAL_MS}. Optional so a test fake can omit it;
    * when absent, the escape hatch degrades to the plain short-circuit. */
   getIssueComment?(repo: string, commentId: number): Promise<IssueCommentResult>;
+  /** Recovery scan for a comment we posted but never recorded — see
+   * {@link findPostedComment}. Optional so a test fake can omit it; when
+   * absent, a claim takeover degrades to posting fresh. */
+  listIssueComments?(repo: string, issueNumber: number): Promise<IssueCommentListResult>;
 }
 
 interface RefreshPrSessionCommentDeps {
@@ -230,8 +238,19 @@ async function resolveGithubClient(installationId: number): Promise<PrSessionCom
  * Outcome of trying to win the right to POST the first comment for a PR.
  */
 type CreateClaim =
-  /** This caller owns the create. Nobody else will POST for this PR. */
-  | { outcome: "won" }
+  /**
+   * This caller owns the create. Nobody else will POST for this PR.
+   *
+   * `takeover` marks the one variant that is not a clean first post: the row
+   * carried an ABANDONED claim, i.e. some earlier caller won the right to
+   * post and never recorded a comment id. It may have died before the POST
+   * (nothing exists) or after it (a comment exists that nothing points at) —
+   * the retry in {@link persistCommentId} narrows that window but cannot
+   * close it, since the process can simply stop. The claim alone cannot tell
+   * those apart, so a takeover — and only a takeover — pays for a scan of the
+   * PR's comments before creating. See {@link findPostedComment}.
+   */
+  | { outcome: "won"; takeover: boolean }
   /** Another caller already posted — take the update path with this id. */
   | { outcome: "posted"; commentId: number }
   /** Another caller holds a live claim and hasn't finished posting. */
@@ -248,7 +267,7 @@ type CreateClaim =
  * it. Without a claim, two callers both read no `github_comment_id`, both
  * POST, and both upsert: the unique constraint keeps one ROW, but GitHub now
  * carries TWO comments and the loser's id was never stored, so nothing will
- * ever edit or delete it. AC-057-02 says never a second comment.
+ * ever edit or delete it. One comment per PR — never a second.
  *
  * So the insert — not the POST — is the lock. `ignoreDuplicates` makes
  * `uq_pr_session_comment (tenant_id, repository, pr_number)` arbitrate:
@@ -259,7 +278,9 @@ type CreateClaim =
  * A claim that is never completed (the claimant crashed, or its create
  * returned 403) would otherwise strand the PR forever, so a claim older than
  * {@link CREATE_CLAIM_TTL_MS} can be taken over — with a compare-and-set on
- * `updated_at` so exactly one taker wins that too.
+ * `claimed_at` so exactly one taker wins that too. A takeover is reported as
+ * such, because it is the one path where a comment may already exist without
+ * a stored id: see `takeover` on {@link CreateClaim}.
  */
 async function claimCreate(
   admin: AdminClient,
@@ -280,7 +301,7 @@ async function claimCreate(
           repository,
           pr_number: prNumber,
           last_body_hash: "",
-          updated_at: now,
+          claimed_at: now,
         },
         { onConflict: "tenant_id,repository,pr_number", ignoreDuplicates: true },
       )
@@ -289,7 +310,7 @@ async function claimCreate(
       throw new Error(`pr_session_comment claim failed: ${insertError.message}`);
     }
     // A returned row means THIS caller's insert is the one that landed.
-    if ((inserted ?? []).length > 0) return { outcome: "won" };
+    if ((inserted ?? []).length > 0) return { outcome: "won", takeover: false };
   } else {
     // Re-post path: the row already exists, so there is no insert to
     // arbitrate. CLEARING the dead id is the claim instead — a
@@ -298,7 +319,7 @@ async function claimCreate(
     // through to the shared loser path below.
     const { data: cleared, error: clearError } = await admin
       .from("pr_session_comment")
-      .update({ github_comment_id: null, last_body_hash: "", updated_at: now })
+      .update({ github_comment_id: null, last_body_hash: "", claimed_at: now })
       .eq("tenant_id", tenantId)
       .eq("repository", repository)
       .eq("pr_number", prNumber)
@@ -307,12 +328,14 @@ async function claimCreate(
     if (clearError) {
       throw new Error(`pr_session_comment claim (re-post) failed: ${clearError.message}`);
     }
-    if ((cleared ?? []).length > 0) return { outcome: "won" };
+    // Not a takeover: GitHub just told us that comment is gone, so a scan
+    // for an existing one has nothing to find.
+    if ((cleared ?? []).length > 0) return { outcome: "won", takeover: false };
   }
 
   const { data: row, error: readError } = await admin
     .from("pr_session_comment")
-    .select("id, github_comment_id, updated_at")
+    .select("id, github_comment_id, claimed_at")
     .eq("tenant_id", tenantId)
     .eq("repository", repository)
     .eq("pr_number", prNumber)
@@ -326,24 +349,72 @@ async function claimCreate(
     return { outcome: "posted", commentId: Number(row.github_comment_id) };
   }
 
-  const claimedAt = Date.parse(row.updated_at ?? "");
-  const abandoned = Number.isFinite(claimedAt) && Date.now() - claimedAt > CREATE_CLAIM_TTL_MS;
+  // A NULL `claimed_at` on a row with no comment id is not an abandoned
+  // claim — it is a row that was never claimed at all: the cron sweep's
+  // backlog marker (see `backlog.ts`). Takeable at once, rather than blocking
+  // the first real poster for a TTL.
+  const heldSince = row.claimed_at ?? null;
+  const claimedAt = Date.parse(heldSince ?? "");
+  const abandoned =
+    heldSince === null ||
+    !Number.isFinite(claimedAt) ||
+    Date.now() - claimedAt > CREATE_CLAIM_TTL_MS;
   if (!abandoned) return { outcome: "in-flight" };
 
-  // Take over an abandoned claim. The `updated_at` equality is the
+  // Take over an abandoned claim. The `claimed_at` equality is the
   // compare-and-set: if another taker moved it first, this updates 0 rows
-  // and we back off instead of double-posting.
-  const { data: taken, error: takeError } = await admin
+  // and we back off instead of double-posting. `.is(null)` rather than
+  // `.eq()` for the never-claimed case — SQL equality against NULL matches
+  // nothing, so an `.eq` there would silently never win.
+  const takeover = admin
     .from("pr_session_comment")
-    .update({ updated_at: now })
+    .update({ claimed_at: now })
     .eq("id", row.id)
-    .is("github_comment_id", null)
-    .eq("updated_at", row.updated_at)
-    .select("id");
+    .is("github_comment_id", null);
+  const { data: taken, error: takeError } = await (heldSince === null
+    ? takeover.is("claimed_at", null)
+    : takeover.eq("claimed_at", heldSince)
+  ).select("id");
   if (takeError) {
     throw new Error(`pr_session_comment claim takeover failed: ${takeError.message}`);
   }
-  return (taken ?? []).length > 0 ? { outcome: "won" } : { outcome: "in-flight" };
+  return (taken ?? []).length > 0 ? { outcome: "won", takeover: true } : { outcome: "in-flight" };
+}
+
+/**
+ * The comment we already posted on this PR but never recorded, if it is
+ * there.
+ *
+ * Closes what the persist retry cannot: a claimant that POSTed successfully
+ * and then died — a crashed worker, a process that simply stopped — leaves a
+ * real comment with nothing pointing at it. Its claim eventually expires, the
+ * next caller takes it over, and without this scan it would POST a SECOND
+ * comment, publicly, on a customer's PR, with the first orphaned beyond our
+ * reach forever, since no stored id can ever address it again.
+ *
+ * Recognition is by {@link PR_SESSION_COMMENT_MARKER}, an invisible marker
+ * every body we render carries. The installation token only ever sees
+ * comments on this PR, and the marker is ours, so a match is our own comment.
+ *
+ * Returns null when there is nothing to adopt — including when listing isn't
+ * available (an older fake client) or is not permitted. Null means "create",
+ * which is the correct fallback: without the marker there was no comment of
+ * ours here anyway, and a `not_permitted` list means the create is about to
+ * report the same thing.
+ */
+async function findPostedComment(
+  githubClient: PrSessionCommentGithubClient,
+  repository: string,
+  prNumber: number,
+): Promise<number | null> {
+  if (!githubClient.listIssueComments) return null;
+  const listed = await githubClient.listIssueComments(repository, prNumber);
+  if (listed.status !== "ok") return null;
+  // Last match, not first: if a duplicate ever did escape (an older version,
+  // a hand-copied body), keep editing the most recent one rather than
+  // resurrecting the stalest.
+  const ours = listed.comments.filter((c) => c.body.includes(PR_SESSION_COMMENT_MARKER));
+  return ours.length > 0 ? ours[ours.length - 1]!.id : null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -385,6 +456,10 @@ async function persistCommentId(
         github_comment_id: commentId,
         last_body_hash: bodyHash,
         last_posted_at: new Date().toISOString(),
+        // This write is the completion of the claim, and of any cron backlog
+        // entry for this PR — the row stops looking like work in progress.
+        claimed_at: null,
+        needs_refresh: false,
       },
       { onConflict: "tenant_id,repository,pr_number" },
     );
@@ -491,7 +566,7 @@ export async function refreshPrSessionComment(
     const chQuery = ("chQuery" in deps ? deps.chQuery : tenantChQuery({ tenantId })) ?? null;
 
     const rows = await readLinkedSessions({ tenantId, repository, prNumber }, { chQuery });
-    // AC-057-04's "no app connected" no-op — the read layer already proved
+    // The "no app connected" no-op — the read layer already proved
     // no app has pr_comments_enabled for this repo. Never post or edit.
     if (rows === null) {
       return { status: "skipped-disabled" };
@@ -516,7 +591,7 @@ export async function refreshPrSessionComment(
       prNumber,
     };
 
-    // AC-057-03: rows/topics are re-read from ClickHouse on every call, so
+    // Rows/topics are re-read from ClickHouse on every call, so
     // the rendered body always reflects present state, never a first-sight
     // snapshot — a session that accrues more work produces a different body
     // (and therefore a different hash) on the very next refresh.
@@ -619,7 +694,7 @@ export async function refreshPrSessionComment(
     }
 
     if (result === null) {
-      // AC-057-02, one comment per PR: the RIGHT to create is claimed
+      // One comment per PR: the RIGHT to create is claimed
       // before the POST, never inferred from a null id read moments earlier
       // — see claimCreate for the race this closes.
       const claim = await claimCreate(admin, { tenantId, repository, prNumber }, goneCommentId);
@@ -639,8 +714,27 @@ export async function refreshPrSessionComment(
           return { status: "failed", reason: "comment deleted between claim and update" };
         }
       } else {
-        result = await githubClient.createIssueComment(repository, prNumber, body);
-        created = true;
+        // Taking over an abandoned claim means the previous claimant may have
+        // POSTed and died before recording the id. Look for that comment
+        // before adding another one — see `findPostedComment`. Only on a
+        // takeover: a clean first claim has nothing to find, and this scan
+        // must not become a per-PR cost on the normal path.
+        const orphaned = claim.takeover
+          ? await findPostedComment(githubClient, repository, prNumber)
+          : null;
+        if (orphaned !== null) {
+          commentId = orphaned;
+          result = await githubClient.updateIssueComment(repository, commentId, body);
+          if (result.status === "gone") {
+            // Deleted between the scan and the edit. Nothing to adopt after
+            // all; post fresh, still under this caller's claim.
+            result = await githubClient.createIssueComment(repository, prNumber, body);
+            created = true;
+          }
+        } else {
+          result = await githubClient.createIssueComment(repository, prNumber, body);
+          created = true;
+        }
       }
     }
 

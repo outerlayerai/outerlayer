@@ -14,7 +14,8 @@
  * identity row, the `git_connection` installation lookup, the GitHub API
  * call — keys off ONE form: LOWERCASE bare `owner/repo`. Two spellings of
  * one repository produce two identity rows and therefore two comments on one
- * PR, which AC-057-02 forbids, so this function is deliberately the only
+ * PR, which the one-comment-per-PR guarantee forbids, so this function is
+ * deliberately the only
  * place that decides what the key is, and it is shared by the producer, the
  * queue consumer, and the orchestrator rather than re-derived at each
  * boundary. Lowercasing is part of that one form: GitHub owner/repo routes

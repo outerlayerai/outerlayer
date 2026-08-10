@@ -152,6 +152,18 @@ downstream log sink Logtail forwards to) for:
 - add `tenantId:"<tenant-id>"` or `repository:"<owner/repo>"` to scope to one
   customer.
 
+One other event is worth an alert, for a different reason:
+
+- `event:"pr_session_comment.persist_failed"` — a comment was POSTed to
+  GitHub and its id could not be written back after retries. The comment
+  EXISTS and nothing of ours points at it; the id is in the log line
+  (`githubCommentId`) because that is the only remaining handle on it. The
+  next refresh that takes over the stranded claim will recognize the comment
+  by its invisible marker and adopt it rather than posting a second one
+  (`findPostedComment` in `refresh.ts`), so this is usually self-healing —
+  but a run of it means writes to `pr_session_comment` are failing, which is
+  an incident in its own right.
+
 A tenant/repository appearing here at all, at any point after the permission
 rollout, means that installation has not approved `issues: write` yet. Once
 approved, refreshes for that repo succeed and the event stops appearing for

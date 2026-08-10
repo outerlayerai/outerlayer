@@ -24,9 +24,9 @@ import { refreshPrSessionComment } from "@/lib/system/pr-session-comment";
  * is when a draft — where a lot of agent work sits — first gets read by a
  * human.
  *
- * `closed` is included so the comment keeps updating after merge, per issue
- * #10's recommendation ("yes, update indefinitely"). That also makes the two
- * paths AGREE: the cron sweep already refreshes merged PRs whose links move
+ * `closed` is included so the comment keeps updating after merge, rather
+ * than freezing at the moment of decision. That also makes the two paths
+ * AGREE: the cron sweep already refreshes merged PRs whose links move
  * late, so excluding `closed` here made post-merge behavior "sometimes
  * frozen" depending on which trigger fired. A session that syncs an hour
  * after merge still belongs on the record of how that PR got built.

@@ -56,6 +56,17 @@ vi.mock("@/lib/analytics/client", () => ({
   getDefaultClient: () => mockClient,
 }));
 
+// `?pr=` reads `pull_request_session`, whose only SELECT policy requires
+// `git_connection.read` — a member without it reads zero rows with no error,
+// which the service must not report as "this PR has no sessions". The check
+// is mocked here so both sides of that gate are reachable.
+const { mockLinkPermission } = vi.hoisted(() => ({
+  mockLinkPermission: { error: undefined as string | undefined },
+}));
+vi.mock("@/utils/permission-check", () => ({
+  checkAppPermission: vi.fn(async () => mockLinkPermission),
+}));
+
 import { agentSessionsService, type AgentSessionsContext } from "./service";
 import { verifyAgentBlobToken } from "./blob-url";
 import type { ListSessionsQuery } from "./list-query";
@@ -667,6 +678,10 @@ describe("AgentSessionsService.listSessions", () => {
   });
 
   describe("pr filter", () => {
+      beforeEach(() => {
+        mockLinkPermission.error = undefined;
+      });
+
       // AC-057-09: several sessions link one PR; following the comment's
       // dashboard link (`…/sessions?pr=<n>`) lands on the list filtered to
       // that PR, restricted to CONFIRMED links on the caller's own app —
@@ -730,6 +745,26 @@ describe("AgentSessionsService.listSessions", () => {
         const listCall = chCalls().find((c) => c.query.includes("TraceId AS traceId"))!;
         expect(listCall.query).toContain("1=0");
         expect(listCall.query_params.prTraceIds).toBeUndefined();
+      });
+
+      // The comment's footer link carries only `?pr=`, so a dominant-repo pin
+      // would still apply — and a PR on any non-dominant repo of the app then
+      // intersects to zero rows, i.e. an empty list reached from a link that
+      // just said "N sessions".
+      it("drops the dominant-repo pin while the pr filter is active", async () => {
+        await agentSessionsService.listSessions(ctx({ appId: "app-1" }), listQuery({ pr: 812 }));
+        const listCall = chCalls().find((c) => c.query.includes("TraceId AS traceId"))!;
+        expect(listCall.query).not.toContain("GitRepo={repo:String}");
+      });
+
+      // Permission-empty and genuinely-empty are different answers, and the
+      // reader following the comment's link deserves the true one.
+      it("says so when the caller cannot read PR links, instead of rendering an empty list", async () => {
+        mockLinkPermission.error = "forbidden";
+
+        await expect(
+          agentSessionsService.listSessions(ctx({ appId: "app-1" }), listQuery({ pr: 812 })),
+        ).rejects.toThrow(/permission/i);
       });
 
       it("omits the pr clause entirely when no pr param is given", async () => {
