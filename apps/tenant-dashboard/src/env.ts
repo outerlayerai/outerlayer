@@ -159,6 +159,13 @@ export const env = createEnv({
     // Email delivery gate (fail-closed: must be explicitly "true" to send real emails)
     EMAIL_ENABLED: z.string().optional().default('false'),
 
+    // Comma-separated recipient allowlist: whole addresses ("me@corp.com") or
+    // domain suffixes written with the leading @ ("@corp.com"). Unset means
+    // unrestricted, which is the hosted-production posture — a non-empty value
+    // is for environments that send real mail to a bounded set of humans
+    // (staging dogfooding), where anything else is a mistake worth dropping.
+    EMAIL_RECIPIENT_ALLOWLIST: z.string().optional(),
+
     // Billing gate (opt-out: hosted keeps Stripe; self-hosters set "false" to
     // disable Stripe customer provisioning + wire MockBillingService). Defaults
     // to "true" so the hosted default is unchanged.
@@ -295,6 +302,7 @@ export const env = createEnv({
     // var resolves `undefined` at runtime when unset. Enforced for every
     // defaulted var by env-default-invariant.test.ts. See DORA_ENVIRONMENT.
     EMAIL_ENABLED: process.env.EMAIL_ENABLED || 'false',
+    EMAIL_RECIPIENT_ALLOWLIST: process.env.EMAIL_RECIPIENT_ALLOWLIST,
     BILLING_ENABLED: process.env.BILLING_ENABLED || 'true',
     FLY_API_TOKEN: process.env.FLY_API_TOKEN,
     NODE_ENV: process.env.NODE_ENV || 'development',

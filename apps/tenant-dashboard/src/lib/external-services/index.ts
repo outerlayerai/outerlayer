@@ -15,6 +15,7 @@ import {
   REPLY_TO_EMAIL,
   EMAIL_ENABLED,
   EMAIL_PROVIDER,
+  EMAIL_RECIPIENT_ALLOWLIST,
   SMTP_HOST,
   SMTP_PORT,
   SMTP_USER,
@@ -23,7 +24,7 @@ import {
 } from "../../config-global.server";
 import { InviteEmail, BuildFailureEmail, RoleChangedEmail, RemovedFromOrgEmail, TempAccessNotificationEmail } from "@repo/transactional";
 import { EmailType } from "../../utils/email";
-import { resolveEmailConfig } from "./email-config";
+import { resolveEmailConfig, resolveRecipientAllowlist, isRecipientAllowed } from "./email-config";
 import { resolveBillingConfig } from "./billing-config";
 
 export interface StripeService {
@@ -425,11 +426,60 @@ export class SmtpEmailService implements EmailService {
 }
 
 /**
+ * Recipient guard: delegates to a real provider only for addresses on the
+ * allowlist, and drops everything else with a log line.
+ *
+ * A dropped send returns `{ error: null }` — the same shape a delivered one
+ * returns — because callers treat a send error as a user-visible failure
+ * (MembershipService rolls the invite back to "resend it"). A recipient off
+ * the allowlist is a deliberate policy drop, not a delivery fault, so the
+ * caller's happy path is the correct one.
+ *
+ * This wraps the provider rather than living inside it so the rule holds for
+ * every backend, present and future — a new adapter cannot forget it.
+ */
+export class AllowlistEmailService implements EmailService {
+  constructor(
+    private readonly delegate: EmailService,
+    private readonly allowlist: string[]
+  ) {}
+
+  async sendEmail(params: EmailParams): Promise<{ error: Error | null }> {
+    if (!isRecipientAllowed(params.to, this.allowlist)) {
+      console.info(
+        `[EMAIL_SUPPRESSED_NOT_ALLOWLISTED] to=${params.to} subject="${params.subject}" type=${params.emailType} timestamp=${new Date().toISOString()}`
+      );
+      return { error: null };
+    }
+    return this.delegate.sendEmail(params);
+  }
+
+  async addToBroadcastAudience(
+    email: string,
+    firstName?: string,
+    lastName?: string
+  ): Promise<{ success: boolean; error?: unknown }> {
+    if (!isRecipientAllowed(email, this.allowlist)) {
+      console.info(
+        `[BROADCAST_SUPPRESSED_NOT_ALLOWLISTED] email=${email} timestamp=${new Date().toISOString()}`
+      );
+      return { success: true };
+    }
+    return this.delegate.addToBroadcastAudience(email, firstName, lastName);
+  }
+}
+
+/**
  * Factory: resolves the email toggle (shared `resolveToggle` seam) and returns
  * the matching adapter — `smtp` → Nodemailer, `resend` → Resend. When email is
  * disabled it returns LoggingEmailService (fail-closed). The enabled/backend
  * decision lives in {@link resolveEmailConfig} so it is unit-testable without
  * reloading the env module.
+ *
+ * With EMAIL_RECIPIENT_ALLOWLIST set, the chosen provider is wrapped in
+ * {@link AllowlistEmailService}. Unset (the hosted-production case) the
+ * provider is returned bare — see {@link resolveRecipientAllowlist} for why an
+ * absent allowlist must not mean "send to nobody".
  */
 export function createEmailService(): EmailService {
   const { enabled, backend } = resolveEmailConfig({
@@ -439,7 +489,9 @@ export function createEmailService(): EmailService {
   if (!enabled) {
     return new LoggingEmailService();
   }
-  return backend === 'smtp' ? new SmtpEmailService() : new DefaultEmailService();
+  const provider = backend === 'smtp' ? new SmtpEmailService() : new DefaultEmailService();
+  const allowlist = resolveRecipientAllowlist({ EMAIL_RECIPIENT_ALLOWLIST });
+  return allowlist.length > 0 ? new AllowlistEmailService(provider, allowlist) : provider;
 }
 
 // ============================================================================

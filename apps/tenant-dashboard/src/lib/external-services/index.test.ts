@@ -42,7 +42,13 @@ vi.mock('@repo/transactional', () => ({
   TempAccessNotificationEmail: vi.fn(() => 'temp-access-rendered'),
 }));
 
-import { createEmailService, LoggingEmailService, DefaultEmailService, SmtpEmailService } from '.';
+import {
+  createEmailService,
+  LoggingEmailService,
+  DefaultEmailService,
+  SmtpEmailService,
+  AllowlistEmailService,
+} from '.';
 import { render } from '@react-email/render';
 import { Resend } from 'resend';
 import { EmailType } from '../../utils/email';
@@ -276,6 +282,91 @@ describe('SmtpEmailService', () => {
 });
 
 // ============================================================================
+// AllowlistEmailService — recipient guard wrapping any provider
+// ============================================================================
+
+describe('AllowlistEmailService', () => {
+  let consoleInfoSpy: MockInstance;
+  let delegate: { sendEmail: Mock; addToBroadcastAudience: Mock };
+
+  const params = {
+    subject: 'You have been invited',
+    emailType: EmailType.Invite,
+    templateParams: { inviteLink: 'https://app.test/accept' },
+  };
+
+  beforeEach(() => {
+    consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    delegate = {
+      sendEmail: vi.fn().mockResolvedValue({ error: null }),
+      addToBroadcastAudience: vi.fn().mockResolvedValue({ success: true }),
+    };
+  });
+
+  afterEach(() => {
+    consoleInfoSpy.mockRestore();
+  });
+
+  it('delegates verbatim for an allowlisted recipient', async () => {
+    const service = new AllowlistEmailService(delegate, ['@corp.com']);
+
+    const result = await service.sendEmail({ to: 'dev@corp.com', ...params });
+
+    expect(result).toEqual({ error: null });
+    expect(delegate.sendEmail).toHaveBeenCalledWith({ to: 'dev@corp.com', ...params });
+  });
+
+  it('drops a non-allowlisted recipient without reaching the provider', async () => {
+    const service = new AllowlistEmailService(delegate, ['@corp.com']);
+
+    const result = await service.sendEmail({ to: 'e2e-invite@test.example.com', ...params });
+
+    // { error: null }, not an error: a policy drop must not surface to the user
+    // as "invite created but email failed" (see MembershipService).
+    expect(result).toEqual({ error: null });
+    expect(delegate.sendEmail).not.toHaveBeenCalled();
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '[EMAIL_SUPPRESSED_NOT_ALLOWLISTED] to=e2e-invite@test.example.com'
+      )
+    );
+  });
+
+  it('propagates a provider error for an allowlisted recipient', async () => {
+    delegate.sendEmail.mockResolvedValue({ error: new Error('resend down') });
+    const service = new AllowlistEmailService(delegate, ['@corp.com']);
+
+    const result = await service.sendEmail({ to: 'dev@corp.com', ...params });
+
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error?.message).toBe('resend down');
+  });
+
+  it('delegates audience enrollment for an allowlisted address', async () => {
+    const service = new AllowlistEmailService(delegate, ['@corp.com']);
+
+    const result = await service.addToBroadcastAudience('dev@corp.com', 'Jane', 'Doe');
+
+    expect(result).toEqual({ success: true });
+    expect(delegate.addToBroadcastAudience).toHaveBeenCalledWith('dev@corp.com', 'Jane', 'Doe');
+  });
+
+  it('drops audience enrollment for a non-allowlisted address', async () => {
+    const service = new AllowlistEmailService(delegate, ['@corp.com']);
+
+    const result = await service.addToBroadcastAudience('e2e-register@test.example.com', 'E', 'E');
+
+    expect(result).toEqual({ success: true });
+    expect(delegate.addToBroadcastAudience).not.toHaveBeenCalled();
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '[BROADCAST_SUPPRESSED_NOT_ALLOWLISTED] email=e2e-register@test.example.com'
+      )
+    );
+  });
+});
+
+// ============================================================================
 // createEmailService factory
 // ============================================================================
 
@@ -302,6 +393,7 @@ describe('createEmailService', () => {
       RESEND_BROADCAST_AUDIENCE_ID: 'a',
       FROM_EMAIL: 'from@example.com',
       REPLY_TO_EMAIL: 'reply@example.com',
+      EMAIL_RECIPIENT_ALLOWLIST: undefined,
       SMTP_HOST: undefined,
       SMTP_PORT: undefined,
       SMTP_USER: undefined,
@@ -387,6 +479,46 @@ describe('createEmailService', () => {
       secure: true,
       auth: { user: 'apikey', pass: 's3cret' },
     });
+  });
+
+  it('returns the bare provider when no recipient allowlist is configured', async () => {
+    const mod = await importFactoryWith({
+      EMAIL_ENABLED: 'true',
+      EMAIL_PROVIDER: 'resend',
+      EMAIL_RECIPIENT_ALLOWLIST: undefined,
+    });
+    const service = mod.createEmailService();
+    expect(service).toBeInstanceOf(mod.DefaultEmailService);
+    expect(service).not.toBeInstanceOf(mod.AllowlistEmailService);
+  });
+
+  it('wraps the provider in AllowlistEmailService when a recipient allowlist is configured', async () => {
+    const mod = await importFactoryWith({
+      EMAIL_ENABLED: 'true',
+      EMAIL_PROVIDER: 'resend',
+      EMAIL_RECIPIENT_ALLOWLIST: '@corp.com',
+    });
+    expect(mod.createEmailService()).toBeInstanceOf(mod.AllowlistEmailService);
+  });
+
+  it('wraps the smtp provider too, so the guard is not resend-only', async () => {
+    const mod = await importFactoryWith({
+      EMAIL_ENABLED: 'true',
+      EMAIL_PROVIDER: 'smtp',
+      SMTP_HOST: 'smtp.test',
+      SMTP_PORT: 587,
+      EMAIL_RECIPIENT_ALLOWLIST: '@corp.com',
+    });
+    expect(mod.createEmailService()).toBeInstanceOf(mod.AllowlistEmailService);
+  });
+
+  it('does not send through a configured allowlist when email is disabled entirely', async () => {
+    const mod = await importFactoryWith({
+      EMAIL_ENABLED: 'false',
+      EMAIL_PROVIDER: 'resend',
+      EMAIL_RECIPIENT_ALLOWLIST: '@corp.com',
+    });
+    expect(mod.createEmailService()).toBeInstanceOf(mod.LoggingEmailService);
   });
 
   it('coerces a string SMTP_PORT and accepts non-"true" truthy SMTP_SECURE', async () => {

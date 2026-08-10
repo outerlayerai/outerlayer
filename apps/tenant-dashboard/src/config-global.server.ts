@@ -105,6 +105,9 @@ export const TOKEN_ENCRYPTION_KEY = env.TOKEN_ENCRYPTION_KEY;
 // Email delivery gate
 export const EMAIL_ENABLED = env.EMAIL_ENABLED;
 
+// Recipient allowlist — empty means unrestricted (hosted production)
+export const EMAIL_RECIPIENT_ALLOWLIST = env.EMAIL_RECIPIENT_ALLOWLIST;
+
 // Billing gate (opt-out: hosted keeps Stripe; self-hosters disable)
 export const BILLING_ENABLED = env.BILLING_ENABLED;
 
