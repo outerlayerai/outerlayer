@@ -51,9 +51,26 @@ let state: State = { rows: [], nextId: 1 };
  * PostgREST error instead of writing — see {@link seedPrSessionCommentUpsertErrors}. */
 let remainingUpsertErrors = 0;
 
+/** One-shot error for the next bulk backlog read (`needs_refresh=eq.true`)
+ * — see {@link seedPrSessionCommentReadError}. Does not affect the
+ * point-lookup GET (`tenant_id`/`repository`/`pr_number`), which every other
+ * caller uses. */
+let pendingBacklogReadError: { message: string } | null = null;
+
 export function resetPrSessionCommentMswState() {
   state = { rows: [], nextId: 1 };
   remainingUpsertErrors = 0;
+  pendingBacklogReadError = null;
+}
+
+/**
+ * Makes the next bulk backlog read (`readCommentRefreshBacklog`'s
+ * `needs_refresh=eq.true` query) fail with a PostgREST error, so a test can
+ * drive its best-effort degrade-to-`[]` path without a live database.
+ * One-shot: cleared after it fires once.
+ */
+export function seedPrSessionCommentReadError(error: { message: string } | null) {
+  pendingBacklogReadError = error;
 }
 
 /**
@@ -107,6 +124,30 @@ function matchesIsNull(url: URL, row: PrSessionCommentMswRow, column: keyof PrSe
 export const prSessionCommentHandlers = [
   http.get(`${SUPABASE_URL}/rest/v1/pr_session_comment`, ({ request }) => {
     const url = new URL(request.url);
+    const needsRefresh = getEqParam(url, "needs_refresh");
+
+    // The backlog read (`readCommentRefreshBacklog`) is a bulk scan across
+    // every tenant — no tenant_id/repository/pr_number filter at all — so it
+    // is handled separately from the point lookup every other caller sends.
+    if (needsRefresh !== null) {
+      if (pendingBacklogReadError) {
+        const error = pendingBacklogReadError;
+        pendingBacklogReadError = null;
+        return HttpResponse.json({ message: error.message }, { status: 500 });
+      }
+      let rows = state.rows.filter((r) => String(r.needs_refresh) === needsRefresh);
+      const order = url.searchParams.get("order");
+      if (order?.startsWith("updated_at")) {
+        rows = [...rows].sort((a, b) =>
+          (a.updated_at ?? "") < (b.updated_at ?? "") ? -1 : (a.updated_at ?? "") > (b.updated_at ?? "") ? 1 : 0,
+        );
+        if (order.includes("desc")) rows.reverse();
+      }
+      const limit = url.searchParams.get("limit");
+      if (limit !== null) rows = rows.slice(0, Number(limit));
+      return HttpResponse.json(rows);
+    }
+
     const tenantId = getEqParam(url, "tenant_id");
     const repository = getEqParam(url, "repository");
     const prNumber = getEqParam(url, "pr_number");
@@ -122,55 +163,75 @@ export const prSessionCommentHandlers = [
   // persist) or resolution=ignore-duplicates (the create claim),
   // on_conflict=tenant_id,repository,pr_number.
   http.post(`${SUPABASE_URL}/rest/v1/pr_session_comment`, async ({ request }) => {
-    const body = (await request.json()) as Partial<PrSessionCommentMswRow>;
+    const rawBody = (await request.json()) as
+      | Partial<PrSessionCommentMswRow>
+      | Partial<PrSessionCommentMswRow>[];
+    // `markCommentRefreshNeeded` sends an array (a batch of flagged targets);
+    // every other writer sends one object. Normalizing to an array lets both
+    // go through the same per-row upsert logic below.
+    const bodies = Array.isArray(rawBody) ? rawBody : [rawBody];
     const prefer = request.headers.get("prefer") ?? "";
     const ignoreDuplicates = prefer.includes("ignore-duplicates");
 
     const key = (r: Partial<PrSessionCommentMswRow>) =>
       `${r.tenant_id}:${r.repository}:${r.pr_number}`;
-    const idx = state.rows.findIndex((r) => key(r) === key(body));
+    const results: PrSessionCommentMswRow[] = [];
 
-    if (idx >= 0) {
-      if (ignoreDuplicates) {
-        // Conflict, and the caller asked for the insert to be skipped: no
-        // write, and nothing returned. This is the losing side of the claim.
-        return HttpResponse.json([], { status: 201 });
+    for (const body of bodies) {
+      const idx = state.rows.findIndex((r) => key(r) === key(body));
+
+      if (idx >= 0) {
+        if (ignoreDuplicates) {
+          // Conflict, and the caller asked for the insert to be skipped: no
+          // write for this row. This is the losing side of the claim.
+          continue;
+        }
+        if (remainingUpsertErrors > 0) {
+          remainingUpsertErrors -= 1;
+          return HttpResponse.json({ message: "boom" }, { status: 500 });
+        }
+        // ON CONFLICT DO UPDATE SET <only the columns sent>.
+        const merged: PrSessionCommentMswRow = {
+          ...state.rows[idx]!,
+          ...body,
+          updated_at: new Date().toISOString(),
+        };
+        state.rows[idx] = merged;
+        results.push(merged);
+        continue;
       }
-      if (remainingUpsertErrors > 0) {
-        remainingUpsertErrors -= 1;
-        return HttpResponse.json({ message: "boom" }, { status: 500 });
-      }
-      // ON CONFLICT DO UPDATE SET <only the columns sent>.
-      const merged: PrSessionCommentMswRow = {
-        ...state.rows[idx]!,
-        ...body,
-        updated_at: new Date().toISOString(),
+
+      const inserted: PrSessionCommentMswRow = {
+        id: body.id ?? `prc-${state.nextId++}`,
+        tenant_id: body.tenant_id ?? "",
+        repository: body.repository ?? "",
+        pr_number: body.pr_number ?? 0,
+        github_comment_id: body.github_comment_id ?? null,
+        last_body_hash: body.last_body_hash ?? "",
+        last_posted_at: body.last_posted_at ?? null,
+        claimed_at: body.claimed_at ?? null,
+        needs_refresh: body.needs_refresh ?? false,
+        updated_at: body.updated_at ?? new Date().toISOString(),
       };
-      state.rows[idx] = merged;
-      return HttpResponse.json([merged], { status: 201 });
+      state.rows.push(inserted);
+      results.push(inserted);
     }
 
-    const inserted: PrSessionCommentMswRow = {
-      id: body.id ?? `prc-${state.nextId++}`,
-      tenant_id: body.tenant_id ?? "",
-      repository: body.repository ?? "",
-      pr_number: body.pr_number ?? 0,
-      github_comment_id: body.github_comment_id ?? null,
-      last_body_hash: body.last_body_hash ?? "",
-      last_posted_at: body.last_posted_at ?? null,
-      claimed_at: body.claimed_at ?? null,
-      needs_refresh: body.needs_refresh ?? false,
-      updated_at: body.updated_at ?? new Date().toISOString(),
-    };
-    state.rows.push(inserted);
-    return HttpResponse.json([inserted], { status: 201 });
+    return HttpResponse.json(results, { status: 201 });
   }),
 
   // PATCH: the claim takeover's compare-and-set and the verified-at re-stamp.
   http.patch(`${SUPABASE_URL}/rest/v1/pr_session_comment`, async ({ request }) => {
     const url = new URL(request.url);
     const body = (await request.json()) as Partial<PrSessionCommentMswRow>;
-    const id = getEqParam(url, "id");
+    // `clearCommentRefreshBacklog` sends `id=in.(a,b,c)`; the claim
+    // takeover and re-post paths send a single `id=eq.<id>`.
+    const idRaw = url.searchParams.get("id");
+    const idIn =
+      idRaw?.startsWith("in.(") && idRaw.endsWith(")")
+        ? idRaw.slice(4, -1).split(",").map((v) => v.trim().replace(/^"|"$/g, ""))
+        : null;
+    const id = idIn ? null : getEqParam(url, "id");
     const tenantId = getEqParam(url, "tenant_id");
     const repository = getEqParam(url, "repository");
     const prNumber = getEqParam(url, "pr_number");
@@ -192,7 +253,7 @@ export const prSessionCommentHandlers = [
     const updated: PrSessionCommentMswRow[] = [];
     state.rows = state.rows.map((row) => {
       const matches =
-        (!id || row.id === id) &&
+        (idIn ? idIn.includes(row.id ?? "") : !id || row.id === id) &&
         (!tenantId || row.tenant_id === tenantId) &&
         (!repository || row.repository === repository) &&
         (!prNumber || String(row.pr_number) === prNumber) &&

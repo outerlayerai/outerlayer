@@ -127,6 +127,8 @@ export {
   seedPrSessionCommentMswState,
   getPrSessionCommentRows,
   seedPrSessionCommentUpsertErrors,
+  seedPrSessionCommentReadError,
+  type PrSessionCommentMswRow,
 } from './pr-session-comment';
 
 // MSW resolves handlers in registration order; the FIRST matching handler

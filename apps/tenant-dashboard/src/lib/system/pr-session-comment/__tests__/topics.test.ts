@@ -73,7 +73,7 @@ describe("readTopicLabels", () => {
     expect(result.get("trace-1")).toEqual([]);
     expect(mockLoggerError).toHaveBeenCalledWith(
       expect.any(Error),
-      expect.objectContaining({ event: "pr_session_comment.topics_query_failed" }),
+      expect.objectContaining({ event: "pr_session_comment.topics_query_failed", _metric: true }),
     );
   });
 
@@ -103,6 +103,60 @@ describe("readTopicLabels", () => {
     const result = await readTopicLabels({ chQuery, traceIds: ["trace-1"] });
 
     expect(result.get("trace-1")).toEqual(["Real topic"]);
+  });
+
+  it("coerces a non-string TraceId/Name to a string rather than dropping the row", async () => {
+    const chQuery: ChQueryFn = vi.fn().mockResolvedValue([
+      // ClickHouse hands back untyped JSON — a numeric TraceId/Name must
+      // still resolve to a usable string key/label, not `[object Object]`
+      // or a silently dropped row.
+      { TraceId: 12345, Name: 67890 },
+    ]);
+
+    const result = await readTopicLabels({ chQuery, traceIds: ["12345"] });
+
+    expect(result.get("12345")).toEqual(["67890"]);
+  });
+
+  it("drops a row with a missing TraceId or Name rather than coercing null/undefined to a label", async () => {
+    const chQuery: ChQueryFn = vi.fn().mockResolvedValue([
+      { TraceId: "trace-1", Name: null },
+      { TraceId: null, Name: "Orphan label" },
+      { TraceId: "trace-1", Name: "Real topic" },
+    ]);
+
+    const result = await readTopicLabels({ chQuery, traceIds: ["trace-1"] });
+
+    expect(result.get("trace-1")).toEqual(["Real topic"]);
+  });
+
+  it("still collects labels for a row whose TraceId was not in the requested list", async () => {
+    // Defensive path: every row in the initial map comes pre-seeded with []
+    // from `traceIds`, but a row for a trace outside that list has no entry
+    // yet — this is the one case where the map actually gains a new key
+    // while processing rows, rather than appending to an existing one.
+    const chQuery: ChQueryFn = vi.fn().mockResolvedValue([
+      { TraceId: "trace-unrequested", Name: "Surprise topic" },
+    ]);
+
+    const result = await readTopicLabels({ chQuery, traceIds: ["trace-1"] });
+
+    expect(result.get("trace-1")).toEqual([]);
+    expect(result.get("trace-unrequested")).toEqual(["Surprise topic"]);
+  });
+
+  it("appends to an already-seeded trace's label list rather than starting a fresh array", async () => {
+    // trace-1 is present in the returned map from traceIds seeding BEFORE any
+    // row is processed (see the "every requested trace id is present" test);
+    // this pins that a matching row for it APPENDS rather than replacing.
+    const chQuery: ChQueryFn = vi.fn().mockResolvedValue([
+      { TraceId: "trace-1", Name: "First" },
+      { TraceId: "trace-1", Name: "Second" },
+    ]);
+
+    const result = await readTopicLabels({ chQuery, traceIds: ["trace-1"] });
+
+    expect(result.get("trace-1")).toEqual(["First", "Second"]);
   });
 
   it("passes traceIds through as the SQL parameter", async () => {

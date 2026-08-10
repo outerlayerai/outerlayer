@@ -180,6 +180,42 @@ describe("readLinkedSessions", () => {
     expect(result).toEqual([]);
   });
 
+  // The git_connection read is NOT filtered by repository at all (see the
+  // module comment) — the JS `canonicalPrCommentRepo` filter is the only
+  // thing that excludes a connection for a different repository. A tenant
+  // with pr_comments_enabled connections for two different repos must not
+  // leak the other repo's session into this PR's comment.
+  it("excludes a connection whose repository canonicalizes to a DIFFERENT repo, even when pr_comments_enabled", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-match", repository: REPO, pr_comments_enabled: true },
+      { tenant_id: TENANT, app_id: "app-other-repo", repository: "acme/other-repo", pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-match", trace_id: "t-match", method: "pr_link", verification: "confirmed" }),
+        link({
+          id: "l2",
+          app_id: "app-other-repo",
+          trace_id: "t-other-repo",
+          method: "pr_link",
+          verification: "confirmed",
+        }),
+      ],
+    });
+    const chQuery = vi.fn().mockResolvedValue([
+      chRow({ TraceId: "t-match", AppId: "app-match" }),
+      chRow({ TraceId: "t-other-repo", AppId: "app-other-repo" }),
+    ]);
+    seedSupabaseMswState({ apps: [{ id: "app-match", tenant_id: TENANT, name: "api" }] });
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result!.map((r) => r.traceId)).toEqual(["t-match"]);
+    // The other repo's app never even entered the ClickHouse scan.
+    const [, params] = chQuery.mock.calls[0]!;
+    expect(params.traceIds).toEqual(["t-match"]);
+  });
+
   it("matches a stored differently-cased git_connection.repository against the canonical repository", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: "Acme/API", pr_comments_enabled: true },
@@ -387,6 +423,23 @@ describe("readLinkedSessions", () => {
     expect(params).toEqual({ tenantId: TENANT, traceIds: ["t1"] });
   });
 
+  it("throws (rather than degrading to []) when the pull_request_session read itself fails", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    server.use(
+      http.get(`${SUPABASE_URL}/rest/v1/pull_request_session`, () =>
+        HttpResponse.json({ message: "connection reset" }, { status: 500 }),
+      ),
+    );
+    const chQuery = vi.fn();
+
+    await expect(
+      readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery }),
+    ).rejects.toThrow("pull_request_session read failed: connection reset");
+    expect(chQuery).not.toHaveBeenCalled();
+  });
+
   it("throws when confirmed links exist but no ClickHouse client resolves — never renders the empty state over real links", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
@@ -464,14 +517,44 @@ describe("readLinkedSessions", () => {
         // Branch-inferred row FIRST, so a last-write-wins map would keep the
         // pr_link one by luck; the reverse order is the failing case, and
         // both must resolve to pr_link.
-        link({ id: "l1", app_id: "app-b", trace_id: "t1", method: "branch", verification: "confirmed" }),
-        link({ id: "l2", app_id: "app-a", trace_id: "t1", method: "pr_link", verification: "confirmed" }),
-        link({ id: "l3", app_id: "app-a", trace_id: "t2", method: "pr_link", verification: "confirmed" }),
-        link({ id: "l4", app_id: "app-b", trace_id: "t2", method: "branch", verification: "confirmed" }),
+        link({
+          id: "l1",
+          app_id: "app-b",
+          trace_id: "t1",
+          method: "branch",
+          verification: "confirmed",
+          session_id: "s-t1-branch",
+        }),
+        link({
+          id: "l2",
+          app_id: "app-a",
+          trace_id: "t1",
+          method: "pr_link",
+          verification: "confirmed",
+          session_id: "s-t1-pr-link",
+        }),
+        // Reverse order for t2: pr_link arrives first, branch second — the
+        // session id must stay pinned to the winning pr_link row either way.
+        link({
+          id: "l3",
+          app_id: "app-a",
+          trace_id: "t2",
+          method: "pr_link",
+          verification: "confirmed",
+          session_id: "s-t2-pr-link",
+        }),
+        link({
+          id: "l4",
+          app_id: "app-b",
+          trace_id: "t2",
+          method: "branch",
+          verification: "confirmed",
+          session_id: "s-t2-branch",
+        }),
       ],
     });
     const chQuery = vi.fn().mockResolvedValue([
-      chRow({ TraceId: "t1", AppId: "app-a", StartedAt: "2026-07-01 09:00:00.000" }),
+      chRow({ TraceId: "t1", AppId: "app-a", StartedAt: "2026-07-01 09:00:00.000", ErrorCount: 7 }),
       chRow({ TraceId: "t2", AppId: "app-a", StartedAt: "2026-07-02 09:00:00.000" }),
     ]);
     seedSupabaseMswState({
@@ -484,5 +567,10 @@ describe("readLinkedSessions", () => {
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
     expect(result!.map((r) => r.method)).toEqual(["pr_link", "pr_link"]);
+    // The session id, like the method, follows the winning pr_link row —
+    // regardless of whether it arrived before or after the branch row.
+    expect(result!.map((r) => r.sessionId)).toEqual(["s-t1-pr-link", "s-t2-pr-link"]);
+    // A truthy ErrorCount must pass through as-is, not collapse to 0.
+    expect(result![0]!.errorCount).toBe(7);
   });
 });
