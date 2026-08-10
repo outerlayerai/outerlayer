@@ -68,7 +68,6 @@ CREATE TYPE public.app_permission AS ENUM (
     'custom_role.update',
     'custom_role.delete',
     'trace.read',
-    'experiment.read',
     'env_var.read',
     'env_var.insert',
     'env_var.update',
@@ -87,15 +86,12 @@ CREATE TYPE public.app_permission AS ENUM (
     'span.read',
     'session.read',
     'metrics.read',
-    -- Environments & promotion. `environment.promote` covers both forward
-    -- promote and rollback: they carry the same blast radius, so splitting
-    -- them would imply a safety difference that does not exist. All grants
-    -- are app-level; per-env scoping is not modelled.
+    -- Environments. All grants are app-level; per-env scoping is not
+    -- modelled.
     'environment.read',
     'environment.insert',
     'environment.update',
     'environment.delete',
-    'environment.promote',
     -- Governs app-level publish policy fields (e.g. `app.require_pull_request`).
     -- Deliberately separate from `app.update`: editing the app must not let a
     -- caller weaken the review gate. RLS is row-level and cannot single out one

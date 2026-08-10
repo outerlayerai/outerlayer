@@ -403,18 +403,14 @@ INSERT INTO public.role_permissions (role, permission) VALUES
     ('write', 'env_var.update')
 ON CONFLICT (role, permission) DO NOTHING;
 
--- Environment lifecycle: every role reads; write roles create, edit, and
--- promote (promote is the release action and covers both forward promotion
--- and rollback); deleting an environment is owner/admin.
+-- Environment lifecycle: every role reads; write roles create and edit;
+-- deleting an environment is owner/admin.
 INSERT INTO public.role_permissions (role, permission) VALUES
     ('owner', 'environment.delete'),
     ('admin', 'environment.delete'),
     ('owner', 'environment.insert'),
     ('admin', 'environment.insert'),
     ('write', 'environment.insert'),
-    ('owner', 'environment.promote'),
-    ('admin', 'environment.promote'),
-    ('write', 'environment.promote'),
     ('owner', 'environment.read'),
     ('admin', 'environment.read'),
     ('write', 'environment.read'),
@@ -422,16 +418,6 @@ INSERT INTO public.role_permissions (role, permission) VALUES
     ('owner', 'environment.update'),
     ('admin', 'environment.update'),
     ('write', 'environment.update')
-ON CONFLICT (role, permission) DO NOTHING;
-
--- Experiments: every role views. experiment.run is deliberately ungranted —
--- its only enforcement was the pending_experiment RLS policies, dropped
--- along with that table.
-INSERT INTO public.role_permissions (role, permission) VALUES
-    ('owner', 'experiment.read'),
-    ('admin', 'experiment.read'),
-    ('write', 'experiment.read'),
-    ('read', 'experiment.read')
 ON CONFLICT (role, permission) DO NOTHING;
 
 -- Tracked git branches: every role reads; owner/admin manage.

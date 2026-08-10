@@ -451,9 +451,9 @@ describe("IMPLICIT_DB_PERMISSIONS", () => {
   // environment.read, and an app's environment is part of every app-scoped
   // URL — a custom role without it loads an app whose environments are all
   // filtered away. Lifecycle write perms are deliberately NOT implicit.
-  it("grants environment.read but no environment write/promote permission", () => {
+  it("grants environment.read but no environment write permission", () => {
     expect(IMPLICIT_DB_PERMISSIONS).toContain("environment.read");
-    for (const perm of ["environment.insert", "environment.update", "environment.delete", "environment.promote"]) {
+    for (const perm of ["environment.insert", "environment.update", "environment.delete"]) {
       expect(IMPLICIT_DB_PERMISSIONS).not.toContain(perm);
     }
   });

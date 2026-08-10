@@ -3163,7 +3163,6 @@ export type Database = {
         | "custom_role.update"
         | "custom_role.delete"
         | "trace.read"
-        | "experiment.read"
         | "env_var.read"
         | "env_var.insert"
         | "env_var.update"
@@ -3179,7 +3178,6 @@ export type Database = {
         | "environment.insert"
         | "environment.update"
         | "environment.delete"
-        | "environment.promote"
         | "app_policy.update"
         | "audit_log.read"
         | "context.read"
@@ -4037,7 +4035,6 @@ export const Constants = {
         "custom_role.update",
         "custom_role.delete",
         "trace.read",
-        "experiment.read",
         "env_var.read",
         "env_var.insert",
         "env_var.update",
@@ -4053,7 +4050,6 @@ export const Constants = {
         "environment.insert",
         "environment.update",
         "environment.delete",
-        "environment.promote",
         "app_policy.update",
         "audit_log.read",
         "context.read",

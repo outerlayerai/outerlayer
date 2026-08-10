@@ -70,12 +70,14 @@ describe('GATEWAY_PERMISSIONS', () => {
     expect(GATEWAY_PERMISSIONS).toContain('span.read');
     expect(GATEWAY_PERMISSIONS).toContain('session.read');
     expect(GATEWAY_PERMISSIONS).toContain('metrics.read');
-    expect(GATEWAY_PERMISSIONS).toContain('experiment.read');
     // These permissions have no corresponding surface and must not reappear:
     expect(GATEWAY_PERMISSIONS).not.toContain('template.read');
     expect(GATEWAY_PERMISSIONS).not.toContain('dataset.read');
     expect(GATEWAY_PERMISSIONS).not.toContain('score_config.read');
     expect(GATEWAY_PERMISSIONS).not.toContain('annotation_queue.read');
+    // Removed: gated zero gateway routes and zero RLS policies.
+    expect(GATEWAY_PERMISSIONS).not.toContain('experiment.read');
+    expect(GATEWAY_PERMISSIONS).not.toContain('environment.promote');
   });
 
   it('should have no duplicate entries', () => {

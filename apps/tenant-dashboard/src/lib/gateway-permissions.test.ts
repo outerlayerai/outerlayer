@@ -8,13 +8,15 @@ import {
 
 describe('gateway-permissions', () => {
   describe('GATEWAY_PERMISSIONS', () => {
-    it('should have 20 permission entries', () => {
+    it('should have 18 permission entries', () => {
       // 12 grantable permissions are absent because their surfaces are gone:
       // template.read, score_config.read, dataset.{read,write},
       // annotation_queue.{read,write,delete,review}, and
       // alert.{read,insert,update,delete}. Scores (write/read/delete) survive
-      // because score WRITES are still shape-validated.
-      expect(GATEWAY_PERMISSIONS).toHaveLength(20);
+      // because score WRITES are still shape-validated. experiment.read and
+      // environment.promote are gone too — they gated no route and no RLS
+      // policy.
+      expect(GATEWAY_PERMISSIONS).toHaveLength(18);
     });
 
     it('must NOT offer tenant-tier app management permissions', () => {
@@ -101,9 +103,9 @@ describe('gateway-permissions', () => {
       ]);
     });
 
-    it('should assign all 20 permissions to full-access role', () => {
+    it('should assign all 18 permissions to full-access role', () => {
       const fullAccess = GATEWAY_ROLES.find((r) => r.id === 'full-access')!;
-      expect(fullAccess.permissions).toHaveLength(20);
+      expect(fullAccess.permissions).toHaveLength(18);
       const allKeys = GATEWAY_PERMISSIONS.map((p) => p.key);
       expect([...fullAccess.permissions]).toEqual(allKeys);
       // Even "full access" must not be able to grant tenant-tier app mgmt.
@@ -135,10 +137,11 @@ describe('gateway-permissions', () => {
       expect(PERMISSION_CATEGORIES.sort()).toEqual([...categoriesFromPerms].sort());
     });
 
-    it('should have 10 categories', () => {
+    it('should have 9 categories', () => {
       // Four categories are absent because their surfaces are gone:
-      // Templates, Datasets, Annotation Queues, and Slack.
-      expect(PERMISSION_CATEGORIES).toHaveLength(10);
+      // Templates, Datasets, Annotation Queues, and Slack. Experiments is
+      // gone too — experiment.read was its only permission.
+      expect(PERMISSION_CATEGORIES).toHaveLength(9);
     });
   });
 
@@ -161,7 +164,7 @@ describe('gateway-permissions', () => {
     });
 
     it('should return all permissions when role is full-access', () => {
-      expect(getPermissionsForRole('full-access')).toHaveLength(20);
+      expect(getPermissionsForRole('full-access')).toHaveLength(18);
     });
 
     it('should return empty array when role is custom', () => {

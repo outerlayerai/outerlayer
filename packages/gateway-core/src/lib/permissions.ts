@@ -64,23 +64,19 @@ export const GATEWAY_PERMISSIONS = [
   'span.read',
   'session.read',
   'metrics.read',
-  'experiment.read',
   // API key management. Names mirror the SQL enum
   // (`api_key.read|insert|delete`) — the OpenAPI doc-level aliases
   // `api_key.create` / `api_key.revoke` map to `insert` / `delete` here.
   'api_key.read',
   'api_key.insert',
   'api_key.delete',
-  // Environments & Promotion. All 5 env permissions are gateway-
-  // facing because both CLI (API key auth) and dashboard (bearer JWT auth)
-  // hit the same `/v1/environments/*` routes.
-  // `environment.promote` gates both forward promote and rollback: both
-  // replace what is running in an environment.
+  // Environments. All 4 env permissions are gateway-facing because both
+  // CLI (API key auth) and dashboard (bearer JWT auth) hit the same
+  // `/v1/environments/*` routes.
   'environment.read',
   'environment.insert',
   'environment.update',
   'environment.delete',
-  'environment.promote',
   // App CRUD — the public /v1/apps/* surface. A headless agent with these
   // four permissions can provision a Cloud app without the dashboard,
   // which is the prerequisite for the rest of the headless onboarding

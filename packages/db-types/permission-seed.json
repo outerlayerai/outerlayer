@@ -263,18 +263,13 @@
     },
     {
       "key": "environment",
-      "rationale": "Environment lifecycle: every role reads; write roles create, edit, and promote (promote is the release action and covers both forward promotion and rollback); deleting an environment is owner/admin.",
+      "rationale": "Environment lifecycle: every role reads; write roles create and edit; deleting an environment is owner/admin.",
       "grants": {
         "environment.delete": [
           "owner",
           "admin"
         ],
         "environment.insert": [
-          "owner",
-          "admin",
-          "write"
-        ],
-        "environment.promote": [
           "owner",
           "admin",
           "write"
@@ -289,18 +284,6 @@
           "owner",
           "admin",
           "write"
-        ]
-      }
-    },
-    {
-      "key": "experiment",
-      "rationale": "Experiments: every role views. experiment.run is deliberately ungranted \u2014 its only enforcement was the pending_experiment RLS policies, dropped along with that table.",
-      "grants": {
-        "experiment.read": [
-          "owner",
-          "admin",
-          "write",
-          "read"
         ]
       }
     },

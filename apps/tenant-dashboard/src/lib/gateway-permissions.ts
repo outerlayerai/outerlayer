@@ -24,17 +24,14 @@ export const GATEWAY_PERMISSIONS = [
   { key: 'span.read', label: 'Read spans', category: 'Spans', isDefault: false },
   { key: 'session.read', label: 'Read sessions', category: 'Sessions', isDefault: false },
   { key: 'metrics.read', label: 'Read metrics', category: 'Metrics', isDefault: false },
-  { key: 'experiment.read', label: 'Read experiments', category: 'Experiments', isDefault: false },
   { key: 'api_key.read', label: 'Read API keys', category: 'API Keys', isDefault: false },
   { key: 'api_key.insert', label: 'Create API keys', category: 'API Keys', isDefault: false },
   { key: 'api_key.delete', label: 'Delete API keys', category: 'API Keys', isDefault: false },
-  // Environment lifecycle permissions. `environment.promote`
-  // gates both forward promote and rollback.
+  // Environment lifecycle permissions.
   { key: 'environment.read', label: 'Read environments', category: 'Environments', isDefault: false },
   { key: 'environment.insert', label: 'Create environments', category: 'Environments', isDefault: false },
   { key: 'environment.update', label: 'Update environments', category: 'Environments', isDefault: false },
   { key: 'environment.delete', label: 'Delete environments', category: 'Environments', isDefault: false },
-  { key: 'environment.promote', label: 'Promote / roll back environments', category: 'Environments', isDefault: false },
   // Apps — only `app.read` is grantable on an API key. Every API key is
   // *app-scoped* (bound to one app via X-Outerlayer-App-Id), but app
   // create/update/delete operate at the TENANT tier: the gateway authorizes

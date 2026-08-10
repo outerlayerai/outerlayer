@@ -31,12 +31,6 @@ const DORMANT_PERMISSION_ALLOWLIST: Partial<Record<GatewayPermission, string>> =
   // bearer/dashboard path; no gateway route reads it, so it never
   // appears as a `requiredPermission`. Permanent — not tied to a future group.
   'environment.update': 'backs the environment RLS UPDATE policy; no gateway route by design',
-  // Dead residue from the removed eval-run feature; gates no route and
-  // no RLS policy. Slated for removal from the permission enum.
-  'experiment.read': 'dead residue from the removed eval-run feature; removed alongside environment.promote',
-  // Gates no route and no RLS policy; the phantom promote/rollback route
-  // this permission was meant to guard was never shipped.
-  'environment.promote': 'gates no route or policy; removed alongside experiment.read',
   // Dormant until the sessions/metrics REST routes ship.
   'session.read': 'activated once GET /v1/sessions and GET /v1/sessions/{traceId} ship',
   'metrics.read': 'activated once GET /v1/metrics/models and GET /v1/metrics/overview ship',
