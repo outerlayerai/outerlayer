@@ -39,10 +39,6 @@ export class OAuthRegistrationService {
       return { error: "Email is required for registration." };
     }
 
-    if (!isSignupEmailAllowed(user.email)) {
-      return { error: SIGNUP_NOT_ALLOWED_ERROR };
-    }
-
     // Check if user already has a profile (returning user)
     const { data: existingProfile } = await this.supabaseAdmin
       .from("profile")
@@ -76,6 +72,14 @@ export class OAuthRegistrationService {
         userId: user.id,
         tenantId: membership?.tenant_id,
       };
+    }
+
+    // Gate AFTER the returning-user branch above: this path runs on every OAuth
+    // sign-in, not just the first. Checking earlier would lock out existing
+    // members whose address predates the allowlist — turning a registration
+    // policy into a retroactive eviction.
+    if (!isSignupEmailAllowed(user.email)) {
+      return { error: SIGNUP_NOT_ALLOWED_ERROR };
     }
 
     // New user - create profile

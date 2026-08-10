@@ -20,6 +20,7 @@
 import type { User } from '@supabase/supabase-js';
 import * as adminClientModule from '../admin-client';
 import { OAuthRegistrationService } from './oauth-registration';
+import { isSignupEmailAllowed } from './signup-allowlist';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -96,10 +97,41 @@ async function getInsertedDisplayName(user: User): Promise<string> {
 describe('OAuthRegistrationService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks wipes the factory's return value, not just call history —
+    // without this every test after an allowlist case sees undefined (falsy).
+    vi.mocked(isSignupEmailAllowed).mockReturnValue(true);
     setupNewUserMocks();
     vi.spyOn(adminClientModule, 'getAdminDataClient').mockReturnValue({
       from: vi.fn().mockReturnValue(mockChain),
     } as any);
+  });
+
+  describe('signup allowlist', () => {
+    it('blocks a new user whose address is not allowlisted, without creating a profile', async () => {
+      vi.mocked(isSignupEmailAllowed).mockReturnValue(false);
+
+      const service = new OAuthRegistrationService();
+      const result = await service.processOAuthRegistration(makeUser());
+
+      expect(result).toEqual({ error: 'Registration is not open on this deployment.' });
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    // The gate must sit after the returning-user branch. An allowlist added
+    // later would otherwise evict every existing member whose address predates
+    // it — a registration policy silently becoming a retroactive lockout.
+    it('lets a returning user sign in even when their address is not allowlisted', async () => {
+      vi.mocked(isSignupEmailAllowed).mockReturnValue(false);
+      mockMaybeSingle
+        .mockResolvedValueOnce({ data: { id: 'user-uuid-001', github_username: 'alice' }, error: null })
+        .mockResolvedValueOnce({ data: { tenant_id: 'tenant-1' }, error: null });
+
+      const service = new OAuthRegistrationService();
+      const result = await service.processOAuthRegistration(makeUser());
+
+      expect(result).toEqual({ userId: 'user-uuid-001', tenantId: 'tenant-1' });
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
   });
 
   describe('display name resolution', () => {
