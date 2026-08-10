@@ -177,6 +177,19 @@ export function _resetRoutePermissions(): void {
   routePermissions.clear();
 }
 
+/**
+ * All route path patterns currently registered via `setRoutePermission()`
+ * (one entry per (method, path) pair — a path with multiple methods
+ * appears once per method). Backs capability derivation
+ * (`routes/capabilities.ts`): a capability is available iff at least one
+ * registered path falls under its prefix. Callers must invoke this at
+ * request time, not module-eval time — the registry only reflects
+ * registrations that have already run.
+ */
+export function getRegisteredRoutePaths(): readonly string[] {
+  return Array.from(routePermissions.keys(), (key) => key.slice(key.indexOf(' ') + 1));
+}
+
 // ---------------------------------------------------------------------------
 // Permission check
 // ---------------------------------------------------------------------------

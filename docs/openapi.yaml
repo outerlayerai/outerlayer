@@ -2646,6 +2646,8 @@ paths:
                         type: "boolean"
                       spans:
                         type: "boolean"
+                      topics:
+                        type: "boolean"
                       traces:
                         type: "boolean"
                     required:
@@ -2659,6 +2661,7 @@ paths:
                       - "datasets"
                       - "prompts"
                       - "runs"
+                      - "topics"
                     type: "object"
                   target:
                     enum:
