@@ -78,7 +78,7 @@ function payload(action: string, overrides: Record<string, unknown> = {}) {
 function seed({ upsertStatus = 201 }: { upsertStatus?: number } = {}) {
   server.use(
     http.get(`${API}/git_connection`, () =>
-      HttpResponse.json([{ app_id: "app-1", tenant_id: "t-1" }]),
+      HttpResponse.json([{ app_id: "app-1", tenant_id: "t-1", repository: "acme/repo" }]),
     ),
     http.post(`${API}/pull_request`, () =>
       upsertStatus === 201
@@ -205,8 +205,8 @@ describe("handlePullRequestEvent → pr-session comment wiring", () => {
     server.use(
       http.get(`${API}/git_connection`, () =>
         HttpResponse.json([
-          { app_id: "app-1", tenant_id: "t-1" },
-          { app_id: "app-2", tenant_id: "t-1" },
+          { app_id: "app-1", tenant_id: "t-1", repository: "acme/repo" },
+          { app_id: "app-2", tenant_id: "t-1", repository: "acme/repo" },
         ]),
       ),
       http.post(`${API}/pull_request`, () => HttpResponse.json([], { status: 201 })),
@@ -220,12 +220,43 @@ describe("handlePullRequestEvent → pr-session comment wiring", () => {
     });
   });
 
+  // AC-057-10's regression: a raw `.eq("repository", payload.full_name)`
+  // misses a connection stored in any other spelling — the PR then goes
+  // untracked and the empty-state comment never posts, even though the
+  // queue path (already canonical-to-canonical) works for the very same
+  // repo. Match is canonical-to-canonical: the `ilike` on the wire is only
+  // a prefilter, proven here by making it the ONLY thing standing between
+  // an empty result and a match — a plain `eq.acme/repo` against this
+  // handler would return nothing.
+  it("resolves a connection whose stored repository is a different spelling from the payload's full_name", async () => {
+    server.use(
+      http.get(`${API}/git_connection`, ({ request }) => {
+        const url = new URL(request.url);
+        const raw = url.searchParams.get("repository") ?? "";
+        const isCanonicalPrefilter = raw.startsWith("ilike.") && raw.toLowerCase().includes("acme/repo");
+        return HttpResponse.json(
+          isCanonicalPrefilter
+            ? [{ app_id: "app-1", tenant_id: "t-1", repository: "https://github.com/Acme/Repo.git" }]
+            : [],
+        );
+      }),
+      http.post(`${API}/pull_request`, () => HttpResponse.json([], { status: 201 })),
+      http.patch(`${API}/pull_request`, () => HttpResponse.json([], { status: 200 })),
+    );
+    await handlePullRequestEvent(payload("opened") as never);
+    expect(m.refreshComment).toHaveBeenCalledWith({
+      tenantId: "t-1",
+      repository: "acme/repo",
+      prNumber: 42,
+    });
+  });
+
   it("posts the comment refresh for every connected app on a multi-app repo", async () => {
     server.use(
       http.get(`${API}/git_connection`, () =>
         HttpResponse.json([
-          { app_id: "app-1", tenant_id: "t-1" },
-          { app_id: "app-2", tenant_id: "t-2" },
+          { app_id: "app-1", tenant_id: "t-1", repository: "acme/repo" },
+          { app_id: "app-2", tenant_id: "t-2", repository: "acme/repo" },
         ]),
       ),
       http.post(`${API}/pull_request`, () => HttpResponse.json([], { status: 201 })),

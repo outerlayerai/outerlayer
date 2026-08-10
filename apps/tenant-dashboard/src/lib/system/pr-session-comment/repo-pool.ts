@@ -1,5 +1,7 @@
 import "server-only";
 
+import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
+
 /**
  * The concurrency policy every PR-comment refresh caller has to obey.
  *
@@ -49,7 +51,11 @@ export async function refreshEachByRepo<T extends RepoScoped, R>(
   const byRepo = new Map<string, number[]>();
   for (let i = 0; i < targets.length; i += 1) {
     const t = targets[i]!;
-    const key = `${t.tenantId}\0${t.repository}`;
+    // The cron path passes `git_connection`'s stored spelling, which can
+    // differ across two connections naming the same repo — keying on the
+    // raw string would split one rate-limit bucket into two concurrent
+    // lanes, defeating the serialization this pool exists for.
+    const key = `${t.tenantId}\0${canonicalPrCommentRepo(t.repository) ?? t.repository}`;
     const group = byRepo.get(key);
     if (group) group.push(i);
     else byRepo.set(key, [i]);

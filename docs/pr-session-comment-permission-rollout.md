@@ -100,9 +100,10 @@ very different things. Do not guess — check in this order:
    below). If present, the org's admin has not yet approved `issues: write`.
    This is an app-level, cross-repo state — if one repo shows it, every repo
    under that installation is in the same state.
-2. **Toggle disabled by the customer.** `git_connection.pr_comments_enabled`
-   is a per-app boolean, default `true`. If it's `false`, the
-   customer turned the feature off for that app themselves; existing comments
+2. **Toggle disabled.** `git_connection.pr_comments_enabled` is a per-app
+   boolean, default `false` — the feature is opt-in. If it's `false`, either
+   nobody has enabled it for that app yet or the customer turned it off;
+   existing comments
    are left in place (never deleted) but no further writes happen.
    `readLinkedSessions` (`apps/tenant-dashboard/src/lib/system/pr-session-comment/read.ts`)
    treats "no app has `pr_comments_enabled` for this repo" as a clean no-op —

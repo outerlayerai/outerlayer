@@ -9,6 +9,7 @@ import { reconcilePullRequest, tenantChQuery } from "@/lib/system/pr-session-rec
 import { emitOutcomeScoresForPrs, scoresInsertFn } from "@/lib/system/outcome-scores";
 import { repoJoinKey } from "@/lib/system/workers/persist-agent-session";
 import { refreshPrSessionComment } from "@/lib/system/pr-session-comment";
+import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
 
 /**
  * `pull_request` webhook actions that warrant a comment refresh.
@@ -72,6 +73,51 @@ export interface GitHubPullRequestPayload {
 
 type PrState = "open" | "closed" | "merged";
 
+/** Escapes PostgREST/Postgres `LIKE` wildcards in a literal so it can be
+ * embedded in an `ilike` pattern without matching more than intended — repo
+ * names legally contain `_`, which is itself a single-character wildcard. */
+function escapeLikeWildcards(value: string): string {
+  return value.replace(/[%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * Resolves the `git_connection` rows for a webhook payload's repository.
+ *
+ * `git_connection.repository` is stamped verbatim at link time (URL-form
+ * remotes, mixed case), so a raw `.eq("repository", repository)` against the
+ * payload's `owner/repo` full_name misses connections stored in any other
+ * spelling — the PR then goes untracked and, worse, the PR-open empty-state
+ * comment never posts, while the queue path (already canonical-to-canonical)
+ * works, which reads as unreproducible. Matching is canonical-to-canonical,
+ * same invariant as `pr-session-comment/read.ts` and `refresh.ts`: the
+ * `ilike` below is only a bounded OVER-fetching prefilter (this query has no
+ * tenant scope to narrow it, unlike those two), never the decision — the JS
+ * `canonicalPrCommentRepo` equality after it is. A `repository` that doesn't
+ * parse to a canonical GitHub `owner/repo` (shouldn't happen for a GitHub
+ * webhook payload) falls back to the exact match instead of prefiltering on
+ * nothing and returning every connection in the table.
+ */
+async function resolveConnectionsForRepository(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  repository: string,
+): Promise<{ app_id: string; tenant_id: string }[]> {
+  const canonical = canonicalPrCommentRepo(repository);
+  if (canonical === null) {
+    const { data } = await supabase
+      .from("git_connection")
+      .select("app_id, tenant_id")
+      .eq("repository", repository);
+    return data ?? [];
+  }
+
+  const { data } = await supabase
+    .from("git_connection")
+    .select("app_id, tenant_id, repository")
+    .eq("provider", "github")
+    .ilike("repository", `%${escapeLikeWildcards(canonical)}%`);
+  return (data ?? []).filter((c) => canonicalPrCommentRepo(c.repository) === canonical);
+}
+
 /**
  * Persist a pull request's lifecycle into `pull_request`. EVERY PR on a
  * connected repo is tracked — the agent-fleet PR metrics (merge rate,
@@ -89,11 +135,8 @@ export async function handlePullRequestEvent(
   const baseBranch = pr.base?.ref ?? "";
   const supabase = createSupabaseAdminClient();
 
-  const { data: connections } = await supabase
-    .from("git_connection")
-    .select("app_id, tenant_id")
-    .eq("repository", repository);
-  if (!connections?.length) return;
+  const connections = await resolveConnectionsForRepository(supabase, repository);
+  if (!connections.length) return;
 
   // Fate comes from PAYLOAD TRUTH, never the action name: events that arrive
   // AFTER a PR is decided (labeled, edited, review activity) still carry

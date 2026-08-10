@@ -208,7 +208,7 @@ describe("resolveChangedLinkTargets (changed links → refresh targets)", () => 
   const SUPABASE_URL = "http://localhost:54321";
 
   function seedGitConnections(
-    rows: { app_id: string; tenant_id: string; repository: string }[],
+    rows: { app_id: string; tenant_id: string; repository: string; pr_comments_enabled?: boolean }[],
   ) {
     server.use(
       http.get(`${SUPABASE_URL}/rest/v1/git_connection`, ({ request }) => {
@@ -220,7 +220,13 @@ describe("resolveChangedLinkTargets (changed links → refresh targets)", () => 
               .split(",")
               .map((v) => v.replace(/^"|"$/g, ""))
           : null;
-        const matched = appIds ? rows.filter((r) => appIds.includes(r.app_id)) : rows;
+        let matched = appIds ? rows.filter((r) => appIds.includes(r.app_id)) : rows;
+        // Mirrors the real query's `.eq("pr_comments_enabled", true)` — a row
+        // seeded without the field defaults to enabled, so existing tests
+        // that don't care about the toggle keep passing.
+        if (url.searchParams.get("pr_comments_enabled") === "eq.true") {
+          matched = matched.filter((r) => r.pr_comments_enabled !== false);
+        }
         return HttpResponse.json(matched);
       }),
     );
@@ -255,5 +261,17 @@ describe("resolveChangedLinkTargets (changed links → refresh targets)", () => 
     server.use(http.get(`${SUPABASE_URL}/rest/v1/git_connection`, spy));
     expect(await resolveChangedLinkTargets(getAdminDataClient(), [])).toEqual([]);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("drops a changed link on a connection with pr_comments_enabled=false — it can never post, so it must not consume the refresh budget", async () => {
+    seedGitConnections([
+      { app_id: "app-1", tenant_id: "tenant-1", repository: "acme/api", pr_comments_enabled: false },
+      { app_id: "app-2", tenant_id: "tenant-2", repository: "acme/web", pr_comments_enabled: true },
+    ]);
+    const targets = await resolveChangedLinkTargets(getAdminDataClient(), [
+      { appId: "app-1", prNumber: 42 },
+      { appId: "app-2", prNumber: 7 },
+    ]);
+    expect(targets).toEqual([{ tenantId: "tenant-2", repository: "acme/web", prNumber: 7 }]);
   });
 });

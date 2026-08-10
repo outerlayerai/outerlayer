@@ -77,7 +77,7 @@ function prPayload(
 function seedAppResolution() {
   server.use(
     http.get(`${API}/git_connection`, () =>
-      HttpResponse.json([{ app_id: "app-1", tenant_id: "t-1" }])
+      HttpResponse.json([{ app_id: "app-1", tenant_id: "t-1", repository: "acme/repo" }])
     )
   );
 }
@@ -118,6 +118,36 @@ describe("handlePullRequestEvent", () => {
     expect((writes.upsert as { opened_at?: string }).opened_at).toMatch(
       /^\d{4}-\d{2}-\d{2}T/
     );
+  });
+
+  // AC-057-10's regression: `git_connection.repository` is stored verbatim
+  // at link time, so a payload's canonical `owner/repo` full_name can differ
+  // in spelling from the stored value (URL-form, case). A raw `.eq` filter
+  // then finds zero connections and the PR goes untracked.
+  it("tracks a PR whose connection repository is stored in a different spelling than the payload's full_name", async () => {
+    server.use(
+      http.get(`${API}/git_connection`, ({ request }) => {
+        const url = new URL(request.url);
+        const raw = url.searchParams.get("repository") ?? "";
+        const isCanonicalPrefilter = raw.startsWith("ilike.") && raw.toLowerCase().includes("acme/repo");
+        return HttpResponse.json(
+          isCanonicalPrefilter
+            ? [{ app_id: "app-1", tenant_id: "t-1", repository: "https://github.com/Acme/Repo.git" }]
+            : [],
+        );
+      }),
+    );
+    const writes: { upsert?: Record<string, unknown> } = {};
+    server.use(
+      http.post(`${API}/pull_request`, async ({ request }) => {
+        writes.upsert = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({});
+      })
+    );
+
+    await handlePullRequestEvent(prPayload("opened"));
+
+    expect(writes.upsert).toMatchObject({ app_id: "app-1", tenant_id: "t-1", pr_number: 5 });
   });
 
   it("persists the payload's diff size (batch-size guardrail data)", async () => {
@@ -546,8 +576,8 @@ describe("handlePullRequestEvent", () => {
     server.use(
       http.get(`${API}/git_connection`, () =>
         HttpResponse.json([
-          { app_id: "app-1", tenant_id: "t-1" },
-          { app_id: "app-2", tenant_id: "t-1" },
+          { app_id: "app-1", tenant_id: "t-1", repository: "acme/repo" },
+          { app_id: "app-2", tenant_id: "t-1", repository: "acme/repo" },
         ])
       ),
       http.post(`${API}/pull_request`, async ({ request }) => {

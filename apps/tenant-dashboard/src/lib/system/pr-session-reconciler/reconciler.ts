@@ -493,6 +493,10 @@ export async function resolveChangedLinkTargets(
     // PR comments are a GitHub-App-only capability; a legacy
     // `provider='gitlab'` row would nominate a repo nothing can ever post to.
     .eq("provider", "github")
+    // A connection with comments disabled is a guaranteed no-op downstream
+    // (`refreshPrSessionComment` returns `skipped-disabled` for it) — it
+    // must not consume the drain cap in `pr-session-reconcile/route.ts`.
+    .eq("pr_comments_enabled", true)
     .limit(MAX_CHANGED_APP_CONNECTIONS);
   if (error) throw new Error(`git_connection read failed: ${error.message}`);
   const byApp = new Map(
