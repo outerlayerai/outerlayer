@@ -31,3 +31,4 @@ export type { EnvRef, RewriteEnvRefsResult } from './emit/index';
 
 export { parseOuterlayerConfig } from './emit/index';
 export type { OuterlayerConfig } from './emit/index';
+export { extractGeneratedSource } from './emit/index';
