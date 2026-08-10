@@ -1,0 +1,19 @@
+{
+  "skill_name": "writing-tests",
+  "queries": [
+    { "query": "add tests for the api-keys server action", "should_trigger": true },
+    { "query": "the weak-test-assertions check is failing on my new test", "should_trigger": true },
+    { "query": "how should I fake supabase in this dashboard unit test?", "should_trigger": true },
+    { "query": "the coverage gate went red after I deleted some old code — what's the right fix?", "should_trigger": true },
+    { "query": "write a unit test for the entitlement resolution service", "should_trigger": true },
+    { "query": "is expect(result).toBeDefined() enough here or should I assert more?", "should_trigger": true },
+    { "query": "these tests still pass when I break the production code — tighten them up", "should_trigger": true },
+    { "query": "my manager says my test mocks are wrong, we apparently don't vi.mock supabase?", "should_trigger": true },
+    { "query": "run the unit test suite and tell me what fails", "should_trigger": false },
+    { "query": "the integration test container fails to start in CI", "should_trigger": false },
+    { "query": "set up vitest for a brand new package", "should_trigger": false },
+    { "query": "run the e2e tests locally", "should_trigger": false },
+    { "query": "what's our overall code coverage percentage right now?", "should_trigger": false },
+    { "query": "add a test:watch script to package.json", "should_trigger": false }
+  ]
+}

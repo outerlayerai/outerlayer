@@ -126,6 +126,7 @@ const {
   publishSafetyChanged,
   scriptsChanged,
   apiTenancyChanged,
+  contextEmitChanged,
 } = pathScopeFlags(changedPaths);
 
 // ── Gate: security audit (cached on yarn.lock hash) ───────────────────────────
@@ -322,6 +323,12 @@ const results = await Promise.allSettled([
   scriptsChanged
     ? gate('scripts tests', 'npx', ['vitest', 'run', '--project', 'scripts'])
     : skip('scripts tests', 'no scripts/ changes'),
+  // Committed .claude/** is generated from .outerlayer/ sources — drift means
+  // someone edited one without the other. The failure fix is always: apply
+  // the change to the .outerlayer/ source and run `npx outerlayer emit`.
+  contextEmitChanged
+    ? gate('context-emit',      'yarn', ['ci:context-emit'])
+    : skip('context-emit', 'no .outerlayer/.claude or emit-implementation changes'),
   // Path-scoped gates — skipped automatically when no relevant source changed
   openapiPipeline(),
 ]);

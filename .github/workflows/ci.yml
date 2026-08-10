@@ -333,6 +333,14 @@ jobs:
         if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
         run: yarn ci:permission-codegen
 
+      # Committed .claude/** (agent skills) is generated from .outerlayer/
+      # sources. Drift means one was edited without the other — the fix is to
+      # apply the change to the .outerlayer/ source and run `npx outerlayer
+      # emit`, then commit both.
+      - name: Agent context is up to date (emit --check)
+        if: ${{ !cancelled() && steps.workspace.outcome == 'success' }}
+        run: yarn ci:context-emit
+
       # Keeps the RLS-bypassing admin client inside the service layer (S4 bug
       # class): shrink-only baseline of createSupabaseAdminClient() outside
       # src/services|ee/services.

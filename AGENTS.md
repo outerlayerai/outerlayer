@@ -13,7 +13,8 @@ below before editing anything there.
 
 - `apps/gateway` / `apps/gateway-node` — Hono gateway (Cloudflare Worker + Node entrypoints)
 - `apps/worker` — machine-side runner; deliberately has no `@repo/*` runtime deps — keep it that way
-- `packages/*` — shared cores, contracts (`api-schemas`, `api-types`, `db-types`), tooling
+- `packages/*` — shared cores, contracts (`api-schemas`, `api-types`, `db-types`), tooling.
+  Apps consume packages; packages never import from apps.
 - `apps/tenant-dashboard/supabase/schemas/` — declarative DB source of truth (migrations derive from it)
 - `acceptance/` — acceptance criteria bound to tests by CI
 
@@ -27,6 +28,45 @@ below before editing anything there.
 hook files — even when a hook fails. A failing hook means the code has a
 problem; fix the typecheck/lint/test error it reports. Bypassing it just
 moves the failure to CI and makes the PR red.
+
+## CI-only gates
+
+The pre-push hook covers typecheck, lint, knip, unit tests, and codegen
+drift. The gates below run **only in CI** — a locally-green push can still
+fail them. When your change touches their domain, run the local check before
+pushing:
+
+- **Coverage floors** — `node scripts/ci/check-coverage-floors.mjs` (after a
+  coverage run). Per-workspace ratcheted floors in
+  `scripts/ci/coverage-floors.json`. Deleting well-tested code can sink a
+  workspace below its floor — rebaseline the floor in the same PR.
+- **Patch mutation** — the mutation score of changed code must clear its
+  threshold; opt in locally with `PREPUSH_RUN_MUTATION=1` on the pre-push
+  gate.
+- **Type-suppression floors** —
+  `node scripts/ci/check-type-suppression-floors.mjs`; per-workspace counts
+  of `as any` / `as unknown as` / `@ts-ignore` / `@ts-expect-error` may not
+  exceed `scripts/ci/type-suppression-floors.json`.
+- **Unused-exports floor** —
+  `node scripts/ci/check-unused-exports-floor.mjs`. The floor is
+  **two-way**: removing exports without updating
+  `scripts/ci/unused-exports-floors.json` fails CI just like adding them.
+- **Acceptance coverage** —
+  `node scripts/ci/check-acceptance-coverage.mjs`; every `AC-…` id needs a
+  proving test, with the id in a comment above the test (see Code comments).
+- **Migration lint (Squawk)** —
+  `npx squawk-cli@2.58.0 <changed .sql files>`; warnings fail the job
+  (`ban-drop-table`, `changing-column-type`, NOT NULL without default).
+  Structure migrations to avoid the flagged patterns rather than expecting
+  warnings to pass.
+- **Migration versions** — `node scripts/ci/check-migration-versions.mjs`
+  (timestamp collisions and ordering).
+- **License map** — `node scripts/ci/check-license-map.mjs`; every
+  directory's license must match `LICENSING.md` — don't vendor
+  differently-licensed files without updating it.
+- **Secret scan + quarantine staleness** — gitleaks, and
+  `node scripts/ci/check-quarantine-staleness.mjs` for stale quarantined
+  tests.
 
 ## tenant-dashboard architecture
 
@@ -60,6 +100,8 @@ Invariants:
   middleware) — **never** `app_metadata.tenant_id` or an unscoped server
   client.
 - Slice `service.ts` is framework-free: no React, no `next/*`, no UI imports.
+  Server actions and route handlers stay thin and delegate to services.
+- Use path aliases (`@/…`) over deep relative imports.
 
 ## Database changes
 
@@ -72,6 +114,15 @@ Invariants:
   (`docker exec -i supabase_db_tenant-dashboard psql -U postgres -c "…"`) —
   `supabase migration list`'s "Remote" column only tracks linked cloud
   projects, not local state.
+
+Table standards (every new table):
+
+- Audit columns `created_at`, `updated_at`, `created_by`, `updated_by`;
+  tables with `updated_at` also get the `on_update_set_updated_columns`
+  trigger.
+- RLS policies go through `authorize()` (permission-based) — never direct
+  role checks.
+- Foreign keys to `profile.id` use `ON DELETE SET NULL`.
 
 ## Code comments
 
@@ -133,6 +184,7 @@ self-host boots for nothing — leftover *requirements* are bugs, not clutter.
 
 ## Commits and PRs
 
+- Branch naming: `{chore|feature|bug}/{app|package|all}/description`.
 - No AI co-author trailers (`Co-Authored-By: …`) or "generated with" lines in
   commit messages.
 - Keep PRs scoped; new features and schema changes should reference an issue

@@ -1,0 +1,36 @@
+{
+  "skill_name": "writing-tests",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add a unit test for a tenant-dashboard server action that renames an API key: cover the successful rename and the permission-denied case.",
+      "expected_output": "A test that fakes Supabase through the MSW handler layer (seed helpers), never vi.mock('@supabase/...') or hand-rolled client fakes, with exact-shape assertions on the action's return value in both cases.",
+      "assertions": [
+        "Uses MSW handlers / seed helpers (e.g. seedApiKeysMswState or a new feature handler) rather than vi.mock of any Supabase module or factory",
+        "No hand-rolled from().select().eq() chain fakes anywhere",
+        "Asserts the success result with toEqual/toStrictEqual on a concrete shape, not toBeDefined/toBeTruthy",
+        "The permission-denied case asserts the specific error/denial shape, not just .not.toThrow or a truthy check"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I deleted a feature and now the Coverage Gate fails in CI: one workspace's line coverage is 87.04% against a floor of 88.10%. The deleted code was well-tested. What is the correct fix?",
+      "expected_output": "Rebaseline that workspace's floor in scripts/ci/coverage-floors.json in the same PR — deleting well-tested code legitimately lowers the ratio; the floor is ratcheted and expects a same-PR rebaseline. Not: writing filler tests, bypassing hooks, or reverting the deletion.",
+      "assertions": [
+        "Recommends updating the workspace's entry in scripts/ci/coverage-floors.json in the same PR",
+        "Explains WHY: removing well-tested code lowers the coverage ratio without any quality regression",
+        "Does not suggest bypassing hooks/CI (--no-verify, skipping the gate) or padding with low-value tests"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "The weak-test-assertions check rejected my test because its only assertion is expect(result).toBeDefined(). How do I fix it properly?",
+      "expected_output": "Replace with an assertion that pins the actual contract — toEqual/toStrictEqual on the concrete expected value (or toHaveBeenCalledWith for interactions) — chosen so the smallest production change that breaks behavior also fails the test.",
+      "assertions": [
+        "Replaces toBeDefined with a concrete-value assertion (toEqual/toStrictEqual/toHaveBeenCalledWith)",
+        "Frames the fix via the smallest-change-that-still-passes litmus, not as appeasing the checker",
+        "Does not suggest adding the test to a baseline/exception list as the primary fix"
+      ]
+    }
+  ]
+}

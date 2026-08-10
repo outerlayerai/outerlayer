@@ -113,6 +113,13 @@ export function pathScopeFlags(changedPaths) {
     // The root "scripts" vitest project (gate predicates + mutation-shard
     // packing). Any scripts/ edit can change its verdict.
     scriptsChanged: /^scripts\//m.test(paths),
+    // emit --check: committed .claude/** must equal the emit of .outerlayer/
+    // sources. Re-run when either tree changes, or when the emit
+    // implementation itself does.
+    contextEmitChanged:
+      /^\.outerlayer\//m.test(paths) ||
+      /^\.claude\//m.test(paths) ||
+      /^packages\/(cli|context-format)\/src\//m.test(paths),
     // api-tenancy allowlist scans every route under the dashboard's api tree
     // against its shrink-only allowlist; re-run when a route file, the allowlist,
     // or the check itself changes.
