@@ -85,7 +85,7 @@
     "@repo/worker-core": "workspace:*",
     "@sentry/nextjs": "^10.29.0",
     "@supabase/ssr": "^0.12.4",
-    "@supabase/supabase-js": "2.111.0",
+    "@supabase/supabase-js": "2.112.0",
     "@t3-oss/env-nextjs": "^0.13.10",
     "@types/lodash": "^4.14.202",
     "@uiw/react-codemirror": "^4.23.7",

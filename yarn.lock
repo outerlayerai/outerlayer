@@ -1059,9 +1059,9 @@ __metadata:
   linkType: hard
 
 "@cloudflare/workers-types@npm:^5.20260730.1":
-  version: 5.20260730.1
-  resolution: "@cloudflare/workers-types@npm:5.20260730.1"
-  checksum: 10c0/bab8607f0117a752c2c6404b4fbeb302b1f734ba1775516ff772d7f192b4f65ac8fdde4bc57349c78c404ae438deea49e8a0c733291fd75d9e3e858f5d2f93a3
+  version: 5.20260810.1
+  resolution: "@cloudflare/workers-types@npm:5.20260810.1"
+  checksum: 10c0/54380dcb09e6728ec1de6e160edd115cfd81e6b5e64c9eb80b540a897de155aa776b8de68ec39f296d7af5a3a53cab647557e5956350e1af9d85234718c4ee99
   languageName: node
   linkType: hard
 
@@ -2171,20 +2171,20 @@ __metadata:
   linkType: hard
 
 "@hookform/resolvers@npm:^5.2.2":
-  version: 5.6.0
-  resolution: "@hookform/resolvers@npm:5.6.0"
+  version: 5.7.1
+  resolution: "@hookform/resolvers@npm:5.7.1"
   dependencies:
     "@standard-schema/utils": "npm:^0.3.0"
   peerDependencies:
     "@sinclair/typebox": ">=0.25.24"
     "@standard-schema/spec": ^1.0.0
     "@typeschema/main": ">=0.13.7"
-    "@vinejs/vine": ^2.0.0 || ^3.0.0
+    "@vinejs/vine": ^2.0.0 || ^3.0.0 || ^4.0.0
     ajv: ^8.12.0
     ajv-errors: ^3.0.0
     ajv-formats: ^2.1.1
     arktype: ^2.0.0
-    ata-validator: ^0.7.0
+    ata-validator: ^1.2.0
     class-transformer: ">=0.4.0"
     class-validator: ">=0.12.0"
     computed-types: ^1.0.0
@@ -2250,7 +2250,7 @@ __metadata:
       optional: true
     zod:
       optional: true
-  checksum: 10c0/7b0a10300e2610095e7165effdaa62a3b864d53adad0e0a40fac337c7ac70b026911630a8024330deb1006dd752e07036502488d8947a81a54092b1835b55f57
+  checksum: 10c0/a1e9608ca62488ad80883e421e2cf973e87668864993f490af6ea286c270530f04584a4f1b88159eee2a8207a52c92efeca363ddd6ea86b029d902a135101cdb
   languageName: node
   linkType: hard
 
@@ -4886,7 +4886,7 @@ __metadata:
   resolution: "@outerlayer/e2e@workspace:apps/e2e"
   dependencies:
     "@playwright/test": "npm:^1.58.0"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     typescript: "npm:^5.5.3"
   languageName: unknown
   linkType: soft
@@ -5362,29 +5362,29 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@posthog/browser-common@npm:^0.3.1":
-  version: 0.3.1
-  resolution: "@posthog/browser-common@npm:0.3.1"
+"@posthog/browser-common@npm:^0.4.0":
+  version: 0.4.0
+  resolution: "@posthog/browser-common@npm:0.4.0"
   dependencies:
-    "@posthog/core": "npm:^1.46.0"
-    "@posthog/types": "npm:^1.399.0"
-  checksum: 10c0/d796af798e993d0447ff599b519a1c38cec9b8ec70e1e856d6605d64c2700fa65d31e0e3759576fdea2f9d5e75fb9c399dbf546e3a155ce5730ca3d57960a6c8
+    "@posthog/core": "npm:^1.46.8"
+    "@posthog/types": "npm:^1.402.0"
+  checksum: 10c0/dd66cb9b56e48b7dbf7847cb7bf24274b8b8d6032cac2b5569a3637ce9fdd800771d9d1e9115b4eb9dddd9f280ef05c863c7b282cfbcdad938aeaf8158eea09d
   languageName: node
   linkType: hard
 
-"@posthog/core@npm:^1.46.0, @posthog/core@npm:^1.46.1":
-  version: 1.46.1
-  resolution: "@posthog/core@npm:1.46.1"
+"@posthog/core@npm:^1.46.8, @posthog/core@npm:^1.47.0":
+  version: 1.47.0
+  resolution: "@posthog/core@npm:1.47.0"
   dependencies:
-    "@posthog/types": "npm:^1.399.0"
-  checksum: 10c0/cf8cbab67429c937ef10afcf104d90d6bec66099047af4c874ccf1aa101dea9ecda0ed675025186c3580e44f52d3c276e83d516fd559e718706b1df0492ccec9
+    "@posthog/types": "npm:^1.402.2"
+  checksum: 10c0/f520f7b6b7710c4d135b7ee8ab21cd900ed08fec41050ae26314e2519b54a65316c99c9e44dde0ef26e41fa564b986dbfd718b6cb904347967d51161725e3569
   languageName: node
   linkType: hard
 
-"@posthog/types@npm:^1.399.0":
-  version: 1.399.0
-  resolution: "@posthog/types@npm:1.399.0"
-  checksum: 10c0/c779b3407d6cbc767f2971fd7200121e3d61a38efe8cdb07e77dd22095b7222f7c61e1c2639d033b6f05a40716aab1345f4bc0c684e738f0c901c28a0524daf0
+"@posthog/types@npm:^1.402.0, @posthog/types@npm:^1.402.2":
+  version: 1.402.2
+  resolution: "@posthog/types@npm:1.402.2"
+  checksum: 10c0/2dafb52e325e15f5f75caae7cf79e2932eb98c8644d26f59b9919e5707d5224d349e84377b0f986caa8952fc14c9664026b502a5a83125050db379343e1d2e57
   languageName: node
   linkType: hard
 
@@ -5879,7 +5879,7 @@ __metadata:
     "@repo/typescript-config": "npm:*"
     "@stryker-mutator/core": "npm:9.6.1"
     "@stryker-mutator/vitest-runner": "npm:9.6.1"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     msw: "npm:^2.15.0"
     typescript: "npm:^5.5.3"
     vitest: "npm:^4.1.8"
@@ -5903,7 +5903,7 @@ __metadata:
   resolution: "@repo/environments-service@workspace:packages/environments-service"
   dependencies:
     "@repo/typescript-config": "npm:*"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     typescript: "npm:^5.5.3"
     vitest: "npm:^4.1.8"
   languageName: unknown
@@ -5962,7 +5962,7 @@ __metadata:
     "@repo/tier-config": "workspace:*"
     "@stryker-mutator/core": "npm:9.6.1"
     "@stryker-mutator/vitest-runner": "npm:9.6.1"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     "@types/semver": "npm:^7.7.1"
     "@unkey/cache": "npm:^1.5.0"
     "@unkey/error": "npm:^0.2.0"
@@ -6123,7 +6123,7 @@ __metadata:
     "@outerlayer/session-schema": "workspace:*"
     "@repo/db-types": "npm:*"
     "@repo/typescript-config": "npm:*"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     "@vitest/coverage-v8": "npm:^4.1.8"
     typescript: "npm:^5.5.3"
     vitest: "npm:^4.1.8"
@@ -7040,133 +7040,77 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@supabase/auth-js@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/auth-js@npm:2.111.0"
+"@supabase/auth-js@npm:2.112.0":
+  version: 2.112.0
+  resolution: "@supabase/auth-js@npm:2.112.0"
   dependencies:
     tslib: "npm:2.8.1"
-  checksum: 10c0/665f05b4a78f021e39d16fffce1b7759a77413388d9849a68ffe4da79e76db709fe12e2f8bd464bda97d82e92257f25916e694365dfa7cb81f29d84be6d09af9
+  checksum: 10c0/b7075ac8c6a987caa07fbc91f32c48352fbf465bf06c97367d57c34049764d19c3ae77e3aa5575f3fbfb728757ec3afdb0a3f999a4bc9a3e133092cdf4a097d5
   languageName: node
   linkType: hard
 
-"@supabase/cli-darwin-arm64@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-darwin-arm64@npm:2.110.0"
+"@supabase/cli-darwin-arm64@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-darwin-arm64@npm:2.113.0"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
-"@supabase/cli-darwin-arm64@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-darwin-arm64@npm:2.111.0"
-  conditions: os=darwin & cpu=arm64
-  languageName: node
-  linkType: hard
-
-"@supabase/cli-darwin-x64@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-darwin-x64@npm:2.110.0"
+"@supabase/cli-darwin-x64@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-darwin-x64@npm:2.113.0"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
-"@supabase/cli-darwin-x64@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-darwin-x64@npm:2.111.0"
-  conditions: os=darwin & cpu=x64
-  languageName: node
-  linkType: hard
-
-"@supabase/cli-linux-arm64-musl@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-linux-arm64-musl@npm:2.110.0"
+"@supabase/cli-linux-arm64-musl@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-linux-arm64-musl@npm:2.113.0"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
 
-"@supabase/cli-linux-arm64-musl@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-linux-arm64-musl@npm:2.111.0"
-  conditions: os=linux & cpu=arm64 & libc=musl
-  languageName: node
-  linkType: hard
-
-"@supabase/cli-linux-arm64@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-linux-arm64@npm:2.110.0"
+"@supabase/cli-linux-arm64@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-linux-arm64@npm:2.113.0"
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@supabase/cli-linux-arm64@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-linux-arm64@npm:2.111.0"
-  conditions: os=linux & cpu=arm64 & libc=glibc
-  languageName: node
-  linkType: hard
-
-"@supabase/cli-linux-x64-musl@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-linux-x64-musl@npm:2.110.0"
+"@supabase/cli-linux-x64-musl@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-linux-x64-musl@npm:2.113.0"
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
-"@supabase/cli-linux-x64-musl@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-linux-x64-musl@npm:2.111.0"
-  conditions: os=linux & cpu=x64 & libc=musl
-  languageName: node
-  linkType: hard
-
-"@supabase/cli-linux-x64@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-linux-x64@npm:2.110.0"
+"@supabase/cli-linux-x64@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-linux-x64@npm:2.113.0"
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@supabase/cli-linux-x64@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-linux-x64@npm:2.111.0"
-  conditions: os=linux & cpu=x64 & libc=glibc
-  languageName: node
-  linkType: hard
-
-"@supabase/cli-windows-arm64@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-windows-arm64@npm:2.110.0"
+"@supabase/cli-windows-arm64@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-windows-arm64@npm:2.113.0"
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
 
-"@supabase/cli-windows-arm64@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-windows-arm64@npm:2.111.0"
-  conditions: os=win32 & cpu=arm64
-  languageName: node
-  linkType: hard
-
-"@supabase/cli-windows-x64@npm:2.110.0":
-  version: 2.110.0
-  resolution: "@supabase/cli-windows-x64@npm:2.110.0"
+"@supabase/cli-windows-x64@npm:2.113.0":
+  version: 2.113.0
+  resolution: "@supabase/cli-windows-x64@npm:2.113.0"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
 
-"@supabase/cli-windows-x64@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/cli-windows-x64@npm:2.111.0"
-  conditions: os=win32 & cpu=x64
-  languageName: node
-  linkType: hard
-
-"@supabase/functions-js@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/functions-js@npm:2.111.0"
+"@supabase/functions-js@npm:2.112.0":
+  version: 2.112.0
+  resolution: "@supabase/functions-js@npm:2.112.0"
   dependencies:
     tslib: "npm:2.8.1"
-  checksum: 10c0/00211a3e96eb1de2dcb501fe3d1565fa95441141477df3b56f3284c6247f0fe62e413ab0edf35c0505e5f5701a4c1d1d4cbf7c5301366b211d75b02cdef2b1a8
+  checksum: 10c0/83f2a5922eb47f01a9872039fc8bd825cdbfc0dfcd1424b0e977f6f6003d0b504a77465d4c84605f1f8075f6638447798a1e6790041db9e662972f3b49a0caa9
   languageName: node
   linkType: hard
 
@@ -7177,22 +7121,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@supabase/postgrest-js@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/postgrest-js@npm:2.111.0"
+"@supabase/postgrest-js@npm:2.112.0":
+  version: 2.112.0
+  resolution: "@supabase/postgrest-js@npm:2.112.0"
   dependencies:
     tslib: "npm:2.8.1"
-  checksum: 10c0/205e804a285183321102a5eb33160f86818c0592a1ef2df326ad3701a71d23a4f2c44059942458d1f3373d2a92d9f4b4731e292c69f7af0fca8d4ade0bf81e7c
+  checksum: 10c0/6accc441ca1d000edf7f31d5c40cdcf1b6ee40d2d356e78b16b8ec86e24ff47df211e8e79b473110af812c11cada83afa6b0a998cff98f734951d31c33745c2e
   languageName: node
   linkType: hard
 
-"@supabase/realtime-js@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/realtime-js@npm:2.111.0"
+"@supabase/realtime-js@npm:2.112.0":
+  version: 2.112.0
+  resolution: "@supabase/realtime-js@npm:2.112.0"
   dependencies:
     "@supabase/phoenix": "npm:0.4.5"
     tslib: "npm:2.8.1"
-  checksum: 10c0/c1ed1e1dd3f995ef9b19292b6c324c83354873d80f6ad85c97ef84f773943594722a5a4d6dc54a882047d91e2b789b374310396b76c21fc824ad85dc93904684
+  checksum: 10c0/d5c52d874e16d35d838459cd95d7fb0d992986bdb2783064fde858b57e2192e550273ca0a7737e19b383542f3e9f906cca7cbb96b576783f00557f01edbb718a
   languageName: node
   linkType: hard
 
@@ -7207,26 +7151,31 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@supabase/storage-js@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/storage-js@npm:2.111.0"
+"@supabase/storage-js@npm:2.112.0":
+  version: 2.112.0
+  resolution: "@supabase/storage-js@npm:2.112.0"
   dependencies:
     iceberg-js: "npm:^0.8.1"
     tslib: "npm:2.8.1"
-  checksum: 10c0/8b14ab6e287993563eec374f653b340afc73d88e941426826bfc849cdcfd1f9b6bde9346013370c6bf130d520a605d5e85ff64d056de6d9505ac0425800056ed
+  checksum: 10c0/380aeaa300d6f44ed0e64cdce0b7bb439f27a87382c7a600ab3509be499d72bcb9a03d66a84fbdf77acca58f886c71b6b54364507cd4258f8ab6232a8afb5f35
   languageName: node
   linkType: hard
 
-"@supabase/supabase-js@npm:2.111.0":
-  version: 2.111.0
-  resolution: "@supabase/supabase-js@npm:2.111.0"
+"@supabase/supabase-js@npm:2.112.0":
+  version: 2.112.0
+  resolution: "@supabase/supabase-js@npm:2.112.0"
   dependencies:
-    "@supabase/auth-js": "npm:2.111.0"
-    "@supabase/functions-js": "npm:2.111.0"
-    "@supabase/postgrest-js": "npm:2.111.0"
-    "@supabase/realtime-js": "npm:2.111.0"
-    "@supabase/storage-js": "npm:2.111.0"
-  checksum: 10c0/a000947ef4b9001be34fe313ffc7eb79249fae765e695992f1e550a525fedd0fac17bb544acb31ee750ba8d303afa610d33ec2cd0d7251363810649503f17239
+    "@supabase/auth-js": "npm:2.112.0"
+    "@supabase/functions-js": "npm:2.112.0"
+    "@supabase/postgrest-js": "npm:2.112.0"
+    "@supabase/realtime-js": "npm:2.112.0"
+    "@supabase/storage-js": "npm:2.112.0"
+  peerDependencies:
+    "@opentelemetry/api": ">=1.0.0"
+  peerDependenciesMeta:
+    "@opentelemetry/api":
+      optional: true
+  checksum: 10c0/2a861e8127ea8697c7c6e6478a10637c43b333af00e0900cab8b42a4ab301640f6afabe206a1f1e46e53e3960989073d0ecea4df18ec615adb5c5983b9e0d39c
   languageName: node
   linkType: hard
 
@@ -7913,9 +7862,9 @@ __metadata:
   linkType: hard
 
 "@types/semver@npm:^7.7.1":
-  version: 7.7.1
-  resolution: "@types/semver@npm:7.7.1"
-  checksum: 10c0/c938aef3bf79a73f0f3f6037c16e2e759ff40c54122ddf0b2583703393d8d3127130823facb880e694caa324eb6845628186aac1997ee8b31dc2d18fafe26268
+  version: 7.8.0
+  resolution: "@types/semver@npm:7.8.0"
+  checksum: 10c0/46a1f38e36013448b279798e8b134e7e8de3b3630b1f40683903b9d57d36dd1d70838515570ed9a149fa09e9c381b9e39319b58d7b9f3b929b42ae2becff7aa3
   languageName: node
   linkType: hard
 
@@ -11630,7 +11579,7 @@ __metadata:
     "@sentry/cloudflare": "npm:^10.69.0"
     "@stryker-mutator/core": "npm:9.6.1"
     "@stryker-mutator/vitest-runner": "npm:9.6.1"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     "@unkey/api": "npm:^2.3.2"
     "@unkey/cache": "npm:^1.5.0"
     esbuild: "npm:^0.28.1"
@@ -11792,9 +11741,9 @@ __metadata:
   linkType: hard
 
 "globals@npm:^17.8.0":
-  version: 17.8.0
-  resolution: "globals@npm:17.8.0"
-  checksum: 10c0/e31b36cef3befd446487674dc6ca7b8f8e62a3b76aadd975dbf80ffa732366b3ac58df8941999eb6b1406d97480103711db85d2a49c955da47ff5ec688bee9b5
+  version: 17.9.0
+  resolution: "globals@npm:17.9.0"
+  checksum: 10c0/776116bffb916e462d548c26a44c9a5d8f4e551935a883991e9f5d68cbcb21b63e4c688e36bbc564f97d3025e304d8b2bb0a611ecf944825aeee164898dcfbdd
   languageName: node
   linkType: hard
 
@@ -12256,7 +12205,7 @@ __metadata:
     "@repo/typescript-config": "npm:*"
     "@sentry/nextjs": "npm:^10.29.0"
     "@supabase/ssr": "npm:^0.12.4"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     "@types/node": "npm:^22.20.1"
     "@types/pg": "npm:^8"
     "@types/react": "npm:^19.2.7"
@@ -13187,7 +13136,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jose@npm:^6.2.3":
+"jose@npm:^6.2.4":
   version: 6.2.8
   resolution: "jose@npm:6.2.8"
   checksum: 10c0/fe4c6a7197a1adab2251b000c1eaaa8b40b6cb7cfbef43dbc9e959dacd43bf2532827b2d5e0f4069731da79d26e4d9e4368ccb26559a42a884b3fe036927e6e1
@@ -13657,8 +13606,8 @@ __metadata:
   linkType: hard
 
 "lint-staged@npm:^17.2.0":
-  version: 17.2.0
-  resolution: "lint-staged@npm:17.2.0"
+  version: 17.3.0
+  resolution: "lint-staged@npm:17.3.0"
   dependencies:
     picomatch: "npm:^4.0.5"
     string-argv: "npm:^0.3.2"
@@ -13669,7 +13618,7 @@ __metadata:
       optional: true
   bin:
     lint-staged: bin/lint-staged.js
-  checksum: 10c0/47eb70637304faa5c723a7adee4f7699a78f928b710b09f167240642285656cf0987b316e3ad4ca34bda10466fbad7a1cb4922cfbf470e5ad0d836eb384f2809
+  checksum: 10c0/48703bf88fd834a5575b4f7fc77aadc7be21017ca66db4255b8962515f7b3df523ec23a1f198fb89eddc838268f2472a613723a7b058ad9260367a1698ce76e1
   languageName: node
   linkType: hard
 
@@ -16029,19 +15978,20 @@ __metadata:
   linkType: hard
 
 "posthog-js@npm:^1.314.0":
-  version: 1.409.5
-  resolution: "posthog-js@npm:1.409.5"
+  version: 1.415.1
+  resolution: "posthog-js@npm:1.415.1"
   dependencies:
-    "@posthog/browser-common": "npm:^0.3.1"
-    "@posthog/core": "npm:^1.46.1"
-    "@posthog/types": "npm:^1.399.0"
+    "@posthog/browser-common": "npm:^0.4.0"
+    "@posthog/core": "npm:^1.47.0"
+    "@posthog/types": "npm:^1.402.2"
     core-js: "npm:^3.49.0"
-    dompurify: "npm:^3.3.2"
+    dompurify: "npm:^3.4.12"
     fflate: "npm:^0.4.8"
     preact: "npm:^10.29.3"
     query-selector-shadow-dom: "npm:^1.0.1"
     web-vitals: "npm:^5.3.0"
-  checksum: 10c0/4a9d1c35144e3af79858af11e393080fcb248549985c116af118e8a9c8c9bfc412e8630e447ef49459433213a4d26edef92a8613cfc9d9fd8b84348be8e30f1b
+    web-vitals-soft-navs: "npm:web-vitals@6.0.0"
+  checksum: 10c0/c6e5d256b1fd957306207f7ad5a1f342f631ddaf9ca2f009511186ca03950e9598cd8a8c2918eb660fd7ca55924b1603f36b71ec4e789e779b5b13261b842ea4
   languageName: node
   linkType: hard
 
@@ -17945,20 +17895,20 @@ __metadata:
   languageName: node
   linkType: hard
 
-"supabase@npm:^2.110.0":
-  version: 2.111.0
-  resolution: "supabase@npm:2.111.0"
+"supabase@npm:^2.110.0, supabase@npm:^2.72.8":
+  version: 2.113.0
+  resolution: "supabase@npm:2.113.0"
   dependencies:
-    "@supabase/cli-darwin-arm64": "npm:2.111.0"
-    "@supabase/cli-darwin-x64": "npm:2.111.0"
-    "@supabase/cli-linux-arm64": "npm:2.111.0"
-    "@supabase/cli-linux-arm64-musl": "npm:2.111.0"
-    "@supabase/cli-linux-x64": "npm:2.111.0"
-    "@supabase/cli-linux-x64-musl": "npm:2.111.0"
-    "@supabase/cli-windows-arm64": "npm:2.111.0"
-    "@supabase/cli-windows-x64": "npm:2.111.0"
+    "@supabase/cli-darwin-arm64": "npm:2.113.0"
+    "@supabase/cli-darwin-x64": "npm:2.113.0"
+    "@supabase/cli-linux-arm64": "npm:2.113.0"
+    "@supabase/cli-linux-arm64-musl": "npm:2.113.0"
+    "@supabase/cli-linux-x64": "npm:2.113.0"
+    "@supabase/cli-linux-x64-musl": "npm:2.113.0"
+    "@supabase/cli-windows-arm64": "npm:2.113.0"
+    "@supabase/cli-windows-x64": "npm:2.113.0"
     eciesjs: "npm:^0.5.0"
-    jose: "npm:^6.2.3"
+    jose: "npm:^6.2.4"
   dependenciesMeta:
     "@supabase/cli-darwin-arm64":
       optional: true
@@ -17978,44 +17928,7 @@ __metadata:
       optional: true
   bin:
     supabase: dist/supabase.js
-  checksum: 10c0/d30d30c3c7a8a4466ac9731ecdd561ded2be99827abfe943794a1c76b7bcc9ac62282973e13568ff43547f5a36ff1b3f13ac4de657b8c6fd21c93dbe665b44cd
-  languageName: node
-  linkType: hard
-
-"supabase@npm:^2.72.8":
-  version: 2.110.0
-  resolution: "supabase@npm:2.110.0"
-  dependencies:
-    "@supabase/cli-darwin-arm64": "npm:2.110.0"
-    "@supabase/cli-darwin-x64": "npm:2.110.0"
-    "@supabase/cli-linux-arm64": "npm:2.110.0"
-    "@supabase/cli-linux-arm64-musl": "npm:2.110.0"
-    "@supabase/cli-linux-x64": "npm:2.110.0"
-    "@supabase/cli-linux-x64-musl": "npm:2.110.0"
-    "@supabase/cli-windows-arm64": "npm:2.110.0"
-    "@supabase/cli-windows-x64": "npm:2.110.0"
-    eciesjs: "npm:^0.5.0"
-    jose: "npm:^6.2.3"
-  dependenciesMeta:
-    "@supabase/cli-darwin-arm64":
-      optional: true
-    "@supabase/cli-darwin-x64":
-      optional: true
-    "@supabase/cli-linux-arm64":
-      optional: true
-    "@supabase/cli-linux-arm64-musl":
-      optional: true
-    "@supabase/cli-linux-x64":
-      optional: true
-    "@supabase/cli-linux-x64-musl":
-      optional: true
-    "@supabase/cli-windows-arm64":
-      optional: true
-    "@supabase/cli-windows-x64":
-      optional: true
-  bin:
-    supabase: dist/supabase.js
-  checksum: 10c0/082120fd1ec7476f7f42fb83b47f4452c0ce6da8c693e9cfedbfef0c00c98f9aeda069ebd0415a4f50a4350b6493c4daeb6c7b02ff7382c8eee514c4a1ad28e4
+  checksum: 10c0/126145c026531f48f4ba5211c54970c0960a862362bf97fa07d10969e22dfadecb0d5ecc0a7e5d7c88f2fbb78981be013f9059f66bdfcc8acdadd1878782ffb5
   languageName: node
   linkType: hard
 
@@ -18306,7 +18219,7 @@ __metadata:
     "@stryker-mutator/core": "npm:^9.5.1"
     "@stryker-mutator/vitest-runner": "npm:9.6.1"
     "@supabase/ssr": "npm:^0.12.4"
-    "@supabase/supabase-js": "npm:2.111.0"
+    "@supabase/supabase-js": "npm:2.112.0"
     "@t3-oss/env-nextjs": "npm:^0.13.10"
     "@testing-library/dom": "npm:^10.4.0"
     "@testing-library/jest-dom": "npm:^7.0.0"
@@ -18714,8 +18627,8 @@ __metadata:
   linkType: hard
 
 "tsx@npm:^4.22.4":
-  version: 4.23.1
-  resolution: "tsx@npm:4.23.1"
+  version: 4.23.12
+  resolution: "tsx@npm:4.23.12"
   dependencies:
     esbuild: "npm:~0.28.0"
     fsevents: "npm:~2.3.3"
@@ -18724,7 +18637,7 @@ __metadata:
       optional: true
   bin:
     tsx: dist/cli.mjs
-  checksum: 10c0/2f7393c09ffd161701342c87141c6158945967c0fdb6476f157a72e53554cbc983b8e516b441beafde27c9840d8ffd619802acce6b6be5e9e197d693e111a55d
+  checksum: 10c0/cdd7f03754021fb337c13839f25f5f5edee01ed12e1e176da50cc34bc5c5fc4e7b533aeba89127055be969d4ff292c6accdb6b9d977ed022c524349eca6ff841
   languageName: node
   linkType: hard
 
@@ -19542,6 +19455,13 @@ __metadata:
   version: 1.3.6
   resolution: "weapon-regex@npm:1.3.6"
   checksum: 10c0/3a844f657e483530f9d041d7f0a516ac54e1edfd9d384ea94760c64685ed9d176da996c35b039beb2e8a94b740135a6b667306f554f708ae2f836372cd53bd64
+  languageName: node
+  linkType: hard
+
+"web-vitals-soft-navs@npm:web-vitals@6.0.0":
+  version: 6.0.0
+  resolution: "web-vitals@npm:6.0.0"
+  checksum: 10c0/2388ab2a760c112f083993db78ebd39b78590a74c75d7b4d446724b49b6b29e52fecf745db2f907d902f2ffedb4243023f4c01ed337864143145d9f3535c6dc0
   languageName: node
   linkType: hard
 
