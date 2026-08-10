@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getAdminDataClient } from "../admin-client";
-import { isSignupEmailAllowed, SIGNUP_NOT_ALLOWED_ERROR } from "./signup-allowlist";
 import { User } from "@supabase/supabase-js";
 import { OAuthRegistrationServiceConfig } from "./types";
 import { logServerError, logServerInfo } from "../../adapters/server-error-log";
@@ -72,14 +71,6 @@ export class OAuthRegistrationService {
         userId: user.id,
         tenantId: membership?.tenant_id,
       };
-    }
-
-    // Gate AFTER the returning-user branch above: this path runs on every OAuth
-    // sign-in, not just the first. Checking earlier would lock out existing
-    // members whose address predates the allowlist — turning a registration
-    // policy into a retroactive eviction.
-    if (!isSignupEmailAllowed(user.email)) {
-      return { error: SIGNUP_NOT_ALLOWED_ERROR };
     }
 
     // New user - create profile

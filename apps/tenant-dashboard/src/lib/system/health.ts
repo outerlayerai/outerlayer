@@ -7,7 +7,7 @@ import "server-only";
  */
 
 import { getAdminDataClient } from "@/lib/system/admin-client";
-import { checkEnvReadiness, readinessEnvFromProcess } from "@/lib/system/env-readiness";
+import { checkConfigPosture, postureEnvFromProcess } from "@/lib/system/env-readiness";
 
 interface DependencyHealth {
   name: string;
@@ -30,7 +30,7 @@ export const STATUS_CODE_MAP = {
 } as const;
 
 // Critical dependencies - if any fail, status is "unhealthy"
-const CRITICAL_DEPENDENCIES = ["supabase", "config"];
+const CRITICAL_DEPENDENCIES = ["supabase"];
 
 export async function checkHealth(): Promise<HealthCheckResponse> {
   // Run all health checks in parallel
@@ -66,22 +66,24 @@ export async function checkHealth(): Promise<HealthCheckResponse> {
 }
 
 /**
- * Config completeness, counted but not named.
+ * Config posture. Never unhealthy: missing config now fails the build (env.ts
+ * validates on deployments), so anything this reports is a deliberate setting,
+ * not a fault. "degraded" here means the deployment is doing less than a reader
+ * of the code would assume — which is worth surfacing without paging anyone.
  *
- * The route is unauthenticated (CD polls it), so naming which secrets are unset
- * would hand a passer-by a map of what this deployment cannot do. The count is
- * enough to trip an alarm; `GET /api/health/config` returns the names to a
- * caller that can prove it holds CRON_SECRET.
+ * Counted, not named: this route is unauthenticated, and naming which
+ * capabilities are switched off hands a passer-by a map. `GET
+ * /api/health/config` returns the detail to a caller holding CRON_SECRET.
  */
 function checkConfig(): DependencyHealth {
-  const { missingRequired } = checkEnvReadiness(readinessEnvFromProcess());
-  if (missingRequired.length === 0) {
+  const { degraded } = checkConfigPosture(postureEnvFromProcess());
+  if (degraded.length === 0) {
     return { name: "config", status: "healthy" };
   }
   return {
     name: "config",
     status: "unhealthy",
-    error: `${missingRequired.length} required environment variable(s) unset`,
+    error: `${degraded.length} capability(ies) reduced by configuration`,
   };
 }
 

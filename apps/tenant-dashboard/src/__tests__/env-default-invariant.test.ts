@@ -4,14 +4,12 @@
  * `.default(X)` in the createEnv schema MUST also supply that default in
  * `runtimeEnv` as `process.env.KEY || X` (or `?? X`).
  *
- * Why this invariant exists: env.ts force-enables t3-env `skipValidation` on
- * every Vercel deploy (`!!process.env.VERCEL`). When validation is skipped,
- * t3-env returns `runtimeEnv` raw and NEVER runs zod — so the schema's
- * `.default()` is dead code at runtime. A var that relies on the zod default
- * (rather than a runtimeEnv fallback) therefore resolves to `undefined` on
- * Vercel whenever its env var is unset, and the failure is silent: an unset
- * DORA_ENVIRONMENT filters out every incident, so CFR/MTTR sit at 0 with no
- * error anywhere.
+ * Why this invariant exists: whenever `skipValidation` is on, t3-env returns
+ * `runtimeEnv` raw and never runs zod, so the schema's `.default()` does not
+ * apply. Deployments validate, but an explicit SKIP_ENV_VALIDATION — the escape
+ * hatch for a blocked deploy — still bypasses it, and that is exactly the
+ * moment a silent `undefined` hurts most: an unset DORA_ENVIRONMENT filters out
+ * every incident, so CFR/MTTR sit at 0 with no error anywhere.
  *
  * This test parses env.ts source (not the evaluated module) so it sees the
  * schema and runtimeEnv shapes directly. Add a new `.default()` without the

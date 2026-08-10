@@ -54,15 +54,10 @@ test.describe('Email Registration', () => {
     });
   });
 
-  // These two tests submit the real form, so their addresses must satisfy the
-  // deployment's SIGNUP_EMAIL_ALLOWLIST where one is set — a reserved domain
-  // like test.example.com is rejected by the gate before the path under test
-  // runs. No mail results: the staging Supabase project auto-confirms signups
-  // and the app sends nothing on registration.
   test.describe('Error Handling', () => {
     test('should show error for duplicate email', async ({ page }) => {
       const supabaseAdmin = getSupabaseAdmin();
-      const testEmail = `e2e-duplicate-${uniqueId()}@outerlayer.ai`;
+      const testEmail = `e2e-duplicate-${uniqueId()}@test.example.com`;
       let createdUserId: string | null = null;
 
       try {
@@ -98,7 +93,7 @@ test.describe('Email Registration', () => {
   test.describe('Successful Registration', () => {
     test('should create user, profile, and terms agreement record', async ({ page }) => {
       const supabaseAdmin = getSupabaseAdmin();
-      const testEmail = `e2e-register-${uniqueId()}@outerlayer.ai`;
+      const testEmail = `e2e-register-${uniqueId()}@test.example.com`;
       let createdUserId: string | null = null;
 
       try {

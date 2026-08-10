@@ -4,10 +4,7 @@
  *
  * For client-safe variables (NEXT_PUBLIC_*), use config-global.ts instead.
  */
-import { parseEnvBoolean } from '@repo/adapter-config';
-
 import { env } from './env';
-import { checkEnvReadiness, readinessEnvFromProcess } from './lib/system/env-readiness';
 
 // Supabase (server-only)
 export const SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY;
@@ -16,40 +13,6 @@ export const SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY;
 export const UNKEY_API_KEY = env.UNKEY_API_KEY;
 // API-key store pepper (HMAC secret for minting/hashing key digests).
 export const API_KEY_PEPPER = env.API_KEY_PEPPER;
-
-// env.ts declares the pepper required, but t3-env validation is force-skipped
-// on Vercel (`skipValidation: !!process.env.VERCEL`), so a missing secret
-// would otherwise deploy fine and only surface when the first key mint throws.
-// Fail at module load instead: this file is imported by every server action
-// that mints keys, so a misconfigured deploy dies on first server render with
-// a clear message rather than shipping a dashboard that can't issue keys.
-if (process.env.VERCEL && !API_KEY_PEPPER) {
-  throw new Error(
-    'API_KEY_PEPPER is not set. The dashboard mints API keys and must hash ' +
-      'them with the same pepper the gateway verifies against — set the ' +
-      'API_KEY_PEPPER environment variable for this Vercel environment.',
-  );
-}
-
-// The same failure mode as the pepper, for every other required var — the
-// generalization of the check above rather than a second special case.
-//
-// Opt-in per environment, because turning it on where config has already
-// drifted takes that deployment down. The rollout is: read
-// `GET /api/health/config`, fix what it names, then set ENV_STRICT_BOOT=true so
-// the environment can never drift back silently. Once every environment carries
-// it, the flag and the pepper check above both collapse into an unconditional
-// assertion.
-if (process.env.VERCEL && parseEnvBoolean(process.env.ENV_STRICT_BOOT) === true) {
-  const { missingRequired } = checkEnvReadiness(readinessEnvFromProcess());
-  if (missingRequired.length > 0) {
-    throw new Error(
-      `Required environment variables are unset or invalid: ${missingRequired.join(', ')}. ` +
-        'This deployment runs with ENV_STRICT_BOOT=true, which refuses to serve on ' +
-        'incomplete config rather than failing later at the first call site.',
-    );
-  }
-}
 
 // OAuth state secret — must match the gateway's OAUTH_STATE_SECRET
 // for signed state tokens minted by POST /v1/apps/:appId/git/connect
@@ -111,9 +74,6 @@ export const SMTP_USER = env.SMTP_USER;
 export const SMTP_PASS = env.SMTP_PASS;
 export const SMTP_SECURE = env.SMTP_SECURE;
 
-// Database
-export const DATABASE_URL = env.DATABASE_URL;
-
 // ClickHouse (analytics) — optional for local dev without analytics
 export const CLICKHOUSE_HOST = env.CLICKHOUSE_HOST;
 export const CLICKHOUSE_PASSWORD = env.CLICKHOUSE_PASSWORD;
@@ -122,8 +82,6 @@ export const CLICKHOUSE_READ_USER = env.CLICKHOUSE_READ_USER;
 export const CLICKHOUSE_READ_PASSWORD = env.CLICKHOUSE_READ_PASSWORD;
 export const CLICKHOUSE_ALLOW_UNSCOPED_READS = env.CLICKHOUSE_ALLOW_UNSCOPED_READS;
 
-// Security
-export const TOKEN_ENCRYPTION_KEY = env.TOKEN_ENCRYPTION_KEY;
 
 // Email delivery gate
 export const EMAIL_ENABLED = env.EMAIL_ENABLED;
@@ -131,13 +89,7 @@ export const EMAIL_ENABLED = env.EMAIL_ENABLED;
 // Recipient allowlist — empty means unrestricted (hosted production)
 export const EMAIL_RECIPIENT_ALLOWLIST = env.EMAIL_RECIPIENT_ALLOWLIST;
 
-// Self-service registration allowlist — empty means open registration
-export const SIGNUP_EMAIL_ALLOWLIST = env.SIGNUP_EMAIL_ALLOWLIST;
 
 // Billing gate (opt-out: hosted keeps Stripe; self-hosters disable)
 export const BILLING_ENABLED = env.BILLING_ENABLED;
 
-// Fly Machines API
-export const FLY_MACHINES_API_BASE = "https://api.machines.dev/v1";
-
-export const FLY_API_TOKEN = env.FLY_API_TOKEN;

@@ -28,6 +28,16 @@ export const maxDuration = 60;
 export async function POST(request: NextRequest) {
   Sentry.setTag("git.provider", "github");
 
+  // A deployment with no GitHub App configured cannot verify a signature, and
+  // must not fall through to processing an unverified payload. Say so plainly
+  // rather than 401-ing, which would send an operator hunting for a bad secret
+  // instead of an absent one.
+  if (!GITHUB_APP_WEBHOOK_SECRET) {
+    return NextResponse.json("GitHub App is not configured on this deployment", {
+      status: 503,
+    });
+  }
+
   // Verify webhook signature
   const webhooks = new Webhooks({
     // @ts-expect-error - Webhooks type is not compatible with the Github app ID

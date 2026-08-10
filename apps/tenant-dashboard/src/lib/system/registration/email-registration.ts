@@ -5,7 +5,6 @@ import { SUPABASE_API } from "../../../config-global";
 import { createClient } from "@supabase/supabase-js";
 import { ServerActionResponse } from "../../../types/server-action";
 import { z } from "zod";
-import { isSignupEmailAllowed, SIGNUP_NOT_ALLOWED_ERROR } from "./signup-allowlist";
 import { RegistrationServiceConfig } from "./types";
 import { logServerError, logServerInfo } from "../../adapters/server-error-log";
 import { scrubEmail } from "../../../utils/scrub-email";
@@ -79,11 +78,6 @@ export class EmailRegistrationService {
           ? err.issues[0]?.message ?? "Invalid input data. Please check your information and try again."
           : err?.message || "Invalid input data. Please check your information and try again.";
       return { error: message };
-    }
-
-    // Step 2: Gate on the signup allowlist (open unless the deploy sets one)
-    if (!isSignupEmailAllowed(email)) {
-      return { error: SIGNUP_NOT_ALLOWED_ERROR };
     }
 
     const fullName = `${firstName} ${lastName}`;

@@ -1,10 +1,10 @@
 /**
- * GET /api/health/config — config readiness for this deployment.
+ * GET /api/health/config — config posture for this deployment.
  *
- * The route is thin: authenticate the cron bearer, delegate to the pure
- * readiness check (its logic is pinned in env-readiness.test.ts), and map
- * completeness to a status code. We pin the auth gate — which must not leak
- * the answer to an unauthenticated caller — and that mapping.
+ * The route is thin: authenticate the cron bearer and delegate to the pure
+ * posture check (its logic is pinned in env-readiness.test.ts). We pin the auth
+ * gate — which must not leak the answer to an unauthenticated caller — and that
+ * degradation is reported without being treated as a fault.
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
@@ -28,8 +28,8 @@ vi.mock("@/config-global.server", () => ({
 
 const mockCheck = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/system/env-readiness", () => ({
-  checkEnvReadiness: mockCheck,
-  readinessEnvFromProcess: () => ({}),
+  checkConfigPosture: mockCheck,
+  postureEnvFromProcess: () => ({}),
 }));
 
 import { GET } from "../route";
@@ -40,12 +40,12 @@ function request(authorization?: string): Request {
   });
 }
 
-const READY = { environment: "staging", missingRequired: [], degraded: [] };
+const FULL = { environment: "staging", degraded: [] };
 
 describe("GET /api/health/config", () => {
   beforeEach(() => {
     mockCheck.mockReset();
-    mockCheck.mockReturnValue(READY);
+    mockCheck.mockReturnValue(FULL);
   });
 
   it("rejects a request with no authorization header", async () => {
@@ -63,55 +63,46 @@ describe("GET /api/health/config", () => {
 
   // The whole point of the auth gate: an unauthenticated caller must not learn
   // which capabilities this deployment is missing.
-  it("does not compute or disclose readiness to an unauthorized caller", async () => {
+  it("does not compute or disclose posture to an unauthorized caller", async () => {
     const res = await GET(request("Bearer not-the-secret"));
 
     expect(await res.json()).toEqual({ error: "Unauthorized" });
     expect(mockCheck).not.toHaveBeenCalled();
   });
 
-  it("returns 200 and the full readiness report when config is complete", async () => {
+  it("reports full posture when nothing is switched off", async () => {
     const res = await GET(request("Bearer test-cron-secret"));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      status: "ready",
+      status: "full",
       environment: "staging",
-      missingRequired: [],
       degraded: [],
     });
   });
 
-  it("returns 503 and names the gaps when required config is missing", async () => {
+  // Degradation is configuration, not fault: a deployment deliberately running
+  // with email off is working as configured and must not page anyone. It still
+  // answers 200 — the body carries the signal.
+  it("names each reduced capability, still with a 200", async () => {
     mockCheck.mockReturnValue({
       environment: "staging",
-      missingRequired: ["CRON_SECRET", "API_KEY_PEPPER"],
-      degraded: [{ capability: "email delivery", reason: "EMAIL_ENABLED is not truthy" }],
-    });
-
-    const res = await GET(request("Bearer test-cron-secret"));
-
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({
-      status: "incomplete",
-      environment: "staging",
-      missingRequired: ["CRON_SECRET", "API_KEY_PEPPER"],
-      degraded: [{ capability: "email delivery", reason: "EMAIL_ENABLED is not truthy" }],
-    });
-  });
-
-  // Degradation is config, not fault: a deployment that deliberately has email
-  // off is still ready, and must not page anyone.
-  it("stays 200 when capabilities are degraded but nothing required is missing", async () => {
-    mockCheck.mockReturnValue({
-      environment: "staging",
-      missingRequired: [],
-      degraded: [{ capability: "GitHub App", reason: "GITHUB_APP_PRIVATE_KEY is unset" }],
+      degraded: [
+        { capability: "email delivery", reason: "EMAIL_ENABLED is not truthy" },
+        { capability: "GitHub App", reason: "GITHUB_APP_PRIVATE_KEY is unset" },
+      ],
     });
 
     const res = await GET(request("Bearer test-cron-secret"));
 
     expect(res.status).toBe(200);
-    expect((await res.json()).status).toBe("ready");
+    expect(await res.json()).toEqual({
+      status: "degraded",
+      environment: "staging",
+      degraded: [
+        { capability: "email delivery", reason: "EMAIL_ENABLED is not truthy" },
+        { capability: "GitHub App", reason: "GITHUB_APP_PRIVATE_KEY is unset" },
+      ],
+    });
   });
 });

@@ -21,11 +21,6 @@ vi.mock('../../adapters/server-error-log', () => ({
   logServerError: mockLogServerError,
 }));
 
-vi.mock('./signup-allowlist', () => ({
-  isSignupEmailAllowed: vi.fn().mockReturnValue(true),
-  SIGNUP_NOT_ALLOWED_ERROR: 'Registration is not open on this deployment.',
-}));
-
 vi.mock('../../../utils/scrub-email', () => ({
   scrubEmail: vi.fn((email: string) => email),
 }));

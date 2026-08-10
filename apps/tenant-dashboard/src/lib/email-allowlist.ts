@@ -1,11 +1,10 @@
 /**
- * Email allowlist matching, shared by the two places a deployment can narrow
- * which addresses it will deal with: outbound delivery
- * (`EMAIL_RECIPIENT_ALLOWLIST`) and inbound registration
- * (`SIGNUP_EMAIL_ALLOWLIST`).
+ * Email allowlist matching for `EMAIL_RECIPIENT_ALLOWLIST` — which recipients a
+ * deployment will actually deliver to.
  *
- * Pure and free of `server-only` so both seams can hold one implementation
- * rather than two that drift. Env reading stays with each caller.
+ * Pure and free of `server-only`, so the matching is testable on its own and
+ * reusable if another seam ever needs the same address-or-domain syntax. Env
+ * reading stays with the caller.
  */
 
 /**
