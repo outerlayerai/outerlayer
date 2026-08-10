@@ -5794,6 +5794,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@repo/api-schemas@workspace:packages/api-schemas"
   dependencies:
+    "@outerlayer/session-schema": "workspace:*"
     typescript: "npm:^5.5.3"
     vitest: "npm:^4.1.8"
     zod: "npm:^4.3.6"
@@ -6039,8 +6040,10 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@repo/observability-service@workspace:packages/observability-service"
   dependencies:
+    "@repo/api-schemas": "workspace:*"
     "@repo/api-types": "workspace:*"
     "@repo/shared-utils": "workspace:*"
+    "@repo/trace-topics": "workspace:*"
     "@repo/typescript-config": "npm:*"
     "@stryker-mutator/core": "npm:^9.5.1"
     "@stryker-mutator/vitest-runner": "npm:9.6.1"
@@ -6079,7 +6082,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@repo/trace-topics@npm:*, @repo/trace-topics@workspace:packages/trace-topics":
+"@repo/trace-topics@npm:*, @repo/trace-topics@workspace:*, @repo/trace-topics@workspace:packages/trace-topics":
   version: 0.0.0-use.local
   resolution: "@repo/trace-topics@workspace:packages/trace-topics"
   dependencies:

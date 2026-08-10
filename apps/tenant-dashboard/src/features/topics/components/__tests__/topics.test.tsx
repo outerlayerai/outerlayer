@@ -44,8 +44,8 @@ function populatedList(overrides: Partial<TopicsList> = {}): TopicsList {
     mapVersion: 2,
     generatedAt: '2026-07-01 12:00:00.000',
     topics: [
-      { topicId: 'v1-c0', name: 'Refund Requests', description: 'Refund asks.', sessionCount: 60, share: 0.6, avgLatencyMs: 820, avgCostUsd: 0.012, trend: [1, 2, 3] },
-      { topicId: 'v1-c1', name: 'Login Problems', description: 'Login failures.', sessionCount: 30, share: 0.3, avgLatencyMs: 640, avgCostUsd: 0.008, trend: [0, 1, 2] },
+      { topicId: 'v1-c0', name: 'Refund Requests', description: 'Refund asks.', sessionCount: 60, share: 0.6, avgLatencyMs: 820, avgCostUsd: 0.012, errorRate: 0.1, trend: [1, 2, 3] },
+      { topicId: 'v1-c1', name: 'Login Problems', description: 'Login failures.', sessionCount: 30, share: 0.3, avgLatencyMs: 640, avgCostUsd: 0.008, errorRate: 0.05, trend: [0, 1, 2] },
     ],
     noMatchCount: 10,
     samplableCount: 100,
@@ -226,7 +226,7 @@ describe('<Topics> populated map', () => {
     renderTopics({
       topics: populatedList({
         topics: [
-          { topicId: 'v1-c0', name: 'Flat', description: '', sessionCount: 5, share: 1, avgLatencyMs: 0, avgCostUsd: 0, trend: [2, 2, 2] },
+          { topicId: 'v1-c0', name: 'Flat', description: '', sessionCount: 5, share: 1, avgLatencyMs: 0, avgCostUsd: 0, errorRate: 0, trend: [2, 2, 2] },
         ],
         noMatchCount: 0,
       }),
@@ -449,8 +449,8 @@ describe('<Topics> latency formatting', () => {
     renderTopics({
       topics: populatedList({
         topics: [
-          { topicId: 'v1-c0', name: 'Long Sessions', description: '', sessionCount: 10, share: 0.5, avgLatencyMs: 53_270_700, avgCostUsd: 0, trend: [1, 2, 3] },
-          { topicId: 'v1-c1', name: 'Medium Sessions', description: '', sessionCount: 5, share: 0.25, avgLatencyMs: 150_000, avgCostUsd: 0, trend: [1, 2, 3] },
+          { topicId: 'v1-c0', name: 'Long Sessions', description: '', sessionCount: 10, share: 0.5, avgLatencyMs: 53_270_700, avgCostUsd: 0, errorRate: 0, trend: [1, 2, 3] },
+          { topicId: 'v1-c1', name: 'Medium Sessions', description: '', sessionCount: 5, share: 0.25, avgLatencyMs: 150_000, avgCostUsd: 0, errorRate: 0, trend: [1, 2, 3] },
         ],
       }),
     });

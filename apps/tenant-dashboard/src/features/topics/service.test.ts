@@ -1097,6 +1097,7 @@ describe('listTopics', () => {
         share: 0.75,
         avgLatencyMs: 600,
         avgCostUsd: 0.01,
+        errorRate: 0.05,
         trend: [],
       },
       {
@@ -1107,6 +1108,7 @@ describe('listTopics', () => {
         share: 0.375,
         avgLatencyMs: 800,
         avgCostUsd: 0.02,
+        errorRate: 0.1,
         trend: [],
       },
     ]);
