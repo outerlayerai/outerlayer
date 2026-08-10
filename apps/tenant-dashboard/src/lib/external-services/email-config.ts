@@ -20,19 +20,12 @@ import "server-only";
 
 import { resolveToggle } from '@repo/adapter-config';
 
-import { parseEmailAllowlist } from '../email-allowlist';
-
 type EmailBackend = 'resend' | 'smtp';
 
 /** The env values this resolver reads. Both optional; both raw env strings. */
 interface EmailEnv {
   EMAIL_ENABLED?: string;
   EMAIL_PROVIDER?: string;
-}
-
-/** The env value {@link resolveRecipientAllowlist} reads. Raw env string. */
-interface RecipientAllowlistEnv {
-  EMAIL_RECIPIENT_ALLOWLIST?: string;
 }
 
 interface EmailConfig {
@@ -53,14 +46,4 @@ export function resolveEmailConfig(env: EmailEnv): EmailConfig {
     // an override the seam stays off (LoggingEmailService).
     defaultEnabled: false,
   });
-}
-
-/**
- * Recipient allowlist for outbound delivery, read from
- * `EMAIL_RECIPIENT_ALLOWLIST`. Matching lives in
- * {@link @/lib/email-allowlist}, shared with the signup allowlist so the two
- * cannot drift.
- */
-export function resolveRecipientAllowlist(env: RecipientAllowlistEnv): string[] {
-  return parseEmailAllowlist(env.EMAIL_RECIPIENT_ALLOWLIST);
 }

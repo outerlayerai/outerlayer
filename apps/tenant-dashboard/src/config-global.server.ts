@@ -77,8 +77,6 @@ export const CLICKHOUSE_ALLOW_UNSCOPED_READS = env.CLICKHOUSE_ALLOW_UNSCOPED_REA
 // Email delivery gate
 export const EMAIL_ENABLED = env.EMAIL_ENABLED;
 
-// Recipient allowlist — empty means unrestricted (hosted production)
-export const EMAIL_RECIPIENT_ALLOWLIST = env.EMAIL_RECIPIENT_ALLOWLIST;
 
 
 // Billing gate (opt-out: hosted keeps Stripe; self-hosters disable)

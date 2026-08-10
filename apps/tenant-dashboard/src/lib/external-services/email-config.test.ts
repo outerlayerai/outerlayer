@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  resolveEmailConfig,
-  resolveRecipientAllowlist,
-} from './email-config';
+import { resolveEmailConfig } from './email-config';
 
 describe('resolveEmailConfig', () => {
   it('is disabled and defaults to resend when nothing is set', () => {
@@ -54,22 +51,4 @@ describe('resolveEmailConfig', () => {
       expect(resolveEmailConfig({ EMAIL_ENABLED: raw }).enabled).toBe(true);
     }
   );
-});
-
-describe('resolveRecipientAllowlist', () => {
-  it('is empty when unset', () => {
-    expect(resolveRecipientAllowlist({})).toEqual([]);
-  });
-
-  it('is empty for a value of only separators and whitespace', () => {
-    expect(resolveRecipientAllowlist({ EMAIL_RECIPIENT_ALLOWLIST: ' , ,, ' })).toEqual([]);
-  });
-
-  it('splits, trims, and lowercases entries in order', () => {
-    expect(
-      resolveRecipientAllowlist({
-        EMAIL_RECIPIENT_ALLOWLIST: '@Corp.com, Someone@Other.COM ,,@third.io',
-      })
-    ).toEqual(['@corp.com', 'someone@other.com', '@third.io']);
-  });
 });

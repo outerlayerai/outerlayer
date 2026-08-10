@@ -50,7 +50,6 @@ export type PostureEnv = Record<string, string | undefined>;
 const POSTURE_ENV_KEYS: readonly string[] = [
   'VERCEL_ENV',
   'EMAIL_ENABLED',
-  'EMAIL_RECIPIENT_ALLOWLIST',
   'GITHUB_APP_PRIVATE_KEY',
   'GITHUB_APP_WEBHOOK_SECRET',
   'CLICKHOUSE_HOST',
@@ -71,11 +70,6 @@ export function checkConfigPosture(env: PostureEnv): ConfigPosture {
       capability: 'email delivery',
       reason:
         'EMAIL_ENABLED is not truthy — transactional email is intercepted and logged, not sent. Invites report success and deliver nothing.',
-    });
-  } else if (isSet(env.EMAIL_RECIPIENT_ALLOWLIST)) {
-    degraded.push({
-      capability: 'email delivery',
-      reason: `EMAIL_RECIPIENT_ALLOWLIST is set — mail reaches only ${env.EMAIL_RECIPIENT_ALLOWLIST}. Every other recipient is dropped.`,
     });
   }
 

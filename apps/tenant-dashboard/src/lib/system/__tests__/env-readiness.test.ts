@@ -44,22 +44,6 @@ describe('checkConfigPosture — degraded capabilities', () => {
     ]);
   });
 
-  it('flags a narrowed recipient allowlist only once delivery is actually on', () => {
-    const restricted = { ...COMPLETE, EMAIL_RECIPIENT_ALLOWLIST: '@corp.com' };
-    expect(checkConfigPosture(restricted).degraded).toEqual([
-      {
-        capability: 'email delivery',
-        reason:
-          'EMAIL_RECIPIENT_ALLOWLIST is set — mail reaches only @corp.com. Every other recipient is dropped.',
-      },
-    ]);
-
-    // Delivery off wins: reporting both would imply mail is going somewhere.
-    const off = { ...restricted, EMAIL_ENABLED: 'false' };
-    expect(checkConfigPosture(off).degraded).toHaveLength(1);
-    expect(checkConfigPosture(off).degraded[0]?.reason).toContain('EMAIL_ENABLED is not truthy');
-  });
-
   it.each(['GITHUB_APP_PRIVATE_KEY', 'GITHUB_APP_WEBHOOK_SECRET'])(
     'flags the GitHub App when %s alone is unset',
     (name) => {
