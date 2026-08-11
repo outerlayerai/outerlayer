@@ -42,6 +42,10 @@ OuterLayer cloud workspace, with an API key you minted. Two guarantees:
 | `outerlayer init` | Install the capture hook + daemon so new sessions are preserved automatically (Claude Code deletes transcripts after ~30 days; the daemon mirrors them first). |
 | `outerlayer watch` | Run the copy-out daemon in the foreground (`--once` for a single sweep). |
 | `outerlayer doctor` | Check the installation: hooks, daemon heartbeat, and sync health. |
+| `outerlayer emit [--check]` | Compile `.outerlayer/` into each configured target tool's native files (targets come from `.outerlayer/config.json`). `--check` computes outputs and diffs against disk without writing (CI mode). |
+| `outerlayer import ruler` | Port a `.ruler/` tree ([Ruler](https://github.com/intellectronica/ruler)) into the equivalent `.outerlayer/` tree — mostly a rename; never overwrites an existing `.outerlayer/`. |
+| `outerlayer hooks wrap` / `outerlayer hooks unwrap` | Auto-wrap (or undo wrapping) `PreToolUse`/`PostToolUse` hooks for execution evidence — one spawn per firing. |
+| `outerlayer mcp install [--url] [--name]` | Write (or update) an `mcpServers` entry in `.mcp.json` pointing an MCP client at the OuterLayer gateway's `POST /v1/mcp` (default: hosted; pass `--url` for self-host). Never writes an API key — the entry references `${OUTERLAYER_API_KEY}`, resolved by the client from your environment at connect time. |
 
 ## Supported agents
 

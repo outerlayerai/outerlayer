@@ -250,6 +250,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
 
   registerImportCommands(program);
   registerHooksCommands(program);
+  registerMcpCommands(program);
 
   await program.parseAsync(processArgv);
 }
@@ -407,6 +408,38 @@ function registerHooksCommands(program: Command): void {
         `${GREEN}✓${RESET} Restored ${unwrapped} hook(s) in ${path}\n` +
           (backupPath ? `${DIM}  backup: ${backupPath}${RESET}\n` : ""),
       );
+    });
+}
+
+function registerMcpCommands(program: Command): void {
+  const mcpCmd = program.command("mcp").description("Configure MCP clients against the OuterLayer gateway");
+
+  mcpCmd
+    .command("install")
+    .description('Write (or update) an mcpServers entry in .mcp.json pointing at the OuterLayer gateway\'s POST /v1/mcp endpoint')
+    .option("--url <url>", "gateway MCP endpoint (default: the hosted OuterLayer Cloud gateway; self-host: your gateway-node origin + /v1/mcp)")
+    .option("--name <name>", 'mcpServers key to write under (default: "outerlayer")')
+    .option("--dir <path>", "repo root to write into (default: cwd)")
+    .option("--json", "machine-readable JSON output")
+    .addHelpText(
+      "after",
+      "\nThe API key is never a flag and never written to .mcp.json as a literal value — only the\n" +
+        "${OUTERLAYER_API_KEY} placeholder, which Claude Code resolves from your environment at connect\n" +
+        "time. Set OUTERLAYER_API_KEY in your shell (or your MCP client's env config) before connecting.\n",
+    )
+    .action(async (opts) => {
+      const { runMcpInstall, McpInstallError } = await import("./mcp-install-cmd.js");
+      try {
+        const result = runMcpInstall({ cwd: opts.dir, url: opts.url, name: opts.name, json: opts.json });
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      } catch (err) {
+        if (err instanceof McpInstallError) {
+          process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        throw err;
+      }
     });
 }
 
