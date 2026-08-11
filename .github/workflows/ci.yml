@@ -45,6 +45,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       agentmark-scripts: ${{ steps.filter.outputs.agentmark-scripts }}
       supabase: ${{ steps.filter.outputs.supabase }}
+      claude-plugin: ${{ steps.filter.outputs.claude-plugin }}
 
     steps:
       - uses: actions/checkout@v7
@@ -109,6 +110,8 @@ jobs:
               - 'scripts/test-should-deploy.sh'
             supabase:
               - 'apps/tenant-dashboard/supabase/**'
+            claude-plugin:
+              - 'claude-plugin/**'
 
   repo-guards:
     name: Repo Guards
@@ -149,6 +152,13 @@ jobs:
       - name: License map gate
         if: ${{ !cancelled() }}
         run: node scripts/ci/check-license-map.mjs
+
+      # The Claude Code CLI that validates plugin manifests isn't guaranteed
+      # to be installed on CI runners, so this checks the same shape
+      # (manifest fields, hook wiring, referenced files) in plain node.
+      - name: Claude Code plugin manifest gate
+        if: ${{ !cancelled() && needs.detect-changes.outputs.claude-plugin == 'true' }}
+        run: node scripts/ci/check-plugin-manifest.mjs
 
   # Shared install + build step; downstream jobs restore from cache.
   # Uses a content-based cache key so repeated runs with unchanged deps/OSS
