@@ -42,7 +42,38 @@ step "Starting Supabase (Postgres + Auth) on the host"
 # ---------------------------------------------------------------------------
 # `supabase start` is idempotent: it reports the existing instance if one is
 # already running rather than failing.
+#
+# `[auth.oauth_server].allow_dynamic_registration` in config.toml lets any
+# caller self-register an OAuth client with no pre-shared credentials
+# (RFC 7591) — the flow claude.ai/ChatGPT custom connectors use, so the
+# repo's own config.toml keeps it on. A self-host instance is a load-bearing
+# GoTrue on the operator's own host, reachable by whoever can reach the API
+# port; leaving open self-registration on by default there is a wider door
+# than a hobby-grade deployment should default to. Self-host disables it
+# unless OUTERLAYER_ALLOW_DYNAMIC_CLIENT_REGISTRATION=true is set, patching
+# the config file only for the moment `supabase start` reads it (GoTrue
+# applies config.toml at container boot, not live) and restoring the
+# checked-out file immediately after — so the working tree never ends up
+# with an uncommitted diff. See docker/README.md's OAuth section for how to
+# pre-register a connector client with the flag left off.
+ALLOW_DCR="${OUTERLAYER_ALLOW_DYNAMIC_CLIENT_REGISTRATION:-false}"
+SUPABASE_CONFIG_TOML="$DASHBOARD/supabase/config.toml"
+if [ "$ALLOW_DCR" != "true" ]; then
+  cp "$SUPABASE_CONFIG_TOML" "$SUPABASE_CONFIG_TOML.selfhost-orig"
+  restore_oauth_config() {
+    mv -f "$SUPABASE_CONFIG_TOML.selfhost-orig" "$SUPABASE_CONFIG_TOML" 2>/dev/null || true
+  }
+  trap restore_oauth_config EXIT
+  sed -i.selfhost-bak 's/^allow_dynamic_registration = true$/allow_dynamic_registration = false/' "$SUPABASE_CONFIG_TOML"
+  rm -f "$SUPABASE_CONFIG_TOML.selfhost-bak"
+fi
+
 (cd "$DASHBOARD" && npx supabase start >/dev/null) || die "supabase start failed"
+
+if [ "$ALLOW_DCR" != "true" ]; then
+  restore_oauth_config
+  trap - EXIT
+fi
 
 SUPABASE_STATUS="$(cd "$DASHBOARD" && npx supabase status -o json 2>/dev/null)"
 # The CLI prefixes the JSON with human-readable warnings on some versions.

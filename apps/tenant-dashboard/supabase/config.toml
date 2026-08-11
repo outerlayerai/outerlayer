@@ -258,10 +258,21 @@ uri = "pg-functions://postgres/public/custom_access_token_hook"
 
 # Supabase's OAuth 2.1 authorization server — backs MCP connector auth for
 # consumer chat clients (claude.ai/ChatGPT custom connectors) that only
-# accept a URL, not custom headers. Dynamic client registration lets a
-# connector self-register with no pre-shared credentials; the gateway and
-# dashboard consent page are the pieces built on top (see gateway-core's
-# oauth-protected-resource route and the dashboard's /oauth/consent page).
+# accept a URL, not custom headers. Dynamic client registration (DCR,
+# RFC 7591) lets a connector self-register with no pre-shared credentials;
+# the gateway and dashboard consent page are the pieces built on top (see
+# gateway-core's oauth-protected-resource route and the dashboard's
+# /oauth/consent page).
+#
+# `allow_dynamic_registration = true` here because the connector flow this
+# repo ships (claude.ai/ChatGPT custom connectors) requires DCR — there is
+# no pre-shared-credential path for those clients. `docker/selfhost-up.sh`
+# overrides this to `false` for a self-host instance by default (a
+# load-bearing GoTrue reachable on the operator's own host has no business
+# defaulting to open self-registration) unless
+# OUTERLAYER_ALLOW_DYNAMIC_CLIENT_REGISTRATION=true is set — see
+# docker/README.md's OAuth section for the tradeoff and how to pre-register
+# a client instead.
 [auth.oauth_server]
 enabled = true
 allow_dynamic_registration = true
