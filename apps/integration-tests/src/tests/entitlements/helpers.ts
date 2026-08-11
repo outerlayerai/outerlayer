@@ -30,6 +30,7 @@ export const TIER_FIXTURES = {
     custom_roles: false,
     workers_enabled: false,
     persistent_worker_environments: false,
+    topics_enabled: false,
   },
   growth: {
     max_apps: 3,
@@ -49,6 +50,7 @@ export const TIER_FIXTURES = {
     custom_roles: false,
     workers_enabled: true,
     persistent_worker_environments: true,
+    topics_enabled: true,
   },
   team: {
     max_apps: 10,
@@ -68,6 +70,7 @@ export const TIER_FIXTURES = {
     custom_roles: true,
     workers_enabled: true,
     persistent_worker_environments: true,
+    topics_enabled: true,
   },
   enterprise: {
     max_apps: -1,
@@ -87,5 +90,6 @@ export const TIER_FIXTURES = {
     custom_roles: true,
     workers_enabled: true,
     persistent_worker_environments: true,
+    topics_enabled: true,
   },
 } as const;
