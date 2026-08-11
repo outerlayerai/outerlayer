@@ -113,6 +113,11 @@
         "vitest.*.config.ts"
       ]
     },
+    "packages/observability-service": {
+      "entry": [
+        "vitest.*.config.ts"
+      ]
+    },
     "packages/session-schema": {
       "entry": [
         "scripts/*.mjs"
