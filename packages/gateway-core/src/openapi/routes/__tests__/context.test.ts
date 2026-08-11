@@ -11,28 +11,29 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSelectChain } = vi.hoisted(() => ({
+const { mockSelectChain, lastStub } = vi.hoisted(() => ({
   mockSelectChain: vi.fn(),
+  lastStub: { current: null as null | ReturnType<typeof makeSupabaseStub> },
 }));
 
 function makeSupabaseStub() {
-  const fromSpy = vi.fn((_table: string) => {
-    const chain: Record<string, unknown> = {
-      select: vi.fn(() => chain),
-      eq: vi.fn(() => chain),
-      order: vi.fn(() => chain),
-      range: vi.fn(() => mockSelectChain()),
-    };
-    return chain;
-  });
-  return { from: fromSpy };
+  const select = vi.fn(() => chain);
+  const eq = vi.fn(() => chain);
+  const order = vi.fn(() => chain);
+  const range = vi.fn(() => mockSelectChain());
+  const chain: Record<string, unknown> = { select, eq, order, range };
+  const fromSpy = vi.fn((_table: string) => chain);
+  return { from: fromSpy, select, eq, order, range };
 }
 
 vi.mock('../_shared', async (importOriginal) => {
   const actual = (await importOriginal()) as typeof import('../_shared');
   return {
     ...actual,
-    getScopedSupabase: vi.fn(() => Promise.resolve(makeSupabaseStub())),
+    getScopedSupabase: vi.fn(() => {
+      lastStub.current = makeSupabaseStub();
+      return Promise.resolve(lastStub.current);
+    }),
   };
 });
 
@@ -92,6 +93,29 @@ describe('ListContextChanges', () => {
         pagination: { total: 1, limit: 20, offset: 0 },
       },
     });
+  });
+
+  it('scopes by app id, orders newest-first, and ranges by offset..offset+limit-1', async () => {
+    mockSelectChain.mockResolvedValue({ data: [], error: null, count: 0 });
+
+    const route = routeWithValidatedData({ limit: 10, offset: 20 });
+    await route.handle(buildContext());
+
+    expect(lastStub.current!.select).toHaveBeenCalledWith('id, commit_sha, classifier_version, created_at', {
+      count: 'exact',
+    });
+    expect(lastStub.current!.eq).toHaveBeenCalledWith('app_id', 'app-1');
+    expect(lastStub.current!.order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(lastStub.current!.range).toHaveBeenCalledWith(20, 29);
+  });
+
+  it('ranges a single-row page (limit 1) to exactly [offset, offset], not [offset, offset+1]', async () => {
+    mockSelectChain.mockResolvedValue({ data: [], error: null, count: 0 });
+
+    const route = routeWithValidatedData({ limit: 1, offset: 5 });
+    await route.handle(buildContext());
+
+    expect(lastStub.current!.range).toHaveBeenCalledWith(5, 5);
   });
 
   it('returns 200 + empty page when there are no snapshots yet', async () => {

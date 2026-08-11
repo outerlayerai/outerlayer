@@ -37,7 +37,7 @@ vi.mock('../../../lib/verify-bearer', async (importOriginal) => {
   };
 });
 
-import { ListSessions, GetSessionDetail } from '../sessions';
+import { ListSessions, GetSessionDetail, buildPorts, sessionPolicy } from '../sessions';
 
 const MOCK_ROUTE_OPTIONS = {
   router: { getRequest: () => ({}) },
@@ -60,7 +60,7 @@ function buildContext(permissions: string[] = ['session.read']): AppContext {
 }
 
 /** A bearer (dashboard/OAuth) caller — a seat, not a machine key. */
-function buildBearerContext(): AppContext {
+function buildBearerContext(userOver: Record<string, unknown> = {}): AppContext {
   return {
     req: { method: 'GET', path: '/v1/sessions' },
     env: { CLICKHOUSE_HOST: 'http://ch.local', OAUTH_STATE_SECRET: 'a'.repeat(32) },
@@ -73,6 +73,7 @@ function buildBearerContext(): AppContext {
             gatewayUserId: 'user-1',
             userJwt: 'jwt-1',
             permissions: [],
+            ...userOver,
           }
         : undefined,
     ),
@@ -90,6 +91,52 @@ function membershipSupabaseClient(callerMembershipId: string | null) {
   };
   return {
     from: () => ({ select: () => ({ eq: () => afterFirstEq }) }),
+  };
+}
+
+/** Same shape as `membershipSupabaseClient`, but captures the arguments the
+ * FIRST `.eq()` call in the chain receives — proves `resolveMembershipId`'s
+ * `user.gatewayUserId ?? ''` fallback actually reaches the query. */
+function membershipSupabaseClientCapturingEq(callerMembershipId: string | null): {
+  client: { from: () => unknown };
+  firstEqCalls: unknown[][];
+} {
+  const firstEqCalls: unknown[][] = [];
+  const afterFirstEq = {
+    eq: () => ({ single: async () => ({ data: callerMembershipId ? { id: callerMembershipId } : null }) }),
+    in: async () => ({ data: [] }),
+  };
+  const client = {
+    from: () => ({
+      select: () => ({
+        eq: (...args: unknown[]) => {
+          firstEqCalls.push(args);
+          return afterFirstEq;
+        },
+      }),
+    }),
+  };
+  return { client, firstEqCalls };
+}
+
+/** Supabase double for `buildActorNameResolver`'s two-query chain:
+ * `membership` (id, user_id) filtered by tenant+ids, then `profile`
+ * (id, name, email) filtered by the resulting user ids. Throws if either
+ * table is queried when the test expects it to be skipped. */
+function actorNameSupabaseClient(
+  memberships: Array<{ id: string; user_id: string | null }> | null,
+  profiles: Array<{ id: string; name: string | null; email: string | null }> | null,
+): { from: (table: string) => unknown } {
+  return {
+    from: (table: string) => {
+      if (table === 'membership') {
+        return { select: () => ({ eq: () => ({ in: async () => ({ data: memberships }) }) }) };
+      }
+      if (table === 'profile') {
+        return { select: () => ({ in: async () => ({ data: profiles }) }) };
+      }
+      throw new Error(`unexpected table queried: ${table}`);
+    },
   };
 }
 
@@ -215,6 +262,30 @@ describe('ListSessions', () => {
     expect(policy.membershipId).not.toBe('membership-1');
     expect(policy.membershipId.length).toBeGreaterThan(0);
   });
+
+  it('returns the service result wrapped in { data } and passes the resolved tenant/app to the service lookup', async () => {
+    const listResult = { sessions: [{ traceId: 't1' }], total: 1 };
+    listSessions.mockResolvedValue(listResult);
+    const query = { limit: 25, offset: 0 };
+    const route = routeWithValidatedData(ListSessions, { query });
+    const c = buildContext(['session.read']);
+
+    const result = (await route.handle(c)) as { body: unknown; status: number };
+
+    expect(result.body).toEqual({ data: listResult });
+    expect(getGatewaySessionsService).toHaveBeenCalledWith(c.env, { tenantId: 'tenant-1', appId: 'app-1' });
+  });
+
+  it('maps a null service (ClickHouse not configured) to a 503, not a crash or silent 200', async () => {
+    getGatewaySessionsService.mockReturnValueOnce(null as unknown as { listSessions: typeof listSessions; getSessionDetail: typeof getSessionDetail });
+    const route = routeWithValidatedData(ListSessions, { query: { limit: 25, offset: 0 } });
+    const c = buildContext();
+
+    const result = (await route.handle(c)) as { body: unknown; status: number };
+
+    expect(result.status).toBe(503);
+    expect(listSessions).not.toHaveBeenCalled();
+  });
 });
 
 describe('GetSessionDetail', () => {
@@ -273,5 +344,160 @@ describe('GetSessionDetail', () => {
       expect.any(Object),
     );
     expect(result.status).toBe(404);
+  });
+
+  it('maps a null service (ClickHouse not configured) to a 503, not a crash or silent 200', async () => {
+    getGatewaySessionsService.mockReturnValueOnce(null as unknown as { listSessions: typeof listSessions; getSessionDetail: typeof getSessionDetail });
+    const route = routeWithValidatedData(GetSessionDetail, { params: { traceId: 't1' } });
+    const c = buildContext();
+
+    const result = (await route.handle(c)) as { body: unknown; status: number };
+
+    expect(result.status).toBe(503);
+    expect(getSessionDetail).not.toHaveBeenCalled();
+  });
+
+  it('passes the resolved tenant/app to the service lookup', async () => {
+    getSessionDetail.mockResolvedValue({ session: { traceId: 't1' }, spans: [], truncated: false, prOutcomes: [] });
+    const route = routeWithValidatedData(GetSessionDetail, { params: { traceId: 't1' } });
+    const c = buildContext();
+
+    await route.handle(c);
+
+    expect(getGatewaySessionsService).toHaveBeenCalledWith(c.env, { tenantId: 'tenant-1', appId: 'app-1' });
+  });
+});
+
+describe('resolveMembershipId (via sessionPolicy for a bearer caller)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('queries membership by the caller\'s gatewayUserId', async () => {
+    const { client, firstEqCalls } = membershipSupabaseClientCapturingEq('membership-1');
+    getScopedSupabase.mockResolvedValue(client);
+    checkBearerPermission.mockResolvedValue(false);
+    const c = buildBearerContext({ gatewayUserId: 'user-42' });
+
+    const policy = await sessionPolicy(c);
+
+    expect(firstEqCalls[0]).toEqual(['user_id', 'user-42']);
+    expect(policy).toEqual({ kind: 'dashboard-member', membershipId: 'membership-1', canSeeTeam: false });
+  });
+
+  it('falls back to an empty string, not undefined, when gatewayUserId is missing', async () => {
+    const { client, firstEqCalls } = membershipSupabaseClientCapturingEq(null);
+    getScopedSupabase.mockResolvedValue(client);
+    checkBearerPermission.mockResolvedValue(false);
+    const c = buildBearerContext({ gatewayUserId: undefined });
+
+    await sessionPolicy(c);
+
+    expect(firstEqCalls[0]).toEqual(['user_id', '']);
+  });
+});
+
+describe('buildActorNameResolver (via buildPorts)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('resolves an empty actorId list to an empty map without querying anything', async () => {
+    getScopedSupabase.mockResolvedValue(actorNameSupabaseClient(null, null));
+    const c = buildContext();
+
+    const ports = await buildPorts(c);
+    const names = await ports.actorNames.resolve([]);
+
+    expect(names).toEqual({});
+  });
+
+  it('marks every key:* actorId as anonymous WITHOUT querying membership at all', async () => {
+    const throwing = { from: () => { throw new Error('should not query membership for key: ids'); } };
+    getScopedSupabase.mockResolvedValue(throwing);
+    const c = buildContext();
+
+    const ports = await buildPorts(c);
+    const names = await ports.actorNames.resolve(['key:abc', 'key:def']);
+
+    expect(names).toEqual({ 'key:abc': 'anonymous', 'key:def': 'anonymous' });
+  });
+
+  it('resolves membership-uuid actorIds to profile names, preferring name over email', async () => {
+    getScopedSupabase.mockResolvedValue(
+      actorNameSupabaseClient(
+        [
+          { id: 'mem-1', user_id: 'user-1' },
+          { id: 'mem-2', user_id: 'user-2' },
+        ],
+        [
+          { id: 'user-1', name: 'Alice', email: 'alice@example.com' },
+          { id: 'user-2', name: null, email: 'bob@example.com' },
+        ],
+      ),
+    );
+    const c = buildContext();
+
+    const ports = await buildPorts(c);
+    const names = await ports.actorNames.resolve(['mem-1', 'mem-2']);
+
+    expect(names).toEqual({ 'mem-1': 'Alice', 'mem-2': 'bob@example.com' });
+  });
+
+  it('resolves a mix of key: and membership-uuid ids in one call', async () => {
+    getScopedSupabase.mockResolvedValue(
+      actorNameSupabaseClient([{ id: 'mem-1', user_id: 'user-1' }], [{ id: 'user-1', name: 'Alice', email: null }]),
+    );
+    const c = buildContext();
+
+    const ports = await buildPorts(c);
+    const names = await ports.actorNames.resolve(['key:abc', 'mem-1']);
+
+    expect(names).toEqual({ 'key:abc': 'anonymous', 'mem-1': 'Alice' });
+  });
+
+  it('omits a membership from the result entirely when it has no matching profile row', async () => {
+    getScopedSupabase.mockResolvedValue(
+      actorNameSupabaseClient(
+        [
+          { id: 'mem-1', user_id: 'user-1' },
+          { id: 'mem-2', user_id: 'user-2' },
+        ],
+        [{ id: 'user-1', name: 'Alice', email: 'alice@example.com' }],
+      ),
+    );
+    const c = buildContext();
+
+    const ports = await buildPorts(c);
+    const names = await ports.actorNames.resolve(['mem-1', 'mem-2']);
+
+    expect(names).toEqual({ 'mem-1': 'Alice' });
+    expect(names).not.toHaveProperty('mem-2');
+  });
+
+  it('tolerates a null memberships read: falls back to [] and skips the profile query entirely', async () => {
+    const client = {
+      from: (table: string) => {
+        if (table === 'membership') return { select: () => ({ eq: () => ({ in: async () => ({ data: null }) }) }) };
+        throw new Error(`should not query ${table} when memberships is null`);
+      },
+    };
+    getScopedSupabase.mockResolvedValue(client);
+    const c = buildContext();
+
+    const ports = await buildPorts(c);
+    const names = await ports.actorNames.resolve(['mem-1']);
+
+    expect(names).toEqual({});
+  });
+
+  it('tolerates a null profiles read: falls back to [] so no membership resolves a name', async () => {
+    getScopedSupabase.mockResolvedValue(actorNameSupabaseClient([{ id: 'mem-1', user_id: 'user-1' }], null));
+    const c = buildContext();
+
+    const ports = await buildPorts(c);
+    const names = await ports.actorNames.resolve(['mem-1']);
+
+    expect(names).toEqual({});
   });
 });

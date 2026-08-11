@@ -18,6 +18,7 @@ vi.mock('../tools', async () => {
     zodInputSchema: z.object({ limit: z.number().int().min(1).max(10).default(5) }),
     zodOutputSchema: z.object({ ok: z.boolean() }),
     requiredPermission: 'metrics.read' as const,
+    entitlement: 'topics_enabled' as const,
     rateLimit: { free: { namespace: 'fake', limit: 10, durationMs: 60_000, cost: 1 }, paid: { namespace: 'fake', limit: 100, durationMs: 60_000, cost: 1 } },
     execute: vi.fn(async () => ({ data: { ok: true } })),
   };
@@ -45,6 +46,7 @@ vi.mock('../../../lib/rate-limit', async (importOriginal) => {
   return { ...actual, enforceRateLimit: (...args: unknown[]) => enforceRateLimit(...args) };
 });
 
+import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { handleMcpRequest, mcpMethodNotAllowed } from '../dispatcher';
 import { MCP_TOOLS } from '../tools';
 
@@ -116,6 +118,21 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(typeof result.body.result.protocolVersion).toBe('string');
   });
 
+  it('answers initialize with the exact server name and version', async () => {
+    const c = buildContext({ jsonrpc: '2.0', id: 1, method: 'initialize' });
+    const result = (await handleMcpRequest(c)) as unknown as {
+      body: { result: { serverInfo: { name: string; version: string } } };
+    };
+
+    expect(result.body.result.serverInfo).toEqual({ name: 'outerlayer-gateway', version: '1.0' });
+  });
+
+  it('defaults a missing request id to null on an error response, not to falsy-and-null-collapsed', async () => {
+    const c = buildContext({ jsonrpc: '2.0', method: 'not/a/method' });
+    const result = (await handleMcpRequest(c)) as unknown as { body: { id: null } };
+    expect(result.body.id).toBeNull();
+  });
+
   it('returns MethodNotFound for an unrecognized JSON-RPC method', async () => {
     const c = buildContext({ jsonrpc: '2.0', id: 7, method: 'not/a/method' });
     const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number } } };
@@ -179,6 +196,71 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
   });
 
+  it('returns InvalidParams when params is not shaped like { name, arguments? } at all', async () => {
+    const c = buildContext({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { arguments: {} } });
+    const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number } } };
+    expect(result.body.error.code).toBe(-32602);
+    expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
+  });
+
+  it('an entitlement-denied tool call is a JSON-RPC error, not a REST envelope', async () => {
+    enforceEntitlement.mockImplementation(denyWith({ error: { code: 'entitlement_required', message: 'nope' } }, 402));
+    const c = buildContext({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number } }; status: number };
+
+    expect(result.status).toBe(200);
+    expect(result.body.error.code).toBe(-32002);
+    expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
+  });
+
+  it('flags the tool result as an error when the tool body carries an "error" key', async () => {
+    FAKE_TOOL.execute.mockResolvedValueOnce({ error: 'something went wrong' });
+    const c = buildContext({ jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { isError?: true } } };
+
+    expect(result.body.result.isError).toBe(true);
+  });
+
+  it('does not flag the tool result as an error when the body has no "error" key', async () => {
+    const c = buildContext({ jsonrpc: '2.0', id: 13, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { isError?: true } } };
+
+    expect(result.body.result).not.toHaveProperty('isError');
+  });
+
+  it('does not flag a non-object tool body as an error, even one that happens to contain the substring "error"', async () => {
+    FAKE_TOOL.execute.mockResolvedValueOnce('a message about an error');
+    const c = buildContext({ jsonrpc: '2.0', id: 14, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { isError?: true } } };
+
+    expect(result.body.result).not.toHaveProperty('isError');
+  });
+
+  it('a null tool body is not flagged as an error (typeof null === "object" but null !== null is false)', async () => {
+    FAKE_TOOL.execute.mockResolvedValueOnce(null);
+    const c = buildContext({ jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { isError?: true } } };
+
+    expect(result.body.result).not.toHaveProperty('isError');
+  });
+
+  it('an unexpected throw inside the tool handler surfaces as a generic InternalError, not the tool-specific error shape', async () => {
+    FAKE_TOOL.execute.mockRejectedValueOnce(new Error('boom, unrelated to guards or schema'));
+    const c = buildContext({ jsonrpc: '2.0', id: 16, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number; message: string } } };
+
+    expect(result.body.error.code).toBe(ErrorCode.InternalError);
+    expect(result.body.error.message).toBe('An unexpected error occurred');
+    consoleSpy.mockRestore();
+  });
+
   it('a permission-denied tool call is a JSON-RPC error, not a REST envelope', async () => {
     enforcePermission.mockImplementation(denyWith({ error: { code: 'forbidden', message: 'nope' } }, 403));
     const c = buildContext({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
@@ -235,17 +317,19 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
 });
 
 describe('mcpMethodNotAllowed', () => {
-  it('returns a plain 405 with an Allow: POST header, naming the mount that was hit', () => {
+  it('returns a plain 405 with an Allow: POST header and the exact error body, naming the mount that was hit', () => {
     const c = {
       req: { url: 'https://gw.example.com/v1/apps/app-1/mcp' },
       json: vi.fn((body: unknown, init?: unknown) => ({ body, init })),
     } as unknown as AppContext;
     const result = mcpMethodNotAllowed(c) as unknown as {
-      body: { error: { message: string } };
+      body: { error: { code: string; message: string } };
       init: { status: number; headers: { Allow: string } };
     };
     expect(result.init.status).toBe(405);
     expect(result.init.headers.Allow).toBe('POST');
-    expect(result.body.error.message).toBe('POST /v1/apps/app-1/mcp is the only supported method.');
+    expect(result.body).toEqual({
+      error: { code: 'method_not_allowed', message: 'POST /v1/apps/app-1/mcp is the only supported method.' },
+    });
   });
 });

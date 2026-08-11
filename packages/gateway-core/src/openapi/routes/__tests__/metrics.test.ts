@@ -256,6 +256,18 @@ describe('GetMetricsCompare', () => {
       { from: '2026-08-01', to: '2026-08-07' },
       20,
     );
+
+    // Each window's own from/to reaches its own getAgentFleetOverview call —
+    // not swapped, not dropped in favor of the other window's dates.
+    expect(getAgentFleetOverview).toHaveBeenNthCalledWith(1, expect.anything(), {
+      start: '2026-07-01',
+      end: '2026-07-07',
+    });
+    expect(getAgentFleetOverview).toHaveBeenNthCalledWith(2, expect.anything(), {
+      start: '2026-08-01',
+      end: '2026-08-07',
+    });
+    expect(getGatewayChClient).toHaveBeenCalledWith(c.env, { tenantId: 'tenant-1', appId: 'app-1' });
   });
 
   it('returns 503 service_unavailable when ClickHouse is not configured', async () => {

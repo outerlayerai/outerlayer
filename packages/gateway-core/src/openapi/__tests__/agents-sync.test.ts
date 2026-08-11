@@ -110,14 +110,27 @@ vi.mock('../../lib/blob-storage', () => ({
   }),
 }));
 
+// Signed capability-token verification — mutated per test to drive
+// GetAgentBlobByToken's guard.
+type VerifyResult =
+  | { ok: true; claims: { tenantId: string; appId: string; keyId: string; sha256: string; exp: number } }
+  | { ok: false; reason: 'malformed' | 'bad_signature' | 'expired' };
+let verifyResult: VerifyResult = { ok: false, reason: 'malformed' };
+const verifyAgentBlobTokenMock = vi.fn(async () => verifyResult);
+vi.mock('../../lib/agent-blob-token', () => ({
+  verifyAgentBlobToken: (...args: unknown[]) => verifyAgentBlobTokenMock(...(args as [])),
+}));
+
 import { createClient } from '@clickhouse/client-web';
 import type { AppContext } from '../routes/_shared';
 import {
   SyncAgentSessions,
   GetAgentBlob,
+  GetAgentBlobByToken,
   resolveTenantCaptureTier,
   agentBlobKey,
   MAX_SYNC_REQUEST_BYTES,
+  MAX_BLOB_BYTES,
 } from '../routes/agents';
 
 const createClientMock = vi.mocked(createClient);
@@ -240,6 +253,8 @@ beforeEach(() => {
   tenantTierRow = { agent_capture_tier: 'redacted' };
   limitResult = { allowed: true, currentCount: 5, limit: 100 };
   claimFirstTrace.mockClear();
+  verifyResult = { ok: false, reason: 'malformed' };
+  verifyAgentBlobTokenMock.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -440,6 +455,94 @@ describe('SyncAgentSessions', () => {
     expect(data.rejected[0]!.reason).toContain('schema:');
   });
 
+  it('rejects a primitive (non-object) session without an id in the rejection entry', async () => {
+    const { ctx, status, json } = ctxFor({ schemaVersion: 1, sessions: ['not-a-session', agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    const data = (json() as { data: { rejected: Array<{ index: number; id?: string; reason: string }> } }).data;
+    expect(data.rejected).toHaveLength(1);
+    expect(data.rejected[0]!.index).toBe(0);
+    expect(data.rejected[0]).not.toHaveProperty('id');
+  });
+
+  it('rejects a null session without crashing on the id lookup', async () => {
+    const { ctx, status, json } = ctxFor({ schemaVersion: 1, sessions: [null, agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    const data = (json() as { data: { rejected: Array<{ index: number; id?: string }> } }).data;
+    expect(data.rejected).toHaveLength(1);
+    expect(data.rejected[0]).not.toHaveProperty('id');
+  });
+
+  it('rejects a numeric session without an id in the rejection entry', async () => {
+    const { ctx, json } = ctxFor({ schemaVersion: 1, sessions: [42, agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    const data = (json() as { data: { rejected: Array<{ index: number; id?: string }> } }).data;
+    expect(data.rejected).toHaveLength(1);
+    expect(data.rejected[0]).not.toHaveProperty('id');
+  });
+
+  it('carries the id through the rejection when the malformed session has one', async () => {
+    const badWithId = { schemaVersion: 1, id: 'has-an-id-but-nothing-else' };
+    const { ctx, json } = ctxFor({ schemaVersion: 1, sessions: [badWithId] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    const data = (json() as { data: { rejected: Array<{ index: number; id?: string }> } }).data;
+    expect(data.rejected).toEqual([
+      expect.objectContaining({ index: 0, id: 'has-an-id-but-nothing-else' }),
+    ]);
+  });
+
+  it('admits a blob payload whose total size is exactly at the ceiling (boundary is inclusive)', async () => {
+    const exactData = 'A'.repeat(MAX_SYNC_REQUEST_BYTES);
+    const { ctx, status } = ctxFor({
+      schemaVersion: 1,
+      sessions: [agentSession()],
+      blobs: [{ sha256: helloSha, mediaType: 'image/png', bytes: 5, data: exactData }],
+    });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    // Rejected downstream (size/hash), never shed as 413 for being over the ceiling.
+    expect(status()).toBe(200);
+  });
+
+  it('declares the exact 413 body (code, message, limit) when the blob payload exceeds the ceiling', async () => {
+    const oversizedData = 'A'.repeat(MAX_SYNC_REQUEST_BYTES + 4);
+    const { ctx, status, json } = ctxFor({
+      schemaVersion: 1,
+      sessions: [agentSession()],
+      blobs: [{ sha256: helloSha, mediaType: 'image/png', bytes: 5, data: oversizedData }],
+    });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(413);
+    expect(json()).toEqual({
+      error: {
+        code: 'payload_too_large',
+        message: `Sync blob payload exceeds the ${MAX_SYNC_REQUEST_BYTES}-byte ceiling. Split the batch into smaller requests.`,
+        limit: MAX_SYNC_REQUEST_BYTES,
+      },
+    });
+  });
+
+  it('admits a blob whose decoded size is exactly at the per-blob cap', async () => {
+    const exactBytes = Buffer.alloc(MAX_BLOB_BYTES);
+    const exactSha = createHash('sha256').update(exactBytes).digest('hex');
+    const { ctx, json } = ctxFor({
+      schemaVersion: 1,
+      sessions: [agentSession()],
+      blobs: [{ sha256: exactSha, mediaType: 'image/png', bytes: MAX_BLOB_BYTES, data: exactBytes.toString('base64') }],
+    });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    const data = (json() as { data: { blobsStored: number; rejected: unknown[] } }).data;
+    expect(data.blobsStored).toBe(1);
+    expect(data.rejected).toEqual([]);
+  });
+
+  it('treats an explicitly empty blobs array identically to no blobs at all', async () => {
+    const { ctx, json } = ctxFor({ schemaVersion: 1, sessions: [agentSession()], blobs: [] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect((json() as { data: { blobsStored: number } }).data.blobsStored).toBe(0);
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+  });
+
   it('attributes to the key itself when no membership is bound', async () => {
     const { ctx } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
     await new SyncAgentSessions({} as never).handle(ctx);
@@ -550,13 +653,37 @@ describe('SyncAgentSessions', () => {
     expect(ok?.content?.['application/json']?.schema?.shape).toHaveProperty('data');
   });
 
-  it('returns 429 span_limit_exceeded when the monthly unit limit is hit', async () => {
+  it('returns 429 span_limit_exceeded when the monthly unit limit is hit, with the exact counts in the body', async () => {
     limitResult = { allowed: false, currentCount: 100, limit: 100 };
     const { ctx, status, json } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
     await new SyncAgentSessions({} as never).handle(ctx);
     expect(status()).toBe(429);
-    expect((json() as { error: { code: string } }).error.code).toBe('span_limit_exceeded');
+    expect(json()).toEqual({
+      error: {
+        code: 'span_limit_exceeded',
+        message: 'Monthly unit limit exceeded. Upgrade your plan for unlimited units.',
+        currentCount: 100,
+        limit: 100,
+      },
+    });
     expect(insertsByTable['otel_traces']).toBeUndefined();
+  });
+
+  it('claims the first trace only when this is the tenant\'s very first counted span', async () => {
+    limitResult = { allowed: true, currentCount: 0, limit: 100 };
+    const { ctx, status } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(claimFirstTrace).toHaveBeenCalledTimes(1);
+    expect(claimFirstTrace).toHaveBeenCalledWith(expect.anything(), 'tenant-1');
+  });
+
+  it('does not claim the first trace once the tenant already has counted spans', async () => {
+    limitResult = { allowed: true, currentCount: 5, limit: 100 };
+    const { ctx, status } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(claimFirstTrace).not.toHaveBeenCalled();
   });
 
   it('routes blob + trace + summary through ONE client, built with the CH config, and closes it', async () => {
@@ -785,5 +912,147 @@ describe('GetAgentBlob', () => {
     await route.handle(ctx);
     expect(captured.status).toBe(404);
     expect(captured.body.error.code).toBe('blob_not_found');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/agents/blob-token/:token
+// ---------------------------------------------------------------------------
+
+describe('GetAgentBlobByToken', () => {
+  const matchingClaims = {
+    tenantId: 'tenant-1',
+    appId: 'app-1',
+    keyId: 'key_abc',
+    sha256: helloSha,
+    exp: 0, // overridden per test
+  };
+
+  function blobTokenCtx(
+    token: string,
+    userOver: Partial<{ tenantId: string; appId: string; apiKeyId: string }> = {},
+  ): { ctx: AppContext; captured: { status: number; body: unknown }; route: GetAgentBlobByToken } {
+    const captured = { status: 200, body: undefined as unknown };
+    const ctx = {
+      get: (k: string) =>
+        k === 'user' ? { appId: 'app-1', tenantId: 'tenant-1', apiKeyId: 'key_abc', ...userOver } : undefined,
+      env: { OAUTH_STATE_SECRET: 'secret-xyz' },
+      json: (b: unknown, s?: number) => {
+        captured.status = s ?? 200;
+        captured.body = b;
+        return new Response(JSON.stringify(b), { status: s ?? 200 });
+      },
+    } as unknown as AppContext;
+    const route = new GetAgentBlobByToken({} as never);
+    (route as unknown as { getValidatedData: () => Promise<{ params: { token: string } }> }).getValidatedData =
+      async () => ({ params: { token } });
+    return { ctx, captured, route };
+  }
+
+  it('passes the exact { secret, token } object to verifyAgentBlobToken', async () => {
+    verifyResult = { ok: false, reason: 'malformed' };
+    const { ctx, route } = blobTokenCtx('tok-1');
+    await route.handle(ctx);
+    expect(verifyAgentBlobTokenMock).toHaveBeenCalledWith({ secret: 'secret-xyz', token: 'tok-1' });
+  });
+
+  it('403s when the token itself fails verification (bad signature / malformed / expired)', async () => {
+    verifyResult = { ok: false, reason: 'expired' };
+    const { ctx, captured, route } = blobTokenCtx('tok-1');
+    await route.handle(ctx);
+    expect(captured.status).toBe(403);
+    expect(captured.body).toEqual({ error: { code: 'forbidden', message: 'Image link is invalid or has expired' } });
+  });
+
+  it('403s when the token verifies but was minted for a different tenant', async () => {
+    verifyResult = { ok: true, claims: { ...matchingClaims, tenantId: 'other-tenant', exp: 9_999_999_999 } };
+    const { ctx, captured, route } = blobTokenCtx('tok-1');
+    await route.handle(ctx);
+    expect(captured.status).toBe(403);
+  });
+
+  it('403s when tenant matches but the app differs', async () => {
+    verifyResult = { ok: true, claims: { ...matchingClaims, appId: 'other-app', exp: 9_999_999_999 } };
+    const { ctx, captured, route } = blobTokenCtx('tok-1');
+    await route.handle(ctx);
+    expect(captured.status).toBe(403);
+  });
+
+  it('403s when tenant and app match but the bound key differs', async () => {
+    verifyResult = { ok: true, claims: { ...matchingClaims, keyId: 'someone-elses-key', exp: 9_999_999_999 } };
+    const { ctx, captured, route } = blobTokenCtx('tok-1');
+    await route.handle(ctx);
+    expect(captured.status).toBe(403);
+  });
+
+  it('proceeds (not 403) when tenant, app, and key all match an api-key caller', async () => {
+    blobStore.set(agentBlobKey('tenant-1', 'app-1', helloSha), { bytes: helloBytes, contentType: 'image/png' });
+    verifyResult = { ok: true, claims: { ...matchingClaims, exp: 9_999_999_999 } };
+    const { ctx, route } = blobTokenCtx('tok-1');
+    const res = (await route.handle(ctx)) as Response;
+    expect(res.status).toBe(200);
+  });
+
+  it('falls back to matching against the caller\'s tenantId for a bearer caller with no apiKeyId', async () => {
+    // Bearer callers have no key id — the route's own fallback binds them to
+    // their tenantId instead, so a token minted with keyId=tenantId matches.
+    blobStore.set(agentBlobKey('tenant-1', 'app-1', helloSha), { bytes: helloBytes, contentType: 'image/png' });
+    verifyResult = { ok: true, claims: { ...matchingClaims, keyId: 'tenant-1', exp: 9_999_999_999 } };
+    const { ctx, route } = blobTokenCtx('tok-1', { apiKeyId: undefined });
+    const res = (await route.handle(ctx)) as Response;
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects an api-key caller whose token was bound to the tenantId fallback, not their own key', async () => {
+    // The inverse of the fallback case: an api-key user has apiKeyId set, so
+    // keyId must match apiKeyId, not tenantId — a token minted for the
+    // fallback identity must not authorize a real api-key caller.
+    verifyResult = { ok: true, claims: { ...matchingClaims, keyId: 'tenant-1', exp: 9_999_999_999 } };
+    const { ctx, captured, route } = blobTokenCtx('tok-1', { apiKeyId: 'key_abc' });
+    await route.handle(ctx);
+    expect(captured.status).toBe(403);
+  });
+
+  it('404s when every claim matches but the blob itself is missing from storage', async () => {
+    verifyResult = { ok: true, claims: { ...matchingClaims, exp: 9_999_999_999 } };
+    const { ctx, captured, route } = blobTokenCtx('tok-1');
+    await route.handle(ctx);
+    expect(captured.status).toBe(404);
+    expect(captured.body).toEqual({ error: { code: 'blob_not_found', message: 'Blob not found' } });
+  });
+
+  it('serves the blob keyed by the sha256 carried in the claims', async () => {
+    blobStore.set(agentBlobKey('tenant-1', 'app-1', helloSha), {
+      bytes: helloBytes,
+      contentType: 'image/png',
+    });
+    verifyResult = { ok: true, claims: { ...matchingClaims, exp: 9_999_999_999 } };
+    const { ctx, route } = blobTokenCtx('tok-1');
+    const res = (await route.handle(ctx)) as Response;
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(helloBytes);
+  });
+
+  it('pins the exact Cache-Control max-age to the claims exp minus a frozen now()', async () => {
+    blobStore.set(agentBlobKey('tenant-1', 'app-1', helloSha), { bytes: helloBytes, contentType: 'image/png' });
+    const nowSeconds = 1_800_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(nowSeconds * 1000);
+    verifyResult = { ok: true, claims: { ...matchingClaims, exp: nowSeconds + 100 } };
+    const { ctx, route } = blobTokenCtx('tok-1');
+    const res = (await route.handle(ctx)) as Response;
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=100, immutable');
+    expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+    vi.restoreAllMocks();
+  });
+
+  it('clamps max-age to 0 (never negative) for a token whose exp is already in the past', async () => {
+    blobStore.set(agentBlobKey('tenant-1', 'app-1', helloSha), { bytes: helloBytes, contentType: 'image/png' });
+    const nowSeconds = 1_800_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(nowSeconds * 1000);
+    verifyResult = { ok: true, claims: { ...matchingClaims, exp: nowSeconds - 500 } };
+    const { ctx, route } = blobTokenCtx('tok-1');
+    const res = (await route.handle(ctx)) as Response;
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=0, immutable');
+    vi.restoreAllMocks();
   });
 });

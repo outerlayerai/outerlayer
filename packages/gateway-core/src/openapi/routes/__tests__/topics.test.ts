@@ -105,19 +105,21 @@ describe('GetTopics', () => {
     );
   });
 
+  /** Chainable Supabase stand-in that records the exact args each `.eq()`
+   * call in the resolveTopicsScope fallback chain receives. */
+  function fallbackSupabaseStub(result: { data: { name: string } | null; error: { message: string } | null }) {
+    const eqCalls: [string, unknown][] = [];
+    const eq = (col: string, val: unknown) => {
+      eqCalls.push([col, val]);
+      return { eq, maybeSingle: async () => result };
+    };
+    return { client: { from: () => ({ select: () => ({ eq }) }) }, eqCalls };
+  }
+
   it('falls back to the app default environment when the key carries no env binding', async () => {
     resolveEnvScope.mockResolvedValue(undefined);
-    getScopedSupabase.mockResolvedValue({
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              eq: () => ({ maybeSingle: async () => ({ data: { name: 'dev' }, error: null }) }),
-            }),
-          }),
-        }),
-      }),
-    });
+    const { client } = fallbackSupabaseStub({ data: { name: 'dev' }, error: null });
+    getScopedSupabase.mockResolvedValue(client);
 
     const query = { facet: 'issues', limit: 3 };
     const route = routeWithValidatedData(query);
@@ -130,5 +132,59 @@ describe('GetTopics', () => {
       'issues',
       3,
     );
+  });
+
+  it('filters the default-environment lookup on is_default = true, not false', async () => {
+    resolveEnvScope.mockResolvedValue(undefined);
+    const { client, eqCalls } = fallbackSupabaseStub({ data: { name: 'dev' }, error: null });
+    getScopedSupabase.mockResolvedValue(client);
+
+    const route = routeWithValidatedData({ facet: 'issues', limit: 3 });
+    await route.handle(buildContext());
+
+    expect(eqCalls).toContainEqual(['is_default', true]);
+  });
+
+  it('resolves an empty-string environment, not a crash, when the default-env lookup finds no row', async () => {
+    resolveEnvScope.mockResolvedValue(undefined);
+    const { client } = fallbackSupabaseStub({ data: null, error: null });
+    getScopedSupabase.mockResolvedValue(client);
+
+    const route = routeWithValidatedData({ facet: 'issues', limit: 3 });
+    await route.handle(buildContext());
+
+    expect(listTopics).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', appId: 'app-1', environment: '', environmentIsDefault: true },
+      'issues',
+      3,
+    );
+  });
+
+  it('propagates a genuine Supabase error from the default-env lookup as a 500, not a silent empty scope', async () => {
+    resolveEnvScope.mockResolvedValue(undefined);
+    const { client } = fallbackSupabaseStub({ data: null, error: { message: 'connection reset' } });
+    getScopedSupabase.mockResolvedValue(client);
+
+    const route = routeWithValidatedData({ facet: 'issues', limit: 3 });
+    const c = buildContext();
+    await route.handle(c);
+
+    expect(listTopics).not.toHaveBeenCalled();
+    const body = (c.json as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![0] as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe('internal_error');
+  });
+
+  it('returns 503 when no ClickHouse client resolves for the tenant/app', async () => {
+    getGatewayTopicsService.mockReturnValue(null);
+    const route = routeWithValidatedData({ facet: 'issues', limit: 3 });
+    const c = buildContext();
+
+    await route.handle(c);
+
+    expect(listTopics).not.toHaveBeenCalled();
+    const call = (c.json as unknown as { mock: { calls: [unknown, number?][] } }).mock.calls[0]!;
+    expect(call[1]).toBe(503);
   });
 });
