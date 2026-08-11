@@ -9,7 +9,7 @@ import { http, HttpResponse } from 'msw';
 
 const SUPABASE_URL = 'http://localhost:54321';
 
-export type OAuthGrantRowFixture = {
+type OAuthGrantRowFixture = {
   session_id: string;
   client_id: string;
   client_name: string | null;
