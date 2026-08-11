@@ -363,21 +363,25 @@ describe("<ContextView> — Overview detail drawer", () => {
     expect(replaceSpy).toHaveBeenCalledWith("/test-path?skill=alpha", { scroll: false });
 
     // The URL param is the drawer's state — rendering with it open proves the
-    // drawer body without navigating away from the Overview.
+    // drawer body without navigating away from the Overview. Everything below
+    // scopes to THIS render's container: the first render stays mounted, and
+    // its drawer-less table must not be the one proving interactivity.
     setSearch({ skill: "alpha" });
-    renderView(makeOverview());
-    const drawer = await screen.findByTestId("overview-detail-panel");
+    const opened = within(renderView(makeOverview()).container);
+    const drawer = await opened.findByTestId("overview-detail-panel");
     expect(within(drawer).getByTestId("overview-panel-range")).toHaveTextContent("40");
     expect(await within(drawer).findByText("Backfill tenant ids")).toBeInTheDocument();
     expect(within(drawer).getByText("Migrations · 5")).toBeInTheDocument();
     expect(within(drawer).getByTestId("adoption-sparkline")).toBeInTheDocument();
 
-    // Scrim-free: no modal backdrop exists, and the tables beneath stay
-    // interactive — clicking another row swaps the selection param in place.
+    // Scrim-free: no modal backdrop exists, and the table BENEATH THE OPEN
+    // DRAWER stays interactive — clicking another row swaps the selection
+    // param in place.
     expect(document.querySelector(".MuiBackdrop-root")).toBeNull();
-    const openTable = screen.getAllByTestId("overview-table-skill")[0]!;
     replaceSpy.mockClear();
-    fireEvent.click(within(openTable).getByTestId("overview-skill-row-dormant"));
+    fireEvent.click(
+      within(opened.getByTestId("overview-table-skill")).getByTestId("overview-skill-row-dormant"),
+    );
     expect(replaceSpy).toHaveBeenCalledWith("/test-path?skill=dormant", { scroll: false });
   });
 
