@@ -4,12 +4,11 @@
  * Literal file tree for the Context surface. One collapsible section per
  * scope, labelled by its repo path (`root` / `apps/web`); the `.outerlayer/`
  * directory renders as the wrapper row, then the actual directories/filenames.
- * Annotations only: kind icons, missing-SKILL.md warning triangle, a "shadows"
- * chip, the muted "· N servers" mcp suffix, the italic "⋯ N other files in
- * git" line as a skill's last child, and — once the usage overlay loads — a
- * muted right-aligned last-used time on skill dirs and mcp.json rows ("never"
- * is the one state that earns color). Counts, trends, and sessions live in
- * the detail pane's Usage tab, not the tree. Search filters over path/name.
+ * INVENTORY annotations only: kind icons, missing-SKILL.md warning triangle,
+ * a "shadows" chip, the muted "· N servers" mcp suffix, the italic "⋯ N other
+ * files in git" line as a skill's last child. No usage figures anywhere —
+ * counts, trends, and last-used live in the Overview, never the tree.
+ * Search filters over path/name.
  *
  * Icons come from Iconify; no test keys on `data-icon` (runtime emits none).
  */
@@ -58,9 +57,6 @@ import {
 import type { CreateFileTarget } from "./editor";
 import type { ContextDraftChangeType } from "./use-context-drafts";
 import type { ContextTreeResponse } from "../types";
-import type { SkillActivation } from "./context-skill-adoption";
-import type { McpServerUsage } from "./context-mcp-adoption";
-import { NeverUsedText, RelativeTimeText } from "./context-adoption-widgets";
 
 /** The scope path (`""` at repo root) that a `.outerlayer` dir governs. */
 function scopeOf(scopeDir: string): string {
@@ -169,10 +165,6 @@ interface ContextTreeProps {
    * until the head advances.
    */
   hiddenPaths?: ReadonlySet<string>;
-  /** Session-usage overlay keyed by skill name; annotates each skill dir's status. */
-  skillActivations?: ReadonlyMap<string, SkillActivation>;
-  /** Server-usage overlay keyed by MCP server name; `undefined` = not loaded (no annotations). */
-  mcpUsage?: ReadonlyMap<string, McpServerUsage>;
   /** Open the create popover pre-targeted at a directory, anchored to the clicked action. Omit to hide file row actions. */
   onNewFile?: (target: CreateFileTarget, anchor: HTMLElement) => void;
   /** Stage a `.gitkeep` folder draft at `<baseDir>/<name>/.gitkeep`. Omit to hide folder row actions. */
@@ -372,7 +364,7 @@ function handleTreeKeyDown(
   }
 }
 
-export default function ContextTree({ response, selectedPath, onSelect, query = "", draftChangeTypes, pendingPrPaths, hiddenPaths, skillActivations, mcpUsage, onNewFile, onNewFolder, onDeleteFolder, onDiscardDrafts }: ContextTreeProps) {
+export default function ContextTree({ response, selectedPath, onSelect, query = "", draftChangeTypes, pendingPrPaths, hiddenPaths, onNewFile, onNewFolder, onDeleteFolder, onDiscardDrafts }: ContextTreeProps) {
   const { t } = useTranslate();
   // Deleted-but-not-yet-mirrored paths are pruned from the source entries before
   // the tree is built, so a whole-skill delete collapses its directory too.
@@ -381,8 +373,8 @@ export default function ContextTree({ response, selectedPath, onSelect, query = 
     return { ...response, entries: response.entries.filter((e) => !hiddenPaths.has(e.path)) };
   }, [response, hiddenPaths]);
   const model = useMemo(
-    () => buildContextTreeModel(visibleResponse, draftChangeTypes, pendingPrPaths, skillActivations, mcpUsage),
-    [visibleResponse, draftChangeTypes, pendingPrPaths, skillActivations, mcpUsage],
+    () => buildContextTreeModel(visibleResponse, draftChangeTypes, pendingPrPaths),
+    [visibleResponse, draftChangeTypes, pendingPrPaths],
   );
   const filtered = useMemo(() => filterModel(model, query.trim().toLowerCase()), [model, query]);
 
@@ -1144,11 +1136,9 @@ function DirRow({
   position: TreePosition;
 }) {
   const { t } = useTranslate();
-  // A skill's own directory row is selectable — clicking it opens the skill's
-  // Files/Usage detail pane; only the chevron toggles expansion. Every other
-  // dir keeps the whole-row toggle.
-  const isSkill = node.skillName !== undefined;
-  const selected = isSkill && selectedPath === node.path;
+  // Every directory row — skill dirs included — toggles expansion on click;
+  // the editor pane renders only for FILES. (Skill usage lives in the
+  // Overview, not behind the dir row.)
   // Skill directories collapse to one row each so a large tree stays scannable.
   const [open, setOpen] = useState(() => !isSkillDir(node));
   // A deep link or a fresh create inside a collapsed dir must be visible: open
@@ -1212,8 +1202,7 @@ function DirRow({
         direction="row"
         spacing={0.5}
         {...treeItemProps}
-        {...(isSkill ? { "aria-selected": selected } : {})}
-        onClick={() => (isSkill ? onSelect(node.path) : toggleOpen())}
+        onClick={toggleOpen}
         sx={{
           alignItems: "center",
           pl: `${depth * INDENT_STEP + 24}px`,
@@ -1221,29 +1210,12 @@ function DirRow({
           minHeight: ROW_HEIGHT,
           borderRadius: 1,
           cursor: "pointer",
-          bgcolor: (theme) => (selected ? alpha(theme.palette.primary.main, 0.08) : "transparent"),
-          "&:hover": {
-            bgcolor: (theme) =>
-              selected ? alpha(theme.palette.primary.main, 0.08) : theme.palette.action.hover,
-          },
+          "&:hover": { bgcolor: (theme) => theme.palette.action.hover },
           "&:hover .row-actions, &:focus-within .row-actions": { opacity: 1 },
           ...TREE_ROW_FOCUS_SX,
         }}
       >
-        <Box
-          component="span"
-          {...(isSkill
-            ? {
-                onClick: (e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  toggleOpen();
-                },
-                "data-testid": `tree-dir-chevron-${node.path}`,
-                "aria-label": effectiveOpen ? "Collapse directory" : "Expand directory",
-              }
-            : {})}
-          sx={{ display: "inline-flex", flexShrink: 0 }}
-        >
+        <Box component="span" sx={{ display: "inline-flex", flexShrink: 0 }}>
           <Iconify
             icon={effectiveOpen ? "mdi:chevron-down" : "mdi:chevron-right"}
             width={16}
@@ -1313,20 +1285,6 @@ function DirRow({
             </Tooltip>
           )
         ) : null}
-        {node.adoption &&
-          (node.adoption.status === "never" ? (
-            // A brand-new, unpublished skill has no usage history yet — the "never
-            // used" mark is noise until it's published, so suppress it while a new
-            // draft (its own or a descendant SKILL.md create) rides the row.
-            !(ownDraft === "new" || descendantDraftType(node) === "new") && (
-              <NeverUsedText
-                tip={t("dashboard.context.tree.lastUsedNeverSkillTip")}
-                testId="tree-last-used-never"
-              />
-            )
-          ) : (
-            <RelativeTimeText value={node.adoption.lastActivatedAt} testId="tree-last-used" />
-          ))}
         {actions &&
           loc &&
           !loc.actionsSuppressed &&
@@ -1546,15 +1504,6 @@ function FileRow({
       )}
       {misplaced && <MisplacedBadge detail={misplaced.detail} />}
       <Box sx={{ flexGrow: 1 }} />
-      {node.mcpAdoption &&
-        (node.mcpAdoption.never === node.mcpAdoption.total ? (
-          <NeverUsedText
-            tip={t("dashboard.context.tree.lastUsedNeverMcpTip")}
-            testId="tree-last-used-never"
-          />
-        ) : (
-          <RelativeTimeText value={node.mcpAdoption.lastUsedAt} testId="tree-last-used" />
-        ))}
     </Stack>
     </Box>
   );

@@ -12,12 +12,6 @@
 import { classifyTree, type ContextKind } from "@repo/context-core";
 import type { ContextExcludedCount, ContextTreeResponse, ContextTreeEntry } from "../types";
 import type { ContextDraftChangeType } from "./use-context-drafts";
-import { skillAdoptionInfo, type SkillActivation, type SkillAdoptionInfo } from "./context-skill-adoption";
-import {
-  summarizeMcpAdoption,
-  type McpAdoptionSummary,
-  type McpServerUsage,
-} from "./context-mcp-adoption";
 
 const OUTERLAYER_DIR = ".outerlayer";
 
@@ -35,10 +29,8 @@ interface TreeFileNode {
   badges: TreeBadge[];
   /** Server count for an `mcp.json` node — drives the muted "· N servers" suffix. */
   mcpServerCount?: number;
-  /** Installed server names for an `mcp.json` node — the drill-down's roster. */
+  /** Installed server names for an `mcp.json` node. */
   mcpServers?: string[];
-  /** Usage roll-up for an `mcp.json` node; absent while the overlay hasn't loaded (unknown ≠ never). */
-  mcpAdoption?: McpAdoptionSummary;
 }
 
 interface TreeDirNode {
@@ -49,14 +41,6 @@ interface TreeDirNode {
   /** Count of git files under a skill dir excluded from the mirror (assets/scripts);
    *  the view renders the muted "N other files in git" line. `null` when none. */
   excludedCount: number | null;
-  /** Set on a skill's own directory (the one holding its SKILL.md) — makes the
-   *  row selectable so the detail pane can show the skill's Files/Usage tabs.
-   *  Marked from the entries alone, independent of the adoption overlay. */
-  skillName?: string;
-  /** Session-usage overlay for a skill dir — the "never activated / quiet / active"
-   *  status. `undefined` when this dir is not a skill dir, or when adoption data
-   *  wasn't supplied (so the tree renders exactly as before the overlay). */
-  adoption?: SkillAdoptionInfo;
   children: TreeNode[];
 }
 
@@ -117,7 +101,7 @@ class ScopeBuilder {
   addFile(
     entry: ContextTreeEntry,
     badges: TreeBadge[],
-    mcp?: { count: number; servers: string[]; adoption?: McpAdoptionSummary },
+    mcp?: { count: number; servers: string[] },
   ): void {
     const rel = entry.path.slice(this.scopeDir.length + 1);
     const segs = rel.split("/");
@@ -129,11 +113,7 @@ class ScopeBuilder {
       kind: entry.kind,
       badges,
       ...(mcp !== undefined
-        ? {
-            mcpServerCount: mcp.count,
-            mcpServers: mcp.servers,
-            ...(mcp.adoption !== undefined ? { mcpAdoption: mcp.adoption } : {}),
-          }
+        ? { mcpServerCount: mcp.count, mcpServers: mcp.servers }
         : {}),
     };
 
@@ -152,16 +132,6 @@ class ScopeBuilder {
     if (excludedCount !== null) dir.excludedCount = excludedCount;
   }
 
-  /** Mark a directory as a skill's own dir (selectable → skill detail pane). */
-  markSkillDir(dirPath: string, skillName: string): void {
-    this.ensureDir(dirPath).skillName = skillName;
-  }
-
-  /** Attach the session-usage status to an existing skill dir. */
-  annotateAdoption(dirPath: string, adoption: SkillAdoptionInfo): void {
-    this.ensureDir(dirPath).adoption = adoption;
-  }
-
   sorted(): TreeNode[] {
     const sortRec = (nodes: TreeNode[]): TreeNode[] => {
       for (const n of nodes) if (n.type === "dir") n.children = sortRec(n.children);
@@ -175,11 +145,6 @@ export function buildContextTreeModel(
   response: ContextTreeResponse,
   draftChangeTypes?: ReadonlyMap<string, ContextDraftChangeType>,
   pendingPrPaths?: ReadonlySet<string>,
-  /** Session-usage overlay keyed by skill name. `undefined` = not loaded → no
-   *  adoption annotations at all (never conflate "unknown" with "never used"). */
-  skillActivations?: ReadonlyMap<string, SkillActivation>,
-  /** Server-usage overlay keyed by MCP server name. Same unknown ≠ never rule. */
-  mcpUsage?: ReadonlyMap<string, McpServerUsage>,
 ): ContextTreeModel {
   const { issues, excludedCounts, mcpServerCounts } = response;
 
@@ -190,10 +155,7 @@ export function buildContextTreeModel(
   const entries = mergeSyntheticEntries(response.entries, draftChangeTypes, pendingPrPaths);
 
   const mcpByPath = new Map(
-    mcpServerCounts.map((m) => [
-      m.path,
-      { count: m.count, servers: m.servers, adoption: summarizeMcpAdoption(m.servers, mcpUsage) },
-    ]),
+    mcpServerCounts.map((m) => [m.path, { count: m.count, servers: m.servers }]),
   );
   const shadowedByPath = new Map<string, string>();
   const misplacedByPath = new Map<string, string>();
@@ -276,24 +238,6 @@ export function buildContextTreeModel(
     }
     for (const ec of scopedExcludedCounts(excludedCounts, scopePath)) {
       builder.annotateDir(`${scopeDir}/skills/${ec.skillName}`, null, ec.count);
-    }
-
-    // Real skill dirs — ones that own an entry under `skills/<name>/`, so we
-    // never conjure a phantom dir. Marked unconditionally (a skill dir is
-    // selectable regardless of overlay state); the session-usage annotation
-    // attaches only when activation data was supplied (unknown ≠ never).
-    const skillNames = new Set<string>();
-    for (const entry of entries) {
-      if (entry.scopePath !== scopePath || entry.skillName === undefined) continue;
-      if (!entry.path.startsWith(`${scopeDir}/skills/`)) continue;
-      skillNames.add(entry.skillName);
-    }
-    for (const skillName of skillNames) {
-      const dirPath = `${scopeDir}/skills/${skillName}`;
-      builder.markSkillDir(dirPath, skillName);
-      if (skillActivations) {
-        builder.annotateAdoption(dirPath, skillAdoptionInfo(skillActivations.get(skillName)));
-      }
     }
 
     return { scopeLabel: scopePath === "" ? "root" : scopePath, scopeDir, children: builder.sorted() };

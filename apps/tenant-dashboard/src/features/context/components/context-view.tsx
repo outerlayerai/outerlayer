@@ -54,16 +54,10 @@ import { useAppPermissions } from "@/lib/adapters/use-app-permissions";
 import { Permissions } from "@/utils/permissions";
 import { useSnackbar } from "@/components/snackbar";
 import { classifyTree, type FieldIssue } from "@repo/context-core";
-import {
-  useContextFile,
-  useContextTree,
-  useContextSkillAdoption,
-  useContextMcpAdoption,
-} from "../hooks";
-import { indexSkillActivations } from "./context-skill-adoption";
-import { indexMcpUsage } from "./context-mcp-adoption";
-import { SkillDetailPane } from "./context-skill-usage-pane";
-import { McpDetailTabs } from "./context-mcp-usage-pane";
+import { useContextFile, useContextTree } from "../hooks";
+import { ContextOverview } from "./overview/context-overview";
+import { OverviewRangeChip } from "./overview/overview-range-chip";
+import type { AdoptionDetailSelection } from "./overview/adoption-detail-panel";
 import { useContextDrafts, type ContextDraft, type ContextDraftChangeType } from "./use-context-drafts";
 import ContextTree from "./context-tree";
 import { OversizeNotice } from "./file-blocks";
@@ -83,9 +77,9 @@ import {
 import { landingMessage } from "./landing-message";
 import type {
   ContextFileResponse,
+  ContextOverviewRange,
+  ContextOverviewResponse,
   ContextTreeResponse,
-  McpAdoptionResponse,
-  SkillAdoptionResponse,
 } from "../types";
 
 const TREE_WIDTH = 300;
@@ -171,19 +165,21 @@ interface ContextViewProps {
   initialTree: ContextTreeResponse;
   /** The `?file=`-selected file at first render, or `null` when none/stale. */
   initialFile: ContextFileResponse | null;
-  initialSkillAdoption: SkillAdoptionResponse;
-  initialMcpAdoption: McpAdoptionResponse;
   /** The `?file=` value the RSC seeded `initialFile` for. */
   initialSelectedPath: string | null;
+  /** Overview seed for the landing range — `null` when the page landed on
+   *  another view (the client loads it through the read action instead). */
+  initialOverview?: ContextOverviewResponse | null;
 }
+
+const OVERVIEW_RANGES: ReadonlySet<string> = new Set(["24h", "7d", "30d", "90d"]);
 
 export function ContextView({
   appId,
   initialTree,
   initialFile,
-  initialSkillAdoption,
-  initialMcpAdoption,
   initialSelectedPath,
+  initialOverview = null,
 }: ContextViewProps) {
   const { t } = useTranslate();
   const { orgName, appName } = useParams<{ orgName: string; appName: string }>();
@@ -247,7 +243,36 @@ export function ContextView({
   const canPublish = canEdit || canInsert;
 
   const selectedPath = searchParams.get("file");
-  const view: "files" | "history" = searchParams.get("view") === "history" ? "history" : "files";
+  const rawView = searchParams.get("view");
+  // Overview is the default; a pre-Overview link carrying only `?file=` must
+  // keep opening Files (back-compat), so the bare-URL default applies only
+  // when no file is selected.
+  const view: "overview" | "files" | "history" =
+    rawView === "history"
+      ? "history"
+      : rawView === "files"
+        ? "files"
+        : rawView === "overview"
+          ? "overview"
+          : selectedPath !== null
+            ? "files"
+            : "overview";
+
+  const rangeParam = searchParams.get("range");
+  const overviewRange: ContextOverviewRange = OVERVIEW_RANGES.has(rangeParam ?? "")
+    ? (rangeParam as ContextOverviewRange)
+    : "30d";
+  const overviewSkill = searchParams.get("skill");
+  const overviewServer = searchParams.get("server");
+  // One panel at a time — `skill` wins if a hand-built URL carries both.
+  const overviewSelection: AdoptionDetailSelection | null =
+    view !== "overview"
+      ? null
+      : overviewSkill !== null
+        ? { kind: "skill", name: overviewSkill }
+        : overviewServer !== null
+          ? { kind: "mcp", name: overviewServer }
+          : null;
 
   // A `create` draft has no server file — the editor opens on the draft itself.
   const activeDraft = selectedPath ? drafts.drafts.get(selectedPath) : undefined;
@@ -274,11 +299,20 @@ export function ContextView({
   );
 
   const setView = useCallback(
-    (next: "files" | "history") => {
+    (next: "overview" | "files" | "history") => {
       guardNav(() => {
         const params = new URLSearchParams(searchParams.toString());
-        if (next === "history") params.set("view", "history");
-        else params.delete("view");
+        if (next === "overview") {
+          // Overview is the default → keep the URL bare, EXCEPT when `file=`
+          // would re-resolve a bare URL back to Files.
+          if (params.has("file")) params.set("view", "overview");
+          else params.delete("view");
+        } else {
+          params.set("view", next);
+          // The detail-panel params are Overview state; leaving drops them.
+          params.delete("skill");
+          params.delete("server");
+        }
         router.replace(`${pathname}?${params.toString()}`, { scroll: false });
       });
     },
@@ -289,10 +323,13 @@ export function ContextView({
       exclusive
       size="small"
       value={view}
-      onChange={(_e, next: "files" | "history" | null) => next && setView(next)}
+      onChange={(_e, next: "overview" | "files" | "history" | null) => next && setView(next)}
       aria-label="context view"
       sx={{ "& .MuiToggleButton-root": { minWidth: 72 } }}
     >
+      <ToggleButton value="overview" aria-label="overview">
+        {t("dashboard.context.view.overview")}
+      </ToggleButton>
       <ToggleButton value="files" aria-label="files">
         {t("dashboard.context.view.files")}
       </ToggleButton>
@@ -302,30 +339,48 @@ export function ContextView({
     </ToggleButtonGroup>
   );
 
+  const setOverviewRange = useCallback(
+    (next: ContextOverviewRange) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("range", next);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  const setOverviewSelection = useCallback(
+    (selection: AdoptionDetailSelection | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("skill");
+      params.delete("server");
+      if (selection !== null) {
+        params.set(selection.kind === "skill" ? "skill" : "server", selection.name);
+      }
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  /** Overview → Files deep link (panel footer, needs-attention, usage strip back-nav). */
+  const openFileFromOverview = useCallback(
+    (path: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("view", "files");
+      params.set("file", path);
+      params.delete("skill");
+      params.delete("server");
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+
   const { data: tree, error: treeError, isLoading, mutate: mutateTree } = useContextTree(appId, {
     fallbackData: initialTree,
   });
-  // Session-usage overlay for the tree's skills, seeded with the tree from the
-  // RSC so a slow or absent analytics backend never blocks first paint.
-  const { data: skillAdoption } = useContextSkillAdoption(appId, {
-    fallbackData: initialSkillAdoption,
-  });
-  const skillActivations = useMemo(
-    () => (skillAdoption ? indexSkillActivations(skillAdoption.skills) : undefined),
-    [skillAdoption],
-  );
-  // Same non-blocking posture for the MCP-server usage overlay, also seeded
-  // with the tree from the RSC.
-  const { data: mcpAdoption } = useContextMcpAdoption(appId, {
-    fallbackData: initialMcpAdoption,
-  });
-  const mcpUsage = useMemo(
-    () => (mcpAdoption ? indexMcpUsage(mcpAdoption.servers) : undefined),
-    [mcpAdoption],
-  );
-  // Skill dirs are selectable tree rows: map each skill's dir path to its
-  // name so a dir selection renders the skill's Files/Usage detail pane
-  // instead of attempting a file fetch on a directory path.
+  // Legacy deep links may still carry a skill DIRECTORY in `?file=` — map
+  // each skill's dir path to its name so such a selection never attempts a
+  // file fetch on a directory path (it renders the select-a-file placeholder).
   const skillDirByPath = useMemo(() => {
     const map = new Map<string, string>();
     for (const entry of tree?.entries ?? []) {
@@ -338,12 +393,6 @@ export function ContextView({
     return map;
   }, [tree]);
   const selectedSkillName = selectedPath ? skillDirByPath.get(selectedPath) : undefined;
-  const skillFiles = useMemo(() => {
-    if (selectedSkillName === undefined || selectedPath === null) return [];
-    return (tree?.entries ?? [])
-      .filter((entry) => entry.kind !== "folder" && entry.path.startsWith(`${selectedPath}/`))
-      .map((entry) => ({ path: entry.path, name: entry.path.slice(selectedPath.length + 1) }));
-  }, [tree, selectedPath, selectedSkillName]);
   const {
     data: file,
     error: fileError,
@@ -852,6 +901,9 @@ export function ContextView({
           </IconButton>
         </span>
       </Tooltip>
+      {view === "overview" && (
+        <OverviewRangeChip range={overviewRange} onChange={setOverviewRange} />
+      )}
       {viewSwitch}
     </Stack>
   );
@@ -942,6 +994,26 @@ export function ContextView({
         <CenteredPane>
           <NeverSyncedState onResync={runResync} resyncing={syncing} />
         </CenteredPane>
+      </PageFrame>
+    );
+  }
+
+  if (view === "overview") {
+    return (
+      <PageFrame
+        repository={tree.gitConnection.repository}
+        branch={tree.gitConnection.branch}
+        headerActions={headerControls}
+      >
+        <ContextOverview
+          appId={appId}
+          initialOverview={initialOverview}
+          range={overviewRange}
+          selection={overviewSelection}
+          onSelect={setOverviewSelection}
+          onOpenFile={openFileFromOverview}
+        />
+        {leaveConfirm}
       </PageFrame>
     );
   }
@@ -1042,31 +1114,12 @@ export function ContextView({
     ) : (
       editorEl
     );
-  // A selected skill dir swaps the file pane for the skill's Files/Usage
-  // tabs; a selected mcp.json keeps the whole file pane on a Content tab and
-  // adds the server Usage tab beside it. Keyed by path so the tab choice
-  // resets when the selection moves.
-  const selectedMcpServers =
-    selectedPath !== null && !selectedIsDeleted && !isCreateDraft && file?.kind === "mcp"
-      ? (tree.mcpServerCounts.find((m) => m.path === selectedPath)?.servers ?? [])
-      : undefined;
+  // A skill DIRECTORY is no longer a detail surface — folders expand in the
+  // tree and the editor renders only files. A legacy deep link to a dir path
+  // falls back to the select-a-file placeholder; usage lives in the Overview.
   const paneBody =
     selectedSkillName !== undefined && selectedPath !== null && !selectedIsDeleted ? (
-      <SkillDetailPane
-        key={selectedPath}
-        skillName={selectedSkillName}
-        dirPath={selectedPath}
-        files={skillFiles}
-        activation={skillActivations?.get(selectedSkillName)}
-        overlayLoaded={skillActivations !== undefined}
-        recentDays={skillAdoption?.recentDays ?? 14}
-        lookbackDays={skillAdoption?.lookbackDays ?? 90}
-        onSelectFile={selectFile}
-      />
-    ) : selectedMcpServers !== undefined && selectedPath !== null ? (
-      <McpDetailTabs key={selectedPath} servers={selectedMcpServers}>
-        {fileBody}
-      </McpDetailTabs>
+      <PlaceholderPane text={t("dashboard.context.view.selectFile")} />
     ) : (
       fileBody
     );
@@ -1186,8 +1239,6 @@ export function ContextView({
           draftChangeTypes={draftChangeTypes}
           pendingPrPaths={pendingPrPaths}
           hiddenPaths={deletedPaths}
-          skillActivations={skillActivations}
-          mcpUsage={mcpUsage}
           onNewFile={canInsert ? handleNewFile : undefined}
           onNewFolder={canInsert ? handleNewFolder : undefined}
           onDeleteFolder={canDelete ? handleDeleteFolder : undefined}

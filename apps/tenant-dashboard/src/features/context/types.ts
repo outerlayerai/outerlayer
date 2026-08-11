@@ -90,25 +90,6 @@ export interface ContextFileResponse {
   };
 }
 
-/** Per-skill activation counts — the skill-adoption overlay rows. */
-interface SkillActivation {
-  skillName: string;
-  /** Activations inside the recent window (the "is it live" signal). */
-  recentActivations: number;
-  /** Activations across the whole lookback window. */
-  totalActivations: number;
-  /** Distinct sessions that activated the skill in the lookback window. */
-  totalSessions: number;
-  lastActivatedAt: string | null;
-}
-
-/** The skill-adoption overlay payload: per-skill counts plus the window bounds that classify them. */
-export interface SkillAdoptionResponse {
-  skills: SkillActivation[];
-  recentDays: number;
-  lookbackDays: number;
-}
-
 /** One day's activation counts in a skill's trend series. */
 interface SkillTrendPoint {
   day: string;
@@ -136,25 +117,6 @@ export interface SkillDrilldownResponse {
   trend: SkillTrendPoint[];
   sessions: SkillDrilldownSession[];
   topics: SkillDrilldownTopic[];
-  lookbackDays: number;
-}
-
-/** Per-server call counts — the MCP-adoption overlay rows. */
-interface McpServerUsage {
-  serverName: string;
-  /** Calls inside the recent window (the "is it live" signal). */
-  recentCalls: number;
-  /** Calls across the whole lookback window. */
-  totalCalls: number;
-  /** Distinct sessions that called the server in the lookback window. */
-  totalSessions: number;
-  lastUsedAt: string | null;
-}
-
-/** The MCP-adoption overlay payload: per-server counts plus the window bounds that classify them. */
-export interface McpAdoptionResponse {
-  servers: McpServerUsage[];
-  recentDays: number;
   lookbackDays: number;
 }
 
@@ -189,6 +151,108 @@ export interface McpDrilldownResponse {
   sessions: McpDrilldownSession[];
   lookbackDays: number;
   recentDays: number;
+}
+
+/** The Overview's user-selected window. Mirrors the dashboards' range values;
+ * defined here because features are leaves and cannot import each other. */
+export type ContextOverviewRange = "24h" | "7d" | "30d" | "90d";
+
+/** Inventory problems surfaced on Overview rows and the needs-attention rail. */
+export type OverviewIssueType = "missing-skill-md" | "shadowed" | "misplaced";
+
+/**
+ * One skill in the Overview — the inventory ∪ usage join. ClickHouse alone
+ * cannot produce a "never used" row, so rows are keyed off the mirrored
+ * inventory and usage is layered on (zeros when nothing activated).
+ */
+export interface OverviewSkillRow {
+  skillName: string;
+  /** Scope of the inventory copy, or `null` when the name is absent from the
+   *  repo or present in more than one scope (usage is name-keyed). */
+  scopePath: string | null;
+  /** `false` = activations recorded for a name no longer in the repo. */
+  inRepo: boolean;
+  /** Activations in the selected range window. */
+  activations: number;
+  /** Activations in the equal-length window before the range. */
+  priorActivations: number;
+  /** Distinct sessions in the selected range window. */
+  sessions: number;
+  /** Activations inside the fixed recent threshold — the active/quiet verdict
+   *  must not change when the user flips the range selector. */
+  recentActivations: number;
+  /** Activations across the fixed lookback horizon — the never verdict. */
+  lookbackActivations: number;
+  lastActivatedAt: string | null;
+  /** Day series over the range window (gaps = zero days; view zero-fills). */
+  trend: Array<{ day: string; activations: number }>;
+  issues: OverviewIssueType[];
+}
+
+/** One MCP server in the Overview — same join semantics as the skill rows. */
+export interface OverviewMcpRow {
+  serverName: string;
+  /** The mcp.json declaring the server, or `null` when it isn't in the repo. */
+  configPath: string | null;
+  inRepo: boolean;
+  calls: number;
+  priorCalls: number;
+  sessions: number;
+  recentCalls: number;
+  lookbackCalls: number;
+  /** Distinct tools CALLED in the lookback — mcp.json carries no definitions,
+   *  so "tools defined" is unknowable and never claimed. */
+  toolsUsed: number;
+  lastUsedAt: string | null;
+}
+
+/** Session coverage per window; `lookbackSessions` doubles as the first-run gate. */
+export interface OverviewCoverage {
+  sessions: number;
+  sessionsWithSkill: number;
+  priorSessions: number;
+  priorSessionsWithSkill: number;
+  lookbackSessions: number;
+}
+
+/** One task topic the skill-activating sessions cluster under. */
+export interface OverviewTopic {
+  topicId: string;
+  name: string;
+  sessions: number;
+}
+
+/** Counts of the artifact kinds that carry NO usage telemetry — shown as
+ * inventory with an explicit note, never as fake zeros. */
+interface OverviewInventory {
+  /** Scopes carrying an instructions file (AGENTS.md/CLAUDE.md). */
+  instructionScopes: number;
+  commands: number;
+  subagents: number;
+}
+
+/** The Overview payload: joined rows plus the coverage and topic rollups. */
+export interface ContextOverviewResponse {
+  range: ContextOverviewRange;
+  /**
+   * Window totals summed over ALL usage rows — including removed-skill usage
+   * whose row the join drops for having no current-window activity. The
+   * activations tile's period-over-period delta must count a deleted skill's
+   * prior-window usage, or removal reads as growth.
+   */
+  totals: { activations: number; priorActivations: number };
+  /** The fixed adoption thresholds the status pills derive from. */
+  recentDays: number;
+  lookbackDays: number;
+  /** True when the analytics backend was unreachable or unconfigured — usage
+   *  must render as unknown ("—"), never as zero, and no verdicts are earned. */
+  degraded: boolean;
+  skills: OverviewSkillRow[];
+  mcpServers: OverviewMcpRow[];
+  /** `null` when degraded. */
+  coverage: OverviewCoverage | null;
+  topics: OverviewTopic[];
+  inventory: OverviewInventory;
 }
 
 /** One row of the `context_sync_event` ledger (a link/push/resync attempt). */
