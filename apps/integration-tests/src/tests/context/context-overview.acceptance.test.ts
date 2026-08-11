@@ -216,32 +216,60 @@ describe('context overview — inventory ∪ usage join over real Supabase RLS +
 
     expect(result.degraded).toBe(false);
 
-    const alphaRow = result.skills.find((row) => row.skillName === alpha);
-    expect(alphaRow).toMatchObject({
-      inRepo: true,
+    // Positional over the whole row set: activations-desc ordering, the
+    // in-repo flags, and the figures in one assert — a reorder, a dropped
+    // row, or a wrong count all fail here.
+    expect(result.skills.map((row) => [row.skillName, row.inRepo, row.activations])).toEqual([
+      [alpha, true, ALPHA_TRACES * SPANS_PER_TRACE],
+      [ghost, false, GHOST_TRACES.length * SPANS_PER_TRACE],
+      [dormant, true, 0],
+    ]);
+
+    const alphaRow = result.skills[0]!;
+    expect(alphaRow).toEqual({
+      skillName: alpha,
       scopePath: '',
+      inRepo: true,
       activations: ALPHA_TRACES * SPANS_PER_TRACE,
+      priorActivations: 0,
       sessions: ALPHA_TRACES,
       recentActivations: ALPHA_TRACES * SPANS_PER_TRACE,
       lookbackActivations: ALPHA_TRACES * SPANS_PER_TRACE,
+      lastActivatedAt: expect.any(String),
+      // One rollup point per seeded day (traces 0–5 land on days 0–5).
+      trend: expect.any(Array),
+      issues: [],
     });
-    expect(alphaRow!.lastActivatedAt).not.toBeNull();
-    // The grouped trend covers the seeded days and sums back to the total.
-    expect(alphaRow!.trend.reduce((sum, point) => sum + point.activations, 0)).toBe(
+    expect(alphaRow.trend).toHaveLength(ALPHA_TRACES);
+    expect(alphaRow.trend.reduce((sum, point) => sum + point.activations, 0)).toBe(
       ALPHA_TRACES * SPANS_PER_TRACE,
     );
 
     // Coverage: 10 seeded sessions; traces 0–5 (alpha) and 6–7 (ghost)
     // activated a skill → 8 of 10, straight from the session-grain rollup.
-    expect(result.coverage).toMatchObject({
+    // The prior 30d window was seeded empty, so the prior counts are zero.
+    expect(result.coverage).toEqual({
       sessions: SESSIONS,
       sessionsWithSkill: ALPHA_TRACES + GHOST_TRACES.length,
+      priorSessions: 0,
+      priorSessionsWithSkill: 0,
       lookbackSessions: SESSIONS,
     });
 
-    const github = result.mcpServers.find((row) => row.serverName === 'github');
-    expect(github).toMatchObject({ inRepo: true, configPath: '.outerlayer/mcp.json', sessions: 5, toolsUsed: 2 });
-    expect(github!.calls).toBeGreaterThan(0);
+    expect(result.mcpServers).toEqual([
+      {
+        serverName: 'github',
+        configPath: '.outerlayer/mcp.json',
+        inRepo: true,
+        calls: 5,
+        priorCalls: 0,
+        sessions: 5,
+        recentCalls: 5,
+        lookbackCalls: 5,
+        toolsUsed: 2,
+        lastUsedAt: expect.any(String),
+      },
+    ]);
 
     expect(result.inventory).toEqual({ instructionScopes: 1, commands: 0, subagents: 0 });
   });
@@ -252,14 +280,18 @@ describe('context overview — inventory ∪ usage join over real Supabase RLS +
     const result = await getOverview(owner.client as never, { tenantId: owner.tenantId, appId }, '30d');
 
     const dormantRow = result.skills.find((row) => row.skillName === dormant);
-    expect(dormantRow).toMatchObject({
+    expect(dormantRow).toEqual({
+      skillName: dormant,
+      scopePath: '',
       inRepo: true,
       activations: 0,
+      priorActivations: 0,
       sessions: 0,
       recentActivations: 0,
       lookbackActivations: 0,
       lastActivatedAt: null,
       trend: [],
+      issues: [],
     });
     // The first-run gate must be OPEN — the never verdict is earned, not defaulted.
     expect(result.coverage!.lookbackSessions).toBeGreaterThan(0);
@@ -270,10 +302,18 @@ describe('context overview — inventory ∪ usage join over real Supabase RLS +
     const result = await getOverview(owner.client as never, { tenantId: owner.tenantId, appId }, '30d');
 
     const ghostRow = result.skills.find((row) => row.skillName === ghost);
-    expect(ghostRow).toMatchObject({
-      inRepo: false,
+    expect(ghostRow).toEqual({
+      skillName: ghost,
       scopePath: null,
+      inRepo: false,
       activations: GHOST_TRACES.length * SPANS_PER_TRACE,
+      priorActivations: 0,
+      sessions: GHOST_TRACES.length,
+      recentActivations: GHOST_TRACES.length * SPANS_PER_TRACE,
+      lookbackActivations: GHOST_TRACES.length * SPANS_PER_TRACE,
+      lastActivatedAt: expect.any(String),
+      trend: expect.any(Array),
+      issues: [],
     });
 
     // `ancient` has lookback history but nothing in the 30d window — a
