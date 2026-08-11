@@ -108,6 +108,7 @@ const stale = [...ALLOWLIST].filter(
 const BOUNDED_QUERY_FILES = [
   "packages/observability-service/src/services/topics.ts",
   "packages/observability-service/src/services/agent-sessions.ts",
+  "packages/observability-service/src/services/metrics-compare.ts",
 ];
 
 /** Every `.query({ ... })` call's argument object, brace-balanced so a

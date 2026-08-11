@@ -16,6 +16,8 @@ import {
   FleetOverviewSchema,
   ContextChangesQuerySchema,
   ContextChangesSchema,
+  CompareWindowsQuerySchema,
+  CompareWindowsSchema,
 } from '@repo/api-schemas';
 import { GATEWAY_PERMISSIONS } from '../../../lib/permissions';
 import { MCP_TOOLS } from '../tools';
@@ -37,9 +39,10 @@ describe('MCP_TOOLS registry invariants', () => {
 
 // proves AC-052-06
 describe('tool schemas match their REST counterparts exactly', () => {
-  it('advertises exactly six tools plus the guide resource', () => {
+  it('advertises exactly seven tools plus the guide resource', () => {
     expect(toolNames.sort()).toEqual(
       [
+        'compare_windows',
         'get_fleet_overview',
         'get_model_costs',
         'get_session',
@@ -83,5 +86,11 @@ describe('tool schemas match their REST counterparts exactly', () => {
     const tool = MCP_TOOLS.find((t) => t.name === 'list_context_changes')!;
     expect(tool.zodInputSchema).toBe(ContextChangesQuerySchema);
     expect(tool.zodOutputSchema).toBe(ContextChangesSchema);
+  });
+
+  it('compare_windows validates against the same Zod objects GET /v1/metrics/compare uses', () => {
+    const tool = MCP_TOOLS.find((t) => t.name === 'compare_windows')!;
+    expect(tool.zodInputSchema).toBe(CompareWindowsQuerySchema);
+    expect(tool.zodOutputSchema).toBe(CompareWindowsSchema);
   });
 });

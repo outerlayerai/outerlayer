@@ -21,7 +21,7 @@ import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
 import { GetCapabilities } from './routes/capabilities';
 import { GetPricing } from './routes/pricing';
 import { GetTopics } from './routes/topics';
-import { GetModelStats, GetFleetOverview } from './routes/metrics';
+import { GetModelStats, GetFleetOverview, GetMetricsCompare } from './routes/metrics';
 import { ListSessions, GetSessionDetail } from './routes/sessions';
 import { ListContextChanges } from './routes/context';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from './routes/api-keys';
@@ -538,7 +538,7 @@ export const openApiApp = fromHono(app, {
       { name: 'Workers', description: 'Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app\'s connected repo; every response carries the dashboard deep link to the live thread.' },
       { name: 'Sessions', description: 'Agent-coding session list and full transcript reads, with actor-privacy controls for machine keys.' },
       { name: 'Topics', description: 'Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet.' },
-      { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles.' },
+      { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles, including two-window comparisons.' },
       { name: 'Context', description: 'Synced-commit history of the app\'s `.outerlayer/` context tree.' },
       { name: 'Health', description: 'Service health checks.' },
     ],
@@ -769,6 +769,7 @@ registerAuthenticatedRoute('get', '/v1/topics', GetTopics, { entitlement: 'topic
 // ============================================================================
 registerAuthenticatedRoute('get', '/v1/metrics/models', GetModelStats);
 registerAuthenticatedRoute('get', '/v1/metrics/overview', GetFleetOverview);
+registerAuthenticatedRoute('get', '/v1/metrics/compare', GetMetricsCompare);
 
 // ============================================================================
 // Context routes

@@ -64,8 +64,10 @@ rather than a specific comparison window.
 \`list_context_changes\` returns the app's synced \`.outerlayer/\` commit
 history, newest first, each with a \`createdAt\` timestamp. To see a
 change's effect: pick the change's \`createdAt\` as the boundary, then call
-\`get_fleet_overview\` for the days before it and again for the days after,
-and compare the two results yourself.
+\`compare_windows\` with window \`a\` = the days before it and window \`b\` =
+the days after — one call returns both windows' fleet tiles AND the
+topic-mix shift between them, correlational only (not causal attribution:
+other factors may have moved between the windows too).
 
 ## Truncation
 

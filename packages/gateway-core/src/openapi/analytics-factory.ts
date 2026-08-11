@@ -179,6 +179,19 @@ export function getGatewaySessionsService(env: AnalyticsEnv, scope: ReadScope): 
   return new AgentSessionsService(withReadScope(adapter, scope));
 }
 
+/**
+ * Per-request, tenant/app-scoped {@link IClickHouseQuery}, same base adapter
+ * every other gateway analytics factory shares. For a caller that needs the
+ * raw client interface a shared `observability-service` function expects
+ * (`getTopicMixDeltas`) rather than a service facade or the `(sql, params)`
+ * seam {@link getGatewayChQuery} returns.
+ */
+export function getGatewayChClient(env: AnalyticsEnv, scope: ReadScope): IClickHouseQuery | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return withReadScope(adapter, scope);
+}
+
 /** One parameterized query returning JSON rows — the minimal ClickHouse seam
  * the PR-outcome reader needs (mirrors the dashboard's `ChQueryFn`). */
 export type ChQueryFn = (sql: string, params: Record<string, unknown>) => Promise<Record<string, unknown>[]>;

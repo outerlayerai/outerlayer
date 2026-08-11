@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { itemResponse } from "./common";
+import { TOPIC_FACETS } from "./topics";
 
 // ---------------------------------------------------------------------------
 // Request schemas
@@ -104,7 +105,7 @@ const FleetTileSchema = z.object({
   prior: z.number(),
 });
 
-const FleetModelMixItemSchema = z.object({
+export const FleetModelMixItemSchema = z.object({
   model: z.string(),
   sessions: z.number().int().nonnegative(),
 });
@@ -125,3 +126,63 @@ export const FleetOverviewResponseSchema = z.object({ data: FleetOverviewSchema 
 
 export type ModelStatsQuery = z.infer<typeof ModelStatsQuerySchema>;
 export type FleetOverviewQuery = z.infer<typeof FleetOverviewQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// GET /v1/metrics/compare — two explicit windows, fleet metrics + topic mix
+//
+// Unlike /v1/metrics/overview, neither window defaults — a correlational
+// comparison across two SPECIFIC windows (e.g. either side of a context or
+// prompt change) is the whole point of this endpoint, so there is no
+// sensible "trailing N days" fallback for either side.
+// ---------------------------------------------------------------------------
+
+export const CompareWindowsQuerySchema = z.object({
+  aFrom: z.string().date(),
+  aTo: z.string().date(),
+  bFrom: z.string().date(),
+  bTo: z.string().date(),
+  facet: z.enum(TOPIC_FACETS).default("issues"),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+/** Fleet tiles for ONE window — the `current` half of {@link FleetOverviewSchema}'s
+ * pair shape, flattened (no `prior`): a comparison across two explicit,
+ * caller-chosen windows has no use for either window's own trailing-period
+ * baseline. */
+export const FleetWindowMetricsSchema = z.object({
+  sessions: z.number(),
+  toolErrorRate: z.number(),
+  cleanSessionRate: z.number(),
+  handsOnRate: z.number(),
+  activeActors: z.number(),
+  totalCost: z.number(),
+  toolDenialRate: z.number(),
+  autoApprovedRate: z.number(),
+  modelMix: z.array(FleetModelMixItemSchema),
+});
+
+const CompareWindowResultSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  metrics: FleetWindowMetricsSchema,
+});
+
+/** Raw facet-row counts for one topic in each window — NOT deduplicated to
+ * root sessions (unlike `/v1/topics`' `sessionCount`), so callers judge
+ * relative shift, not an exact session total. */
+export const TopicMixDeltaSchema = z.object({
+  topicId: z.string(),
+  name: z.string(),
+  countA: z.number().int().nonnegative(),
+  countB: z.number().int().nonnegative(),
+});
+
+export const CompareWindowsSchema = z.object({
+  windowA: CompareWindowResultSchema,
+  windowB: CompareWindowResultSchema,
+  topicMix: z.array(TopicMixDeltaSchema),
+});
+
+export const CompareWindowsResponseSchema = z.object({ data: CompareWindowsSchema });
+
+export type CompareWindowsQuery = z.infer<typeof CompareWindowsQuerySchema>;

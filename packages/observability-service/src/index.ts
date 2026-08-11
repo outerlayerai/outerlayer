@@ -21,6 +21,8 @@ export {
   TOPICS_QUERY_SETTINGS,
 } from './services/topics';
 export type { TopicsScope, TopicsRuntimeConfig } from './services/topics';
+export { getTopicMixDeltas, COMPARE_QUERY_SETTINGS } from './services/metrics-compare';
+export type { CompareWindow, TopicMixDeltaRow } from './services/metrics-compare';
 export { findEditRetryLoop } from './services/trajectory-signals';
 export type { TrajectorySpan } from './services/trajectory-signals';
 export { AgentSessionsService, ANONYMOUS_ACTOR_LABEL } from './services/agent-sessions';

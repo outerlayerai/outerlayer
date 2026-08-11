@@ -127,6 +127,7 @@ describe('tier-gated route registration', () => {
     it.each([
       ['GET', '/v1/metrics/models'],
       ['GET', '/v1/metrics/overview'],
+      ['GET', '/v1/metrics/compare'],
     ] as const)('%s %s stays open (no entitlementGuard)', (method, path) => {
       const names = handlerNames(method, path);
       expect(names).not.toContain('entitlementGuard');

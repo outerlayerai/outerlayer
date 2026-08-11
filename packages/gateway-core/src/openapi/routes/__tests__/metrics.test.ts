@@ -1,5 +1,6 @@
 /**
- * Route-level tests for GET /v1/metrics/models and GET /v1/metrics/overview.
+ * Route-level tests for GET /v1/metrics/models, GET /v1/metrics/overview,
+ * and GET /v1/metrics/compare.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -18,7 +19,30 @@ vi.mock('../_shared', async (importOriginal) => {
   };
 });
 
-import { GetModelStats, GetFleetOverview } from '../metrics';
+const resolveTopicsScope = vi.fn();
+vi.mock('../topics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../topics')>();
+  return {
+    ...actual,
+    resolveTopicsScope: (...args: unknown[]) => resolveTopicsScope(...(args as [])),
+  };
+});
+
+const getGatewayChClient = vi.fn();
+vi.mock('../../analytics-factory', () => ({
+  getGatewayChClient: (...args: unknown[]) => getGatewayChClient(...(args as [])),
+}));
+
+const getTopicMixDeltas = vi.fn();
+vi.mock('@repo/observability-service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@repo/observability-service')>();
+  return {
+    ...actual,
+    getTopicMixDeltas: (...args: unknown[]) => getTopicMixDeltas(...(args as [])),
+  };
+});
+
+import { GetModelStats, GetFleetOverview, GetMetricsCompare } from '../metrics';
 
 const MOCK_ROUTE_OPTIONS = {
   router: { getRequest: () => ({}) },
@@ -132,5 +156,125 @@ describe('GetFleetOverview', () => {
     const end = new Date(dateRange.end as string);
     const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
     expect(spanDays).toBe(30);
+  });
+});
+
+describe('GetMetricsCompare', () => {
+  const OVERVIEW_A = {
+    sessions: { current: 100, prior: 90 },
+    toolErrorRate: { current: 0.05, prior: 0.06 },
+    cleanSessionRate: { current: 0.8, prior: 0.79 },
+    handsOnRate: { current: 0.2, prior: 0.22 },
+    activeActors: { current: 5, prior: 4 },
+    totalCost: { current: 50, prior: 45 },
+    toolDenialRate: { current: 0.03, prior: 0.04 },
+    autoApprovedRate: { current: 0.5, prior: 0.48 },
+    modelMix: [{ model: 'claude-opus-5', sessions: 80 }],
+  };
+  const OVERVIEW_B = {
+    sessions: { current: 120, prior: 100 },
+    toolErrorRate: { current: 0.02, prior: 0.05 },
+    cleanSessionRate: { current: 0.9, prior: 0.8 },
+    handsOnRate: { current: 0.1, prior: 0.2 },
+    activeActors: { current: 6, prior: 5 },
+    totalCost: { current: 55, prior: 50 },
+    toolDenialRate: { current: 0.01, prior: 0.03 },
+    autoApprovedRate: { current: 0.6, prior: 0.5 },
+    modelMix: [{ model: 'claude-opus-5', sessions: 100 }],
+  };
+  const TOPIC_MIX = [{ topicId: 'topic-1', name: 'Auth issues', countA: 12, countB: 3 }];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resolveTopicsScope.mockResolvedValue({
+      tenantId: 'tenant-1',
+      appId: 'app-1',
+      environment: 'production',
+      environmentIsDefault: true,
+    });
+    getGatewayChClient.mockReturnValue({ query: vi.fn() });
+    getAgentFleetOverview.mockImplementation((_ctx: unknown, range: { start: string; end: string }) =>
+      Promise.resolve(range.start === '2026-07-01' ? OVERVIEW_A : OVERVIEW_B),
+    );
+    getTopicMixDeltas.mockResolvedValue(TOPIC_MIX);
+  });
+
+  it('flattens both windows to {current} values and returns the topic-mix deltas', async () => {
+    const route = routeWithValidatedData(GetMetricsCompare, {
+      aFrom: '2026-07-01',
+      aTo: '2026-07-07',
+      bFrom: '2026-08-01',
+      bTo: '2026-08-07',
+      facet: 'issues',
+      limit: 20,
+    });
+    const c = buildContext();
+
+    await route.handle(c);
+
+    expect(c.json).toHaveBeenCalledWith({
+      data: {
+        windowA: {
+          from: '2026-07-01',
+          to: '2026-07-07',
+          metrics: {
+            sessions: 100,
+            toolErrorRate: 0.05,
+            cleanSessionRate: 0.8,
+            handsOnRate: 0.2,
+            activeActors: 5,
+            totalCost: 50,
+            toolDenialRate: 0.03,
+            autoApprovedRate: 0.5,
+            modelMix: [{ model: 'claude-opus-5', sessions: 80 }],
+          },
+        },
+        windowB: {
+          from: '2026-08-01',
+          to: '2026-08-07',
+          metrics: {
+            sessions: 120,
+            toolErrorRate: 0.02,
+            cleanSessionRate: 0.9,
+            handsOnRate: 0.1,
+            activeActors: 6,
+            totalCost: 55,
+            toolDenialRate: 0.01,
+            autoApprovedRate: 0.6,
+            modelMix: [{ model: 'claude-opus-5', sessions: 100 }],
+          },
+        },
+        topicMix: TOPIC_MIX,
+      },
+    });
+
+    expect(getTopicMixDeltas).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId: 'tenant-1', appId: 'app-1', environment: 'production', environmentIsDefault: true },
+      'issues',
+      { from: '2026-07-01', to: '2026-07-07' },
+      { from: '2026-08-01', to: '2026-08-07' },
+      20,
+    );
+  });
+
+  it('returns 500 when ClickHouse is not configured', async () => {
+    getGatewayChClient.mockReturnValue(null);
+
+    const route = routeWithValidatedData(GetMetricsCompare, {
+      aFrom: '2026-07-01',
+      aTo: '2026-07-07',
+      bFrom: '2026-08-01',
+      bTo: '2026-08-07',
+      facet: 'issues',
+      limit: 20,
+    });
+    const c = buildContext();
+
+    await route.handle(c);
+
+    const [body, status] = c.json.mock.calls[0]! as [{ error: { code: string } }, number];
+    expect(status).toBe(503);
+    expect(body.error.code).toBe('service_unavailable');
   });
 });

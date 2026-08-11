@@ -44,6 +44,7 @@ describe('rate-limit guard registration', () => {
       ['GET', '/v1/topics'],
       ['GET', '/v1/metrics/models'],
       ['GET', '/v1/metrics/overview'],
+      ['GET', '/v1/metrics/compare'],
       ['GET', '/v1/sessions'],
       ['GET', '/v1/sessions/:traceId'],
       ['GET', '/v1/context/changes'],

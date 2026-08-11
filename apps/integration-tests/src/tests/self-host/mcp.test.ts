@@ -135,12 +135,13 @@ describe('self-host: POST /v1/mcp (SelfHostAuthResolver + NoopRateLimiter)', () 
   });
 
   // proves AC-052-08
-  it('lists the same six tools + guide resource as hosted', async () => {
+  it('lists the same seven tools + guide resource as hosted', async () => {
     const res = await callSelfHostGateway(appId, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { result: { tools: Array<{ name: string }> } };
     expect(body.result.tools.map((t) => t.name).sort()).toEqual(
       [
+        'compare_windows',
         'get_fleet_overview',
         'get_model_costs',
         'get_session',

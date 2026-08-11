@@ -20,7 +20,7 @@ import {
 import { HealthCheck, IngestionHealth, FilesHealth } from '../routes/health';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from '../routes/api-keys';
 import { GetTopics } from '../routes/topics';
-import { GetModelStats, GetFleetOverview } from '../routes/metrics';
+import { GetModelStats, GetFleetOverview, GetMetricsCompare } from '../routes/metrics';
 import { ListSessions, GetSessionDetail } from '../routes/sessions';
 import { ListContextChanges } from '../routes/context';
 
@@ -95,6 +95,7 @@ const allRoutes: RouteEntry[] = [
   { name: 'GetTopics', cls: GetTopics, tag: 'Topics', hasRequest: true },
   { name: 'GetModelStats', cls: GetModelStats, tag: 'Metrics', hasRequest: true },
   { name: 'GetFleetOverview', cls: GetFleetOverview, tag: 'Metrics', hasRequest: true },
+  { name: 'GetMetricsCompare', cls: GetMetricsCompare, tag: 'Metrics', hasRequest: true },
   { name: 'ListSessions', cls: ListSessions, tag: 'Sessions', hasRequest: true },
   { name: 'GetSessionDetail', cls: GetSessionDetail, tag: 'Sessions', hasRequest: true },
   { name: 'ListContextChanges', cls: ListContextChanges, tag: 'Context', hasRequest: true },
@@ -271,6 +272,10 @@ describe('Topics and Metrics route schemas', () => {
   it('should define 200 response for GetFleetOverview', () => {
     expectResponse(GetFleetOverview, 200);
   });
+
+  it('should define 200 response for GetMetricsCompare', () => {
+    expectResponse(GetMetricsCompare, 200);
+  });
 });
 
 describe('Context route schemas', () => {
@@ -298,8 +303,8 @@ describe('Sessions route schemas', () => {
 // ---------------------------------------------------------------------------
 
 describe('Route inventory', () => {
-  it('should have exactly 25 routes defined', () => {
-    expect(allRoutes).toHaveLength(25);
+  it('should have exactly 26 routes defined', () => {
+    expect(allRoutes).toHaveLength(26);
   });
 
   it('should have 3 Agents routes', () => {
@@ -322,8 +327,8 @@ describe('Route inventory', () => {
     expect(allRoutes.filter((r) => r.tag === 'Topics')).toHaveLength(1);
   });
 
-  it('should have 2 Metrics routes', () => {
-    expect(allRoutes.filter((r) => r.tag === 'Metrics')).toHaveLength(2);
+  it('should have 3 Metrics routes', () => {
+    expect(allRoutes.filter((r) => r.tag === 'Metrics')).toHaveLength(3);
   });
 
   it('should have 2 Sessions routes', () => {
