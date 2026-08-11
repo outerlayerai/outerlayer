@@ -698,6 +698,153 @@ describe('resolveBearerUser — explicit request tenant', () => {
 });
 
 // ============================================================================
+// resolveBearerUser — app-scoped tenant fallback (per-app MCP mount)
+// ============================================================================
+
+describe('resolveBearerUser — app-scoped tenant fallback', () => {
+  it('derives the tenant from the app row when fallback is enabled and neither header nor claim resolves one', async () => {
+    const token = await mintUserJwt({ /* no tenantId claim */ });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.tenantId).toBe(TEST_TENANT_ID);
+    expect(result.user.appId).toBe(TEST_APP_ID);
+  });
+
+  it('still 401s when the user has no active membership in the derived tenant', async () => {
+    seedGatewaySupabaseMswState({ memberships: [] });
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+    expect(result.message).toBe('Not authorized');
+  });
+
+  it('401s when the fallback appId does not exist', async () => {
+    seedGatewaySupabaseMswState({ apps: [] });
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('the X-Tenant-Id header still wins over the fallback when both are available', async () => {
+    const TENANT_B = 'd0e6f2c4-7a8b-9c0d-1e2f-3a4b5c6d7e8f';
+    const APP_IN_B = 'e1f7a3d5-8b9c-0d1e-2f3a-4b5c6d7e8f90';
+    seedGatewaySupabaseMswState({
+      apps: [
+        { id: TEST_APP_ID, tenant_id: TEST_TENANT_ID, name: 'App A' },
+        { id: APP_IN_B, tenant_id: TENANT_B, name: 'App B' },
+      ],
+      memberships: [
+        { id: 'm-a', user_id: TEST_USER_ID, tenant_id: TEST_TENANT_ID, status: 'active' },
+        { id: 'm-b', user_id: TEST_USER_ID, tenant_id: TENANT_B, status: 'active' },
+      ],
+    });
+    // No claim, but an explicit header naming tenant B. The fallback would
+    // derive A from the app row — the header must win instead.
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      requestTenantId: TENANT_B,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false); // TEST_APP_ID lives in tenant A, not B
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('the JWT claim still wins over the fallback when the claim is populated', async () => {
+    // The requested app lives in TENANT_B, but the claim names TENANT_A —
+    // the user is a member of both. If the claim correctly wins, the
+    // resolved tenant is A, and the app-ownership cross-check (app is in B,
+    // not A) then denies. If the fallback wrongly overrode the claim, it
+    // would derive B straight from the app row — trivially matching its own
+    // app and succeeding. Denial here proves the claim, not the fallback,
+    // decided the tenant.
+    const TENANT_B = 'd0e6f2c4-7a8b-9c0d-1e2f-3a4b5c6d7e8f';
+    const APP_IN_B = 'e1f7a3d5-8b9c-0d1e-2f3a-4b5c6d7e8f90';
+    seedGatewaySupabaseMswState({
+      apps: [
+        { id: TEST_APP_ID, tenant_id: TEST_TENANT_ID, name: 'App A' },
+        { id: APP_IN_B, tenant_id: TENANT_B, name: 'App B' },
+      ],
+      memberships: [
+        { id: 'm-a', user_id: TEST_USER_ID, tenant_id: TEST_TENANT_ID, status: 'active' },
+        { id: 'm-b', user_id: TEST_USER_ID, tenant_id: TENANT_B, status: 'active' },
+      ],
+    });
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: APP_IN_B,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('an empty-string X-Tenant-Id header still 401s without trying the fallback', async () => {
+    // A present-but-empty header is a deliberate bad signal, not "nothing
+    // sent" — it must not degrade into the fallback lookup.
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      requestTenantId: '',
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('fallback DISABLED (default) preserves the exact current 401 — no header, no claim, no fallback', async () => {
+    const token = await mintUserJwt({ /* no tenantId claim */ });
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+    expect(result.message).toBe('Not authorized');
+  });
+
+  it('fallback has no effect when appId is null (tenant-scoped routes never enable it in practice, but pin the behavior anyway)', async () => {
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: null,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+});
+
+// ============================================================================
 // checkBearerPermission
 // ============================================================================
 

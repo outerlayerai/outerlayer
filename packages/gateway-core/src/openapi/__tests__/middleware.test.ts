@@ -811,6 +811,45 @@ describe('authMiddleware', () => {
       vi.doUnmock('../../lib/verify-bearer');
     });
 
+    it('does not enable the app-scoped tenant fallback on a plain REST route', async () => {
+      const mockResolveBearer = vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          appId: 'app-bearer',
+          tenantId: 'tenant-bearer',
+          appName: 'Bearer App',
+          stripeCustomerId: '',
+          stripeSubscriptionId: '',
+          branchId: '',
+          gatewayUserId: 'user-sub',
+          permissions: [],
+        },
+        userJwt: 'the-user-jwt',
+      });
+      vi.doMock('../../lib/verify-bearer', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../../lib/verify-bearer')>();
+        return { ...actual, resolveBearerUser: mockResolveBearer };
+      });
+      vi.resetModules();
+      const { authMiddleware: freshAuth } = await import('../middleware');
+
+      const { c, next } = createMockHonoContext({
+        headers: {
+          Authorization: 'Bearer user.jwt.here',
+          'X-Outerlayer-App-Id': 'app-bearer',
+        },
+        path: '/v1/traces',
+      });
+
+      await freshAuth(c as any, next);
+
+      expect(mockResolveBearer).toHaveBeenCalledWith(
+        expect.objectContaining({ appScopedTenantFallback: false }),
+      );
+      expect(next).toHaveBeenCalledOnce();
+      vi.doUnmock('../../lib/verify-bearer');
+    });
+
     it('propagates resolveBearerUser tenant-mismatch failure, never reaching the key-store (regression)', async () => {
       const mockResolveBearer = vi.fn().mockResolvedValue({
         ok: false,
@@ -1125,6 +1164,51 @@ describe('authMiddleware', () => {
       );
       expect(next).not.toHaveBeenCalled();
     });
+
+    it('does not enable the app-scoped tenant fallback on /v1/mcp bearer auth', async () => {
+      // Bearer auth on /v1/mcp still requires the X-Outerlayer-App-Id
+      // header (JWTs are tenant-scoped, not app-bound); with it present,
+      // resolveBearerUser must be called with the fallback OFF — only the
+      // per-app mount enables it.
+      const mockResolveBearer = vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          appId: 'app-mcp-header',
+          tenantId: 'tenant-mcp-header',
+          appName: 'MCP App',
+          stripeCustomerId: '',
+          stripeSubscriptionId: '',
+          branchId: '',
+          gatewayUserId: 'user-sub',
+          permissions: [],
+        },
+        userJwt: 'the-user-jwt',
+      });
+      vi.doMock('../../lib/verify-bearer', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../../lib/verify-bearer')>();
+        return { ...actual, resolveBearerUser: mockResolveBearer };
+      });
+      vi.resetModules();
+      const { authMiddleware: freshAuth } = await import('../middleware');
+
+      const { c, next } = createMockHonoContext({
+        headers: {
+          Authorization: 'Bearer user.jwt.here',
+          'X-Outerlayer-App-Id': 'app-mcp-header',
+        },
+        method: 'POST',
+        path: '/v1/mcp',
+        routePath: '/v1/*',
+      });
+
+      await freshAuth(c as any, next);
+
+      expect(mockResolveBearer).toHaveBeenCalledWith(
+        expect.objectContaining({ appScopedTenantFallback: false }),
+      );
+      expect(next).toHaveBeenCalledOnce();
+      vi.doUnmock('../../lib/verify-bearer');
+    });
   });
 
   // ========================================================================
@@ -1286,6 +1370,48 @@ describe('authMiddleware', () => {
         { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
       );
       expect(next).not.toHaveBeenCalled();
+      vi.doUnmock('../../lib/verify-bearer');
+    });
+
+    it('enables the app-scoped tenant fallback so a bearer-only connector token resolves', async () => {
+      const mockResolveBearer = vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          appId: 'app-from-path',
+          tenantId: 'tenant-from-path',
+          appName: 'Path App',
+          stripeCustomerId: '',
+          stripeSubscriptionId: '',
+          branchId: '',
+          gatewayUserId: 'user-sub',
+          permissions: [],
+        },
+        userJwt: 'the-user-jwt',
+      });
+      vi.doMock('../../lib/verify-bearer', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../../lib/verify-bearer')>();
+        return { ...actual, resolveBearerUser: mockResolveBearer };
+      });
+      vi.resetModules();
+      const { authMiddleware: freshAuth } = await import('../middleware');
+
+      const { c, next, setSpy } = createMockHonoContext({
+        headers: { Authorization: 'Bearer user.jwt.here' },
+        method: 'POST',
+        path: '/v1/apps/app-from-path/mcp',
+        routePath: '/v1/*',
+      });
+
+      await freshAuth(c as any, next);
+
+      expect(mockResolveBearer).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: 'app-from-path', appScopedTenantFallback: true }),
+      );
+      expect(next).toHaveBeenCalledOnce();
+      expect(setSpy).toHaveBeenCalledWith(
+        'user',
+        expect.objectContaining({ tenantId: 'tenant-from-path', authMode: 'bearer' }),
+      );
       vi.doUnmock('../../lib/verify-bearer');
     });
 

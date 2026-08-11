@@ -30,18 +30,19 @@
  *    anything that isn't `authenticated`.
  *
  * 3. **Tenant: explicit `X-Tenant-Id` header wins over the JWT claim.**
- *    The token's `app_metadata.tenant_id` is session-global — Supabase
- *    sets it when the user's "active tenant" is selected in the dashboard,
- *    and it can be stale for a user who belongs to more than one tenant.
- *    A caller that knows which tenant it is acting in sends an explicit
- *    `X-Tenant-Id`; that value takes precedence over the embedded claim.
- *    Either way the tenant is validated by the SAME active-membership
- *    check (step below), so a header naming a tenant the caller does not
- *    belong to fails closed here — it never silently falls back to the
- *    claim. A caller that sends no header keeps the claim behavior, so
- *    the CLI and any un-migrated caller are unaffected. The resolved
- *    tenant is what the `tenant_id()` SQL function reads in RLS, so
- *    downstream Supabase calls using this JWT inherit the same context.
+ *    The token's `app_metadata.tenant_id` claim is not minted by any
+ *    production sign-in flow — the custom access token hook never writes
+ *    it, so on a real deployment it is simply absent. The real tenant
+ *    sources are an explicit `X-Tenant-Id` header, or (for the per-app MCP
+ *    mount) the app-scoped fallback in note 7 below. A caller that knows
+ *    which tenant it is acting in sends an explicit `X-Tenant-Id`; that
+ *    value takes precedence over the claim on any deployment where the
+ *    claim is populated. Either way the tenant is validated by the SAME
+ *    active-membership check (step below), so a header naming a tenant the
+ *    caller does not belong to fails closed here — it never silently falls
+ *    back to the claim. The resolved tenant is what the `tenant_id()` SQL
+ *    function reads in RLS, so downstream Supabase calls using this JWT
+ *    inherit the same context.
  *
  * 4. **App ownership check.** The `X-Outerlayer-App-Id` header must point
  *    to an app whose `tenant_id` matches the resolved tenant. Verified
@@ -67,6 +68,19 @@
  *    route (dashboard APIs, `/v1/apps`, etc.) rejects a connector token
  *    outright, so a chat connector authorized for MCP tool calls can never
  *    reach the rest of the API surface as the user who approved it.
+ *
+ * 7. **App-scoped tenant fallback (per-app MCP mount only).** Connector
+ *    clients (claude.ai, ChatGPT) send a single bearer token and no custom
+ *    headers, so on `/v1/apps/{appId}/mcp` there is neither an
+ *    `X-Tenant-Id` header nor a populated claim to resolve a tenant from.
+ *    `resolveBearerIdentity`'s `appTenantFallbackAppId` parameter — enabled
+ *    only by that mount, via `resolveBearerUser`'s `appScopedTenantFallback`
+ *    — derives the tenant from the path-supplied app id (`app.tenant_id`)
+ *    when the header and claim both yield nothing. This adds no new trust:
+ *    the derived tenant still has to pass the SAME active-membership check
+ *    as any other resolution path, so a user naming an app in a tenant they
+ *    don't belong to still 401s. Every other bearer surface leaves this
+ *    disabled and keeps requiring a header or claim, unchanged.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -398,10 +412,27 @@ export async function resolveBearerUser(params: {
    * for why this confinement exists.
    */
   allowConnectorToken?: boolean;
+  /**
+   * When true, and neither `X-Tenant-Id` nor the JWT claim resolves a
+   * tenant, derive it from `appId`'s own `app.tenant_id` row instead of
+   * failing closed. Only the per-app MCP mount (`/v1/apps/{appId}/mcp`)
+   * sets this — its callers are single-bearer-token connector clients with
+   * no tenant-bearing header or claim to send, and the app id is already
+   * authoritative (it comes from the URL path, not a caller-supplied
+   * header). Defaults to `false`; every other bearer surface is
+   * unaffected. See note 7 in the module doc comment.
+   */
+  appScopedTenantFallback?: boolean;
 }): Promise<VerifyBearerResult> {
-  const { env, token, appId, requestTenantId, allowConnectorToken } = params;
+  const { env, token, appId, requestTenantId, allowConnectorToken, appScopedTenantFallback } = params;
 
-  const identity = await resolveBearerIdentity({ env, token, requestTenantId, allowConnectorToken });
+  const identity = await resolveBearerIdentity({
+    env,
+    token,
+    requestTenantId,
+    allowConnectorToken,
+    appTenantFallbackAppId: appScopedTenantFallback ? appId : null,
+  });
   if (!identity.ok) {
     return identity;
   }
@@ -483,8 +514,19 @@ export async function resolveBearerIdentity(params: {
    * explicitly opts in, so a new call site is safe by default.
    */
   allowConnectorToken?: boolean;
+  /**
+   * App id to derive the tenant from (via `app.tenant_id`) when the
+   * request has neither an `X-Tenant-Id` header nor a populated JWT claim.
+   * `null`/undefined (the default) preserves today's behavior exactly: no
+   * header and no claim is a 401, full stop. Set by `resolveBearerUser`
+   * only when its `appScopedTenantFallback` flag is on. An empty-string
+   * header still 401s without trying this fallback — a present-but-empty
+   * header is a deliberate signal, not the "nothing sent" case this
+   * fallback exists for.
+   */
+  appTenantFallbackAppId?: string | null;
 }): Promise<ResolveBearerIdentityResult> {
-  const { env, token, requestTenantId, allowConnectorToken = false } = params;
+  const { env, token, requestTenantId, allowConnectorToken = false, appTenantFallbackAppId = null } = params;
 
   if (!env.SUPABASE_API_BASE_URL) {
     console.error('[bearer] SUPABASE_API_BASE_URL is not configured');
@@ -529,13 +571,28 @@ export async function resolveBearerIdentity(params: {
   // validated by the membership check below, so a header present but
   // empty/malformed/non-member denies here rather than falling back to
   // the claim. Absent header (undefined) keeps the claim behavior.
-  const tenantId =
-    requestTenantId !== undefined ? requestTenantId : claims.app_metadata?.tenant_id;
+  let tenantId = requestTenantId !== undefined ? requestTenantId : claims.app_metadata?.tenant_id;
+
+  const admin = createSupabaseAdminClient(env);
+
+  // App-scoped tenant fallback: only reached when the header was never
+  // sent AND the claim is unpopulated (`tenantId === undefined`), never
+  // for an empty-string header — that case is "present but invalid" and
+  // must 401 on its own, not fall through here. Only the per-app MCP mount
+  // enables this by passing a non-null appId.
+  if (tenantId === undefined && appTenantFallbackAppId) {
+    const appLookup = await admin
+      .from('app')
+      .select('tenant_id')
+      .eq('id', appTenantFallbackAppId)
+      .single();
+    tenantId = appLookup.data?.tenant_id ?? undefined;
+  }
+
   if (!tenantId) {
     return { ok: false, status: 401, message: 'Not authorized' };
   }
 
-  const admin = createSupabaseAdminClient(env);
   const membershipResult = await admin
     .from('membership')
     .select('id')

@@ -249,6 +249,11 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
       // does not enforce scopes — so this confinement is the security
       // seam: only MCP paths accept one. See verify-bearer.ts.
       allowConnectorToken: mcpRoute,
+      // Only the per-app mount has callers with no tenant-bearing header
+      // or claim to send (single-bearer-token connector clients) and an
+      // app id that's already authoritative (path segment, not a header).
+      // Plain /v1/mcp and every REST route keep requiring a header/claim.
+      appScopedTenantFallback: appScopedMcpAppId !== null,
     });
     if (!result.ok) {
       return jsonAuthError(
