@@ -114,8 +114,13 @@ describe('tier-gated route registration', () => {
   });
 
   describe('topics entitlement gate', () => {
-    it('GET /v1/topics installs entitlementGuard AFTER permissionGuard', () => {
-      const names = handlerNames('GET', '/v1/topics');
+    it.each([
+      ['GET', '/v1/topics'],
+      // compare returns topic ids/names/counts off the same map — it must
+      // carry the same plan gate as /v1/topics, or it is a bypass.
+      ['GET', '/v1/metrics/compare'],
+    ] as const)('%s %s installs entitlementGuard AFTER permissionGuard', (method, path) => {
+      const names = handlerNames(method, path);
       const permIdx = names.indexOf('permissionGuard');
       const entIdx = names.indexOf('entitlementGuard');
 
@@ -127,7 +132,6 @@ describe('tier-gated route registration', () => {
     it.each([
       ['GET', '/v1/metrics/models'],
       ['GET', '/v1/metrics/overview'],
-      ['GET', '/v1/metrics/compare'],
     ] as const)('%s %s stays open (no entitlementGuard)', (method, path) => {
       const names = handlerNames(method, path);
       expect(names).not.toContain('entitlementGuard');

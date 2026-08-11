@@ -243,6 +243,7 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     zodInputSchema: CompareWindowsQuerySchema,
     zodOutputSchema: CompareWindowsSchema,
     requiredPermission: 'metrics.read',
+    entitlement: 'topics_enabled',
     rateLimit: RATE_LIMITS.observabilityRead,
     execute: compareWindowsExecute,
   },

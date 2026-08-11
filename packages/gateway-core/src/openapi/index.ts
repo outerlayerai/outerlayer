@@ -779,7 +779,7 @@ registerAuthenticatedRoute('get', '/v1/topics', GetTopics, { entitlement: 'topic
 // ============================================================================
 registerAuthenticatedRoute('get', '/v1/metrics/models', GetModelStats);
 registerAuthenticatedRoute('get', '/v1/metrics/overview', GetFleetOverview);
-registerAuthenticatedRoute('get', '/v1/metrics/compare', GetMetricsCompare);
+registerAuthenticatedRoute('get', '/v1/metrics/compare', GetMetricsCompare, { entitlement: 'topics_enabled' });
 
 // ============================================================================
 // Context routes

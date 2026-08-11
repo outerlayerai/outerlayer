@@ -93,4 +93,11 @@ describe('tool schemas match their REST counterparts exactly', () => {
     expect(tool.zodInputSchema).toBe(CompareWindowsQuerySchema);
     expect(tool.zodOutputSchema).toBe(CompareWindowsSchema);
   });
+
+  // Every tool that returns topic-map data carries the same plan gate as
+  // GET /v1/topics — an ungated tool is a headless bypass of topics_enabled.
+  it.each(['list_topics', 'compare_windows'])('%s is gated on topics_enabled', (name) => {
+    const tool = MCP_TOOLS.find((t) => t.name === name)!;
+    expect(tool.entitlement).toBe('topics_enabled');
+  });
 });
