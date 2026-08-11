@@ -113,6 +113,26 @@ counts) — assert the contract. Mutation testing runs per package
 `scripts/ci/mutation-score-floors.json` are ratcheted in CI — bump the floor
 when you improve a score.
 
+### Acceptance criteria bind at the deepest tier that can prove them
+
+`acceptance/NNN-*.md` criteria are proven by the tests that cite their ids
+(`ci:acceptance-coverage` enforces the join, not the depth). A criterion
+whose Given/When/Then spans a real store — Postgres RLS, ClickHouse row
+policies, a cross-store join — is NOT proven by a unit or component test
+whose server seam is mocked: hand-authored fixtures can drift semantically
+from what the server returns while the gate stays green. Cite such criteria
+from `apps/integration-tests` (real Supabase + ClickHouse, nothing mocked at
+the database boundary); dual-cite the mocked-tier test for the client half.
+Criteria that are purely UI contract (URL params, rendering, keyboard) may
+bind at the component tier alone. Pattern:
+`src/tests/context/context-overview.acceptance.test.ts` (data halves of
+AC-058-01/04/06) alongside the component suite citing the same ids.
+
+`apps/integration-tests` imports dashboard code directly (the
+`tenant-dashboard/…` alias) — when changing or deleting an exported service
+function, grep that app too; per-package typecheck won't catch the break,
+and CI's integration shards will.
+
 ## Removing a feature
 
 Removing a feature means removing its whole footprint, not just its UI.
