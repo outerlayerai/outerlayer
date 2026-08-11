@@ -22,6 +22,7 @@
     "ci:typecheck": "turbo run typecheck --concurrency=50% --filter='{./apps/*}' --filter='{./packages/*}'",
     "ci:unit": "yarn turbo test --concurrency=50% --filter='{./apps/*}' --filter='{./packages/*}' --filter='!integration-tests' --filter='!@outerlayer/e2e'",
     "dev": "set -a; . ./.env.local 2>/dev/null; set +a; turbo dev",
+    "ops:provision-user": "node scripts/ops/provision-staging-user.mjs",
     "dev:email": "turbo dev:email",
     "dev:worker": "turbo dev:worker",
     "lint": "turbo lint",

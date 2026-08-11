@@ -2085,6 +2085,21 @@ export type Database = {
           },
         ]
       }
+      signup_domain_allowlist: {
+        Row: {
+          created_at: string
+          domain: string
+        }
+        Insert: {
+          created_at?: string
+          domain: string
+        }
+        Update: {
+          created_at?: string
+          domain?: string
+        }
+        Relationships: []
+      }
       sso_audit_log: {
         Row: {
           created_at: string
@@ -2873,6 +2888,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      before_user_created_hook: { Args: { event: Json }; Returns: Json }
       change_member_role_transaction: {
         Args: {
           p_actor_id: string
