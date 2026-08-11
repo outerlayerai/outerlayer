@@ -17,7 +17,7 @@
  * (`~/.outerlayer/spool/events.jsonl`). The daemon consumes the spool to know
  * which sessions to parse promptly; the transcript itself is the payload.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +41,77 @@ const readStdin: StdinReader = () => {
 
 /** Debounce window for hook-triggered background sync. */
 export const AUTO_SYNC_DEBOUNCE_MS = 5 * 60 * 1000;
+
+/**
+ * Window inside which a second fire of the same (session, event) is treated
+ * as the same underlying event. Claude Code has no dedupe of its own: when
+ * hooks for one event are registered BOTH by the OuterLayer plugin and by a
+ * settings file (`outerlayer init`), both fire, near-simultaneously. Long
+ * enough to cover both invocations of one event; far shorter than any two
+ * legitimate consecutive fires of the same event in one session.
+ */
+export const DOUBLE_FIRE_TTL_MS = 2000;
+
+/** Fire markers older than this are dead weight; swept at SessionStart. */
+const FIRE_MARKER_SWEEP_AFTER_MS = 60 * 60 * 1000;
+
+/** Where this invocation was installed from. The plugin's launcher sets
+ * OUTERLAYER_HOOK_SOURCE=plugin; hooks written by `init` set nothing. */
+export function hookSource(env: NodeJS.ProcessEnv = process.env): "plugin" | "settings" {
+  return env.OUTERLAYER_HOOK_SOURCE === "plugin" ? "plugin" : "settings";
+}
+
+/**
+ * True when this invocation is the FIRST fire of (sessionId, event) inside
+ * DOUBLE_FIRE_TTL_MS — claimed via an O_EXCL marker file, so two concurrent
+ * invocations resolve atomically. A stale marker is removed and re-claimed;
+ * the create-after-remove race resolves through O_EXCL as well.
+ *
+ * Fail-open everywhere: no session id to key on, an unwritable spool, a
+ * marker that vanishes mid-check — all claim as first. A double capture is
+ * recoverable noise; a dropped session is data loss.
+ */
+export function claimEventFire(dir: string, sessionId: unknown, event: unknown, now: () => number = Date.now): boolean {
+  try {
+    if (typeof sessionId !== "string" || sessionId === "") return true;
+    const key = `${String(event)}-${sessionId}`.replace(/[^A-Za-z0-9_.-]/g, "_");
+    const marker = join(dir, `fire-${key}`);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        closeSync(openSync(marker, "wx"));
+        return true;
+      } catch {
+        try {
+          if (now() - statSync(marker).mtimeMs < DOUBLE_FIRE_TTL_MS) return false;
+          rmSync(marker, { force: true });
+        } catch {
+          // marker vanished or is unreadable — retry the claim
+        }
+      }
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/** Drop expired fire markers so the spool dir stays bounded. Runs once per
+ * session (at SessionStart); any error is swallowed. */
+function sweepFireMarkers(dir: string, now: () => number = Date.now): void {
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith("fire-")) continue;
+      const p = join(dir, name);
+      try {
+        if (now() - statSync(p).mtimeMs > FIRE_MARKER_SWEEP_AFTER_MS) unlinkSync(p);
+      } catch {
+        // raced with another sweep — fine
+      }
+    }
+  } catch {
+    // never disrupt Claude Code
+  }
+}
 
 /** Injectable spawner so tests never fork a real process. */
 export type SpawnDetached = (command: string, args: string[]) => void;
@@ -156,8 +227,14 @@ export function runHookFast(event: string | undefined, home = homedir(), read: S
       sessionId: payload.session_id ?? null,
       transcriptPath: payload.transcript_path ?? null,
       cwd: payload.cwd ?? null,
+      source: hookSource(),
     };
+    // Plugin + settings double-install fires every hook twice; only the
+    // first claimant captures (and reports/syncs — the loser must stay
+    // completely silent or SessionStart context would arrive twice).
+    if (!claimEventFire(dir, record.sessionId, record.event)) return;
     appendFileSync(join(dir, "events.jsonl"), JSON.stringify(record) + "\n");
+    if (record.event === "SessionStart") sweepFireMarkers(dir);
     maybeAutoSync(String(record.event), home);
     reportSyncHealth(String(record.event), home);
   } catch (err) {

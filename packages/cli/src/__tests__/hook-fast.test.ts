@@ -36,7 +36,7 @@ describe("runHookFast", () => {
     });
     expect(typeof record.t).toBe("string");
     // bounded: only the whitelisted fields land in the spool
-    expect(Object.keys(record).sort()).toEqual(["cwd", "event", "sessionId", "t", "transcriptPath"]);
+    expect(Object.keys(record).sort()).toEqual(["cwd", "event", "sessionId", "source", "t", "transcriptPath"]);
   });
 
   it("falls back to the payload's hook_event_name when no event arg is passed", () => {
@@ -63,6 +63,97 @@ describe("runHookFast", () => {
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]!).sessionId).toBe("s1");
     expect(JSON.parse(lines[1]!).sessionId).toBe("s2");
+  });
+
+  it("records which install path fired the hook: plugin when the launcher's env var is set, settings otherwise", () => {
+    runHookFast("Stop", home, () => JSON.stringify({ session_id: "s1" }));
+    process.env.OUTERLAYER_HOOK_SOURCE = "plugin";
+    try {
+      runHookFast("Stop", home, () => JSON.stringify({ session_id: "s2" }));
+    } finally {
+      delete process.env.OUTERLAYER_HOOK_SOURCE;
+    }
+    const sources = readFileSync(spool(), "utf8").trim().split("\n").map((l) => JSON.parse(l).source);
+    expect(sources).toEqual(["settings", "plugin"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// double-fire dedupe (plugin + settings hooks both registered)
+// ---------------------------------------------------------------------------
+
+import { claimEventFire, DOUBLE_FIRE_TTL_MS } from "../hook-fast.js";
+import { utimesSync as utimesSync3 } from "node:fs";
+
+describe("double-fire dedupe", () => {
+  it("captures a same-(session,event) double fire exactly once", () => {
+    const payload = () => JSON.stringify({ session_id: "dup-1" });
+    runHookFast("SessionEnd", home, payload);
+    runHookFast("SessionEnd", home, payload);
+    const lines = readFileSync(spool(), "utf8").trim().split("\n");
+    expect(lines).toHaveLength(1);
+  });
+
+  it("still captures distinct events of the same session, and the same event of distinct sessions", () => {
+    runHookFast("SessionEnd", home, () => JSON.stringify({ session_id: "a" }));
+    runHookFast("Stop", home, () => JSON.stringify({ session_id: "a" }));
+    runHookFast("SessionEnd", home, () => JSON.stringify({ session_id: "b" }));
+    const events = readFileSync(spool(), "utf8").trim().split("\n").map((l) => {
+      const r = JSON.parse(l);
+      return [r.event, r.sessionId];
+    });
+    expect(events).toEqual([
+      ["SessionEnd", "a"],
+      ["Stop", "a"],
+      ["SessionEnd", "b"],
+    ]);
+  });
+
+  it("claims again once the marker has expired — repeated legitimate fires are not lost", () => {
+    const dir = spoolDir(home);
+    mkdirSync2(dir, { recursive: true });
+    expect(claimEventFire(dir, "s", "Stop")).toBe(true);
+    expect(claimEventFire(dir, "s", "Stop")).toBe(false);
+    const expired = new Date(Date.now() - DOUBLE_FIRE_TTL_MS - 1000);
+    utimesSync3(join(dir, "fire-Stop-s"), expired, expired);
+    expect(claimEventFire(dir, "s", "Stop")).toBe(true);
+  });
+
+  it("fails open: no session id means every fire is captured", () => {
+    runHookFast("Stop", home, () => "");
+    runHookFast("Stop", home, () => "");
+    expect(readFileSync(spool(), "utf8").trim().split("\n")).toHaveLength(2);
+  });
+
+  it("the losing fire stays completely silent — no SessionStart context, no sync spawn", () => {
+    seedCloudConfig();
+    writeSyncStatus({ at: new Date().toISOString(), ok: false, url: "https://a.co", error: { message: "refused" } }, home);
+    let out = "";
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((s: string) => {
+      out += s;
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      runHookFast("SessionStart", home, () => JSON.stringify({ session_id: "quiet" }));
+      const afterFirst = out;
+      runHookFast("SessionStart", home, () => JSON.stringify({ session_id: "quiet" }));
+      expect(afterFirst).toContain("OuterLayer sync is failing");
+      expect(out).toBe(afterFirst);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
+
+  it("SessionStart sweeps expired fire markers so the spool dir stays bounded", () => {
+    runHookFast("SessionEnd", home, () => JSON.stringify({ session_id: "old" }));
+    const stale = join(spoolDir(home), "fire-SessionEnd-old");
+    const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
+    utimesSync3(stale, twoHoursAgo, twoHoursAgo);
+    runHookFast("SessionStart", home, () => JSON.stringify({ session_id: "new" }));
+    expect(existsSync(stale)).toBe(false);
+    // The fresh marker from this very SessionStart survives its own sweep.
+    expect(existsSync(join(spoolDir(home), "fire-SessionStart-new"))).toBe(true);
   });
 });
 
