@@ -129,6 +129,46 @@ describe('AgentSessionsService.getSessionDetail', () => {
     expect(result?.session.actorName).toBe('Name(membership-a)');
   });
 
+  test('a masked read strips the cwd path down to its basename and drops the trace username residue', async () => {
+    const withCwd = rootSpan({ metadata: { cwd: '/Users/kashif/projects/acme-app', title: 'My Session' } });
+    const { client } = fakeClient({ queue: [[], [withCwd], []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.session.project).toBe('acme-app');
+    expect(result?.spans[0]!.metadata).toEqual({ cwd: 'acme-app', title: 'My Session' });
+  });
+
+  test('an unmasked read leaves cwd and project untouched, full path intact', async () => {
+    const withCwd = rootSpan({ metadata: { cwd: '/Users/kashif/projects/acme-app', title: 'My Session' } });
+    const { client } = fakeClient({ queue: [[], [withCwd], []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.session.project).toBe('/Users/kashif/projects/acme-app');
+    expect(result?.spans[0]!.metadata).toEqual({ cwd: '/Users/kashif/projects/acme-app', title: 'My Session' });
+  });
+
+  test('a masked read prefers gitRepo over the redacted cwd for project, same as unmasked', async () => {
+    const withBoth = rootSpan({ metadata: { gitRepo: 'acme/app', cwd: '/Users/kashif/projects/acme-app' } });
+    const { client } = fakeClient({ queue: [[], [withBoth], []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.session.project).toBe('acme/app');
+  });
+
+  test('a masked read drops identity-shaped metadata keys entirely, not just cwd', async () => {
+    const withIdentity = rootSpan({
+      metadata: { actorEmail: 'dev@example.com', userHome: '/Users/kashif', title: 'My Session' },
+    });
+    const { client } = fakeClient({ queue: [[], [withIdentity], []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.spans[0]!.metadata).toEqual({ title: 'My Session' });
+  });
+
   test('returns null for a nonexistent trace', async () => {
     const { client } = fakeClient({ queue: [[], [], []] });
     const service = new AgentSessionsService(client);

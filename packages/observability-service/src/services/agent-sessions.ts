@@ -185,6 +185,49 @@ function mustMaskActors(policy: SessionAccessPolicy): boolean {
   return policy.kind === 'machine-key' && !policy.canSeeTeamActors;
 }
 
+// ---------------------------------------------------------------------------
+// Identity-bearing Metadata redaction (masked reads only)
+// ---------------------------------------------------------------------------
+
+/** Metadata keys dropped wholesale on a masked read — anything shaped like a
+ * per-person identifier, not just the ones {@link agent-session-converter.ts}
+ * currently writes, so a future metadata field with one of these names is
+ * caught without a matching edit here. */
+const IDENTITY_METADATA_KEY_PATTERN = /email|actor|user(name)?|home(dir)?/i;
+
+/** The leaf path segment, OS-agnostic. env.cwd rides Metadata as a full
+ * absolute path (/Users/name/…, /home/name/…, C:\Users\name\…) that embeds
+ * the OS username in a PARENT segment — masking the key isn't enough, the
+ * value itself must be cut down. */
+function pathBasename(path: string): string {
+  const trimmed = path.replace(/[/\\]+$/, '');
+  const idx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  return idx === -1 ? trimmed : trimmed.slice(idx + 1);
+}
+
+/** Redacts identity-bearing values from a span's Metadata map for a masked
+ * read: cwd collapses to its basename (the leaf directory — e.g. the repo
+ * folder — without the parent path that carries the username), and any key
+ * matching {@link IDENTITY_METADATA_KEY_PATTERN} is dropped entirely. */
+function maskIdentityMetadata(meta: Record<string, string>): Record<string, string> {
+  const masked: Record<string, string> = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (IDENTITY_METADATA_KEY_PATTERN.test(key)) continue;
+    masked[key] = key === 'cwd' ? pathBasename(value) : value;
+  }
+  return masked;
+}
+
+/** The session-level project field's gitRepo→cwd fallback, applying the
+ * same cwd-basename redaction as {@link maskIdentityMetadata} on a masked
+ * read — this field is derived separately from the span Metadata map it
+ * reads from, so it needs the same treatment applied independently. */
+function projectFrom(meta: Record<string, string>, masked: boolean): string | null {
+  if (meta.gitRepo) return meta.gitRepo;
+  if (!meta.cwd) return null;
+  return masked ? pathBasename(meta.cwd) : meta.cwd;
+}
+
 export class AgentSessionsService {
   constructor(private readonly client: IClickHouseQuery) {}
 
@@ -291,6 +334,7 @@ export class AgentSessionsService {
 
     const meta = (root.metadata as Record<string, string>) ?? {};
     const iso = (t: unknown) => new Date(String(t).replace(' ', 'T') + 'Z').toISOString();
+    const masked = mustMaskActors(policy);
 
     const spans: AgentSpan[] = await Promise.all(
       rows.map(async (r) => {
@@ -311,7 +355,7 @@ export class AgentSessionsService {
           input: capText(unwrapMessages((r.input as string) || null), IO_CAP),
           output: capText(unwrapMessages((r.output as string) || null), IO_CAP),
           reasoning: (r.reasoning as string) || null,
-          metadata: m,
+          metadata: masked ? maskIdentityMetadata(m) : m,
           images,
         };
       }),
@@ -324,7 +368,7 @@ export class AgentSessionsService {
     const rootDuration = Number(root.durationMs) || 0;
 
     const actorId = root.actorId as string;
-    const actorNames = mustMaskActors(policy)
+    const actorNames = masked
       ? { [actorId]: ANONYMOUS_ACTOR_LABEL }
       : await ports.actorNames.resolve([actorId]);
 
@@ -355,7 +399,7 @@ export class AgentSessionsService {
         actorId,
         actorName: actorNames[actorId] ?? actorId,
         workerKind: (summary?.workerKind as string) || meta.workerKind || null,
-        project: meta.gitRepo || meta.cwd || null,
+        project: projectFrom(meta, masked),
         startedAt: iso(root.startTime),
         durationMs: summaryDuration > 0 ? summaryDuration : rootDuration > 0 ? rootDuration : null,
         turnCount: turns.length,
