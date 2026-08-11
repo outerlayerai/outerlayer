@@ -1,5 +1,6 @@
-import { AnalyticsService, createAnalyticsService, withReadScope } from '@repo/observability-service';
+import { AnalyticsService, createAnalyticsService, withReadScope, buildTopicsService, TopicsService, type TopicsRuntimeConfig } from '@repo/observability-service';
 import type { IClickHouseQuery, QueryResult, ReadScope } from '@repo/observability-service';
+import type { TopicsModelEnv } from '@repo/trace-topics';
 import { createClient } from '@clickhouse/client-web';
 import { clickHouseWriteAuth } from '../stores/clickhouse/write-identity';
 import { parseEnvBoolean } from '@repo/adapter-config';
@@ -79,7 +80,13 @@ let _warnedUnscopedIdentity = false;
  * per-request objects. `scope.tenantId`/`scope.appId` MUST come from the auth
  * middleware (`c.get('user')`) — never from request input.
  */
-export function getGatewayAnalyticsService(env: AnalyticsEnv, scope: ReadScope): AnalyticsService | null {
+/**
+ * Resolve (and cache) the base read adapter — the CLICKHOUSE_READ_USER /
+ * writer-identity fallback logic shared by every gateway analytics service
+ * factory. Extracted so `getGatewayTopicsService` doesn't duplicate the
+ * fail-closed-in-production guard.
+ */
+function resolveBaseAdapter(env: AnalyticsEnv): IClickHouseQuery | null {
   if (!env.CLICKHOUSE_HOST) return null;
   if (!_baseAdapter) {
     if (env.CLICKHOUSE_READ_USER) {
@@ -114,7 +121,52 @@ export function getGatewayAnalyticsService(env: AnalyticsEnv, scope: ReadScope):
       );
     }
   }
-  return createAnalyticsService(withReadScope(_baseAdapter, scope));
+  return _baseAdapter;
+}
+
+export function getGatewayAnalyticsService(env: AnalyticsEnv, scope: ReadScope): AnalyticsService | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return createAnalyticsService(withReadScope(adapter, scope));
+}
+
+/**
+ * Env slice `GET /v1/topics` reads to build the {@link TopicsRuntimeConfig}
+ * the lifted `TopicsService` needs. Mirrors the enrichment cron's `TopicsEnv`
+ * (`apps/gateway/src/services/topics-enrichment-service.ts`) and the
+ * dashboard's `readTopicsModelEnv` — same env names, so a tenant's active
+ * topic map resolves the same embedding dimension everywhere it's read.
+ */
+export type TopicsAnalyticsEnv = AnalyticsEnv & TopicsModelEnv & { TOPICS_MIN_SUMMARIES?: string };
+
+function resolveTopicsRuntimeConfig(env: TopicsAnalyticsEnv): TopicsRuntimeConfig {
+  const parsed = Number.parseInt(env.TOPICS_MIN_SUMMARIES ?? '', 10);
+  return {
+    modelEnv: {
+      TOPICS_MODEL_PROVIDER: env.TOPICS_MODEL_PROVIDER,
+      TOPICS_MODEL_API_KEY: env.TOPICS_MODEL_API_KEY,
+      TOPICS_MODEL_BASE_URL: env.TOPICS_MODEL_BASE_URL,
+      TOPICS_FACET_MODEL: env.TOPICS_FACET_MODEL,
+      TOPICS_EMBEDDING_MODEL: env.TOPICS_EMBEDDING_MODEL,
+      TOPICS_NAMING_MODEL: env.TOPICS_NAMING_MODEL,
+      TOPICS_EMBEDDING_DIMENSION: env.TOPICS_EMBEDDING_DIMENSION,
+      GEMINI_API_KEY: env.GEMINI_API_KEY,
+      TOPICS_MOCK_MODEL: env.TOPICS_MOCK_MODEL,
+    },
+    minSummariesOverride: Number.isFinite(parsed) ? parsed : undefined,
+  };
+}
+
+/**
+ * Per-request `TopicsService`, scoped the same way `getGatewayAnalyticsService`
+ * scopes `AnalyticsService` — same base adapter, same row-policy settings.
+ * Read-only: generation stays dashboard-side (needs the clustering service
+ * and a writable ClickHouse identity, neither of which the gateway route has).
+ */
+export function getGatewayTopicsService(env: TopicsAnalyticsEnv, scope: ReadScope): TopicsService | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return buildTopicsService(withReadScope(adapter, scope), resolveTopicsRuntimeConfig(env));
 }
 
 export function resetGatewayAnalyticsService(): void {

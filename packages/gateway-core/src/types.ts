@@ -215,6 +215,21 @@ export const EnvSchema = z.object({
   TOPICS_DEBOUNCE_MINUTES: z.string().optional(),
   /** Max traces enriched per cron tick. Default 25 — bounds Workers CPU/IO per tick. */
   TOPICS_BATCH_LIMIT: z.string().optional(),
+  /**
+   * Topics model-provider selection, read by `resolveTopicsModelSelection`
+   * (@repo/trace-topics) — the same knobs the enrichment cron and the
+   * dashboard's generation path read, so `GET /v1/topics`'s samplable-row
+   * count resolves the SAME embedding dimension a generation pass would.
+   */
+  TOPICS_MODEL_PROVIDER: z.string().optional(),
+  TOPICS_MODEL_API_KEY: z.string().optional(),
+  TOPICS_MODEL_BASE_URL: z.string().optional(),
+  TOPICS_FACET_MODEL: z.string().optional(),
+  TOPICS_EMBEDDING_MODEL: z.string().optional(),
+  TOPICS_NAMING_MODEL: z.string().optional(),
+  TOPICS_EMBEDDING_DIMENSION: z.string().optional(),
+  /** Generation floor override, mirrors the dashboard's TOPICS_MIN_SUMMARIES. */
+  TOPICS_MIN_SUMMARIES: z.string().optional(),
 
   // Entitlement-driven physical retention. Default OFF — the
   // daily retention cron returns immediately unless RETENTION_SWEEP_ENABLED

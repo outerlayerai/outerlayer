@@ -3515,6 +3515,298 @@ paths:
       summary: "Ingestion health"
       tags:
         - "Health"
+  /v1/metrics/models:
+    get:
+      description: "Returns metered token spend, request counts, and latency per model for the authenticated application, over `from`..`to` (UTC calendar dates, default trailing 7 days).
+
+
+        Cost is metered LLM spend for this app only — it excludes seat/subscription costs."
+      operationId: "get-model-stats"
+      parameters:
+        - in: "query"
+          name: "from"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+        - in: "query"
+          name: "to"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+        - in: "query"
+          name: "limit"
+          required: false
+          schema:
+            default: 10
+            maximum: 100
+            minimum: 1
+            type: "integer"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      models:
+                        items:
+                          properties:
+                            avgLatencyMs:
+                              type: "number"
+                            cost:
+                              type: "number"
+                            inputTokens:
+                              minimum: 0
+                              type: "integer"
+                            model:
+                              type: "string"
+                            outputTokens:
+                              minimum: 0
+                              type: "integer"
+                            requests:
+                              minimum: 0
+                              type: "integer"
+                            successRate:
+                              type: "number"
+                            tokens:
+                              minimum: 0
+                              type: "integer"
+                          required:
+                            - "model"
+                            - "requests"
+                            - "cost"
+                            - "tokens"
+                            - "inputTokens"
+                            - "outputTokens"
+                            - "avgLatencyMs"
+                            - "successRate"
+                          type: "object"
+                        type: "array"
+                    required:
+                      - "models"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "Per-model stats for the requested window."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "Get per-model stats"
+      tags:
+        - "Metrics"
+  /v1/metrics/overview:
+    get:
+      description: "Returns fleet-wide agent behavior tiles (sessions, tool-error rate, hands-on rate, spend, and more) for `from`..`to` (UTC calendar dates, default trailing 30 days), each as a `{ current, prior }` pair against the equal-length preceding period. Call twice with explicit windows to compare before/after a change."
+      operationId: "get-fleet-overview"
+      parameters:
+        - in: "query"
+          name: "from"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+        - in: "query"
+          name: "to"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      activeActors:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                      autoApprovedRate:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                      cleanSessionRate:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                      handsOnRate:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                      modelMix:
+                        items:
+                          properties:
+                            model:
+                              type: "string"
+                            sessions:
+                              minimum: 0
+                              type: "integer"
+                          required:
+                            - "model"
+                            - "sessions"
+                          type: "object"
+                        type: "array"
+                      sessions:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                      toolDenialRate:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                      toolErrorRate:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                      totalCost:
+                        properties:
+                          current:
+                            type: "number"
+                          prior:
+                            type: "number"
+                        required:
+                          - "current"
+                          - "prior"
+                        type: "object"
+                    required:
+                      - "sessions"
+                      - "toolErrorRate"
+                      - "cleanSessionRate"
+                      - "handsOnRate"
+                      - "activeActors"
+                      - "totalCost"
+                      - "toolDenialRate"
+                      - "autoApprovedRate"
+                      - "modelMix"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "Fleet overview tiles for the requested window."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "Get fleet overview"
+      tags:
+        - "Metrics"
   /v1/pricing:
     get:
       description: "Returns per-model pricing for cost calculation. Response is a dynamic map keyed by model ID (e.g. `gpt-5`, `claude-opus-4-6`). Prices are per 1,000 tokens.
@@ -5392,6 +5684,175 @@ paths:
       summary: "Get span"
       tags:
         - "Spans"
+  /v1/topics:
+    get:
+      description: "Returns the active topic map for one facet (task, issues, or steering) — clusters of agent sessions sized by session count.
+
+
+        `sessionCount`, `share`, and `trend` are LIVE — they include sessions the enrichment cron classified after the map was generated. `avgLatencyMs`, `avgCostUsd`, and `errorRate` are snapshots computed at generation time (as of `generatedAt`) over the sampled member traces — they do not move as new sessions are classified.
+
+
+        `trendDays` buckets are UTC."
+      operationId: "get-topics"
+      parameters:
+        - in: "query"
+          name: "facet"
+          required: false
+          schema:
+            default: "issues"
+            enum:
+              - "task"
+              - "issues"
+              - "steering"
+            type: "string"
+        - in: "query"
+          name: "limit"
+          required: false
+          schema:
+            default: 20
+            maximum: 100
+            minimum: 1
+            type: "integer"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      captureTier:
+                        enum:
+                          - "metrics"
+                          - "redacted"
+                          - "full"
+                        type: "string"
+                      facet:
+                        enum:
+                          - "task"
+                          - "issues"
+                          - "steering"
+                        type: "string"
+                      generatedAt:
+                        nullable: true
+                        type: "string"
+                      mapVersion:
+                        type: "integer"
+                      noMatchCount:
+                        minimum: 0
+                        type: "integer"
+                      noMatchTrend:
+                        items:
+                          type: "number"
+                        type: "array"
+                      required:
+                        minimum: 0
+                        type: "integer"
+                      samplableCount:
+                        minimum: 0
+                        type: "integer"
+                      topics:
+                        items:
+                          properties:
+                            avgCostUsd:
+                              type: "number"
+                            avgLatencyMs:
+                              type: "number"
+                            description:
+                              type: "string"
+                            errorRate:
+                              type: "number"
+                            name:
+                              type: "string"
+                            sessionCount:
+                              minimum: 0
+                              type: "integer"
+                            share:
+                              type: "number"
+                            topicId:
+                              type: "string"
+                            trend:
+                              items:
+                                type: "number"
+                              type: "array"
+                          required:
+                            - "topicId"
+                            - "name"
+                            - "description"
+                            - "sessionCount"
+                            - "share"
+                            - "avgLatencyMs"
+                            - "avgCostUsd"
+                            - "errorRate"
+                            - "trend"
+                          type: "object"
+                        type: "array"
+                      trendBucket:
+                        enum:
+                          - "hour"
+                          - "day"
+                        type: "string"
+                      trendDays:
+                        items:
+                          type: "string"
+                        type: "array"
+                    required:
+                      - "facet"
+                      - "mapVersion"
+                      - "generatedAt"
+                      - "topics"
+                      - "noMatchCount"
+                      - "samplableCount"
+                      - "required"
+                      - "trendDays"
+                      - "noMatchTrend"
+                      - "trendBucket"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "The active topic map for the requested facet."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "Get topics"
+      tags:
+        - "Topics"
   /v1/workers/environments:
     post:
       description: "Creates a persistent environment (a durable workspace the agent resumes across turns) and dispatches its first turn. Continue it with `POST /v1/workers/environments/{envId}/turns`. The returned `url` opens the session as a live chat thread in the dashboard."
@@ -6345,5 +6806,9 @@ tags:
     name: "Apps"
   - description: "Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app's connected repo; every response carries the dashboard deep link to the live thread."
     name: "Workers"
+  - description: "Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet."
+    name: "Topics"
+  - description: "Per-model token spend and fleet-wide agent behavior tiles."
+    name: "Metrics"
   - description: "Service health checks."
     name: "Health"

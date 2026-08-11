@@ -19,6 +19,8 @@ import {
 } from '@repo/api-schemas';
 import { HealthCheck, IngestionHealth, FilesHealth } from '../routes/health';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from '../routes/api-keys';
+import { GetTopics } from '../routes/topics';
+import { GetModelStats, GetFleetOverview } from '../routes/metrics';
 
 // ---------------------------------------------------------------------------
 // Route definition correctness tests
@@ -87,6 +89,9 @@ const allRoutes: RouteEntry[] = [
   { name: 'ListApiKeys', cls: ListApiKeys, tag: 'API Keys', hasRequest: true },
   { name: 'CreateApiKey', cls: CreateApiKey, tag: 'API Keys', hasRequest: true },
   { name: 'RevokeApiKey', cls: RevokeApiKey, tag: 'API Keys', hasRequest: true },
+  { name: 'GetTopics', cls: GetTopics, tag: 'Topics', hasRequest: true },
+  { name: 'GetModelStats', cls: GetModelStats, tag: 'Metrics', hasRequest: true },
+  { name: 'GetFleetOverview', cls: GetFleetOverview, tag: 'Metrics', hasRequest: true },
 ];
 
 describe('OpenAPI Route Definitions', () => {
@@ -133,7 +138,7 @@ describe('OpenAPI Route Definitions', () => {
 // ---------------------------------------------------------------------------
 
 describe('OpenAPI Tag Coverage', () => {
-  const expectedTags = ['Agents', 'Spans', 'Scoring', 'Health', 'API Keys'];
+  const expectedTags = ['Agents', 'Spans', 'Scoring', 'Health', 'API Keys', 'Topics', 'Metrics'];
 
   it.each(expectedTags)('should have at least one route with tag "%s"', (tag) => {
     const routesWithTag = allRoutes.filter((r) => r.tag === tag);
@@ -248,13 +253,27 @@ describe('Score route schemas', () => {
   });
 });
 
+describe('Topics and Metrics route schemas', () => {
+  it('should define 200 response for GetTopics', () => {
+    expectResponse(GetTopics, 200);
+  });
+
+  it('should define 200 response for GetModelStats', () => {
+    expectResponse(GetModelStats, 200);
+  });
+
+  it('should define 200 response for GetFleetOverview', () => {
+    expectResponse(GetFleetOverview, 200);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Route count sanity check
 // ---------------------------------------------------------------------------
 
 describe('Route inventory', () => {
-  it('should have exactly 18 routes defined', () => {
-    expect(allRoutes).toHaveLength(18);
+  it('should have exactly 21 routes defined', () => {
+    expect(allRoutes).toHaveLength(21);
   });
 
   it('should have 2 Agents routes', () => {
@@ -271,5 +290,13 @@ describe('Route inventory', () => {
 
   it('should have 3 Health routes', () => {
     expect(allRoutes.filter((r) => r.tag === 'Health')).toHaveLength(3);
+  });
+
+  it('should have 1 Topics route', () => {
+    expect(allRoutes.filter((r) => r.tag === 'Topics')).toHaveLength(1);
+  });
+
+  it('should have 2 Metrics routes', () => {
+    expect(allRoutes.filter((r) => r.tag === 'Metrics')).toHaveLength(2);
   });
 });

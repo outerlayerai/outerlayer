@@ -59,3 +59,69 @@ export type MetricsParams = z.infer<typeof MetricsParamsSchema>;
 export type MetricsSummary = z.infer<typeof MetricsSummarySchema>;
 export type MetricsTimeSeriesPoint = z.infer<typeof MetricsTimeSeriesPointSchema>;
 export type MetricsResponse = z.infer<typeof MetricsResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// GET /v1/metrics/models — per-model token spend
+//
+// `from`/`to` are calendar DATES (not datetimes): the underlying ClickHouse
+// filter is `toDate(Timestamp)`, so a value carries no timezone or
+// sub-day precision. Both endpoints on this route default trailing windows
+// so a caller can omit them entirely.
+// ---------------------------------------------------------------------------
+
+export const ModelStatsQuerySchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+});
+
+export const ModelStatsEntrySchema = z.object({
+  model: z.string(),
+  requests: z.number().int().nonnegative(),
+  cost: z.number(),
+  tokens: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  avgLatencyMs: z.number(),
+  successRate: z.number(),
+});
+
+export const ModelStatsResponseSchema = z.object({
+  data: z.object({ models: z.array(ModelStatsEntrySchema) }),
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/metrics/overview — fleet-wide tiles, current vs prior period
+// ---------------------------------------------------------------------------
+
+export const FleetOverviewQuerySchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+});
+
+const FleetTileSchema = z.object({
+  current: z.number(),
+  prior: z.number(),
+});
+
+const FleetModelMixItemSchema = z.object({
+  model: z.string(),
+  sessions: z.number().int().nonnegative(),
+});
+
+export const FleetOverviewSchema = z.object({
+  sessions: FleetTileSchema,
+  toolErrorRate: FleetTileSchema,
+  cleanSessionRate: FleetTileSchema,
+  handsOnRate: FleetTileSchema,
+  activeActors: FleetTileSchema,
+  totalCost: FleetTileSchema,
+  toolDenialRate: FleetTileSchema,
+  autoApprovedRate: FleetTileSchema,
+  modelMix: z.array(FleetModelMixItemSchema),
+});
+
+export const FleetOverviewResponseSchema = z.object({ data: FleetOverviewSchema });
+
+export type ModelStatsQuery = z.infer<typeof ModelStatsQuerySchema>;
+export type FleetOverviewQuery = z.infer<typeof FleetOverviewQuerySchema>;

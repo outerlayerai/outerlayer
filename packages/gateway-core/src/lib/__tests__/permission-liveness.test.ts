@@ -31,9 +31,8 @@ const DORMANT_PERMISSION_ALLOWLIST: Partial<Record<GatewayPermission, string>> =
   // bearer/dashboard path; no gateway route reads it, so it never
   // appears as a `requiredPermission`. Permanent — not tied to a future group.
   'environment.update': 'backs the environment RLS UPDATE policy; no gateway route by design',
-  // Dormant until the sessions/metrics REST routes ship.
+  // Dormant until the sessions REST routes ship.
   'session.read': 'activated once GET /v1/sessions and GET /v1/sessions/{traceId} ship',
-  'metrics.read': 'activated once GET /v1/metrics/models and GET /v1/metrics/overview ship',
   'agents.sessions.team.read': 'activated once GET /v1/sessions ships and reads it from the actor-privacy policy',
 };
 
@@ -49,6 +48,7 @@ describe('permission liveness', () => {
     if (permission) livePermissions.add(permission);
   }
 
+  // proves AC-052-10
   it.each(GATEWAY_PERMISSIONS)('%s gates a registered route or is allowlisted with a reason', (permission) => {
     const isLive = livePermissions.has(permission);
     const allowlistReason = DORMANT_PERMISSION_ALLOWLIST[permission];

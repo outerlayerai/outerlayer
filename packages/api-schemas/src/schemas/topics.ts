@@ -5,7 +5,8 @@
  * URL param on the client as easily as it types a route handler's response.
  */
 
-import type { CaptureTier } from '@outerlayer/session-schema';
+import { z } from 'zod';
+import { CAPTURE_TIERS, type CaptureTier } from '@outerlayer/session-schema';
 
 /** Facets that have topic maps (sentiment is an enum, not clustered). */
 export const TOPIC_FACETS = ['task', 'issues', 'steering'] as const;
@@ -155,3 +156,43 @@ export type GenerateOutcome =
       facet: TopicFacet;
       sampleSize: number;
     };
+
+// ---------------------------------------------------------------------------
+// GET /v1/topics — REST + MCP wire contract
+// ---------------------------------------------------------------------------
+
+export const TopicsQuerySchema = z.object({
+  facet: z.enum(TOPIC_FACETS).default('issues'),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+const TopicListEntrySchema = z.object({
+  topicId: z.string(),
+  name: z.string(),
+  description: z.string(),
+  sessionCount: z.number().int().nonnegative(),
+  share: z.number(),
+  avgLatencyMs: z.number(),
+  avgCostUsd: z.number(),
+  errorRate: z.number(),
+  trend: z.array(z.number()),
+});
+
+/** Mirrors {@link TopicsList} field-for-field — the OpenAPI/MCP wire shape. */
+export const TopicsListSchema = z.object({
+  facet: z.enum(TOPIC_FACETS),
+  mapVersion: z.number().int(),
+  generatedAt: z.string().nullable(),
+  topics: z.array(TopicListEntrySchema),
+  noMatchCount: z.number().int().nonnegative(),
+  samplableCount: z.number().int().nonnegative(),
+  required: z.number().int().nonnegative(),
+  trendDays: z.array(z.string()),
+  noMatchTrend: z.array(z.number()),
+  trendBucket: z.enum(['hour', 'day']),
+  captureTier: z.enum(CAPTURE_TIERS).optional(),
+});
+
+export const TopicsResponseSchema = z.object({ data: TopicsListSchema });
+
+export type TopicsQuery = z.infer<typeof TopicsQuerySchema>;

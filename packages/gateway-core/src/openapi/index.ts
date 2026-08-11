@@ -20,6 +20,8 @@ import { CreateScore, CreateScoresBatch, ListScores, SearchScores, GetScore, Get
 import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
 import { GetCapabilities } from './routes/capabilities';
 import { GetPricing } from './routes/pricing';
+import { GetTopics } from './routes/topics';
+import { GetModelStats, GetFleetOverview } from './routes/metrics';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from './routes/api-keys';
 import {
   ListEnvironments,
@@ -531,6 +533,8 @@ export const openApiApp = fromHono(app, {
       { name: 'Environments', description: 'Per-app named environments (e.g. `dev`, `prod`). CRUD for env lifecycle.' },
       { name: 'Apps', description: 'App CRUD — the top-level tenant entity every other resource hangs off. Lets a headless agent provision an app without the dashboard.' },
       { name: 'Workers', description: 'Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app\'s connected repo; every response carries the dashboard deep link to the live thread.' },
+      { name: 'Topics', description: 'Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet.' },
+      { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles.' },
       { name: 'Health', description: 'Service health checks.' },
     ],
   },
@@ -744,8 +748,15 @@ registerAuthenticatedRoute('delete', '/v1/scores/:scoreId', DeleteScore);
 // ============================================================================
 
 // ============================================================================
+// Topics routes
+// ============================================================================
+registerAuthenticatedRoute('get', '/v1/topics', GetTopics, { entitlement: 'topics_enabled' });
+
+// ============================================================================
 // Metrics routes
 // ============================================================================
+registerAuthenticatedRoute('get', '/v1/metrics/models', GetModelStats);
+registerAuthenticatedRoute('get', '/v1/metrics/overview', GetFleetOverview);
 
 // ============================================================================
 // Datasets routes (task mining + run inputs)

@@ -112,4 +112,25 @@ describe('tier-gated route registration', () => {
       }
     });
   });
+
+  describe('topics entitlement gate', () => {
+    it('GET /v1/topics installs entitlementGuard AFTER permissionGuard', () => {
+      const names = handlerNames('GET', '/v1/topics');
+      const permIdx = names.indexOf('permissionGuard');
+      const entIdx = names.indexOf('entitlementGuard');
+
+      expect(permIdx).toBeGreaterThanOrEqual(0);
+      expect(entIdx).toBeGreaterThanOrEqual(0);
+      expect(permIdx).toBeLessThan(entIdx);
+    });
+
+    it.each([
+      ['GET', '/v1/metrics/models'],
+      ['GET', '/v1/metrics/overview'],
+    ] as const)('%s %s stays open (no entitlementGuard)', (method, path) => {
+      const names = handlerNames(method, path);
+      expect(names).not.toContain('entitlementGuard');
+      expect(names).toContain('permissionGuard');
+    });
+  });
 });
