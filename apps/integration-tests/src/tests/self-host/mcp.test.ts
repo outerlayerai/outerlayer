@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { FleetOverviewSchema } from '@repo/api-schemas';
 import { dispatchRequest } from '@repo/gateway-core/dispatch-request';
 import { setGatewayContextFactory } from '@repo/gateway-core/openapi';
 import { initCache } from '@repo/gateway-core/utils';
@@ -172,7 +173,7 @@ describe('self-host: POST /v1/mcp (SelfHostAuthResolver + NoopRateLimiter)', () 
       expect(res.status).toBe(200);
       const body = (await res.json()) as { result?: { structuredContent: { data: unknown } }; error?: unknown };
       expect(body.error).toBeUndefined();
-      expect(body.result?.structuredContent.data).toBeDefined();
+      expect(FleetOverviewSchema.safeParse(body.result?.structuredContent.data).success).toBe(true);
     }
   });
 
