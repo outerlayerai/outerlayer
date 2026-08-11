@@ -48,12 +48,24 @@ const { ctxState } = vi.hoisted(() => ({
 // result envelope, which the hooks unwrap.
 vi.mock("@/features/context/read-actions", () => ({
   getContextTree: vi.fn(async () => ({ ok: true, data: ctxState.tree })),
+  getContextOverview: vi.fn(async () => ({
+    ok: true,
+    data: {
+      range: "30d",
+      recentDays: 14,
+      lookbackDays: 90,
+      degraded: false,
+      skills: [],
+      mcpServers: [],
+      coverage: { sessions: 0, sessionsWithSkill: 0, priorSessions: 0, priorSessionsWithSkill: 0, lookbackSessions: 0 },
+      topics: [],
+      inventory: { instructionScopes: 0, commands: 0, subagents: 0 },
+    },
+  })),
   getContextFile: vi.fn(async () => {
     throw new Error("context file not found");
   }),
-  getContextSkillAdoption: vi.fn(async () => ({ ok: true, data: { skills: [], recentDays: 14, lookbackDays: 90 } })),
   getContextSkillDrilldown: vi.fn(async () => ({ ok: true, data: { trend: [], sessions: [], topics: [], lookbackDays: 90 } })),
-  getContextMcpAdoption: vi.fn(async () => ({ ok: true, data: { servers: [], recentDays: 14, lookbackDays: 90 } })),
   getContextMcpDrilldown: vi.fn(async () => ({ ok: true, data: { tools: [], trend: [], sessions: [], lookbackDays: 90, recentDays: 14 } })),
 }));
 
@@ -88,8 +100,6 @@ function renderView() {
         appId="app-1"
         initialTree={ctxState.tree}
         initialFile={null}
-        initialSkillAdoption={{ skills: [], recentDays: 14, lookbackDays: 90 }}
-        initialMcpAdoption={{ servers: [], recentDays: 14, lookbackDays: 90 }}
         initialSelectedPath={currentSelectedPath}
       />
     </SWRConfig>,
@@ -113,13 +123,23 @@ beforeEach(() => {
 });
 
 describe("<ContextView> — Files | History view switch", () => {
-  it("defaults to Files: the tree renders, the switch is present, History is not", async () => {
+  it("defaults to the Overview: a bare URL renders it, with the three-way switch present", async () => {
     seedTree(TREE);
     renderView();
-    expect(await screen.findByRole("tree", { name: "Context files" })).toBeInTheDocument();
+    expect(await screen.findByTestId("context-overview")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "overview" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "files" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "history" })).toBeInTheDocument();
     expect(screen.queryByTestId("history-probe")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tree", { name: "Context files" })).not.toBeInTheDocument();
+  });
+
+  it("?view=files renders the Files tree", async () => {
+    setSearch({ view: "files" });
+    seedTree(TREE);
+    renderView();
+    expect(await screen.findByRole("tree", { name: "Context files" })).toBeInTheDocument();
+    expect(screen.queryByTestId("context-overview")).not.toBeInTheDocument();
   });
 
   it("?view=history deep-links straight to the History panel (no tree)", async () => {
@@ -140,14 +160,15 @@ describe("<ContextView> — Files | History view switch", () => {
     expect(replaceSpy).toHaveBeenCalledWith("/test-path?view=history", { scroll: false });
   });
 
-  it("clicking Files from History removes the view param (back to the default)", async () => {
+  it("clicking Files from History writes ?view=files explicitly (Overview owns the bare URL)", async () => {
     setSearch({ view: "history", file: ".outerlayer/AGENTS.md" });
     seedTree(TREE);
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "files" }));
-    // `file` is preserved, `view` is dropped.
+    // `file` is preserved; the view goes explicit — a bare URL with `file=`
+    // is a legacy Files link, so Files can't be expressed by dropping the param.
     expect(replaceSpy).toHaveBeenCalledWith(
-      "/test-path?file=.outerlayer%2FAGENTS.md",
+      "/test-path?view=files&file=.outerlayer%2FAGENTS.md",
       { scroll: false },
     );
   });
@@ -161,6 +182,7 @@ describe("<ContextView> — Files | History view switch", () => {
   });
 
   it("Files view: the header Resync button triggers a context resync", async () => {
+    setSearch({ view: "files" });
     seedTree(TREE);
     vi.mocked(resyncContextAction).mockClear();
     renderView();

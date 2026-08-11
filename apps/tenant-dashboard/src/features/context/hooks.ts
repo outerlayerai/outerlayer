@@ -11,17 +11,16 @@
 import useSWR from "swr";
 import {
   getContextFile,
-  getContextMcpAdoption,
   getContextMcpDrilldown,
-  getContextSkillAdoption,
+  getContextOverview,
   getContextSkillDrilldown,
   getContextTree,
 } from "./read-actions";
 import type {
   ContextFileResponse,
+  ContextOverviewRange,
+  ContextOverviewResponse,
   ContextTreeResponse,
-  McpAdoptionResponse,
-  SkillAdoptionResponse,
 } from "./types";
 
 /**
@@ -66,19 +65,19 @@ export function useContextFile(
 }
 
 /**
- * Per-skill activation counts overlaying the tree's installed skills. Seeded
- * with the tree from the RSC; a slow or absent analytics backend never blocks
- * the tree because the seed already carries the overlay. `mutate()` re-reads it
- * independently of the (heavier) tree.
+ * The Overview payload, keyed on the range so a range switch fetches its own
+ * window (and flipping back serves the cached one). Seeded from the RSC for
+ * the landing range only — other ranges load through the read action.
  */
-export function useContextSkillAdoption(
+export function useContextOverview(
   appId: string,
-  opts: { fallbackData?: SkillAdoptionResponse } = {},
+  range: ContextOverviewRange,
+  opts: { fallbackData?: ContextOverviewResponse } = {},
 ) {
-  // live: background-revalidates the skill-adoption overlay independently of the tree, via mutate() — the seed alone can't reflect activation counts the (heavier, separately-loaded) analytics backend updates after the page rendered.
+  // live: re-reads the range the user selects — the RSC seed carries only the landing range's window, so every other range (and any post-load activation) must come from the read action.
   return useSWR(
-    appId ? (["context-skill-adoption", appId] as const) : null,
-    () => getContextSkillAdoption({ appId }).then(unwrap),
+    appId ? (["context-overview", appId, range] as const) : null,
+    () => getContextOverview({ appId, range }).then(unwrap),
     { revalidateOnFocus: false, fallbackData: opts.fallbackData },
   );
 }
@@ -95,24 +94,6 @@ export function useContextSkillDrilldown(appId: string, skill: string | null) {
     appId && skill ? (["context-skill-drilldown", appId, skill] as const) : null,
     () => getContextSkillDrilldown({ appId, skill: skill as string }).then(unwrap),
     { revalidateOnFocus: false },
-  );
-}
-
-/**
- * Per-server MCP usage overlaying the tree's mcp.json rows. Seeded with the
- * tree from the RSC, same non-blocking posture as the skill overlay: a slow or
- * absent analytics backend never blocks the tree because the seed already
- * carries the overlay. `mutate()` re-reads it independently of the tree.
- */
-export function useContextMcpAdoption(
-  appId: string,
-  opts: { fallbackData?: McpAdoptionResponse } = {},
-) {
-  // live: background-revalidates the mcp-adoption overlay independently of the tree, via mutate() — the seed alone can't reflect usage counts the (heavier, separately-loaded) analytics backend updates after the page rendered.
-  return useSWR(
-    appId ? (["context-mcp-adoption", appId] as const) : null,
-    () => getContextMcpAdoption({ appId }).then(unwrap),
-    { revalidateOnFocus: false, fallbackData: opts.fallbackData },
   );
 }
 

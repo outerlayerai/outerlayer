@@ -7,7 +7,7 @@
  * it narrows the permission check to, the exact service call it makes, and the
  * result envelope the wrapper returns for allow / deny / throw / invalid-input.
  */
-import { getSkillAdoption, getSkillDrilldown, getMcpAdoption, getMcpDrilldown } from "./service";
+import { getSkillDrilldown, getMcpDrilldown } from "./service";
 
 const { mockLoadCtx, mockCheckPerm, treeFn, fileFn, syncHistoryFn, ctorArgs } = vi.hoisted(() => ({
   mockLoadCtx: vi.fn(),
@@ -35,18 +35,14 @@ vi.mock("./service", () => ({
       ctorArgs.push(db);
     }
   },
-  getSkillAdoption: vi.fn(),
   getSkillDrilldown: vi.fn(),
-  getMcpAdoption: vi.fn(),
   getMcpDrilldown: vi.fn(),
 }));
 
 import {
   getContextTree,
   getContextFile,
-  getContextSkillAdoption,
   getContextSkillDrilldown,
-  getContextMcpAdoption,
   getContextMcpDrilldown,
   getContextSyncHistory,
 } from "./read-actions";
@@ -65,9 +61,7 @@ beforeEach(() => {
   treeFn.mockResolvedValue({ tree: true });
   fileFn.mockResolvedValue({ file: true });
   syncHistoryFn.mockResolvedValue({ rows: [], total: 0 });
-  vi.mocked(getSkillAdoption).mockResolvedValue({ skills: [], recentDays: 14, lookbackDays: 90 });
   vi.mocked(getSkillDrilldown).mockResolvedValue({ trend: [], sessions: [], topics: [], lookbackDays: 90 });
-  vi.mocked(getMcpAdoption).mockResolvedValue({ servers: [], recentDays: 14, lookbackDays: 90 });
   vi.mocked(getMcpDrilldown).mockResolvedValue({ tools: [], trend: [], sessions: [], lookbackDays: 90, recentDays: 14 });
 });
 
@@ -105,18 +99,6 @@ describe("getContextFile", () => {
   });
 });
 
-describe("getContextSkillAdoption", () => {
-  it("reads the skill overlay for the resolved tenant + input app", async () => {
-    const overlay = { skills: [{ skillName: "writing", recentActivations: 3, totalActivations: 9, totalSessions: 4, lastActivatedAt: null }], recentDays: 14, lookbackDays: 90 };
-    vi.mocked(getSkillAdoption).mockResolvedValue(overlay);
-
-    const result = await getContextSkillAdoption({ appId: "app-1" });
-
-    expect(result).toEqual({ ok: true, data: overlay });
-    expect(mockCheckPerm).toHaveBeenCalledWith(ACTOR, "context.read", "app-1");
-    expect(getSkillAdoption).toHaveBeenCalledWith({ tenantId: "tenant-1", appId: "app-1" });
-  });
-});
 
 describe("getContextSkillDrilldown", () => {
   it("passes the skill through to the drill-down read, scoped to the resolved tenant", async () => {
@@ -128,15 +110,6 @@ describe("getContextSkillDrilldown", () => {
   });
 });
 
-describe("getContextMcpAdoption", () => {
-  it("reads the mcp overlay for the resolved tenant + input app", async () => {
-    const result = await getContextMcpAdoption({ appId: "app-1" });
-
-    expect(result).toEqual({ ok: true, data: { servers: [], recentDays: 14, lookbackDays: 90 } });
-    expect(mockCheckPerm).toHaveBeenCalledWith(ACTOR, "context.read", "app-1");
-    expect(getMcpAdoption).toHaveBeenCalledWith({ tenantId: "tenant-1", appId: "app-1" });
-  });
-});
 
 describe("getContextMcpDrilldown", () => {
   it("passes the server through to the drill-down read, scoped to the resolved tenant", async () => {

@@ -9,32 +9,38 @@ import "server-only";
  *   permission transparently sees zero rows — the same shape as "no context
  *   yet". Steady-state browsing issues ZERO git-provider calls: the connected
  *   repo/branch and every file's content come from the mirror.
- * - `getSkillAdoption` / `getSkillDrilldown` — ClickHouse usage telemetry that
- *   overlays the tree's installed skills. Read through the tenant row-policy
- *   client, so ClickHouse itself enforces `TenantId = SQL_tenant_id`. With no
- *   analytics backend configured the overlay degrades to empty rather than
- *   erroring: the tree is the product, adoption is a bonus annotation.
+ * - `getOverview` / the drill-down reads — ClickHouse usage telemetry for the
+ *   Overview view. Read through the tenant row-policy client, so ClickHouse
+ *   itself enforces `TenantId = SQL_tenant_id`. With no analytics backend
+ *   configured usage degrades to unknown rather than erroring: the inventory
+ *   is the product, usage is layered on.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NotFoundError } from "@repo/observability-service";
 import {
-  buildSkillAdoptionQuery,
   buildSkillSessionsQuery,
   buildSkillTopicsQuery,
   buildSkillTrendQuery,
-  buildMcpAdoptionQuery,
   buildMcpServerSessionsQuery,
   buildMcpServerToolsQuery,
   buildMcpServerTrendQuery,
-  type SkillAdoptionRow,
+  buildMcpOverviewQuery,
+  buildSessionCoverageQuery,
+  buildSkillOverviewQuery,
+  buildSkillTrendByDayQuery,
+  buildTopicRollupQuery,
   type SkillSessionRow,
   type SkillTopicRow,
   type SkillTrendRow,
-  type McpServerRow,
   type McpSessionRow,
   type McpToolRow,
   type McpTrendRow,
+  type McpOverviewRow,
+  type SessionCoverageRow,
+  type SkillOverviewRow,
+  type SkillTrendByDayRow,
+  type TopicRollupRow,
 } from "@repo/observability-service";
 import type { ContextKind } from "@repo/context-core";
 import { createTenantReadClient } from "@/lib/analytics/client";
@@ -44,16 +50,17 @@ import {
   deriveTreeResponse,
   type RawTreeRow,
 } from "./read-model";
+import { deriveOverviewResponse, type OverviewAnalytics } from "./overview-read-model";
 import type {
   ContextExcludedCount,
   ContextFileResponse,
   ContextGitConnection,
   ContextHead,
+  ContextOverviewRange,
+  ContextOverviewResponse,
   ContextSyncHistoryResponse,
   ContextTreeResponse,
-  McpAdoptionResponse,
   McpDrilldownResponse,
-  SkillAdoptionResponse,
   SkillDrilldownResponse,
 } from "./types";
 
@@ -288,42 +295,28 @@ interface ContextLoad {
   tree: ContextTreeResponse;
   /** The initially-selected file (from the `?file=` param), or `null` when none is selected or it 404s. */
   file: ContextFileResponse | null;
-  skillAdoption: SkillAdoptionResponse;
-  mcpAdoption: McpAdoptionResponse;
 }
 
 /**
  * Composes the reads the context page needs for its first server render: the
- * tree, the skill- and MCP-adoption overlays, and — when a file is selected via
- * `?file=` — that file. A selected path absent from the snapshot resolves to `null`
- * (a stale deep-link must not crash the page) rather than propagating the
- * not-found; the client re-reads through the read actions after hydration.
+ * tree and — when a file is selected via `?file=` — that file. A selected path
+ * absent from the snapshot resolves to `null` (a stale deep-link must not
+ * crash the page) rather than propagating the not-found; the client re-reads
+ * through the read actions after hydration.
  */
 export async function load(
   supabase: SupabaseClient<Database>,
-  tenantId: string,
   appId: string,
   filePath?: string | null,
 ): Promise<ContextLoad> {
   const service = new ContextReadService(supabase);
-  const [tree, skillAdoption, mcpAdoption, file] = await Promise.all([
+  const [tree, file] = await Promise.all([
     service.getTree(appId),
-    // The adoption overlays are annotations on the tree, not the tree itself: a
-    // failed analytics read degrades to a blank overlay (logged) instead of
-    // taking down the whole context render.
-    getSkillAdoption({ tenantId, appId }).catch((err) => {
-      console.error("[context] skill-adoption overlay read failed:", err);
-      return { skills: [], recentDays: SKILL_RECENT_DAYS, lookbackDays: SKILL_LOOKBACK_DAYS };
-    }),
-    getMcpAdoption({ tenantId, appId }).catch((err) => {
-      console.error("[context] mcp-adoption overlay read failed:", err);
-      return { servers: [], recentDays: MCP_RECENT_DAYS, lookbackDays: MCP_LOOKBACK_DAYS };
-    }),
     filePath
       ? service.getFile(appId, filePath).catch(() => null)
       : Promise.resolve(null),
   ]);
-  return { tree, file, skillAdoption, mcpAdoption };
+  return { tree, file };
 }
 
 /** Tenant+app scope for a ClickHouse skill-adoption read. */
@@ -332,37 +325,80 @@ interface SkillReadScope {
   appId: string;
 }
 
-/**
- * Per-skill activation counts overlaying the tree's installed skills. Reads the
- * skill_activated rollup through the tenant row-policy client; no analytics
- * backend configured → an empty overlay (with the window bounds) rather than an
- * error, so the tree still renders without adoption annotations.
- */
-export async function getSkillAdoption(scope: SkillReadScope): Promise<SkillAdoptionResponse> {
-  const meta = { recentDays: SKILL_RECENT_DAYS, lookbackDays: SKILL_LOOKBACK_DAYS };
-  const ch = createTenantReadClient({ tenantId: scope.tenantId, appId: scope.appId });
-  if (!ch) return { skills: [], ...meta };
+/** Day counts behind each Overview range value. */
+const OVERVIEW_RANGE_DAYS: Record<ContextOverviewRange, number> = {
+  "24h": 1,
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+};
 
-  const { query, params } = buildSkillAdoptionQuery({
+/**
+ * The ClickHouse half of the Overview, or `null` when no analytics backend is
+ * configured or the read fails — the Overview's inventory half must render
+ * either way, with usage shown as unknown (never zero).
+ */
+async function readOverviewAnalytics(
+  scope: SkillReadScope,
+  rangeDays: number,
+): Promise<OverviewAnalytics | null> {
+  const ch = createTenantReadClient({ tenantId: scope.tenantId, appId: scope.appId });
+  if (!ch) return null;
+
+  const windows = {
     tenantId: scope.tenantId,
     appId: scope.appId,
-    lookbackDays: SKILL_LOOKBACK_DAYS,
+    rangeDays,
     recentDays: SKILL_RECENT_DAYS,
-  });
-  const rows = await ch
-    .query({ query, query_params: params, format: "JSONEachRow" })
-    .then((r) => r.json<SkillAdoptionRow>());
-
-  return {
-    skills: rows.map((row) => ({
-      skillName: row.skill,
-      recentActivations: Number(row.recentActivations),
-      totalActivations: Number(row.totalActivations),
-      totalSessions: Number(row.totalSessions),
-      lastActivatedAt: row.lastActivatedAt || null,
-    })),
-    ...meta,
+    lookbackDays: SKILL_LOOKBACK_DAYS,
   };
+  const run = <T>(built: { query: string; params: Record<string, unknown> }) =>
+    ch
+      .query({ query: built.query, query_params: built.params, format: "JSONEachRow" })
+      .then((r) => r.json<T>());
+
+  try {
+    const [skills, mcpServers, coverageRows, topics, trends] = await Promise.all([
+      run<SkillOverviewRow>(buildSkillOverviewQuery(windows)),
+      run<McpOverviewRow>(buildMcpOverviewQuery(windows)),
+      run<SessionCoverageRow>(buildSessionCoverageQuery(windows)),
+      run<TopicRollupRow>(buildTopicRollupQuery(windows)),
+      run<SkillTrendByDayRow>(buildSkillTrendByDayQuery(windows)),
+    ]);
+    return { skills, mcpServers, coverage: coverageRows[0] ?? null, topics, trends };
+  } catch (err) {
+    console.error("[context] overview analytics read failed:", err);
+    return null;
+  }
+}
+
+/**
+ * The Overview response for an ALREADY-LOADED tree — the page's RSC seed path,
+ * which has the tree in hand for the Files view and must not re-read it.
+ */
+export async function getOverviewFromTree(
+  tree: ContextTreeResponse,
+  scope: SkillReadScope,
+  range: ContextOverviewRange,
+): Promise<ContextOverviewResponse> {
+  const analytics = await readOverviewAnalytics(scope, OVERVIEW_RANGE_DAYS[range]);
+  return deriveOverviewResponse({
+    range,
+    recentDays: SKILL_RECENT_DAYS,
+    lookbackDays: SKILL_LOOKBACK_DAYS,
+    tree,
+    analytics,
+  });
+}
+
+/** The Overview response from scratch — the client re-read path (SWR action). */
+export async function getOverview(
+  supabase: SupabaseClient<Database>,
+  scope: SkillReadScope,
+  range: ContextOverviewRange,
+): Promise<ContextOverviewResponse> {
+  const tree = await new ContextReadService(supabase).getTree(scope.appId);
+  return getOverviewFromTree(tree, scope, range);
 }
 
 /**
@@ -420,39 +456,6 @@ export async function getSkillDrilldown(
 interface McpReadScope {
   tenantId: string;
   appId: string;
-}
-
-/**
- * Per-server call counts overlaying the tree's mcp.json rows. Same read posture
- * as the skill overlay: reads the mcp-usage rollup through the tenant row-policy
- * client, and no analytics backend configured → an empty overlay (with the
- * window bounds) rather than an error.
- */
-export async function getMcpAdoption(scope: McpReadScope): Promise<McpAdoptionResponse> {
-  const meta = { recentDays: MCP_RECENT_DAYS, lookbackDays: MCP_LOOKBACK_DAYS };
-  const ch = createTenantReadClient({ tenantId: scope.tenantId, appId: scope.appId });
-  if (!ch) return { servers: [], ...meta };
-
-  const { query, params } = buildMcpAdoptionQuery({
-    tenantId: scope.tenantId,
-    appId: scope.appId,
-    lookbackDays: MCP_LOOKBACK_DAYS,
-    recentDays: MCP_RECENT_DAYS,
-  });
-  const rows = await ch
-    .query({ query, query_params: params, format: "JSONEachRow" })
-    .then((r) => r.json<McpServerRow>());
-
-  return {
-    servers: rows.map((row) => ({
-      serverName: row.server,
-      recentCalls: Number(row.recentCalls),
-      totalCalls: Number(row.totalCalls),
-      totalSessions: Number(row.totalSessions),
-      lastUsedAt: row.lastUsedAt || null,
-    })),
-    ...meta,
-  };
 }
 
 /**
