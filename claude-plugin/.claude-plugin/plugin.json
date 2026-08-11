@@ -1,0 +1,15 @@
+{
+  "name": "outerlayer",
+  "displayName": "OuterLayer",
+  "version": "0.1.0",
+  "description": "Capture Claude Code sessions for the OuterLayer dashboard. Installs the same lifecycle hooks as `outerlayer init`, with the CLI managed automatically in the background.",
+  "author": {
+    "name": "OuterLayer",
+    "url": "https://github.com/outerlayerai/outerlayer"
+  },
+  "homepage": "https://github.com/outerlayerai/outerlayer",
+  "repository": "https://github.com/outerlayerai/outerlayer",
+  "license": "Apache-2.0",
+  "keywords": ["capture", "observability", "sessions", "analytics"],
+  "hooks": "./hooks/hooks.json"
+}
