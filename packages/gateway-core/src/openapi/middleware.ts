@@ -6,6 +6,7 @@ import { buildUserMetaCacheKey } from '../lib/verify-key';
 import { extractBearerToken, resolveBearerUser } from '../lib/verify-bearer';
 import { initCache } from '../utils';
 import { memory } from '../cache-store';
+import { buildOAuthProtectedResourceMetadataUrl } from '../lib/oauth-metadata';
 
 /** How the caller authenticated. Used by downstream helpers that pick the
  * right Supabase client (gateway-role for api-key, authenticated-role for
@@ -109,6 +110,45 @@ function isMcpRoute(c: Context): boolean {
   return path === MCP_ROUTE_PATH;
 }
 
+/**
+ * Per-app MCP mount for OAuth-connected clients (claude.ai/ChatGPT custom
+ * connectors) that paste a single URL and cannot send a custom
+ * `X-Outerlayer-App-Id` header — the app id travels in the path instead.
+ * Bearer-only: API keys already have `/v1/mcp` with header-or-derive
+ * resolution; this mount exists specifically for the case that has no
+ * header to derive from or supply.
+ */
+const APP_SCOPED_MCP_ROUTE_RE = /^\/v1\/apps\/([^/]+)\/mcp$/;
+
+/** Returns the `{appId}` path segment when the request targets the
+ * per-app MCP mount, or null otherwise. */
+function extractAppScopedMcpAppId(c: Context): string | null {
+  const path = c.req.path.replace(/\/$/, '');
+  const match = APP_SCOPED_MCP_ROUTE_RE.exec(path);
+  return match ? (match[1] as string) : null;
+}
+
+/**
+ * `c.json` for an auth failure, adding the RFC 9728 `WWW-Authenticate`
+ * challenge on MCP-route 401s so an unauthenticated client can discover
+ * protected-resource metadata (and, from there, the authorization server)
+ * without out-of-band configuration. Every other case — non-MCP routes,
+ * non-401 statuses — calls `c.json` with exactly the two arguments it
+ * always took, unchanged.
+ */
+function jsonAuthError(
+  c: Context,
+  body: unknown,
+  status: 401 | 500 | 502,
+  mcpRoute: boolean,
+): Response {
+  if (!mcpRoute || status !== 401) return c.json(body, status);
+  const origin = new URL(c.req.url).origin;
+  return c.json(body, status, {
+    'WWW-Authenticate': `Bearer resource_metadata="${buildOAuthProtectedResourceMetadataUrl(origin)}"`,
+  });
+}
+
 export async function authMiddleware(c: Context<{ Bindings: Env; Variables: OpenAPIVariables }>, next: Next): Promise<Response | void> {
   const authHeader = c.req.header('Authorization');
   const appId = c.req.header('X-Outerlayer-App-Id');
@@ -118,10 +158,16 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   // on a tenant they don't belong to. Absent ⇒ the claim serves, as today.
   const requestTenantId = c.req.header('X-Tenant-Id');
   const tenantScoped = isTenantScopedRoute(c);
-  const mcpRoute = isMcpRoute(c);
+  const appScopedMcpAppId = extractAppScopedMcpAppId(c);
+  const mcpRoute = isMcpRoute(c) || appScopedMcpAppId !== null;
 
   if (!authHeader) {
-    return c.json({ error: { code: 'unauthorized', message: 'Missing auth header' } }, 401);
+    return jsonAuthError(
+      c,
+      { error: { code: 'unauthorized', message: 'Missing auth header' } },
+      401,
+      mcpRoute,
+    );
   }
 
   // Bearer path — check first so a valid JWT is never routed through the
@@ -148,27 +194,68 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   // header support) authenticate. Bearer-JWT auth on `/v1/mcp` keeps
   // requiring the header: JWTs are tenant-scoped, not app-bound, so there
   // is nothing on the token to derive an app from.
-  const headerOptional =
-    (tenantScoped && bearerToken !== null) || (mcpRoute && bearerToken === null);
-  if (!appId && !headerOptional) {
-    return c.json({ error: { code: 'unauthorized', message: 'Missing app id' } }, 401);
+  //
+  // `/v1/apps/:appId/mcp` + bearer auth: the header is optional too — the
+  // app id is the path segment itself. This mount is bearer-only (see the
+  // API-key rejection below); a key resolving the same way it does on
+  // `/v1/mcp` would make two mounts do the same derivation two ways.
+  if (appScopedMcpAppId !== null && bearerToken === null) {
+    // API keys already have /v1/mcp (header-or-derive resolution above);
+    // this mount exists for bearer/OAuth clients that have no header to
+    // send. Accepting an API key here too would give the same credential
+    // two different app-resolution paths for no benefit. Checked before
+    // the generic "missing app id" guard below so a caller gets this
+    // specific diagnostic instead of a misleading header complaint.
+    return jsonAuthError(
+      c,
+      {
+        error: {
+          code: 'unauthorized',
+          message: 'This endpoint requires a user or OAuth bearer token; API keys use /v1/mcp.',
+        },
+      },
+      401,
+      mcpRoute,
+    );
   }
 
+  const headerOptional =
+    (tenantScoped && bearerToken !== null) ||
+    (isMcpRoute(c) && bearerToken === null) ||
+    (appScopedMcpAppId !== null && bearerToken !== null);
+  if (!appId && !headerOptional) {
+    return jsonAuthError(
+      c,
+      { error: { code: 'unauthorized', message: 'Missing app id' } },
+      401,
+      mcpRoute,
+    );
+  }
 
   if (bearerToken) {
     // For tenant-scoped routes pass `appId: null` so resolveBearerUser
     // skips the app row lookup, which the first-create flow needs: there
-    // is no app row to look up yet.
+    // is no app row to look up yet. For the per-app MCP mount, the path
+    // segment IS the app id — it overrides any (irrelevant) header.
+    const effectiveAppId =
+      appScopedMcpAppId !== null ? appScopedMcpAppId : tenantScoped ? null : appId ?? null;
     const result = await resolveBearerUser({
       env: c.env,
       token: bearerToken,
-      appId: tenantScoped ? null : appId ?? null,
+      appId: effectiveAppId,
       requestTenantId,
+      // Connector (OAuth) tokens carry a `client_id` claim. They're full
+      // user sessions everywhere else on the bearer surface — Supabase
+      // does not enforce scopes — so this confinement is the security
+      // seam: only MCP paths accept one. See verify-bearer.ts.
+      allowConnectorToken: mcpRoute,
     });
     if (!result.ok) {
-      return c.json(
+      return jsonAuthError(
+        c,
         { error: { code: 'unauthorized', message: result.message } },
         result.status as 401 | 500,
+        mcpRoute,
       );
     }
     // Audit-log every successful authentication. Constitution IX.
@@ -225,9 +312,11 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   }
 
   if (!result.ok) {
-    return c.json(
+    return jsonAuthError(
+      c,
       { error: { code: result.code, message: result.message } },
       result.status as 401 | 500 | 502,
+      mcpRoute,
     );
   }
 

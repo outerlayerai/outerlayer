@@ -1034,6 +1034,7 @@ describe('authMiddleware', () => {
       expect(jsonSpy).toHaveBeenCalledWith(
         { error: { code: 'unauthorized', message: 'Not authorized' } },
         401,
+        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
       );
       expect(next).not.toHaveBeenCalled();
       // Auth was rejected before c.set('user', ...) ever ran — a forged
@@ -1103,6 +1104,7 @@ describe('authMiddleware', () => {
       expect(jsonSpy).toHaveBeenCalledWith(
         { error: { code: 'unauthorized', message: 'Missing app id' } },
         401,
+        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
       );
       expect(next).not.toHaveBeenCalled();
     });
@@ -1112,6 +1114,189 @@ describe('authMiddleware', () => {
         headers: { Authorization: 'sk_outerlayer_other_route' },
         method: 'GET',
         path: '/v1/traces',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        { error: { code: 'unauthorized', message: 'Missing app id' } },
+        401,
+      );
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+
+  // ========================================================================
+  // POST /v1/apps/:appId/mcp — per-app MCP mount for OAuth-connected
+  // clients (group 13). Bearer-only; the app id comes from the path.
+  // ========================================================================
+  describe('/v1/apps/:appId/mcp (per-app MCP mount)', () => {
+    it('resolves the app id from the path, not a header, and allows connector tokens', async () => {
+      const mockResolveBearer = vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          appId: 'app-from-path',
+          tenantId: 'tenant-from-path',
+          appName: 'Path App',
+          stripeCustomerId: '',
+          stripeSubscriptionId: '',
+          branchId: '',
+          gatewayUserId: 'user-sub',
+          permissions: [],
+        },
+        userJwt: 'the-user-jwt',
+      });
+      vi.doMock('../../lib/verify-bearer', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../../lib/verify-bearer')>();
+        return { ...actual, resolveBearerUser: mockResolveBearer };
+      });
+      vi.resetModules();
+      const { authMiddleware: freshAuth } = await import('../middleware');
+
+      const { c, next, setSpy } = createMockHonoContext({
+        headers: { Authorization: 'Bearer user.jwt.here' },
+        method: 'POST',
+        path: '/v1/apps/app-from-path/mcp',
+        routePath: '/v1/*',
+      });
+
+      await freshAuth(c as any, next);
+
+      expect(mockResolveBearer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token: 'user.jwt.here',
+          appId: 'app-from-path',
+          allowConnectorToken: true,
+        }),
+      );
+      expect(next).toHaveBeenCalledOnce();
+      expect(setSpy).toHaveBeenCalledWith(
+        'user',
+        expect.objectContaining({ appId: 'app-from-path', authMode: 'bearer' }),
+      );
+      vi.doUnmock('../../lib/verify-bearer');
+    });
+
+    it('ignores an X-Outerlayer-App-Id header — the path segment is authoritative', async () => {
+      const mockResolveBearer = vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          appId: 'app-from-path',
+          tenantId: 'tenant-from-path',
+          appName: 'Path App',
+          stripeCustomerId: '',
+          stripeSubscriptionId: '',
+          branchId: '',
+          gatewayUserId: 'user-sub',
+          permissions: [],
+        },
+        userJwt: 'the-user-jwt',
+      });
+      vi.doMock('../../lib/verify-bearer', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../../lib/verify-bearer')>();
+        return { ...actual, resolveBearerUser: mockResolveBearer };
+      });
+      vi.resetModules();
+      const { authMiddleware: freshAuth } = await import('../middleware');
+
+      const { c, next } = createMockHonoContext({
+        headers: {
+          Authorization: 'Bearer user.jwt.here',
+          'X-Outerlayer-App-Id': 'app-header-lies',
+        },
+        method: 'POST',
+        path: '/v1/apps/app-from-path/mcp',
+        routePath: '/v1/*',
+      });
+
+      await freshAuth(c as any, next);
+
+      expect(mockResolveBearer).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: 'app-from-path' }),
+      );
+      vi.doUnmock('../../lib/verify-bearer');
+    });
+
+    it('rejects an API key on the per-app mount (bearer-only) with the RFC 9728 challenge', async () => {
+      const { c, next, jsonSpy } = createMockHonoContext({
+        headers: { Authorization: 'sk_outerlayer_some_key' },
+        method: 'POST',
+        path: '/v1/apps/app-from-path/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        {
+          error: {
+            code: 'unauthorized',
+            message: 'This endpoint requires a user or OAuth bearer token; API keys use /v1/mcp.',
+          },
+        },
+        401,
+        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
+      );
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('401s with the RFC 9728 challenge when the auth header is missing entirely', async () => {
+      const { c, next, jsonSpy } = createMockHonoContext({
+        method: 'POST',
+        path: '/v1/apps/app-from-path/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        { error: { code: 'unauthorized', message: 'Missing auth header' } },
+        401,
+        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
+      );
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('propagates resolveBearerUser rejection (e.g. app outside the caller\'s tenant)', async () => {
+      const mockResolveBearer = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        message: 'Not authorized',
+      });
+      vi.doMock('../../lib/verify-bearer', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../../lib/verify-bearer')>();
+        return { ...actual, resolveBearerUser: mockResolveBearer };
+      });
+      vi.resetModules();
+      const { authMiddleware: freshAuth } = await import('../middleware');
+
+      const { c, next, jsonSpy } = createMockHonoContext({
+        headers: { Authorization: 'Bearer user.jwt.here' },
+        method: 'POST',
+        path: '/v1/apps/some-other-app/mcp',
+        routePath: '/v1/*',
+      });
+
+      await freshAuth(c as any, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        { error: { code: 'unauthorized', message: 'Not authorized' } },
+        401,
+        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
+      );
+      expect(next).not.toHaveBeenCalled();
+      vi.doUnmock('../../lib/verify-bearer');
+    });
+
+    it('does not treat /v1/apps/:appId (no /mcp suffix) as the per-app MCP mount', async () => {
+      // Regression guard: the plain apps CRUD surface must keep requiring
+      // the header exactly as before — the /mcp-suffix regex must not
+      // over-match.
+      const { c, next, jsonSpy } = createMockHonoContext({
+        headers: { Authorization: 'sk_outerlayer_some_key' },
+        method: 'GET',
+        path: '/v1/apps/app-from-path',
         routePath: '/v1/*',
       });
 

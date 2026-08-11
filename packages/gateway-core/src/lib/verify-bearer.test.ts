@@ -61,6 +61,10 @@ async function mintUserJwt(opts: {
   tenantId?: string;
   role?: string;
   ttlSeconds?: number;
+  /** When set, mints a token shaped like Supabase's OAuth server output
+   * (a connector token) — same claims otherwise, since that's the point:
+   * it must be indistinguishable except for this one claim. */
+  clientId?: string;
 } = {}): Promise<string> {
   const sub = opts.sub ?? TEST_USER_ID;
   const tenantId = opts.tenantId;
@@ -76,6 +80,7 @@ async function mintUserJwt(opts: {
     iat,
     exp: iat + ttl,
     ...(tenantId !== undefined ? { app_metadata: { tenant_id: tenantId } } : {}),
+    ...(opts.clientId !== undefined ? { client_id: opts.clientId } : {}),
   };
 
   const enc = new TextEncoder();
@@ -476,6 +481,96 @@ describe('resolveBearerUser', () => {
     const malformed = `${h}.${p}.!@#not$valid%base64`;
     const result = await verifyBearerJwt(FAKE_ENV, malformed);
     expect(result).toBeNull();
+  });
+});
+
+// ============================================================================
+// resolveBearerUser — connector (OAuth) token confinement
+//
+// A connector token is a normal `role: authenticated` JWT plus a
+// `client_id` claim. `allowConnectorToken` defaults to false, so any bearer
+// surface that doesn't explicitly opt in (every REST route) rejects it;
+// only the MCP mounts pass `allowConnectorToken: true`.
+// ============================================================================
+describe('resolveBearerUser — connector token confinement', () => {
+  it('rejects a connector token (401, opaque) when allowConnectorToken is unset', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: 'connector-abc' });
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+    expect(result.message).toBe('Not authorized');
+  });
+
+  it('rejects a connector token (401) when allowConnectorToken is explicitly false', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: 'connector-abc' });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: false,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('accepts a connector token when allowConnectorToken is true (the MCP-mount case)', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: 'connector-abc' });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.appId).toBe(TEST_APP_ID);
+    expect(result.user.gatewayUserId).toBe(TEST_USER_ID);
+  });
+
+  it('still accepts an ordinary (non-connector) token when allowConnectorToken is true', async () => {
+    // allowConnectorToken widens what's ACCEPTED, it never narrows —
+    // dashboard-session tokens on an MCP mount must keep working.
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a connector token with an empty-string client_id claim (forged/degenerate shape)', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: '' });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    // An empty client_id is not a valid connector marker (isConnectorToken
+    // requires non-empty), so this is just an ordinary authenticated token
+    // — it must still succeed, not be treated as "connector, rejected".
+    expect(result.ok).toBe(true);
+  });
+
+  it('still enforces role != authenticated on a connector-shaped token', async () => {
+    const forged = await mintUserJwt({
+      tenantId: TEST_TENANT_ID,
+      role: 'service_role',
+      clientId: 'connector-abc',
+    });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token: forged,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
   });
 });
 

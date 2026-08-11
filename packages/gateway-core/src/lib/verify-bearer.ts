@@ -57,6 +57,16 @@
  *    `app_authorize` RPC against the user's JWT, giving the same
  *    early-403 UX as API keys without duplicating permission logic
  *    in this service.
+ *
+ * 6. **Connector (OAuth) tokens are confined to opted-in surfaces.** A
+ *    token Supabase's OAuth 2.1 server issues to a connector client
+ *    carries a `client_id` claim but is otherwise an ordinary
+ *    `role: authenticated` JWT — Supabase does not enforce OAuth scopes.
+ *    `resolveBearerIdentity`'s `allowConnectorToken` parameter defaults to
+ *    `false`; only the MCP mounts pass `true`. Every other bearer-checked
+ *    route (dashboard APIs, `/v1/apps`, etc.) rejects a connector token
+ *    outright, so a chat connector authorized for MCP tool calls can never
+ *    reach the rest of the API surface as the user who approved it.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -94,6 +104,22 @@ interface SupabaseUserClaims {
   iat?: number;
   aud?: string;
   app_metadata?: { tenant_id?: string };
+  /**
+   * Present on tokens Supabase's OAuth 2.1 server issues to a connector
+   * (claude.ai/ChatGPT custom connector, or any RFC-compliant MCP client
+   * that completed DCR + authorize + token). Absent on tokens from the
+   * dashboard's own sign-in flow. These are otherwise ordinary
+   * `role: authenticated` user JWTs — Supabase does not enforce OAuth
+   * scopes, so a connector token reads `/rest/v1/*` and `/auth/v1/user`
+   * exactly as the user it was issued for. See `isConnectorToken` below.
+   */
+  client_id?: string;
+}
+
+/** A token minted by Supabase's OAuth server for a registered connector
+ * client, as opposed to the dashboard's own session JWTs. */
+function isConnectorToken(claims: SupabaseUserClaims): boolean {
+  return typeof claims.client_id === 'string' && claims.client_id.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,10 +391,17 @@ export async function resolveBearerUser(params: {
    * membership check) and undefined preserves the claim behavior.
    */
   requestTenantId?: string;
+  /**
+   * Whether a Supabase OAuth connector token (a JWT carrying a `client_id`
+   * claim) is acceptable on this route. `false` everywhere except the MCP
+   * mounts — see the `client_id`-aware branch in `resolveBearerIdentity`
+   * for why this confinement exists.
+   */
+  allowConnectorToken?: boolean;
 }): Promise<VerifyBearerResult> {
-  const { env, token, appId, requestTenantId } = params;
+  const { env, token, appId, requestTenantId, allowConnectorToken } = params;
 
-  const identity = await resolveBearerIdentity({ env, token, requestTenantId });
+  const identity = await resolveBearerIdentity({ env, token, requestTenantId, allowConnectorToken });
   if (!identity.ok) {
     return identity;
   }
@@ -444,8 +477,14 @@ export async function resolveBearerIdentity(params: {
    * preserves the claim behavior for un-migrated callers.
    */
   requestTenantId?: string;
+  /**
+   * See `resolveBearerUser`'s field of the same name. Defaults to `false`
+   * — every bearer surface rejects connector tokens unless its caller
+   * explicitly opts in, so a new call site is safe by default.
+   */
+  allowConnectorToken?: boolean;
 }): Promise<ResolveBearerIdentityResult> {
-  const { env, token, requestTenantId } = params;
+  const { env, token, requestTenantId, allowConnectorToken = false } = params;
 
   if (!env.SUPABASE_API_BASE_URL) {
     console.error('[bearer] SUPABASE_API_BASE_URL is not configured');
@@ -470,6 +509,18 @@ export async function resolveBearerIdentity(params: {
   // All three have legitimate uses elsewhere, but none should be a valid
   // inbound bearer on the public API.
   if (claims.role !== 'authenticated') {
+    return { ok: false, status: 401, message: 'Not authorized' };
+  }
+
+  // Connector tokens are ordinary `role: authenticated` user JWTs — Supabase's
+  // OAuth server does not enforce scopes, so one is otherwise a full user
+  // session. Confining it to opted-in surfaces (the MCP mounts) is the
+  // entire security boundary between "a chat connector can call five read
+  // tools" and "a chat connector can call every dashboard API the user
+  // could." Rejection is opaque, like every other failure on this path —
+  // it must not tell a probing caller that the token was structurally
+  // valid but scope-confined.
+  if (isConnectorToken(claims) && !allowConnectorToken) {
     return { ok: false, status: 401, message: 'Not authorized' };
   }
 

@@ -153,11 +153,13 @@ describe('OpenAPI spec drift (runtime ⇄ docs/openapi.yaml)', () => {
     ).toEqual([]);
   });
 
-  it('the MCP mount never appears in either spec (documented exception, see RUNTIME_ONLY_OPERATIONS)', () => {
-    for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const) {
-      const key: OperationKey = `${method} /v1/mcp`;
-      expect(runtimeOps.has(key)).toBe(false);
-      expect(docsOps.has(key)).toBe(false);
+  it('the MCP mounts never appear in either spec (documented exception, see RUNTIME_ONLY_OPERATIONS)', () => {
+    for (const path of ['/v1/mcp', '/v1/apps/{appId}/mcp'] as const) {
+      for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const) {
+        const key: OperationKey = `${method} ${path}`;
+        expect(runtimeOps.has(key)).toBe(false);
+        expect(docsOps.has(key)).toBe(false);
+      }
     }
   });
 

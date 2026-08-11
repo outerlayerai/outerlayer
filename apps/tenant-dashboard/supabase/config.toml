@@ -250,3 +250,14 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [auth.hook.custom_access_token]
 enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+# Supabase's OAuth 2.1 authorization server — backs MCP connector auth for
+# consumer chat clients (claude.ai/ChatGPT custom connectors) that only
+# accept a URL, not custom headers. Dynamic client registration lets a
+# connector self-register with no pre-shared credentials; the gateway and
+# dashboard consent page are the pieces built on top (see gateway-core's
+# oauth-protected-resource route and the dashboard's /oauth/consent page).
+[auth.oauth_server]
+enabled = true
+allow_dynamic_registration = true
+authorization_url_path = "/oauth/consent"

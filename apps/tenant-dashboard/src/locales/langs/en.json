@@ -292,7 +292,15 @@
       "deleteApiKeyTitle": "Are you sure you want to delete this API key?",
       "cancel": "Cancel",
       "emptyList": "No API keys",
-      "apiKeyLimitReached": "You have reached the maximum number of API keys. <0>Upgrade to Enterprise</0> to add more API keys."
+      "apiKeyLimitReached": "You have reached the maximum number of API keys. <0>Upgrade to Enterprise</0> to add more API keys.",
+      "grants": {
+        "description": "Chat clients and other connectors you've authorized to access your OuterLayer data on your behalf. Revoking a connection ends its access immediately; an access token it already holds can keep working for up to an hour.",
+        "unnamedClient": "Unnamed connector",
+        "connectedOn": "Connected",
+        "emptyList": "No connected apps",
+        "revokeTitle": "Revoke this connection?",
+        "revokeButton": "Revoke"
+      }
     },
     "users": {
       "title": "Users",
@@ -855,6 +863,14 @@
         "title": "Welcome!",
         "message": "You have successfully joined {{companyName}}. The organization is now available in your organization switcher."
       }
+    },
+    "oauthConsent": {
+      "title": "Connect to OuterLayer",
+      "description": "{{clientName}} wants to access your OuterLayer data.",
+      "resourceLabel": "Requested access",
+      "scopesLabel": "Requested scopes",
+      "approveButton": "Allow access",
+      "denyButton": "Deny"
     },
     "validation": {
       "firstName": {

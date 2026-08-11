@@ -20,6 +20,8 @@ import { CreateScore, CreateScoresBatch, ListScores, SearchScores, GetScore, Get
 import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
 import { GetCapabilities } from './routes/capabilities';
 import { GetPricing } from './routes/pricing';
+import { GetOAuthProtectedResourceMetadata } from './routes/oauth';
+import { OAUTH_PROTECTED_RESOURCE_METADATA_PATH } from '../lib/oauth-metadata';
 import { GetTopics } from './routes/topics';
 import { GetModelStats, GetFleetOverview, GetMetricsCompare } from './routes/metrics';
 import { ListSessions, GetSessionDetail } from './routes/sessions';
@@ -541,6 +543,7 @@ export const openApiApp = fromHono(app, {
       { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles, including two-window comparisons.' },
       { name: 'Context', description: 'Synced-commit history of the app\'s `.outerlayer/` context tree.' },
       { name: 'Health', description: 'Service health checks.' },
+      { name: 'OAuth', description: 'OAuth 2.1 discovery metadata for MCP connector clients.' },
     ],
   },
 });
@@ -695,6 +698,13 @@ registerPublicRoute('get', '/v1/health/ingestion', IngestionHealth);
 registerPublicRoute('get', '/v1/health/files', FilesHealth);
 registerPublicRoute('get', '/v1/capabilities', GetCapabilities);
 registerPublicRoute('get', '/v1/pricing', GetPricing);
+// RFC 9728 — outside /v1/*, same as /health, so the /v1/* auth middleware
+// never sees it; no unauthenticated-path bookkeeping needed beyond this.
+registerPublicRoute(
+  'get',
+  OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
+  GetOAuthProtectedResourceMetadata,
+);
 
 // ============================================================================
 // Templates routes
@@ -852,3 +862,20 @@ app.get('/v1/mcp', mcpMethodNotAllowed);
 app.delete('/v1/mcp', mcpMethodNotAllowed);
 app.put('/v1/mcp', mcpMethodNotAllowed);
 app.patch('/v1/mcp', mcpMethodNotAllowed);
+
+// ============================================================================
+// Per-app MCP mount — POST /v1/apps/:appId/mcp, for OAuth-connected clients
+// (claude.ai/ChatGPT custom connectors) that paste a single URL and cannot
+// send a custom X-Outerlayer-App-Id header. The app comes from the path
+// instead; authMiddleware resolves and validates it there (see
+// `isAppScopedMcpRoute` in openapi/middleware.ts) before this handler runs,
+// so `handleMcpRequest` itself is unchanged — it still reads the app from
+// `c.get('user')`, same as the plain /v1/mcp mount above. Same raw-Hono,
+// out-of-spec construction as /v1/mcp, for the same reason (one JSON-RPC
+// dispatch point, not a REST operation).
+// ============================================================================
+app.post('/v1/apps/:appId/mcp', handleMcpRequest);
+app.get('/v1/apps/:appId/mcp', mcpMethodNotAllowed);
+app.delete('/v1/apps/:appId/mcp', mcpMethodNotAllowed);
+app.put('/v1/apps/:appId/mcp', mcpMethodNotAllowed);
+app.patch('/v1/apps/:appId/mcp', mcpMethodNotAllowed);

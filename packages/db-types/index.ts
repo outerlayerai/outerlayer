@@ -3077,6 +3077,17 @@ export type Database = {
         Returns: string
       }
       is_claims_admin: { Args: never; Returns: boolean }
+      list_current_user_oauth_grants: {
+        Args: never
+        Returns: {
+          client_id: string
+          client_name: string
+          created_at: string
+          refreshed_at: string
+          scopes: string
+          session_id: string
+        }[]
+      }
       platform_admin_delete_tenant: {
         Args: { p_tenant_id: string }
         Returns: undefined
@@ -3092,6 +3103,10 @@ export type Database = {
           p_user_agent?: string
         }
         Returns: Json
+      }
+      revoke_current_user_oauth_grant: {
+        Args: { target_session_id: string }
+        Returns: boolean
       }
       set_api_key_secret: {
         Args: {

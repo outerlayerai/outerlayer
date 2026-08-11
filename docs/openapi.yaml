@@ -31,6 +31,31 @@ info:
   version: "1.0"
 openapi: "3.0.3"
 paths:
+  /.well-known/oauth-protected-resource:
+    get:
+      description: "RFC 9728 protected-resource metadata for the MCP endpoints. Points MCP clients at the Supabase-backed authorization server; unauthenticated."
+      operationId: "oauth-protected-resource-metadata"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  authorization_servers:
+                    items:
+                      type: "string"
+                    type: "array"
+                  resource:
+                    type: "string"
+                required:
+                  - "resource"
+                  - "authorization_servers"
+                type: "object"
+          description: "Protected-resource metadata."
+      security: []
+      summary: "OAuth protected-resource metadata"
+      tags:
+        - "OAuth"
   /health:
     get:
       description: "Check if the gateway service is running. Returns healthy if all required
@@ -7987,3 +8012,5 @@ tags:
     name: "Context"
   - description: "Service health checks."
     name: "Health"
+  - description: "OAuth 2.1 discovery metadata for MCP connector clients."
+    name: "OAuth"

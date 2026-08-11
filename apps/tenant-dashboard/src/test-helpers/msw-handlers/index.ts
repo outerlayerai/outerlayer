@@ -5,6 +5,7 @@ import {
   resetManagedDeploymentTablesState,
 } from './managed-deployment-tables';
 import { resetVaultMswState, vaultHandlers } from './vault';
+import { resetOAuthGrantsMswState, oauthGrantsHandlers } from './oauth-grants';
 import { environmentsHandlers, resetEnvironmentsMswState } from './environments';
 import { resetGatewaySession } from './frontend-session';
 import {
@@ -78,6 +79,7 @@ export {
   getUpdatedGitConnections,
 } from './managed-deployment-tables';
 export { seedVaultMswState, getVaultMswState } from './vault';
+export { seedOAuthGrantsMswState } from './oauth-grants';
 export { seedEnvironmentsMswState } from './environments';
 export { seedGatewaySession } from './frontend-session';
 export {
@@ -143,6 +145,7 @@ export const mswHandlers = [
   ...contextSnapshotHandlers,
   ...pullRequestSessionHandlers,
   ...aiCostConfigHandlers,
+  ...oauthGrantsHandlers,
 ];
 
 export function resetMswState() {
@@ -165,4 +168,5 @@ export function resetMswState() {
   resetGitConnectionMswState();
   resetAppsListMswState();
   resetAiCostConfigMswState();
+  resetOAuthGrantsMswState();
 }
