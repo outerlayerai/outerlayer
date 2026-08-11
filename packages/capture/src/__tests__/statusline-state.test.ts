@@ -10,6 +10,7 @@ import type { SourceAdapter, SourceRoots } from "../adapters/types.js";
 import type { TranscriptEntry } from "../adapters/claude-code/discover.js";
 import {
   computeStatuslineState,
+  costSince,
   writeStatuslineState,
   readStatuslineState,
   readSyncWatermarkMs,
@@ -281,5 +282,83 @@ describe("computeStatuslineState — real claudeCodeAdapter integration", () => 
     const state = computeStatuslineState({ home, now: () => Date.now(), roots, adapters: [claudeCodeAdapter] });
     expect(state.today.byAgent["claude-code"]).toBeGreaterThan(0);
     expect(state.sessions[sessionId]?.costUsd).toBe(state.today.byAgent["claude-code"]);
+  });
+});
+
+describe("costSince", () => {
+  const midnight = new Date(NOW).setHours(0, 0, 0, 0);
+
+  it("counts only turns spent after midnight for a session spanning the boundary", () => {
+    const session = {
+      id: "overnight",
+      startedAt: new Date(midnight - 10 * 3_600_000).toISOString(),
+      totals: { costUsd: 70.72 },
+      turns: [
+        { ts: new Date(midnight - 2 * 3_600_000).toISOString(), costUsd: 50 },
+        { ts: new Date(midnight - 60_000).toISOString(), costUsd: 15.72 },
+        { ts: new Date(midnight + 60_000).toISOString(), costUsd: 3 },
+        { ts: new Date(midnight + 3_600_000).toISOString(), costUsd: 2 },
+      ],
+    };
+    expect(costSince(session, midnight)).toBe(5);
+  });
+
+  it("attributes a timestamp-less turn via the session start", () => {
+    const yesterdayStart = {
+      id: "y",
+      startedAt: new Date(midnight - 3_600_000).toISOString(),
+      totals: { costUsd: 9 },
+      turns: [{ costUsd: 9 }],
+    };
+    const todayStart = {
+      id: "t",
+      startedAt: new Date(midnight + 3_600_000).toISOString(),
+      totals: { costUsd: 9 },
+      turns: [{ costUsd: 9 }],
+    };
+    expect(costSince(yesterdayStart, midnight)).toBe(0);
+    expect(costSince(todayStart, midnight)).toBe(9);
+  });
+
+  it("falls back to the session total when no turn carries a cost", () => {
+    const session = {
+      id: "totals-only",
+      startedAt: new Date(midnight + 60_000).toISOString(),
+      totals: { costUsd: 4.5 },
+      turns: [{ ts: new Date(midnight + 60_000).toISOString() }],
+    };
+    expect(costSince(session, midnight)).toBe(4.5);
+  });
+
+  it("treats null turn costs as unpriced, not as zero-cost evidence", () => {
+    const session = {
+      id: "null-turns",
+      startedAt: new Date(midnight + 60_000).toISOString(),
+      totals: { costUsd: 2.25 },
+      turns: [{ ts: new Date(midnight + 60_000).toISOString(), costUsd: null }],
+    };
+    expect(costSince(session, midnight)).toBe(2.25);
+  });
+});
+
+describe("computeStatuslineState day-boundary attribution", () => {
+  it("excludes an overnight session's pre-midnight turns from today's total but keeps its full session cost", () => {
+    const midnight = new Date(NOW).setHours(0, 0, 0, 0);
+    const overnight: AgentSession = {
+      ...minimalAgentSession("overnight", 70.72),
+      startedAt: new Date(midnight - 10 * 3_600_000).toISOString(),
+      turns: [
+        { index: 0, role: "assistant", ts: new Date(midnight - 3_600_000).toISOString(), costUsd: 65.72 },
+        { index: 1, role: "assistant", ts: new Date(midnight + 3_600_000).toISOString(), costUsd: 5 },
+      ] as AgentSession["turns"],
+    };
+    const adapter: SourceAdapter = {
+      id: "claude-code",
+      discover: (): TranscriptEntry[] => [{ file: "/fake/overnight.jsonl", mtimeMs: TODAY_MTIME, bytes: 1, isSubagent: false }],
+      parse: () => ({ session: overnight, warnings: {}, stats: { lines: 1, parsed: 1, skipped: 0, unmapped: 0 }, versions: [], blobs: [] }),
+    };
+    const state = computeStatuslineState({ home, adapters: [adapter], now: () => NOW });
+    expect(state.today.byAgent).toEqual({ "claude-code": 5 });
+    expect(state.sessions).toEqual({ overnight: { costUsd: 70.72 } });
   });
 });

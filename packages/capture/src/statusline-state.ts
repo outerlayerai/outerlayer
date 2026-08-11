@@ -112,11 +112,47 @@ export interface ComputeStatuslineOptions {
   adapters?: SourceAdapter[];
 }
 
+/** The slice of a parsed session the recompute reads. Matches AgentSession
+ * structurally; declared locally so the math below is testable with plain
+ * fixtures. */
+interface CostedSession {
+  id: string;
+  startedAt?: string;
+  totals: { costUsd?: number | null };
+  turns?: Array<{ ts?: string; costUsd?: number | null }>;
+}
+
+/**
+ * A session's spend since `midnightMs`, attributed by when each turn's
+ * tokens were actually spent. A session that started yesterday and ran
+ * past midnight must contribute only its post-midnight turns to "today" —
+ * whole-session totals would hand yesterday's spend to today's number,
+ * which for an overnight session can be most of it. Turns without a
+ * timestamp inherit the session's start. Sessions whose turns carry no
+ * per-turn cost at all (an adapter that only prices totals) fall back to
+ * the session total — exact when the session started today, the
+ * whole-session approximation otherwise.
+ */
+export function costSince(session: CostedSession, midnightMs: number): number {
+  const turns = session.turns ?? [];
+  let sum = 0;
+  let anyPriced = false;
+  for (const turn of turns) {
+    if (typeof turn.costUsd !== "number") continue;
+    anyPriced = true;
+    const ts = Date.parse(turn.ts ?? session.startedAt ?? "");
+    if (Number.isFinite(ts) && ts < midnightMs) continue;
+    sum += turn.costUsd;
+  }
+  if (anyPriced) return sum;
+  return session.totals.costUsd ?? 0;
+}
+
 /**
  * Full recompute: discover across all source adapters, parse ONLY files
- * with today's mtime, sum session cost per agent. Cost comes from each
- * session's own parsed totals — the adapters already price offline against
- * the bundled table; unknown-model sessions carry null and sum as 0.
+ * with today's mtime, sum per-turn cost spent today per agent (see
+ * `costSince`). The adapters already price offline against the bundled
+ * table; unknown-model turns carry null and sum as 0.
  */
 export function computeStatuslineState(opts: ComputeStatuslineOptions = {}): StatuslineState {
   const home = opts.home ?? homedir();
@@ -147,9 +183,10 @@ export function computeStatuslineState(opts: ComputeStatuslineOptions = {}): Sta
         continue;
       }
       if (!session) continue;
-      const cost = session.totals.costUsd ?? 0;
-      byAgent[adapter.id] = (byAgent[adapter.id] ?? 0) + cost;
-      sessions[session.id] = { costUsd: cost };
+      byAgent[adapter.id] = (byAgent[adapter.id] ?? 0) + costSince(session, midnight);
+      // The per-session entry stays the session's WHOLE cost — it is a
+      // running total for that session, not a today-slice.
+      sessions[session.id] = { costUsd: session.totals.costUsd ?? 0 };
     }
   }
   return {
