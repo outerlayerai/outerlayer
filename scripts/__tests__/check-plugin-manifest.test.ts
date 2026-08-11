@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 // @ts-expect-error — .mjs gate script, no type declarations; plain JS exports.
-import { checkHookCommands, checkLauncherHasNoExternalImports, checkManifests } from '../ci/check-plugin-manifest.mjs';
+import { checkHookCommands, checkLauncherHasNoExternalImports, checkManifests, checkSlashCommands } from '../ci/check-plugin-manifest.mjs';
 
 describe('claude-plugin manifest gate', () => {
   let cwd: string;
@@ -117,6 +117,51 @@ describe('claude-plugin manifest gate', () => {
     it('reports a missing launcher file rather than throwing', () => {
       expect(checkLauncherHasNoExternalImports(pluginDir)).toEqual([
         `${path.join(pluginDir, 'scripts', 'hook.mjs')} does not exist`,
+      ]);
+    });
+  });
+
+  describe('checkSlashCommands', () => {
+    function writeCommand(name: string, content: string) {
+      const dir = path.join(pluginDir, 'commands');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, name), content);
+    }
+
+    it('accepts no commands directory at all', () => {
+      expect(checkSlashCommands(pluginDir)).toEqual([]);
+    });
+
+    it('accepts a well-formed command with frontmatter and a description', () => {
+      writeCommand('connect.md', '---\ndescription: Connect this machine\n---\n\nDo the thing.\n');
+      expect(checkSlashCommands(pluginDir)).toEqual([]);
+    });
+
+    it('flags a non-markdown file in commands/', () => {
+      writeCommand('connect.txt', 'not markdown');
+      expect(checkSlashCommands(pluginDir)).toEqual([
+        'commands/connect.txt is not a .md file — every slash command must be markdown',
+      ]);
+    });
+
+    it('flags a command file with no frontmatter block', () => {
+      writeCommand('connect.md', 'Just do the thing, no frontmatter.\n');
+      expect(checkSlashCommands(pluginDir)).toEqual([
+        'commands/connect.md has no YAML frontmatter block (expected to start with "---")',
+      ]);
+    });
+
+    it('flags frontmatter with no description field', () => {
+      writeCommand('connect.md', '---\nother: value\n---\n\nBody.\n');
+      expect(checkSlashCommands(pluginDir)).toEqual([
+        'commands/connect.md frontmatter is missing a non-empty "description"',
+      ]);
+    });
+
+    it('flags frontmatter with an empty description', () => {
+      writeCommand('connect.md', '---\ndescription:   \n---\n\nBody.\n');
+      expect(checkSlashCommands(pluginDir)).toEqual([
+        'commands/connect.md frontmatter is missing a non-empty "description"',
       ]);
     });
   });

@@ -22,7 +22,7 @@
  *   PLUGIN_MANIFEST_CWD=<dir> node scripts/ci/check-plugin-manifest.mjs   # scan a different repo root (self-test only)
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -123,6 +123,41 @@ export function checkLauncherHasNoExternalImports(pluginDir) {
   return problems;
 }
 
+/**
+ * Slash commands are auto-discovered from `commands/*.md` (no manifest
+ * entry needed, unlike hooks) — this checks the directory is well-formed
+ * rather than any wiring in plugin.json. Every file must be markdown with
+ * frontmatter carrying a non-empty `description`, since that description is
+ * what `/help` and the plugin marketplace show for the command.
+ * @param {string} pluginDir
+ * @returns {string[]}
+ */
+export function checkSlashCommands(pluginDir) {
+  const commandsDir = path.join(pluginDir, "commands");
+  if (!existsSync(commandsDir)) return [];
+
+  const problems = [];
+  for (const entry of readdirSync(commandsDir)) {
+    const entryPath = path.join(commandsDir, entry);
+    if (!statSync(entryPath).isFile()) continue;
+    if (!entry.endsWith(".md")) {
+      problems.push(`commands/${entry} is not a .md file — every slash command must be markdown`);
+      continue;
+    }
+    const source = readFileSync(entryPath, "utf8");
+    const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!frontmatter) {
+      problems.push(`commands/${entry} has no YAML frontmatter block (expected to start with "---")`);
+      continue;
+    }
+    const description = frontmatter[1].match(/^description:\s*(.+)$/m);
+    if (!description || description[1].trim() === "") {
+      problems.push(`commands/${entry} frontmatter is missing a non-empty "description"`);
+    }
+  }
+  return problems;
+}
+
 function main(cwdOverride) {
   const cwd = cwdOverride ?? process.env.PLUGIN_MANIFEST_CWD ?? REPO_ROOT;
   const pluginDir = path.join(cwd, "claude-plugin");
@@ -135,7 +170,8 @@ function main(cwdOverride) {
   const { problems: manifestProblems, hooksJson } = checkManifests(pluginDir);
   const commandProblems = checkHookCommands(pluginDir, hooksJson);
   const launcherProblems = checkLauncherHasNoExternalImports(pluginDir);
-  const problems = [...manifestProblems, ...commandProblems, ...launcherProblems];
+  const slashCommandProblems = checkSlashCommands(pluginDir);
+  const problems = [...manifestProblems, ...commandProblems, ...launcherProblems, ...slashCommandProblems];
 
   if (problems.length === 0) {
     console.log("OK — claude-plugin/ manifest, hooks, and launcher pass validation.");

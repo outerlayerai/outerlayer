@@ -74,8 +74,17 @@ it('writes an api_key_created audit row attributed to the approver, never carryi
   await mintDeviceAuthApiKey(consumedRow());
 
   const rows = getInsertedAuditLogRows();
+  expect(rows).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        action_type: 'api_key_created',
+        tenant_id: TENANT,
+        target_type: 'api_key',
+        target_id: 'key-1',
+      }),
+    ]),
+  );
   const auditRow = rows.find((r) => r.action_type === 'api_key_created');
-  expect(auditRow).toBeTruthy();
   expect(JSON.stringify(auditRow)).not.toContain('sk_outerlayer_minted');
 });
 

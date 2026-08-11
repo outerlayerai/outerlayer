@@ -204,6 +204,50 @@ export function reportSyncHealth(event: string, home = homedir(), write: (s: str
   }
 }
 
+/** Marker file: once written, {@link reportConnectNudge} never fires again on
+ * this machine, ever — not per-session, not on a timer. */
+const CONNECT_NUDGE_MARKER = "connect-nudge-shown";
+
+/**
+ * Nudges a machine that has the plugin capturing but nothing to sync TO —
+ * once, ever. Only the plugin install path triggers this: `init`-written
+ * settings hooks are a deliberate, already-informed install (the user read
+ * `outerlayer init`'s own output), but enabling the plugin from `/plugin`
+ * browse has no equivalent moment to mention `outerlayer login` exists.
+ *
+ * Strictly mutually exclusive with {@link reportSyncHealth}: that function
+ * requires `config.json` to exist, this one requires it to be absent, so
+ * the two can never both write to stdout for the same invocation.
+ *
+ * Same anti-nagging discipline as `reportSyncHealth`'s own docstring: a
+ * repeated nudge is worse than none, so the marker is written BEFORE the
+ * nudge is emitted (a crash after the write cannot loop this) and checked
+ * unconditionally regardless of how many machines/sessions follow.
+ */
+export function reportConnectNudge(event: string, home = homedir(), write: (s: string) => void = (s) => process.stdout.write(s)): void {
+  try {
+    if (event !== "SessionStart") return;
+    if (hookSource() !== "plugin") return;
+    if (existsSync(join(home, ".outerlayer", "config.json"))) return;
+    const dir = join(home, ".outerlayer");
+    const marker = join(dir, CONNECT_NUDGE_MARKER);
+    if (existsSync(marker)) return;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(marker, new Date().toISOString());
+    write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext:
+            "OuterLayer is installed but not connected to a dashboard yet. Run /outerlayer:connect to start capturing sessions.",
+        },
+      }),
+    );
+  } catch {
+    // never disrupt Claude Code
+  }
+}
+
 /** Run the fast path. `event` is argv[3] (e.g. SessionEnd). Never throws. */
 export function runHookFast(event: string | undefined, home = homedir(), read: StdinReader = readStdin): void {
   try {
@@ -237,6 +281,7 @@ export function runHookFast(event: string | undefined, home = homedir(), read: S
     if (record.event === "SessionStart") sweepFireMarkers(dir);
     maybeAutoSync(String(record.event), home);
     reportSyncHealth(String(record.event), home);
+    reportConnectNudge(String(record.event), home);
   } catch (err) {
     // Last-resort: record to an error file, still exit 0.
     try {

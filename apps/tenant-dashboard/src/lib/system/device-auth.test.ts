@@ -106,7 +106,7 @@ describe('approveDeviceAuthRequest', () => {
         approver_membership_id: 'member-1',
       }),
     );
-    expect(row?.approved_at).toBeTruthy();
+    expect(Date.now() - new Date(row!.approved_at!).getTime()).toBeLessThan(5000);
   });
 
   it('refuses to approve a row that is not pending — returns null, no write', async () => {
@@ -174,7 +174,7 @@ describe('consumeApprovedDeviceAuthRequest — the single-use guarantee', () => 
     ]);
     const first = await consumeApprovedDeviceAuthRequest('plain-1');
     expect(first).toEqual(expect.objectContaining({ id: 'r1', status: 'consumed' }));
-    expect(first?.consumed_at).toBeTruthy();
+    expect(Date.now() - new Date(first!.consumed_at!).getTime()).toBeLessThan(5000);
 
     const second = await consumeApprovedDeviceAuthRequest('plain-1');
     expect(second).toBeNull();

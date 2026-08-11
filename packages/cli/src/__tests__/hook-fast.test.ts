@@ -288,3 +288,71 @@ describe("reportSyncHealth", () => {
     expect([captureReport("Stop"), captureReport("SessionEnd")]).toEqual(["", ""]);
   });
 });
+
+import { reportConnectNudge } from "../hook-fast.js";
+
+/** Captures whatever the nudge would write to stdout, run under a given
+ * hookSource() env value (restored afterward regardless of test outcome). */
+function captureNudge(event: string, source?: "plugin" | "settings"): string {
+  const prev = process.env.OUTERLAYER_HOOK_SOURCE;
+  if (source === "plugin") process.env.OUTERLAYER_HOOK_SOURCE = "plugin";
+  else delete process.env.OUTERLAYER_HOOK_SOURCE;
+  try {
+    let out = "";
+    reportConnectNudge(event, home, (s) => {
+      out += s;
+    });
+    return out;
+  } finally {
+    if (prev === undefined) delete process.env.OUTERLAYER_HOOK_SOURCE;
+    else process.env.OUTERLAYER_HOOK_SOURCE = prev;
+  }
+}
+
+describe("reportConnectNudge", () => {
+  it("nudges toward /outerlayer:connect when the plugin is active and nothing is configured yet", () => {
+    const out = captureNudge("SessionStart", "plugin");
+    const parsed = JSON.parse(out);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("/outerlayer:connect");
+  });
+
+  it("fires at most ONCE per machine — a second SessionStart stays silent even in a fresh process", () => {
+    expect(captureNudge("SessionStart", "plugin")).not.toBe("");
+    expect(captureNudge("SessionStart", "plugin")).toBe("");
+  });
+
+  it("stays silent for the settings (outerlayer init) install path — that install already explained itself", () => {
+    expect(captureNudge("SessionStart", "settings")).toBe("");
+  });
+
+  it("stays silent once cloud config already exists, regardless of install path", () => {
+    seedCloudConfig();
+    expect(captureNudge("SessionStart", "plugin")).toBe("");
+  });
+
+  it("stays silent mid-session, never just at SessionStart", () => {
+    expect(captureNudge("Stop", "plugin")).toBe("");
+    expect(captureNudge("SessionEnd", "plugin")).toBe("");
+  });
+
+  it("reportSyncHealth and reportConnectNudge are mutually exclusive — never both write for one runHookFast call", () => {
+    // No config.json: the nudge's precondition; reportSyncHealth's own
+    // precondition (config.json present) can never hold at the same time.
+    process.env.OUTERLAYER_HOOK_SOURCE = "plugin";
+    let out = "";
+    const write = (s: string) => {
+      out += s;
+    };
+    try {
+      reportSyncHealth("SessionStart", home, write);
+      reportConnectNudge("SessionStart", home, write);
+    } finally {
+      delete process.env.OUTERLAYER_HOOK_SOURCE;
+    }
+    // Exactly one JSON object landed, not two concatenated ones — a second
+    // write would make this a syntax error instead of a parsed object.
+    const parsed = JSON.parse(out);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("/outerlayer:connect");
+  });
+});
