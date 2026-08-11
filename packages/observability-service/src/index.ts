@@ -34,3 +34,7 @@ export type {
   PrOutcomeReader,
   ImageRefSigner,
 } from './services/agent-sessions';
+export { fetchOutcomesForTraces, webCryptoOutcomeScoreId, OUTCOME_SCORE_NAMES } from './services/pr-outcomes';
+export type { ChQueryFn, ComputeOutcomeScoreId, PrOutcomeLink, PrOutcomeLinksReader } from './services/pr-outcomes';
+export { signBlobToken, verifyBlobToken, signBlobRefs } from './services/blob-tokens';
+export type { SignedBlobRef, VerifyBlobTokenResult, BlobTokenPort } from './services/blob-tokens';
