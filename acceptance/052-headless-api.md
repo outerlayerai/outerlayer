@@ -31,7 +31,7 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 ## Authorization
 
-9. **Given** an API key with only `trace.write` (the `sdk` preset), **When** any of the new endpoints is called, **Then** the response is a structured 403 — and a `read-only`-preset key succeeds on all of them.
+9. `AC-052-09` **Given** an API key with only `trace.write` (the `sdk` preset), **When** any of the new endpoints is called, **Then** the response is a structured 403 — and a `read-only`-preset key succeeds on all of them.
 10. `AC-052-10` **Given** the gateway permission registry, **When** the permission-liveness test runs, **Then** every grantable permission is required by at least one registered route or sits on the commented RLS-only allowlist.
 11. `AC-052-11` **Given** an MCP request authenticated with an API key and **no** `X-Outerlayer-App-Id` header, **When** a tool is called, **Then** execution is scoped to the key's bound app as read from the resolved identity (never the raw header), and a header naming a different app is rejected.
 12. **Given** an unauthenticated request to `/v1/mcp`, **When** the OAuth flow is followed from the 401's `WWW-Authenticate` metadata through dynamic registration, consent, and token exchange, **Then** the issued token calls tools successfully — and deleting the grant row makes the next call 401.
