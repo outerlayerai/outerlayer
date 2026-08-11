@@ -18,6 +18,15 @@ enabling the plugin is the whole setup.
   capture is live from the first completed install onward — no manual
   `outerlayer init` or `npx` step.
 
+## Connecting to a dashboard
+
+Capture is local and passive until you connect this machine to an OuterLayer
+dashboard. Run the `/outerlayer:connect` slash command — it walks you through
+a device-code login (a one-time code, approved in the dashboard in your
+browser) and reports the result. On a fresh machine with no dashboard
+connected yet, the plugin also surfaces this once, at your next session's
+start, as a one-time nudge — never repeated.
+
 ## Failure posture
 
 Hooks always exit 0. CLI not yet installed, npm unavailable, offline, corrupt
