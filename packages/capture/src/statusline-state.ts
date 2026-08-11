@@ -29,8 +29,11 @@ export interface StatuslineState {
   /** ISO timestamp of this recompute — the fast path's freshness gate. */
   generatedAt: string;
   /** Totals for one local calendar day; `date` names it so a stale file
-   * can never pass yesterday's spend off as today's. */
-  today: { date: string; byAgent: Record<string, number> };
+   * can never pass yesterday's spend off as today's. `sessionCount` is
+   * TOP-LEVEL sessions with spend today — subagent transcripts cost real
+   * money (so they sum into `byAgent`) but are workers inside a session,
+   * not sessions a user would count. */
+  today: { date: string; byAgent: Record<string, number>; sessionCount: number };
   /** Per-session running cost, keyed by source session id. */
   sessions: Record<string, { costUsd: number }>;
   /** Transcripts newer than the sync watermark. Absent when cloud sync was
@@ -118,6 +121,7 @@ export interface ComputeStatuslineOptions {
 interface CostedSession {
   id: string;
   startedAt?: string;
+  agent?: { origin?: string };
   totals: { costUsd?: number | null };
   turns?: Array<{ ts?: string; costUsd?: number | null }>;
 }
@@ -163,6 +167,7 @@ export function computeStatuslineState(opts: ComputeStatuslineOptions = {}): Sta
 
   const byAgent: Record<string, number> = {};
   const sessions: Record<string, { costUsd: number }> = {};
+  let sessionCount = 0;
   let unsyncedCount = 0;
   const watermark = readSyncWatermarkMs(home);
 
@@ -183,7 +188,13 @@ export function computeStatuslineState(opts: ComputeStatuslineOptions = {}): Sta
         continue;
       }
       if (!session) continue;
-      byAgent[adapter.id] = (byAgent[adapter.id] ?? 0) + costSince(session, midnight);
+      const spentToday = costSince(session, midnight);
+      byAgent[adapter.id] = (byAgent[adapter.id] ?? 0) + spentToday;
+      // Sessions a user would count: top-level (not a Task-tool subagent
+      // transcript) and human-initiated (`origin` unset ⇒ interactive, per
+      // the schema). Programmatic runs and subagents still cost real money,
+      // so they stay in `byAgent` — they just aren't "sessions".
+      if (!entry.isSubagent && session.agent?.origin !== "agent" && spentToday > 0) sessionCount += 1;
       // The per-session entry stays the session's WHOLE cost — it is a
       // running total for that session, not a today-slice.
       sessions[session.id] = { costUsd: session.totals.costUsd ?? 0 };
@@ -192,7 +203,7 @@ export function computeStatuslineState(opts: ComputeStatuslineOptions = {}): Sta
   return {
     v: 1,
     generatedAt: new Date(now).toISOString(),
-    today: { date: localDateString(now), byAgent },
+    today: { date: localDateString(now), byAgent, sessionCount },
     sessions,
     ...(watermark !== null ? { unsynced: unsyncedCount } : {}),
   };

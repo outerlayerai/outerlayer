@@ -56,7 +56,10 @@ The session figure comes straight from Claude Code's own cost field, so it
 always matches what Claude Code itself would show. The cross-agent total and
 unsynced count come from `~/.outerlayer/statusline.json`, a small file the
 `watch` daemon keeps fresh — the status line itself never parses transcripts,
-so it stays well under Claude Code's refresh budget.
+so it stays well under Claude Code's refresh budget. On a day with only one
+active agent, the scope adapts: `across N agents` becomes `across N sessions`
+if you ran several sessions with it, or drops entirely to a bare `$X today`
+for a single session — "across 1 agent" never appears.
 
 If a `statusLine` command is already configured, `init` **wraps it rather
 than replacing it**: your existing command's output is printed first, the

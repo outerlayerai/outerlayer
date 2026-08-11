@@ -35,7 +35,10 @@ function freshState(overrides: Partial<StatuslineStateFile> = {}): StatuslineSta
   return {
     v: 1,
     generatedAt: new Date(NOW - 60_000).toISOString(),
-    today: { date: localDateString(NOW), byAgent: { "claude-code": 21.1, codex: 1.8, cursor: 0.5 } },
+    // sessionCount is irrelevant whenever 2+ agents have cost (the "agents"
+    // phrasing wins outright) — the default here is a placeholder for those
+    // cases; single-agent tests override `today` explicitly to pin it.
+    today: { date: localDateString(NOW), byAgent: { "claude-code": 21.1, codex: 1.8, cursor: 0.5 }, sessionCount: 4 },
     sessions: {},
     unsynced: 12,
     ...overrides,
@@ -93,7 +96,7 @@ describe("renderStatusline — fixture matrix", () => {
   });
 
   it("state dated yesterday but generatedAt fresh: today segment omitted, NO degraded hint (unsynced still shows)", () => {
-    const yesterday = freshState({ today: { date: "2026-08-10", byAgent: { "claude-code": 5 } } });
+    const yesterday = freshState({ today: { date: "2026-08-10", byAgent: { "claude-code": 5 }, sessionCount: 1 } });
     const line = renderStatusline({ cost: { total_cost_usd: 0.2 } }, yesterday, NOW);
     expect(line).toBe(`⬢ OL  $0.20 session${SEP}12 unsynced`);
     expect(line).not.toContain("outerlayer doctor");
@@ -116,14 +119,33 @@ describe("renderStatusline — fixture matrix", () => {
     expect(readStatuslineState(home)).toBeNull();
   });
 
-  it("singular '1 agent' for exactly one agent with cost > 0", () => {
-    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 4.5, codex: 0 } } });
+  it("2+ agents with cost keeps the 'across N agents' phrasing", () => {
+    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 4, codex: 2 }, sessionCount: 1 } });
     const line = renderStatusline({}, state, NOW);
-    expect(line).toBe(`⬢ OL  $4.50 today across 1 agent${SEP}12 unsynced`);
+    expect(line).toBe(`⬢ OL  $6.00 today across 2 agents${SEP}12 unsynced`);
+  });
+
+  it("exactly one agent but sessionCount >= 2 falls back to 'across N sessions'", () => {
+    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 4.5, codex: 0 }, sessionCount: 3 } });
+    const line = renderStatusline({}, state, NOW);
+    expect(line).toBe(`⬢ OL  $4.50 today across 3 sessions${SEP}12 unsynced`);
+  });
+
+  it("exactly one agent and exactly one session renders a bare '$X today' — no scope suffix", () => {
+    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 4.5 }, sessionCount: 1 } });
+    const line = renderStatusline({}, state, NOW);
+    expect(line).toBe(`⬢ OL  $4.50 today${SEP}12 unsynced`);
+  });
+
+  it("an older state file with sessionCount absent (tolerant parse) also renders a bare '$X today'", () => {
+    const legacyToday = { date: localDateString(NOW), byAgent: { "claude-code": 4.5 } } as unknown as StatuslineStateFile["today"];
+    const state = freshState({ today: legacyToday });
+    const line = renderStatusline({}, state, NOW);
+    expect(line).toBe(`⬢ OL  $4.50 today${SEP}12 unsynced`);
   });
 
   it("zero-cost agents are excluded from both the total and the agent count", () => {
-    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 0, codex: 0 } } });
+    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 0, codex: 0 }, sessionCount: 0 } });
     const line = renderStatusline({}, state, NOW);
     // no agent has cost > 0, so the today segment is omitted entirely
     expect(line).toBe(`⬢ OL  12 unsynced`);
@@ -148,9 +170,9 @@ describe("renderStatusline — fixture matrix", () => {
   });
 
   it("today total >= $100 also renders rounded with thousands separators", () => {
-    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 5000 } }, unsynced: 0 });
+    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 3000, codex: 2000 }, sessionCount: 1 }, unsynced: 0 });
     const line = renderStatusline({}, state, NOW);
-    expect(line).toBe(`⬢ OL  $5,000 today across 1 agent`);
+    expect(line).toBe(`⬢ OL  $5,000 today across 2 agents`);
   });
 
   it("a non-numeric or NaN cost is treated as absent, not as $0.00", () => {
@@ -161,7 +183,7 @@ describe("renderStatusline — fixture matrix", () => {
   });
 
   it("bare prefix with no segments at all when fresh state carries nothing to show", () => {
-    const state = freshState({ today: { date: localDateString(NOW), byAgent: {} }, unsynced: 0 });
+    const state = freshState({ today: { date: localDateString(NOW), byAgent: {}, sessionCount: 0 }, unsynced: 0 });
     expect(renderStatusline({}, state, NOW)).toBe("⬢ OL");
   });
 });

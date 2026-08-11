@@ -30,7 +30,7 @@ const NOW = Date.parse("2026-08-11T12:00:00.000Z");
 const TODAY_MTIME = Date.parse("2026-08-11T09:00:00.000Z");
 const YESTERDAY_MTIME = Date.parse("2026-08-10T09:00:00.000Z");
 
-function minimalAgentSession(id: string, costUsd: number | null): AgentSession {
+function minimalAgentSession(id: string, costUsd: number | null, turns: AgentSession["turns"] = []): AgentSession {
   return {
     schemaVersion: 1,
     id,
@@ -38,7 +38,7 @@ function minimalAgentSession(id: string, costUsd: number | null): AgentSession {
     env: {},
     startedAt: "2026-08-11T09:00:00.000Z",
     models: [],
-    turns: [],
+    turns,
     events: [],
     totals: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd },
     captureTier: "metrics",
@@ -50,6 +50,12 @@ interface FakeEntrySpec {
   sessionId: string;
   mtimeMs: number;
   costUsd: number | null;
+  isSubagent?: boolean;
+  /** Per-turn costs/timestamps, for costSince's day-boundary attribution.
+   * Omitted (the default, []) falls back to `costUsd` as the whole-session
+   * "today" contribution — the same shortcut costSince itself takes when no
+   * turn carries a cost. */
+  turns?: AgentSession["turns"];
 }
 
 /** A fake SourceAdapter over in-memory specs — no filesystem transcripts,
@@ -63,13 +69,13 @@ function makeFakeAdapter(id: string, specs: FakeEntrySpec[]): { adapter: SourceA
         file: `/fake/${id}/${s.sessionId}.jsonl`,
         mtimeMs: s.mtimeMs,
         bytes: 100,
-        isSubagent: false,
+        isSubagent: s.isSubagent ?? false,
       })),
     parse: (entry) => {
       parsedFiles.push(entry.file);
       const spec = specs.find((s) => entry.file === `/fake/${id}/${s.sessionId}.jsonl`)!;
       return {
-        session: minimalAgentSession(spec.sessionId, spec.costUsd),
+        session: minimalAgentSession(spec.sessionId, spec.costUsd, spec.turns ?? []),
         warnings: {},
         stats: { lines: 1, parsed: 1, skipped: 0, unmapped: 0 },
         versions: [],
@@ -81,7 +87,7 @@ function makeFakeAdapter(id: string, specs: FakeEntrySpec[]): { adapter: SourceA
 }
 
 describe("computeStatuslineState — aggregation across fake adapters", () => {
-  it("sums costUsd per adapter id into today.byAgent, exact map", () => {
+  it("sums costUsd per adapter id into today.byAgent and counts top-level sessions — exact today object", () => {
     const { adapter: a1 } = makeFakeAdapter("claude-code", [
       { sessionId: "s1", mtimeMs: TODAY_MTIME, costUsd: 3 },
       { sessionId: "s2", mtimeMs: TODAY_MTIME, costUsd: 4.5 },
@@ -90,7 +96,11 @@ describe("computeStatuslineState — aggregation across fake adapters", () => {
     const { adapter: a3 } = makeFakeAdapter("cursor", [{ sessionId: "s4", mtimeMs: TODAY_MTIME, costUsd: 0.5 }]);
 
     const state = computeStatuslineState({ home, now: () => NOW, adapters: [a1, a2, a3] });
-    expect(state.today.byAgent).toEqual({ "claude-code": 7.5, codex: 1.25, cursor: 0.5 });
+    expect(state.today).toEqual({
+      date: "2026-08-11",
+      byAgent: { "claude-code": 7.5, codex: 1.25, cursor: 0.5 },
+      sessionCount: 4,
+    });
   });
 
   it("a null costUsd sums as 0, not NaN or skipped", () => {
@@ -128,6 +138,37 @@ describe("computeStatuslineState — mtime pre-filter", () => {
     expect(parsedFiles).toEqual(["/fake/claude-code/new1.jsonl", "/fake/claude-code/new2.jsonl"]);
     expect(state.today.byAgent).toEqual({ "claude-code": 3 });
     expect(state.sessions.old).toBeUndefined();
+  });
+});
+
+describe("computeStatuslineState — sessionCount / subagent attribution", () => {
+  it("a subagent transcript sums into byAgent but never into sessionCount", () => {
+    const { adapter } = makeFakeAdapter("claude-code", [
+      { sessionId: "parent", mtimeMs: TODAY_MTIME, costUsd: 2 },
+      { sessionId: "sub", mtimeMs: TODAY_MTIME, costUsd: 3, isSubagent: true },
+    ]);
+    const state = computeStatuslineState({ home, now: () => NOW, adapters: [adapter] });
+    expect(state.today.byAgent).toEqual({ "claude-code": 5 });
+    expect(state.today.sessionCount).toBe(1); // only the top-level "parent" session counts
+  });
+
+  it("a top-level session whose only priced turns are from yesterday contributes 0 today and is not counted", () => {
+    const midnight = new Date(NOW).setHours(0, 0, 0, 0);
+    const yesterdayTurn = {
+      index: 0,
+      role: "assistant",
+      ts: new Date(midnight - 3_600_000).toISOString(),
+      costUsd: 12,
+    } as AgentSession["turns"][number];
+    const { adapter } = makeFakeAdapter("claude-code", [
+      { sessionId: "s1", mtimeMs: TODAY_MTIME, costUsd: 12, turns: [yesterdayTurn] },
+    ]);
+    // mtimeMs alone says the file was touched today — this proves costSince's
+    // per-turn attribution, not just the mtime pre-filter, governs whether a
+    // session counts as spending today.
+    const state = computeStatuslineState({ home, now: () => NOW, adapters: [adapter] });
+    expect(state.today.byAgent).toEqual({ "claude-code": 0 });
+    expect(state.today.sessionCount).toBe(0);
   });
 });
 
@@ -180,7 +221,7 @@ describe("writeStatuslineState / readStatuslineState — round trip", () => {
   const sample: StatuslineState = {
     v: 1,
     generatedAt: new Date(NOW).toISOString(),
-    today: { date: "2026-08-11", byAgent: { "claude-code": 4.2 } },
+    today: { date: "2026-08-11", byAgent: { "claude-code": 4.2 }, sessionCount: 1 },
     sessions: { s1: { costUsd: 4.2 } },
     unsynced: 3,
   };

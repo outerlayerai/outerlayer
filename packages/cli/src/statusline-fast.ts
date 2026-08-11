@@ -61,8 +61,10 @@ export interface StatuslineStateFile {
   /** ISO timestamp of the last recompute — the freshness gate. */
   generatedAt: string;
   /** Local calendar day the totals were computed for (YYYY-MM-DD). A fresh
-   * file from yesterday must not show yesterday's spend as today's. */
-  today: { date: string; byAgent: Record<string, number> };
+   * file from yesterday must not show yesterday's spend as today's.
+   * `sessionCount` is top-level sessions with spend today (subagent
+   * transcripts sum into `byAgent` but are not counted). */
+  today: { date: string; byAgent: Record<string, number>; sessionCount: number };
   sessions: Record<string, { costUsd: number }>;
   /** Absent when cloud sync was never configured. */
   unsynced?: number;
@@ -135,8 +137,18 @@ export function renderStatusline(stdin: StatuslineStdin, state: StatuslineStateF
     const costs = Object.values(state.today.byAgent).filter((c) => typeof c === "number" && c > 0);
     if (costs.length > 0) {
       const total = costs.reduce((sum, c) => sum + c, 0);
-      const agents = costs.length === 1 ? "1 agent" : `${costs.length} agents`;
-      segments.push(`${fmtUsd(total)} today across ${agents}`);
+      // "across N agents" is the cross-agent pitch — shown only when it is
+      // actually true. A one-agent day falls back to the session count,
+      // which is the honest scope of the aggregation; a one-session day
+      // needs no scope at all.
+      const sessionCount = state.today.sessionCount;
+      const scope =
+        costs.length >= 2
+          ? ` across ${costs.length} agents`
+          : typeof sessionCount === "number" && sessionCount >= 2
+            ? ` across ${sessionCount} sessions`
+            : "";
+      segments.push(`${fmtUsd(total)} today${scope}`);
     }
   }
   if (fresh && typeof state.unsynced === "number" && state.unsynced > 0) {

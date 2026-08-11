@@ -138,7 +138,7 @@ describe("runDoctor — the 8 failure modes each detected", () => {
     const now = () => Date.now();
     writeFileSync(
       statuslineStatePath(home),
-      JSON.stringify({ v: 1, generatedAt: new Date(now()).toISOString(), today: { date: "2026-08-11", byAgent: {} }, sessions: {} }),
+      JSON.stringify({ v: 1, generatedAt: new Date(now()).toISOString(), today: { date: "2026-08-11", byAgent: {}, sessionCount: 0 }, sessions: {} }),
     );
     const checks = runDoctor({ home, ...STUBBED, now });
     expect(byName(checks, "Status line").status).toBe("pass");
@@ -155,7 +155,7 @@ describe("runDoctor — the 8 failure modes each detected", () => {
       JSON.stringify({
         v: 1,
         generatedAt: new Date(now - 20 * 60 * 1000).toISOString(), // older than STATE_FRESH_MS (15m)
-        today: { date: "2026-08-11", byAgent: {} },
+        today: { date: "2026-08-11", byAgent: {}, sessionCount: 0 },
         sessions: {},
       }),
     );
