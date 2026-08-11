@@ -95,6 +95,20 @@ function isTenantScopedRoute(c: Context): boolean {
   return TENANT_SCOPED_V1_ROUTES.has(`${c.req.method} ${path}`);
 }
 
+/**
+ * The MCP mount path. Keyed off the path string, not a route registration,
+ * because `/v1/mcp` isn't a chanfana route — it's mounted separately and
+ * this middleware runs before that mount exists in the request chain. API
+ * keys are bound to exactly one app, so the key row is the authority here;
+ * see `headerOptional` below.
+ */
+const MCP_ROUTE_PATH = '/v1/mcp';
+
+function isMcpRoute(c: Context): boolean {
+  const path = c.req.path.replace(/\/$/, '');
+  return path === MCP_ROUTE_PATH;
+}
+
 export async function authMiddleware(c: Context<{ Bindings: Env; Variables: OpenAPIVariables }>, next: Next): Promise<Response | void> {
   const authHeader = c.req.header('Authorization');
   const appId = c.req.header('X-Outerlayer-App-Id');
@@ -104,6 +118,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   // on a tenant they don't belong to. Absent ⇒ the claim serves, as today.
   const requestTenantId = c.req.header('X-Tenant-Id');
   const tenantScoped = isTenantScopedRoute(c);
+  const mcpRoute = isMcpRoute(c);
 
   if (!authHeader) {
     return c.json({ error: { code: 'unauthorized', message: 'Missing auth header' } }, 401);
@@ -126,7 +141,15 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   // still requires the header — current api keys are bound to a
   // specific app (api_key.app_id NOT NULL) so they always have one to
   // send. Headless onboarding without an existing api key is GAP-0005C.
-  const headerOptional = tenantScoped && bearerToken !== null;
+  //
+  // `/v1/mcp` + api-key auth: the header is ALSO optional. A key is bound
+  // to exactly one app, so the resolver can derive it from the key row
+  // instead — this is what lets single-bearer-token clients (no custom
+  // header support) authenticate. Bearer-JWT auth on `/v1/mcp` keeps
+  // requiring the header: JWTs are tenant-scoped, not app-bound, so there
+  // is nothing on the token to derive an app from.
+  const headerOptional =
+    (tenantScoped && bearerToken !== null) || (mcpRoute && bearerToken === null);
   if (!appId && !headerOptional) {
     return c.json({ error: { code: 'unauthorized', message: 'Missing app id' } }, 401);
   }
@@ -168,25 +191,38 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   }
 
   // API-key path.
-  // `appId` is guaranteed non-null here: `headerOptional` is true only
-  // when `bearerToken !== null` (i.e. bearer auth), and bearer auth
-  // returned above. So by the time we reach the api-key path, the
-  // `!appId && !headerOptional` guard has already rejected requests
-  // without an app id.
-  const apiKeyAppId = appId!;
+  // `appId` is non-null here except on `/v1/mcp`, the one route where
+  // `headerOptional` can be true for an api-key caller (`bearerToken ===
+  // null`, checked above) — everywhere else the `!appId && !headerOptional`
+  // guard has already rejected requests without an app id.
+  const apiKeyAppId = appId ?? null;
   const gtx = c.get('gtx');
   const cache = initCache(gtx.cacheL2Store, gtx.execCtx, memory);
 
   // The API-key → identity resolution is the runtime-specific auth seam: Unkey on
   // hosted, Supabase app-row lookup on node self-host. The composition root
   // injects which; the bearer/JWT path already returned above, unchanged.
-  const result = await gtx.auth.resolveApiKey({
-    authHeader,
-    appId: apiKeyAppId,
-    env: c.env,
-    cache,
-    cacheKey: await buildUserMetaCacheKey(apiKeyAppId, authHeader),
-  });
+  //
+  // With a header, the cache key is known upfront and resolveApiKey does its
+  // own cache read/write internally, as before. Without one (derive mode),
+  // there's no appId to build a cache key from until AFTER resolution, so
+  // the lookup is skipped and the cache is populated afterward, keyed on the
+  // resolved app id — a header-bearing request from the same key later hits
+  // that entry; the cache key is never built from a null.
+  const result = apiKeyAppId !== null
+    ? await gtx.auth.resolveApiKey({
+        authHeader,
+        appId: apiKeyAppId,
+        env: c.env,
+        cache,
+        cacheKey: await buildUserMetaCacheKey(apiKeyAppId, authHeader),
+      })
+    : await gtx.auth.resolveApiKey({ authHeader, appId: null, env: c.env });
+
+  if (result.ok && apiKeyAppId === null) {
+    const derivedCacheKey = await buildUserMetaCacheKey(result.user.appId, authHeader);
+    await cache.userMeta.set(derivedCacheKey, result.user);
+  }
 
   if (!result.ok) {
     return c.json(

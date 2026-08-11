@@ -289,6 +289,42 @@ describe('verifyKey — key-store path', () => {
     expect(result).toMatchObject({ ok: false, status: 401 });
   });
 
+  // -------------------------------------------------------------------------
+  // Derive mode: appId === null (the `/v1/mcp` optional-header path — see
+  // `openapi/middleware.ts`'s `headerOptional` rule). Keys are bound to
+  // exactly one app, so with no header to cross-check, the resolved key's
+  // own app becomes the authority instead of being compared to anything.
+  // -------------------------------------------------------------------------
+
+  it('derives the app id from the resolved key when appId is null (no header)', async () => {
+    seedVerifyResult(validUserMeta({ appId: 'app-from-key' }));
+
+    const result = await verifyKey({
+      authHeader: 'sk_outerlayer_x',
+      appId: null,
+      env: makeEnv(),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.user.appId).toBe('app-from-key');
+  });
+
+  it('still rejects when a header IS present and it names a different app than the key', async () => {
+    // Regression guard for the derive-mode addition: a caller CANNOT get the
+    // permissive branch by simply picking an appId that happens to be wrong —
+    // only appId === null (no header at all) skips the cross-check.
+    seedVerifyResult(validUserMeta({ appId: 'app-from-key' }));
+
+    const result = await verifyKey({
+      authHeader: 'sk_outerlayer_x',
+      appId: 'app-attacker-supplied',
+      env: makeEnv(),
+    });
+
+    expect(result).toMatchObject({ ok: false, status: 401 });
+  });
+
   it('should tolerate null stripeSubscriptionId (post-cancel billing state) and normalize to ""', async () => {
     // Regression: billing.stripe_subscription_id is NULL after a cancel; the RPC
     // surfaces it as null. Schema accepts null/undefined and normalizes to ''.

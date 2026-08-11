@@ -24,6 +24,12 @@
  * lookup is local, so the key-store cache the Cloudflare adapter needs buys
  * nothing here. The JWT/bearer path is unaffected and stays fully
  * tenant-validated upstream.
+ *
+ * Unlike the hosted key-store, neither posture here has a per-key row that
+ * names an app: the shared secret authenticates the same way for every app,
+ * and perimeter trust authenticates nothing at all. So when `appId` is
+ * `null` (the caller omitted `X-Outerlayer-App-Id` on `/v1/mcp`), this
+ * resolver has no app to derive and fails closed rather than guessing.
  */
 import type { AuthResolver, ResolveApiKeyParams } from "../gateway-context";
 import { resolveAppIdentity, type VerifyKeyResult } from "../../lib/verify-key";
@@ -37,8 +43,18 @@ const UNAUTHORIZED: VerifyKeyResult = {
   code: "unauthorized",
 };
 
+/** Denial when the caller omitted the app id and this resolver has no app-less credential to derive one from. */
+const MISSING_APP_ID: VerifyKeyResult = {
+  ok: false,
+  status: 401,
+  message: "Missing app id",
+  code: "unauthorized",
+};
+
 export class SelfHostAuthResolver implements AuthResolver {
   resolveApiKey({ appId, env, authHeader }: ResolveApiKeyParams): Promise<VerifyKeyResult> {
+    if (appId === null) return Promise.resolve(MISSING_APP_ID);
+
     // Trimmed to agree with the boot gate, which validates the trimmed value —
     // otherwise a secret written with stray whitespace in a .env would pass the
     // length check at boot and then reject every client that sends the value the

@@ -978,4 +978,149 @@ describe('authMiddleware', () => {
       vi.doUnmock('../../lib/verify-bearer');
     });
   });
+
+  // ========================================================================
+  // /v1/mcp: optional X-Outerlayer-App-Id for API-key auth (group 8)
+  //
+  // A key is bound to exactly one app, so with no header the resolver
+  // derives the app from the resolved key row itself instead of
+  // cross-checking it against a header. Bearer-JWT auth on /v1/mcp is
+  // unaffected — JWTs are tenant-scoped, not app-bound, so the header
+  // stays required there.
+  // ========================================================================
+
+  describe('/v1/mcp (optional X-Outerlayer-App-Id for API-key auth)', () => {
+    it('derives the app from the resolved key when the header is absent', async () => {
+      seedGatewaySupabaseMswState({
+        verifyApiKeyResult: validUserMeta({ appId: 'app-from-key', tenantId: 'tenant-from-key' }),
+      });
+
+      const { c, next, jsonSpy, setSpy } = createMockHonoContext({
+        headers: { Authorization: 'sk_outerlayer_mcp_key' },
+        method: 'POST',
+        path: '/v1/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledOnce();
+      expect(setSpy).toHaveBeenCalledWith('user', expect.objectContaining({
+        appId: 'app-from-key',
+        tenantId: 'tenant-from-key',
+        authMode: 'apikey',
+      }));
+    });
+
+    it('rejects a header naming a different app than the resolved key, never scoping to it', async () => {
+      seedGatewaySupabaseMswState({
+        verifyApiKeyResult: validUserMeta({ appId: 'app-real', tenantId: 'tenant-real' }),
+      });
+
+      const { c, next, jsonSpy, setSpy } = createMockHonoContext({
+        headers: {
+          Authorization: 'sk_outerlayer_mcp_key',
+          'X-Outerlayer-App-Id': 'app-forged',
+        },
+        method: 'POST',
+        path: '/v1/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        { error: { code: 'unauthorized', message: 'Not authorized' } },
+        401,
+      );
+      expect(next).not.toHaveBeenCalled();
+      // Auth was rejected before c.set('user', ...) ever ran — a forged
+      // header can't influence scope because there is no resolved identity
+      // for it to influence.
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+
+    it('still honors a matching header, resolving to the same app it names', async () => {
+      seedGatewaySupabaseMswState({
+        verifyApiKeyResult: validUserMeta({ appId: 'app-match', tenantId: 'tenant-match' }),
+      });
+
+      const { c, next, jsonSpy, setSpy } = createMockHonoContext({
+        headers: {
+          Authorization: 'sk_outerlayer_mcp_key',
+          'X-Outerlayer-App-Id': 'app-match',
+        },
+        method: 'POST',
+        path: '/v1/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledOnce();
+      expect(setSpy).toHaveBeenCalledWith('user', expect.objectContaining({
+        appId: 'app-match',
+        authMode: 'apikey',
+      }));
+    });
+
+    it('populates the cache keyed on the resolved app id, not a null, when derived', async () => {
+      seedGatewaySupabaseMswState({
+        verifyApiKeyResult: validUserMeta({ appId: 'app-derived', tenantId: 'tenant-derived' }),
+      });
+
+      const { c, next } = createMockHonoContext({
+        headers: { Authorization: 'sk_outerlayer_mcp_key' },
+        method: 'POST',
+        path: '/v1/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(userMetaSet).toHaveBeenCalledTimes(1);
+      const [cacheKey, cachedUser] = userMetaSet.mock.calls[0] ?? [];
+      expect(cacheKey).toMatch(/^app-derived-[a-f0-9]{64}$/);
+      expect(cachedUser).toMatchObject({ appId: 'app-derived', tenantId: 'tenant-derived' });
+    });
+
+    it('leaves the bearer-JWT header requirement on /v1/mcp unchanged (still 401 without it)', async () => {
+      const { c, next, jsonSpy } = createMockHonoContext({
+        headers: { Authorization: 'Bearer header.payload.signature' },
+        // No X-Outerlayer-App-Id — a bearer JWT still requires it on
+        // /v1/mcp; only API-key auth gets the relaxation.
+        method: 'POST',
+        path: '/v1/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c as any, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        { error: { code: 'unauthorized', message: 'Missing app id' } },
+        401,
+      );
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('does not relax the header requirement for other routes (regression guard)', async () => {
+      const { c, next, jsonSpy } = createMockHonoContext({
+        headers: { Authorization: 'sk_outerlayer_other_route' },
+        method: 'GET',
+        path: '/v1/traces',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        { error: { code: 'unauthorized', message: 'Missing app id' } },
+        401,
+      );
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
 });
