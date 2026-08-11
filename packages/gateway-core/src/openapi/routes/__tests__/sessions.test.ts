@@ -153,9 +153,9 @@ describe('ListSessions', () => {
     expect(result.status).toBe(400);
   });
 
-  // proves the SEC-2 fix: a bearer caller without agents.sessions.team.read
-  // must be confined to their own seat, never the team-wide machine-key rows
-  // `session.read` alone (granted to every role) used to leak.
+  // A bearer caller without agents.sessions.team.read must be confined to
+  // their own seat — `session.read` alone (granted to every role) must never
+  // widen a bearer read to the team-wide machine-key policy.
   it('builds a self-scoped dashboard-member policy for a bearer caller without team.read', async () => {
     checkBearerPermission.mockResolvedValue(false);
     getScopedSupabase.mockResolvedValue(membershipSupabaseClient('membership-1'));

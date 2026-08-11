@@ -12,9 +12,9 @@ type LoadOAuthConsentResult =
 
 /**
  * The read behind `/oauth/consent`. Resolves the signed-in user's own
- * access token and binds the authorization to them — the GET call spec §5.4
- * documents as required before any consent decision can be posted, and
- * which itself auto-approves a repeat connect.
+ * access token and binds the authorization to them — the GET call that must
+ * precede any consent decision being posted, and which itself auto-approves
+ * a repeat connect.
  */
 export async function loadOAuthConsent(authorizationId: string): Promise<LoadOAuthConsentResult> {
   const session = await loadPreTenantActorSession();

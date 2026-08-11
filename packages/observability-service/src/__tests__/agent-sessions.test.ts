@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import {
   AgentSessionsService,
+  AGENT_SESSIONS_QUERY_SETTINGS,
   ANONYMOUS_ACTOR_LABEL,
   type AgentSessionsPorts,
   type SessionAccessPolicy,
@@ -33,10 +34,18 @@ function fakeClient(opts: {
   queue?: unknown[][];
 }) {
   const queue = [...(opts.queue ?? [])];
-  const calls: { query: string; query_params: Record<string, unknown> | undefined }[] = [];
+  const calls: {
+    query: string;
+    query_params: Record<string, unknown> | undefined;
+    clickhouse_settings: Record<string, unknown> | undefined;
+  }[] = [];
   const client: IClickHouseQuery = {
     query: async (params) => {
-      calls.push({ query: params.query, query_params: params.query_params });
+      calls.push({
+        query: params.query,
+        query_params: params.query_params,
+        clickhouse_settings: params.clickhouse_settings as Record<string, unknown> | undefined,
+      });
       const match = opts.byNeedle?.find((n) => params.query.includes(n.needle));
       const rows = match ? match.rows : (queue.shift() ?? []);
       return { json: async <T>() => rows as T[] };
@@ -212,6 +221,9 @@ describe('AgentSessionsService.getSessionDetail', () => {
       noopPorts(),
     );
     expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.clickhouse_settings).toEqual(AGENT_SESSIONS_QUERY_SETTINGS);
+    }
   });
 
   test('a resolved trace time range with only one bound present leaves the scan unbounded', async () => {

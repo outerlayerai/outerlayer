@@ -258,7 +258,7 @@ describe('GetMetricsCompare', () => {
     );
   });
 
-  it('returns 500 when ClickHouse is not configured', async () => {
+  it('returns 503 service_unavailable when ClickHouse is not configured', async () => {
     getGatewayChClient.mockReturnValue(null);
 
     const route = routeWithValidatedData(GetMetricsCompare, {

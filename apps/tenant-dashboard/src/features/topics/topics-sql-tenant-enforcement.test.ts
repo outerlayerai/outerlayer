@@ -12,9 +12,8 @@
  * (so a new topics file can't escape by not being listed), extract SQL template
  * literals, and require a TenantId predicate on every one that touches a tenant
  * table — either literally, or by delegating its WHERE to the shared
- * `samplableRowsClause` (moved to `@repo/observability-service` for gateway
- * reuse; its own definition, scanned here from the package source, carries
- * the predicate).
+ * `samplableRowsClause` (defined in `@repo/observability-service`; its
+ * definition, scanned here from the package source, carries the predicate).
  */
 
 import { describe, it, expect } from 'vitest';

@@ -6,13 +6,8 @@
  * type and reads NOTHING from `process.env` or Supabase — every host-specific
  * concern (actor-privacy policy, developer display names, PR-outcome scores,
  * signed image URLs) arrives through the ports below, resolved by the host
- * BEFORE calling in.
- *
- * The four things that coupled this module to the dashboard were: a Supabase
- * client in ctx, service-role actor-name resolution, a Postgres PR-outcome
- * join, and Next-cookie-based scope resolution. Ports replace all four —
- * this is a redesign, not a mechanical move; "behavior identical" applies to
- * query RESULTS, not module shape.
+ * BEFORE calling in — no Supabase client, actor-name resolver, PR-outcome
+ * join, or cookie-based scope resolution lives in this module itself.
  */
 
 import type {
@@ -149,7 +144,7 @@ const SIGNAL_PREDICATES = {
 } as const;
 
 /** ClickHouse resource caps on every query this service issues. */
-const AGENT_SESSIONS_QUERY_SETTINGS = {
+export const AGENT_SESSIONS_QUERY_SETTINGS = {
   max_execution_time: 30,
   do_not_merge_across_partitions_select_final: 1,
   max_memory_usage: 1_000_000_000,

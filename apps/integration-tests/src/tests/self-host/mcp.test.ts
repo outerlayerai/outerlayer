@@ -8,7 +8,7 @@
  * `NoopRateLimiter` backs every rate-limited tool call, so a self-host
  * deployment never throttles MCP the way hosted does.
  *
- * OAuth (spec §5.4 / group 13) needs Supabase's OAuth 2.1 server, which is
+ * OAuth connector auth needs Supabase's OAuth 2.1 server, which is
  * unavailable under `SELF_HOST_TRUST_PERIMETER` — this suite exercises only
  * the API-key MCP path, which is the one self-host connector setup uses
  * (see apps/gateway-node/README.md's MCP section).
