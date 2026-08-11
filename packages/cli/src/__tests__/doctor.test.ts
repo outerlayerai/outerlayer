@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDoctor, doctorExitCode, type Check } from "../doctor.js";
 import { runInit } from "../init.js";
+import { statuslineStatePath } from "../statusline-fast.js";
 
 let home: string;
 // A bare name (no path separator) so `cliBinResolvable` trusts it via PATH
@@ -98,6 +99,69 @@ describe("runDoctor — the 8 failure modes each detected", () => {
     const c = byName(checks, "Claude Code installs");
     expect(c.status).toBe("warn");
     expect(c.detail).toMatch(/multiple/);
+  });
+
+  it("statusline not installed → warn naming `outerlayer init`", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Status line");
+    expect(c.status).toBe("warn");
+    expect(c.detail).toBe("not installed");
+    expect(c.fix).toMatch(/outerlayer init/);
+  });
+
+  it("statusline occupied by a foreign command → warn naming that command", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      JSON.stringify({ statusLine: { type: "command", command: "my-status.sh --flag" } }),
+    );
+    const c = byName(runDoctor({ home, ...STUBBED }), "Status line");
+    expect(c.status).toBe("warn");
+    expect(c.detail).toBe("slot occupied by: my-status.sh --flag");
+    expect(c.fix).toMatch(/outerlayer init/);
+  });
+
+  it("statusline installed (plain) → pass; no state file yet → Status-line state warns", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    const checks = runDoctor({ home, ...STUBBED });
+    expect(byName(checks, "Status line").status).toBe("pass");
+    const stateCheck = byName(checks, "Status-line state");
+    expect(stateCheck.status).toBe("warn");
+    expect(stateCheck.detail).toMatch(/no state file/);
+  });
+
+  it("statusline installed + fresh state file → both checks pass", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    mkdirSync(join(home, ".outerlayer"), { recursive: true });
+    const now = () => Date.now();
+    writeFileSync(
+      statuslineStatePath(home),
+      JSON.stringify({ v: 1, generatedAt: new Date(now()).toISOString(), today: { date: "2026-08-11", byAgent: {} }, sessions: {} }),
+    );
+    const checks = runDoctor({ home, ...STUBBED, now });
+    expect(byName(checks, "Status line").status).toBe("pass");
+    expect(byName(checks, "Status-line state").status).toBe("pass");
+  });
+
+  it("statusline installed + stale generatedAt → Status-line state warns 'degraded'", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    mkdirSync(join(home, ".outerlayer"), { recursive: true });
+    const now = Date.now();
+    writeFileSync(
+      statuslineStatePath(home),
+      JSON.stringify({
+        v: 1,
+        generatedAt: new Date(now - 20 * 60 * 1000).toISOString(), // older than STATE_FRESH_MS (15m)
+        today: { date: "2026-08-11", byAgent: {} },
+        sessions: {},
+      }),
+    );
+    const c = byName(runDoctor({ home, ...STUBBED, now: () => now }), "Status-line state");
+    expect(c.status).toBe("warn");
+    expect(c.detail).toMatch(/degraded/);
   });
 
   it("a fully healthy setup exits 0", () => {

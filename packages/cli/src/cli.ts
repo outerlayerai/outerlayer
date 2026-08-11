@@ -59,6 +59,8 @@ export async function runCli(processArgv: string[]): Promise<void> {
     .option("--remove", "uninstall OuterLayer hooks")
     .option("--gitignore", "also add .outerlayer/ to .gitignore (project scope)")
     .option("--no-wrap-hooks", "skip auto-wrapping PreToolUse/PostToolUse hooks (installed lifecycle hooks are unaffected)")
+    .option("--statusline", "install the status-line segment (wraps an occupied slot, never replaces it) [default]")
+    .option("--no-statusline", "leave the statusLine slot untouched")
     .action((opts) => {
       const cliBin = resolveCliBin();
       if (opts.org) {
@@ -73,6 +75,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
           cliBin,
           addGitignore: opts.gitignore,
           wrapHooks: opts.wrapHooks,
+          statusline: opts.statusline,
         });
         if (result.cliBinUnresolved) {
           process.stderr.write(
@@ -88,6 +91,9 @@ export async function runCli(processArgv: string[]): Promise<void> {
               ? `${GREEN}✓${RESET} Removed OuterLayer hooks from ${result.path}${result.backupPath ? `\n${DIM}  backup: ${result.backupPath}${RESET}` : ""}\n`
               : `${DIM}No OuterLayer hooks to remove in ${result.path}${RESET}\n`,
           );
+          if (result.statuslineWrappedCommand) {
+            process.stdout.write(`${GREEN}✓${RESET} Restored status line to: ${DIM}${result.statuslineWrappedCommand}${RESET}\n`);
+          }
           return;
         }
         if (!result.changed) {
@@ -105,6 +111,16 @@ export async function runCli(processArgv: string[]): Promise<void> {
           for (const w of result.wrapped) {
             process.stdout.write(`  ${DIM}${w.event}${w.matcher ? `[${w.matcher}]` : ""}: ${w.command}${RESET}\n`);
           }
+        }
+        if (result.statusline === "installed" || result.statusline === "repaired") {
+          process.stdout.write(`${GREEN}✓${RESET} Installed the OuterLayer status line (session + all-agent cost)\n`);
+        } else if (result.statusline === "wrapped") {
+          process.stdout.write(
+            `${GREEN}✓${RESET} Status line was occupied — wrapped it (its output stays, ours appends):\n` +
+              `  ${DIM}${result.statuslineWrappedCommand}${RESET}\n`,
+          );
+        } else if (result.statusline === "skipped") {
+          process.stdout.write(`${YELLOW}!${RESET} Status line slot has an unrecognized shape — left untouched\n`);
         }
         if (result.gitignoreUpdated) process.stdout.write(`${GREEN}✓${RESET} Added .outerlayer/ to .gitignore\n`);
         process.stdout.write(
@@ -132,7 +148,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
 
   program
     .command("doctor")
-    .description("Diagnose capture setup (8 checks, each with a one-line fix)")
+    .description("Diagnose capture setup (each check comes with a one-line fix)")
     .action(() => {
       const checks = runDoctor();
       process.stdout.write("\nOuterLayer doctor\n\n");
@@ -201,6 +217,17 @@ export async function runCli(processArgv: string[]): Promise<void> {
   program
     .command("hook <event>")
     .description("(internal) capture-hook fast path — installed by `init`")
+    .action(() => {
+      // Real handling is intercepted in index.ts before commander loads.
+      // This registration exists only so `--help` documents it.
+    });
+
+  program
+    .command("statusline")
+    .description(
+      "(internal) Claude Code statusLine command — installed by `init`. Reads the status JSON on stdin plus the daemon-maintained state file and prints one line",
+    )
+    .option("--wrap-id <base64>", "a pre-existing statusLine command to run first, base64-encoded; its output is preserved and ours appends")
     .action(() => {
       // Real handling is intercepted in index.ts before commander loads.
       // This registration exists only so `--help` documents it.
