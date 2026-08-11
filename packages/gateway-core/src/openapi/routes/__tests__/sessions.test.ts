@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AppContext } from '../_shared';
+import type { SessionAccessPolicy } from '@repo/observability-service';
 
 const listSessions = vi.fn();
 const getSessionDetail = vi.fn();
@@ -37,7 +38,8 @@ vi.mock('../../../lib/verify-bearer', async (importOriginal) => {
   };
 });
 
-import { ListSessions, GetSessionDetail, buildPorts, sessionPolicy } from '../sessions';
+import { ListSessions, GetSessionDetail, buildPorts, sessionPolicy, blobTokenKeyId } from '../sessions';
+import { verifyAgentBlobToken } from '../../../lib/agent-blob-token';
 
 const MOCK_ROUTE_OPTIONS = {
   router: { getRequest: () => ({}) },
@@ -406,7 +408,7 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     getScopedSupabase.mockResolvedValue(actorNameSupabaseClient(null, null));
     const c = buildContext();
 
-    const ports = await buildPorts(c);
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
     const names = await ports.actorNames.resolve([]);
 
     expect(names).toEqual({});
@@ -417,7 +419,7 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     getScopedSupabase.mockResolvedValue(throwing);
     const c = buildContext();
 
-    const ports = await buildPorts(c);
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
     const names = await ports.actorNames.resolve(['key:abc', 'key:def']);
 
     expect(names).toEqual({ 'key:abc': 'anonymous', 'key:def': 'anonymous' });
@@ -438,7 +440,7 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     );
     const c = buildContext();
 
-    const ports = await buildPorts(c);
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
     const names = await ports.actorNames.resolve(['mem-1', 'mem-2']);
 
     expect(names).toEqual({ 'mem-1': 'Alice', 'mem-2': 'bob@example.com' });
@@ -450,7 +452,7 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     );
     const c = buildContext();
 
-    const ports = await buildPorts(c);
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
     const names = await ports.actorNames.resolve(['key:abc', 'mem-1']);
 
     expect(names).toEqual({ 'key:abc': 'anonymous', 'mem-1': 'Alice' });
@@ -468,7 +470,7 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     );
     const c = buildContext();
 
-    const ports = await buildPorts(c);
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
     const names = await ports.actorNames.resolve(['mem-1', 'mem-2']);
 
     expect(names).toEqual({ 'mem-1': 'Alice' });
@@ -485,7 +487,7 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     getScopedSupabase.mockResolvedValue(client);
     const c = buildContext();
 
-    const ports = await buildPorts(c);
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
     const names = await ports.actorNames.resolve(['mem-1']);
 
     expect(names).toEqual({});
@@ -495,9 +497,74 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     getScopedSupabase.mockResolvedValue(actorNameSupabaseClient([{ id: 'mem-1', user_id: 'user-1' }], null));
     const c = buildContext();
 
-    const ports = await buildPorts(c);
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
     const names = await ports.actorNames.resolve(['mem-1']);
 
     expect(names).toEqual({});
+  });
+});
+
+describe('blobTokenKeyId — image blob-token binding', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('machine-key policy keys off the caller\'s own apiKeyId, unchanged from before', () => {
+    const key = blobTokenKeyId({ tenantId: 'tenant-1', apiKeyId: 'key-1' }, { kind: 'machine-key', canSeeTeamActors: true });
+    expect(key).toBe('key-1');
+  });
+
+  it('a bearer caller\'s token binds to their resolved membership id, not the shared tenant id', () => {
+    const key = blobTokenKeyId(
+      { tenantId: 'tenant-1' },
+      { kind: 'dashboard-member', membershipId: 'membership-A', canSeeTeam: false },
+    );
+    expect(key).toBe('membership-A');
+    expect(key).not.toBe('tenant-1');
+  });
+
+  it('two bearer members in the same tenant+app resolve to different binding keys', () => {
+    const keyA = blobTokenKeyId(
+      { tenantId: 'tenant-1' },
+      { kind: 'dashboard-member', membershipId: 'membership-A', canSeeTeam: false },
+    );
+    const keyB = blobTokenKeyId(
+      { tenantId: 'tenant-1' },
+      { kind: 'dashboard-member', membershipId: 'membership-B', canSeeTeam: false },
+    );
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it('mints an image token bound to the bearer caller\'s own membership id (via buildPorts)', async () => {
+    getScopedSupabase.mockResolvedValue(membershipSupabaseClient('membership-A'));
+    checkBearerPermission.mockResolvedValue(false);
+    const c = buildBearerContext();
+    const policy = await sessionPolicy(c);
+    const ports = await buildPorts(c, policy);
+
+    const [ref] = await ports.images.sign([{ sha256: 'f'.repeat(64), mediaType: 'image/png' }]);
+    const verified = await verifyAgentBlobToken({ secret: c.env.OAUTH_STATE_SECRET as string, token: ref!.token });
+
+    expect(verified.ok && verified.claims.keyId).toBe('membership-A');
+  });
+
+  // proves the SEC-3 fix: a token minted for one bearer member's request no
+  // longer matches another member's own derived keyId — GetAgentBlobByToken
+  // compares verified.claims.keyId against blobTokenKeyId(user, THIS
+  // request's policy), so member B's request can never accept member A's URL.
+  it('a token minted for member A does not match member B\'s own derived keyId', async () => {
+    getScopedSupabase.mockResolvedValue(membershipSupabaseClient('membership-A'));
+    checkBearerPermission.mockResolvedValue(false);
+    const callerA = buildBearerContext();
+    const policyA = await sessionPolicy(callerA);
+    const portsA = await buildPorts(callerA, policyA);
+    const [ref] = await portsA.images.sign([{ sha256: 'f'.repeat(64), mediaType: 'image/png' }]);
+    const verified = await verifyAgentBlobToken({ secret: callerA.env.OAUTH_STATE_SECRET as string, token: ref!.token });
+    expect(verified.ok).toBe(true);
+
+    const policyB: SessionAccessPolicy = { kind: 'dashboard-member', membershipId: 'membership-B', canSeeTeam: false };
+    const memberBExpectedKeyId = blobTokenKeyId({ tenantId: 'tenant-1' }, policyB);
+
+    expect(verified.ok && verified.claims.keyId).not.toBe(memberBExpectedKeyId);
   });
 });

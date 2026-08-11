@@ -120,33 +120,47 @@ function buildActorNameResolver(c: AppContext): ActorNameResolver {
   };
 }
 
-function buildImageRefSigner(c: AppContext): ImageRefSigner {
+/**
+ * The blob-token binding key for this caller (see `lib/agent-blob-token.ts`'s
+ * `keyId`): a machine key's own id, or — for a bearer caller, who has no key
+ * id — the SAME resolved membership id `policy` was built from. Two bearer
+ * callers in the same tenant+app must never share a binding, or either one's
+ * signed image URL verifies for the other's request too; falling back to
+ * `tenantId` (as this used to) is exactly that shared binding. Takes the
+ * already-resolved `policy` rather than re-resolving membership itself so a
+ * request that calls both `sessionPolicy` and this only queries once.
+ */
+export function blobTokenKeyId(user: { tenantId: string; apiKeyId?: string }, policy: SessionAccessPolicy): string {
+  return policy.kind === 'dashboard-member' ? policy.membershipId : (user.apiKeyId ?? user.tenantId);
+}
+
+function buildImageRefSigner(c: AppContext, policy: SessionAccessPolicy): ImageRefSigner {
   const user = c.get('user');
   return {
     async sign(images) {
       return signAgentBlobRefs(c.env.OAUTH_STATE_SECRET, images, {
         tenantId: user.tenantId,
         appId: user.appId,
-        // Bearer callers have no key id — fall back to a stable per-tenant
-        // binding so mint and verify agree. This REST/MCP surface is
-        // API-key-first; the fallback is a defensive rail, not the expected
-        // caller.
-        keyId: user.apiKeyId ?? user.tenantId,
+        keyId: blobTokenKeyId(user, policy),
       });
     },
   };
 }
 
 /** Exported for the `list_sessions` / `get_session` MCP tools — same port
- * wiring the REST handlers use, so behavior can't diverge between surfaces. */
-export async function buildPorts(c: AppContext) {
+ * wiring the REST handlers use, so behavior can't diverge between surfaces.
+ * Takes the caller's already-resolved `policy` (every call site resolves it
+ * once via `sessionPolicy` for the row-scoping decision) so the image
+ * signer's blob-token binding reuses that same membership resolution instead
+ * of re-querying it. */
+export async function buildPorts(c: AppContext, policy: SessionAccessPolicy) {
   const user = c.get('user');
   const supabase = await getScopedSupabase(c);
   const chQuery = getGatewayChQuery(c.env, { tenantId: user.tenantId, appId: user.appId });
   return {
     actorNames: buildActorNameResolver(c),
     prOutcomes: buildPrOutcomeReader(supabase, chQuery, { tenantId: user.tenantId, appId: user.appId }),
-    images: buildImageRefSigner(c),
+    images: buildImageRefSigner(c, policy),
   };
 }
 
@@ -181,11 +195,12 @@ export class ListSessions extends BaseRoute {
       const service = getGatewaySessionsService(c.env, { tenantId: user.tenantId, appId: user.appId });
       if (!service) throw new ServiceUnavailableError('ClickHouse host not configured');
 
+      const policy = await sessionPolicy(c);
       const result = await service.listSessions(
         { tenantId: user.tenantId, appId: user.appId },
         query,
-        await sessionPolicy(c),
-        await buildPorts(c),
+        policy,
+        await buildPorts(c, policy),
       );
       return c.json({ data: result });
     } catch (error) {
@@ -228,11 +243,12 @@ export class GetSessionDetail extends BaseRoute {
       const service = getGatewaySessionsService(c.env, { tenantId: user.tenantId, appId: user.appId });
       if (!service) throw new ServiceUnavailableError('ClickHouse host not configured');
 
+      const policy = await sessionPolicy(c);
       const result = await service.getSessionDetail(
         { tenantId: user.tenantId, appId: user.appId },
         traceId,
-        await sessionPolicy(c),
-        await buildPorts(c),
+        policy,
+        await buildPorts(c, policy),
       );
       if (!result) {
         return c.json(structuredError('trace_not_found', 'Session not found'), 404);

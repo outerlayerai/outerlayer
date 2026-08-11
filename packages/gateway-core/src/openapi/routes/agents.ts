@@ -27,6 +27,7 @@
 
 import { z, BaseRoute, type AppContext, structuredError, errorResponse, parseJsonBody } from './_shared';
 import { verifyAgentBlobToken } from '../../lib/agent-blob-token';
+import { sessionPolicy, blobTokenKeyId } from './sessions';
 import type { GatewayPermission } from '../../lib/permissions';
 import { createClient } from '@clickhouse/client-web';
 import { clickHouseWriteAuth } from '../../stores/clickhouse/write-identity';
@@ -623,12 +624,15 @@ export class GetAgentBlobByToken extends BaseRoute {
     const { token } = data.params as { token: string };
 
     const verified = await verifyAgentBlobToken({ secret: c.env.OAUTH_STATE_SECRET, token });
-    if (
-      !verified.ok ||
-      verified.claims.tenantId !== user.tenantId ||
-      verified.claims.appId !== user.appId ||
-      verified.claims.keyId !== (user.apiKeyId ?? user.tenantId)
-    ) {
+    // Resolving the policy costs a Supabase round-trip on the bearer path —
+    // skip it once the token is already known bad, so a malformed/expired
+    // token doesn't pay for a membership lookup its keyId check can't use.
+    const keyIdMatches =
+      verified.ok &&
+      verified.claims.tenantId === user.tenantId &&
+      verified.claims.appId === user.appId &&
+      verified.claims.keyId === blobTokenKeyId(user, await sessionPolicy(c));
+    if (!keyIdMatches) {
       return c.json(structuredError('forbidden', 'Image link is invalid or has expired'), 403);
     }
 

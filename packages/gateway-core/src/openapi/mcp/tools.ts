@@ -88,11 +88,12 @@ async function listSessionsExecute(c: AppContext, input: z.infer<typeof ListSess
   const user = c.get('user');
   const service = getGatewaySessionsService(c.env, { tenantId: user.tenantId, appId: user.appId });
   if (!service) throw new ServiceUnavailableError('ClickHouse host not configured');
+  const policy = await sessionPolicy(c);
   const result = await service.listSessions(
     { tenantId: user.tenantId, appId: user.appId },
     input,
-    await sessionPolicy(c),
-    await buildPorts(c),
+    policy,
+    await buildPorts(c, policy),
   );
   return { data: result };
 }
@@ -101,11 +102,12 @@ async function getSessionExecute(c: AppContext, input: z.infer<typeof GetSession
   const user = c.get('user');
   const service = getGatewaySessionsService(c.env, { tenantId: user.tenantId, appId: user.appId });
   if (!service) throw new ServiceUnavailableError('ClickHouse host not configured');
+  const policy = await sessionPolicy(c);
   const result = await service.getSessionDetail(
     { tenantId: user.tenantId, appId: user.appId },
     input.traceId,
-    await sessionPolicy(c),
-    await buildPorts(c),
+    policy,
+    await buildPorts(c, policy),
   );
   if (!result) {
     // Matches the REST 404 body verbatim (`{ error: { code, message } }`) —
