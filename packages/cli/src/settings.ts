@@ -20,7 +20,7 @@ export const MARKER = "_outerlayer";
  * active independently of anything in settings.json — `init` and `doctor`
  * both check it to tell the two install paths apart.
  */
-export function managedPluginInstallDir(home: string): string {
+function managedPluginInstallDir(home: string): string {
   return join(home, ".outerlayer", "cli", "node_modules", "outerlayer");
 }
 

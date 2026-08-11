@@ -57,7 +57,7 @@ const FIRE_MARKER_SWEEP_AFTER_MS = 60 * 60 * 1000;
 
 /** Where this invocation was installed from. The plugin's launcher sets
  * OUTERLAYER_HOOK_SOURCE=plugin; hooks written by `init` set nothing. */
-export function hookSource(env: NodeJS.ProcessEnv = process.env): "plugin" | "settings" {
+function hookSource(env: NodeJS.ProcessEnv = process.env): "plugin" | "settings" {
   return env.OUTERLAYER_HOOK_SOURCE === "plugin" ? "plugin" : "settings";
 }
 
