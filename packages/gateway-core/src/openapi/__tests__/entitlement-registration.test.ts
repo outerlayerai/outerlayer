@@ -133,4 +133,16 @@ describe('tier-gated route registration', () => {
       expect(names).toContain('permissionGuard');
     });
   });
+
+  describe('sessions routes', () => {
+    it.each([
+      ['GET', '/v1/sessions'],
+      ['GET', '/v1/sessions/:traceId'],
+    ] as const)('%s %s stays open (no entitlementGuard or quotaGuard)', (method, path) => {
+      const names = handlerNames(method, path);
+      expect(names).not.toContain('entitlementGuard');
+      expect(names).not.toContain('quotaGuard');
+      expect(names).toContain('permissionGuard');
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SyncAgentSessions, GetAgentBlob } from '../routes/agents';
+import { SyncAgentSessions, GetAgentBlob, GetAgentBlobByToken } from '../routes/agents';
 import { ListSpans, SearchSpans } from '../routes/spans';
 import {
   CreateScore,
@@ -21,6 +21,7 @@ import { HealthCheck, IngestionHealth, FilesHealth } from '../routes/health';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from '../routes/api-keys';
 import { GetTopics } from '../routes/topics';
 import { GetModelStats, GetFleetOverview } from '../routes/metrics';
+import { ListSessions, GetSessionDetail } from '../routes/sessions';
 
 // ---------------------------------------------------------------------------
 // Route definition correctness tests
@@ -73,6 +74,7 @@ interface RouteEntry {
 const allRoutes: RouteEntry[] = [
   { name: 'SyncAgentSessions', cls: SyncAgentSessions, tag: 'Agents', hasRequest: true },
   { name: 'GetAgentBlob', cls: GetAgentBlob, tag: 'Agents', hasRequest: true },
+  { name: 'GetAgentBlobByToken', cls: GetAgentBlobByToken, tag: 'Agents', hasRequest: true },
   { name: 'ListSpans', cls: ListSpans, tag: 'Spans', hasRequest: true },
   { name: 'SearchSpans', cls: SearchSpans, tag: 'Spans', hasRequest: true },
   { name: 'CreateScore', cls: CreateScore, tag: 'Scoring', hasRequest: true },
@@ -92,6 +94,8 @@ const allRoutes: RouteEntry[] = [
   { name: 'GetTopics', cls: GetTopics, tag: 'Topics', hasRequest: true },
   { name: 'GetModelStats', cls: GetModelStats, tag: 'Metrics', hasRequest: true },
   { name: 'GetFleetOverview', cls: GetFleetOverview, tag: 'Metrics', hasRequest: true },
+  { name: 'ListSessions', cls: ListSessions, tag: 'Sessions', hasRequest: true },
+  { name: 'GetSessionDetail', cls: GetSessionDetail, tag: 'Sessions', hasRequest: true },
 ];
 
 describe('OpenAPI Route Definitions', () => {
@@ -138,7 +142,7 @@ describe('OpenAPI Route Definitions', () => {
 // ---------------------------------------------------------------------------
 
 describe('OpenAPI Tag Coverage', () => {
-  const expectedTags = ['Agents', 'Spans', 'Scoring', 'Health', 'API Keys', 'Topics', 'Metrics'];
+  const expectedTags = ['Agents', 'Spans', 'Scoring', 'Health', 'API Keys', 'Topics', 'Metrics', 'Sessions'];
 
   it.each(expectedTags)('should have at least one route with tag "%s"', (tag) => {
     const routesWithTag = allRoutes.filter((r) => r.tag === tag);
@@ -267,17 +271,31 @@ describe('Topics and Metrics route schemas', () => {
   });
 });
 
+describe('Sessions route schemas', () => {
+  it('should define 200 response for ListSessions', () => {
+    expectResponse(ListSessions, 200);
+  });
+
+  it('should define 200 response for GetSessionDetail', () => {
+    expectResponse(GetSessionDetail, 200);
+  });
+
+  it('should define 404 response for GetSessionDetail', () => {
+    expectResponse(GetSessionDetail, 404);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Route count sanity check
 // ---------------------------------------------------------------------------
 
 describe('Route inventory', () => {
-  it('should have exactly 21 routes defined', () => {
-    expect(allRoutes).toHaveLength(21);
+  it('should have exactly 24 routes defined', () => {
+    expect(allRoutes).toHaveLength(24);
   });
 
-  it('should have 2 Agents routes', () => {
-    expect(allRoutes.filter((r) => r.tag === 'Agents')).toHaveLength(2);
+  it('should have 3 Agents routes', () => {
+    expect(allRoutes.filter((r) => r.tag === 'Agents')).toHaveLength(3);
   });
 
   it('should have 2 Spans routes', () => {
@@ -298,5 +316,9 @@ describe('Route inventory', () => {
 
   it('should have 2 Metrics routes', () => {
     expect(allRoutes.filter((r) => r.tag === 'Metrics')).toHaveLength(2);
+  });
+
+  it('should have 2 Sessions routes', () => {
+    expect(allRoutes.filter((r) => r.tag === 'Sessions')).toHaveLength(2);
   });
 });

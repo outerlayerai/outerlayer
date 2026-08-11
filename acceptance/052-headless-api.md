@@ -18,10 +18,10 @@ renumber an id. Retire one by deleting the line and the citation together.
 ## REST endpoints
 
 1. `AC-052-01` **Given** a valid app-bound API key with `metrics.read`, **When** `GET /v1/topics?facet=issues&limit=3` is called, **Then** the top 3 issue topics by session count are returned with name, session count, and share.
-2. **Given** a topic id from the active map, **When** `GET /v1/sessions?topicId=…&topicFacet=issues` is called, **Then** only sessions whose trace (or subagent transcript) matched that topic are returned, and the total equals the Topics view's session count for that topic.
-3. **Given** a session's trace id, **When** `GET /v1/sessions/{traceId}` is called with a key from another app, **Then** the response is the same 404 as for a nonexistent id.
+2. `AC-052-02` **Given** a topic id from the active map, **When** `GET /v1/sessions?topicId=…&topicFacet=issues` is called, **Then** only sessions whose trace (or subagent transcript) matched that topic are returned, and the total equals the Topics view's session count for that topic.
+3. `AC-052-03` **Given** a session's trace id, **When** `GET /v1/sessions/{traceId}` is called with a key from another app, **Then** the response is the same 404 as for a nonexistent id.
 4. `AC-052-04` **Given** seeded generation spans with known per-model costs in a window, **When** `GET /v1/metrics/models` is called for that window, **Then** the response equals the precomputed fixture totals exactly.
-5. **Given** a key without `agents.sessions.team.read`, **When** `GET /v1/sessions` is called, **Then** sessions are returned with actor identities anonymized and `actorId` filters rejected; **Given** a key with it, real identities are returned.
+5. `AC-052-05` **Given** a key without `agents.sessions.team.read`, **When** `GET /v1/sessions` is called, **Then** sessions are returned with actor identities anonymized and `actorId` filters rejected; **Given** a key with it, real identities are returned.
 
 ## MCP server
 
@@ -38,5 +38,5 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 ## Resource bounds
 
-13. **Given** a session whose trace exceeds the span cap, **When** `GET /v1/sessions/{traceId}` is called, **Then** the response is capped at the SQL layer, flagged `truncated: true`, and returns within the Worker CPU budget.
-14. **Given** a session-detail response containing blob references, **When** a blob URL is fetched after its expiry, **Then** access is denied — raw sha256 fetch without a signed URL is not possible via the session surface.
+13. `AC-052-13` **Given** a session whose trace exceeds the span cap, **When** `GET /v1/sessions/{traceId}` is called, **Then** the response is capped at the SQL layer, flagged `truncated: true`, and returns within the Worker CPU budget.
+14. `AC-052-14` **Given** a session-detail response containing blob references, **When** a blob URL is fetched after its expiry, **Then** access is denied — raw sha256 fetch without a signed URL is not possible via the session surface.

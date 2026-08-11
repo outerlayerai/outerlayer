@@ -84,6 +84,7 @@ describe('AgentSessionsService.getSessionDetail', () => {
     expect(result?.session.actorId).toBe('membership-a');
   });
 
+  // proves AC-052-05
   test('machine-key without team-actor visibility masks the actor name but still returns the row', async () => {
     const { client } = fakeClient({ queue: [[], [rootSpan()], []] });
     const service = new AgentSessionsService(client);
@@ -153,6 +154,7 @@ describe('AgentSessionsService.getSessionDetail', () => {
     expect(result?.spans[0]!.images).toEqual([]);
   });
 
+  // proves AC-052-13
   test('a session over the 2000-span cap is truncated to exactly 2000 rows, flagged', async () => {
     const spans = [rootSpan(), ...Array.from({ length: 2100 }, (_, i) => rootSpan({ spanId: `s${i + 1}`, name: 'agent.turn.assistant' }))];
     const { client } = fakeClient({ queue: [[], spans.slice(0, 2001), []] });
@@ -214,6 +216,7 @@ describe('AgentSessionsService.getSessionDetail', () => {
 });
 
 describe('AgentSessionsService.listSessions', () => {
+  // proves AC-052-05
   test('machine-key without team-actor visibility rejects an explicit actor filter', async () => {
     const { client } = fakeClient({ queue: [] });
     const service = new AgentSessionsService(client);

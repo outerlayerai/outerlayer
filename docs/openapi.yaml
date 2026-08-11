@@ -84,6 +84,99 @@ paths:
       summary: "Service health"
       tags:
         - "Health"
+  /v1/agents/blob-token/{token}:
+    get:
+      description: "Returns the raw bytes of a content-addressed agent-session image, authorized by a signed, expiring token minted on a session-detail response. Never accepts a raw sha256 — the token is the only capability."
+      operationId: "get-agent-blob-by-token"
+      parameters:
+        - in: "path"
+          name: "token"
+          required: true
+          schema:
+            minLength: 1
+            type: "string"
+      responses:
+        "200":
+          description: "Raw blob bytes (Content-Type = stored media type)."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+        "403":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing, altered, or expired image token."
+        "404":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Blob not found."
+      summary: "Fetch an agent session image blob via a signed token"
+      tags:
+        - "Agents"
   /v1/agents/blob/{sha256}:
     get:
       description: "Returns the raw bytes of a content-addressed agent-session image (sha256). Scoped to the API key's tenant and app."
@@ -4975,6 +5068,731 @@ paths:
       summary: "Get score"
       tags:
         - "Scoring"
+  /v1/sessions:
+    get:
+      description: "Returns a filtered, paginated list of agent-coding sessions for one repo. Without `agents.sessions.team.read`, actor identities are anonymized and `actor` filters are rejected."
+      operationId: "list-sessions"
+      parameters:
+        - in: "query"
+          name: "limit"
+          required: false
+          schema:
+            default: 25
+            maximum: 100
+            minimum: 1
+            type: "number"
+        - in: "query"
+          name: "offset"
+          required: false
+          schema:
+            default: 0
+            maximum: 10000
+            minimum: 0
+            nullable: true
+            type: "number"
+        - in: "query"
+          name: "repo"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "branch"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "agentType"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "model"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "workerKind"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "q"
+          required: false
+          schema:
+            maxLength: 200
+            type: "string"
+        - in: "query"
+          name: "actor"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "from"
+          required: false
+          schema:
+            format: "date-time"
+            type: "string"
+        - in: "query"
+          name: "to"
+          required: false
+          schema:
+            format: "date-time"
+            type: "string"
+        - in: "query"
+          name: "sort"
+          required: false
+          schema:
+            default: "startedAt"
+            enum:
+              - "startedAt"
+              - "cost"
+              - "errors"
+              - "turns"
+              - "steering"
+              - "toolErrorRate"
+            type: "string"
+        - in: "query"
+          name: "dir"
+          required: false
+          schema:
+            default: "desc"
+            enum:
+              - "asc"
+              - "desc"
+            type: "string"
+        - in: "query"
+          name: "signal"
+          required: false
+          schema:
+            enum:
+              - "hands-on"
+              - "denied"
+              - "tool-errors"
+              - "provider-errors"
+              - "clean"
+            type: "string"
+        - in: "query"
+          name: "includeSubagents"
+          required: false
+          schema:
+            enum:
+              - "1"
+            type: "string"
+        - in: "query"
+          name: "origin"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "topicId"
+          required: false
+          schema:
+            type: "string"
+        - in: "query"
+          name: "topicFacet"
+          required: false
+          schema:
+            enum:
+              - "task"
+              - "issues"
+              - "steering"
+            type: "string"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      actorNames:
+                        additionalProperties:
+                          type: "string"
+                        type: "object"
+                      actors:
+                        items:
+                          type: "string"
+                        type: "array"
+                      agentTypes:
+                        items:
+                          type: "string"
+                        type: "array"
+                      branches:
+                        items:
+                          type: "string"
+                        type: "array"
+                      models:
+                        items:
+                          type: "string"
+                        type: "array"
+                      originCounts:
+                        properties:
+                          agent:
+                            type: "integer"
+                          interactive:
+                            type: "integer"
+                          worker:
+                            type: "integer"
+                        required:
+                          - "interactive"
+                          - "agent"
+                          - "worker"
+                        type: "object"
+                      repo:
+                        type: "string"
+                      scope:
+                        enum:
+                          - "self"
+                          - "team"
+                        type: "string"
+                      sessions:
+                        items:
+                          properties:
+                            actorId:
+                              type: "string"
+                            actorName:
+                              type: "string"
+                            agentType:
+                              type: "string"
+                            branch:
+                              nullable: true
+                              type: "string"
+                            costUsd:
+                              nullable: true
+                              type: "number"
+                            durationMs:
+                              nullable: true
+                              type: "number"
+                            errorCount:
+                              type: "integer"
+                            models:
+                              items:
+                                type: "string"
+                              type: "array"
+                            origin:
+                              type: "string"
+                            prOutcomes:
+                              items:
+                                properties:
+                                  ciGreen:
+                                    nullable: true
+                                    properties:
+                                      label:
+                                        type: "string"
+                                      score:
+                                        type: "number"
+                                    required:
+                                      - "score"
+                                      - "label"
+                                    type: "object"
+                                  merged:
+                                    nullable: true
+                                    properties:
+                                      label:
+                                        type: "string"
+                                      score:
+                                        type: "number"
+                                    required:
+                                      - "score"
+                                      - "label"
+                                    type: "object"
+                                  prNumber:
+                                    type: "integer"
+                                  prUrl:
+                                    nullable: true
+                                    type: "string"
+                                  reverted:
+                                    nullable: true
+                                    properties:
+                                      label:
+                                        type: "string"
+                                      score:
+                                        type: "number"
+                                    required:
+                                      - "score"
+                                      - "label"
+                                    type: "object"
+                                required:
+                                  - "prNumber"
+                                  - "prUrl"
+                                  - "ciGreen"
+                                  - "merged"
+                                  - "reverted"
+                                type: "object"
+                              type: "array"
+                            project:
+                              nullable: true
+                              type: "string"
+                            rejectedToolCallCount:
+                              type: "integer"
+                            sessionId:
+                              type: "string"
+                            startedAt:
+                              type: "string"
+                            title:
+                              nullable: true
+                              type: "string"
+                            toolCallCount:
+                              type: "integer"
+                            traceId:
+                              type: "string"
+                            turnCount:
+                              type: "integer"
+                            userTurnCount:
+                              type: "integer"
+                            workerKind:
+                              nullable: true
+                              type: "string"
+                          required:
+                            - "traceId"
+                            - "sessionId"
+                            - "title"
+                            - "agentType"
+                            - "actorId"
+                            - "workerKind"
+                            - "project"
+                            - "startedAt"
+                            - "durationMs"
+                            - "turnCount"
+                            - "toolCallCount"
+                            - "errorCount"
+                            - "userTurnCount"
+                            - "rejectedToolCallCount"
+                            - "costUsd"
+                            - "models"
+                            - "branch"
+                          type: "object"
+                        type: "array"
+                      total:
+                        minimum: 0
+                        type: "integer"
+                      workerKinds:
+                        items:
+                          type: "string"
+                        type: "array"
+                    required:
+                      - "repo"
+                      - "scope"
+                      - "total"
+                      - "branches"
+                      - "actors"
+                      - "agentTypes"
+                      - "models"
+                      - "workerKinds"
+                      - "actorNames"
+                      - "sessions"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "A page of agent sessions."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "This key cannot filter sessions by actor."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "List agent sessions"
+      tags:
+        - "Sessions"
+  /v1/sessions/{traceId}:
+    get:
+      description: "Returns the full span tree + rollup identity for one session. Span count is capped — `truncated: true` means only the FIRST spans (not necessarily the last) are included. A missing trace and a trace from another app return the identical 404 — there is no existence oracle for a transcript the caller cannot see."
+      operationId: "get-session-detail"
+      parameters:
+        - in: "path"
+          name: "traceId"
+          required: true
+          schema:
+            minLength: 1
+            type: "string"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      prOutcomes:
+                        items:
+                          properties:
+                            ciGreen:
+                              nullable: true
+                              properties:
+                                label:
+                                  type: "string"
+                                score:
+                                  type: "number"
+                              required:
+                                - "score"
+                                - "label"
+                              type: "object"
+                            merged:
+                              nullable: true
+                              properties:
+                                label:
+                                  type: "string"
+                                score:
+                                  type: "number"
+                              required:
+                                - "score"
+                                - "label"
+                              type: "object"
+                            prNumber:
+                              type: "integer"
+                            prUrl:
+                              nullable: true
+                              type: "string"
+                            reverted:
+                              nullable: true
+                              properties:
+                                label:
+                                  type: "string"
+                                score:
+                                  type: "number"
+                              required:
+                                - "score"
+                                - "label"
+                              type: "object"
+                          required:
+                            - "prNumber"
+                            - "prUrl"
+                            - "ciGreen"
+                            - "merged"
+                            - "reverted"
+                          type: "object"
+                        type: "array"
+                      session:
+                        properties:
+                          actorId:
+                            type: "string"
+                          actorName:
+                            type: "string"
+                          agentType:
+                            type: "string"
+                          apiErrorCount:
+                            type: "integer"
+                          captureTier:
+                            type: "string"
+                          costUsd:
+                            nullable: true
+                            type: "number"
+                          durationMs:
+                            nullable: true
+                            type: "number"
+                          editRetryLoop:
+                            nullable: true
+                            properties:
+                              fails:
+                                type: "integer"
+                              file:
+                                type: "string"
+                            required:
+                              - "file"
+                              - "fails"
+                            type: "object"
+                          errorCount:
+                            type: "integer"
+                          hookDurationMs:
+                            type: "number"
+                          hookExecutionCount:
+                            type: "integer"
+                          hookUnreportedCount:
+                            type: "integer"
+                          models:
+                            items:
+                              type: "string"
+                            type: "array"
+                          origin:
+                            type: "string"
+                          permissionPromptCount:
+                            type: "integer"
+                          prOutcomes:
+                            items:
+                              properties:
+                                ciGreen:
+                                  nullable: true
+                                  properties:
+                                    label:
+                                      type: "string"
+                                    score:
+                                      type: "number"
+                                  required:
+                                    - "score"
+                                    - "label"
+                                  type: "object"
+                                merged:
+                                  nullable: true
+                                  properties:
+                                    label:
+                                      type: "string"
+                                    score:
+                                      type: "number"
+                                  required:
+                                    - "score"
+                                    - "label"
+                                  type: "object"
+                                prNumber:
+                                  type: "integer"
+                                prUrl:
+                                  nullable: true
+                                  type: "string"
+                                reverted:
+                                  nullable: true
+                                  properties:
+                                    label:
+                                      type: "string"
+                                    score:
+                                      type: "number"
+                                  required:
+                                    - "score"
+                                    - "label"
+                                  type: "object"
+                              required:
+                                - "prNumber"
+                                - "prUrl"
+                                - "ciGreen"
+                                - "merged"
+                                - "reverted"
+                              type: "object"
+                            type: "array"
+                          project:
+                            nullable: true
+                            type: "string"
+                          rejectedToolCallCount:
+                            type: "integer"
+                          sessionId:
+                            type: "string"
+                          slowestHookCommand:
+                            type: "string"
+                          slowestHookMs:
+                            type: "number"
+                          startedAt:
+                            type: "string"
+                          title:
+                            nullable: true
+                            type: "string"
+                          toolCallCount:
+                            type: "integer"
+                          traceId:
+                            type: "string"
+                          turnCount:
+                            type: "integer"
+                          userTurnCount:
+                            type: "integer"
+                          workerKind:
+                            nullable: true
+                            type: "string"
+                        required:
+                          - "traceId"
+                          - "sessionId"
+                          - "title"
+                          - "agentType"
+                          - "actorId"
+                          - "workerKind"
+                          - "project"
+                          - "startedAt"
+                          - "durationMs"
+                          - "turnCount"
+                          - "toolCallCount"
+                          - "errorCount"
+                          - "userTurnCount"
+                          - "rejectedToolCallCount"
+                          - "costUsd"
+                          - "models"
+                          - "captureTier"
+                          - "permissionPromptCount"
+                          - "apiErrorCount"
+                          - "editRetryLoop"
+                          - "hookExecutionCount"
+                          - "hookDurationMs"
+                          - "hookUnreportedCount"
+                          - "slowestHookMs"
+                          - "slowestHookCommand"
+                        type: "object"
+                      spans:
+                        items:
+                          properties:
+                            cost:
+                              nullable: true
+                              type: "number"
+                            durationMs:
+                              nullable: true
+                              type: "number"
+                            images:
+                              items:
+                                properties:
+                                  mediaType:
+                                    type: "string"
+                                  sha256:
+                                    type: "string"
+                                  token:
+                                    type: "string"
+                                required:
+                                  - "sha256"
+                                  - "mediaType"
+                                  - "token"
+                                type: "object"
+                              type: "array"
+                            input:
+                              nullable: true
+                              type: "string"
+                            inputTokens:
+                              nullable: true
+                              type: "number"
+                            metadata:
+                              additionalProperties:
+                                type: "string"
+                              type: "object"
+                            model:
+                              nullable: true
+                              type: "string"
+                            name:
+                              type: "string"
+                            output:
+                              nullable: true
+                              type: "string"
+                            outputTokens:
+                              nullable: true
+                              type: "number"
+                            parentSpanId:
+                              nullable: true
+                              type: "string"
+                            reasoning:
+                              nullable: true
+                              type: "string"
+                            spanId:
+                              type: "string"
+                            startTime:
+                              type: "string"
+                            statusCode:
+                              type: "string"
+                            statusMessage:
+                              nullable: true
+                              type: "string"
+                          required:
+                            - "spanId"
+                            - "parentSpanId"
+                            - "name"
+                            - "startTime"
+                            - "durationMs"
+                            - "statusCode"
+                            - "statusMessage"
+                            - "model"
+                            - "cost"
+                            - "inputTokens"
+                            - "outputTokens"
+                            - "input"
+                            - "output"
+                            - "reasoning"
+                            - "metadata"
+                          type: "object"
+                        type: "array"
+                      truncated:
+                        type: "boolean"
+                    required:
+                      - "session"
+                      - "spans"
+                      - "truncated"
+                      - "prOutcomes"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "Full session transcript."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+        "404":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Session not found."
+      summary: "Get agent session detail"
+      tags:
+        - "Sessions"
   /v1/spans:
     get:
       description: "Query spans across all traces. Supports filtering by type, status, model, name, and duration range."
@@ -6806,6 +7624,8 @@ tags:
     name: "Apps"
   - description: "Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app's connected repo; every response carries the dashboard deep link to the live thread."
     name: "Workers"
+  - description: "Agent-coding session list and full transcript reads, with actor-privacy controls for machine keys."
+    name: "Sessions"
   - description: "Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet."
     name: "Topics"
   - description: "Per-model token spend and fleet-wide agent behavior tiles."

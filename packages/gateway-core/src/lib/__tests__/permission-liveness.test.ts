@@ -31,9 +31,10 @@ const DORMANT_PERMISSION_ALLOWLIST: Partial<Record<GatewayPermission, string>> =
   // bearer/dashboard path; no gateway route reads it, so it never
   // appears as a `requiredPermission`. Permanent — not tied to a future group.
   'environment.update': 'backs the environment RLS UPDATE policy; no gateway route by design',
-  // Dormant until the sessions REST routes ship.
-  'session.read': 'activated once GET /v1/sessions and GET /v1/sessions/{traceId} ship',
-  'agents.sessions.team.read': 'activated once GET /v1/sessions ships and reads it from the actor-privacy policy',
+  // Checked inline in ListSessions/GetSessionDetail (`user.permissions.includes(...)`)
+  // to decide actor-identity visibility, not as a route's requiredPermission —
+  // a caller without it still reaches /v1/sessions, just sees anonymized actors.
+  'agents.sessions.team.read': 'gates actor-identity visibility inside the sessions handlers, never a route requiredPermission',
 };
 
 describe('permission liveness', () => {

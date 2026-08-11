@@ -86,6 +86,7 @@ function sessionsFakeClient(): IClickHouseQuery {
 }
 
 describe('topics/agent-sessions count parity', () => {
+  // proves AC-052-02
   test('a topic\'s listTopics sessionCount equals the drill-down listSessions total', async () => {
     const topics = new TopicsService(topicsFakeClient(), { modelEnv: {} });
     const list = await topics.listTopics(TOPICS_SCOPE, 'task');

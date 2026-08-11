@@ -178,3 +178,100 @@ export interface SessionsPage {
  * runaway tool loop) can carry tens of thousands of rows; past this the
  * response is truncated rather than shipping an unbounded payload. */
 export const MAX_SESSION_SPANS = 2000;
+
+// ---------------------------------------------------------------------------
+// GET /v1/sessions + GET /v1/sessions/{traceId} — REST + MCP wire contract
+// ---------------------------------------------------------------------------
+
+const SessionOutcomeFactSchema = z.object({ score: z.number(), label: z.string() });
+
+const SessionPrOutcomeSchema = z.object({
+  prNumber: z.number().int(),
+  prUrl: z.string().nullable(),
+  ciGreen: SessionOutcomeFactSchema.nullable(),
+  merged: SessionOutcomeFactSchema.nullable(),
+  reverted: SessionOutcomeFactSchema.nullable(),
+});
+
+const SignedImageRefSchema = z.object({
+  sha256: z.string(),
+  mediaType: z.string(),
+  token: z.string(),
+});
+
+const AgentSessionRowSchema = z.object({
+  traceId: z.string(),
+  sessionId: z.string(),
+  title: z.string().nullable(),
+  agentType: z.string(),
+  actorId: z.string(),
+  actorName: z.string().optional(),
+  workerKind: z.string().nullable(),
+  origin: z.string().optional(),
+  project: z.string().nullable(),
+  startedAt: z.string(),
+  durationMs: z.number().nullable(),
+  turnCount: z.number().int(),
+  toolCallCount: z.number().int(),
+  errorCount: z.number().int(),
+  userTurnCount: z.number().int(),
+  rejectedToolCallCount: z.number().int(),
+  costUsd: z.number().nullable(),
+  models: z.array(z.string()),
+  prOutcomes: z.array(SessionPrOutcomeSchema).optional(),
+});
+
+export const AgentSpanSchema = z.object({
+  spanId: z.string(),
+  parentSpanId: z.string().nullable(),
+  name: z.string(),
+  startTime: z.string(),
+  durationMs: z.number().nullable(),
+  statusCode: z.string(),
+  statusMessage: z.string().nullable(),
+  model: z.string().nullable(),
+  cost: z.number().nullable(),
+  inputTokens: z.number().nullable(),
+  outputTokens: z.number().nullable(),
+  input: z.string().nullable(),
+  output: z.string().nullable(),
+  reasoning: z.string().nullable(),
+  metadata: z.record(z.string(), z.string()),
+  images: z.array(SignedImageRefSchema).optional(),
+});
+
+export const SessionsPageSchema = z.object({
+  repo: z.string(),
+  scope: z.enum(['self', 'team']),
+  total: z.number().int().nonnegative(),
+  originCounts: z
+    .object({ interactive: z.number().int(), agent: z.number().int(), worker: z.number().int() })
+    .optional(),
+  branches: z.array(z.string()),
+  actors: z.array(z.string()),
+  agentTypes: z.array(z.string()),
+  models: z.array(z.string()),
+  workerKinds: z.array(z.string()),
+  actorNames: z.record(z.string(), z.string()),
+  sessions: z.array(AgentSessionRowSchema.extend({ branch: z.string().nullable() })),
+});
+
+export const AgentSessionDetailSchema = z.object({
+  session: AgentSessionRowSchema.extend({
+    captureTier: z.string(),
+    permissionPromptCount: z.number().int(),
+    apiErrorCount: z.number().int(),
+    editRetryLoop: z.object({ file: z.string(), fails: z.number().int() }).nullable(),
+    hookExecutionCount: z.number().int(),
+    hookDurationMs: z.number(),
+    hookUnreportedCount: z.number().int(),
+    slowestHookMs: z.number(),
+    slowestHookCommand: z.string(),
+  }),
+  spans: z.array(AgentSpanSchema),
+  truncated: z.boolean(),
+  prOutcomes: z.array(SessionPrOutcomeSchema),
+});
+
+export const SessionsListResponseSchema = z.object({ data: SessionsPageSchema });
+export const SessionDetailResponseSchema = z.object({ data: AgentSessionDetailSchema });

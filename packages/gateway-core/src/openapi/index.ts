@@ -14,7 +14,7 @@ import type { RouteRateLimit } from '../rate-limits';
 import type { Env } from '../types';
 
 // Route imports
-import { SyncAgentSessions, GetAgentBlob } from './routes/agents';
+import { SyncAgentSessions, GetAgentBlob, GetAgentBlobByToken } from './routes/agents';
 import { ListSpans, SearchSpans, GetSpan, GetBlob } from './routes/spans';
 import { CreateScore, CreateScoresBatch, ListScores, SearchScores, GetScore, GetScoreAggregations, GetScoreNames, DeleteScore } from './routes/scores';
 import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
@@ -22,6 +22,7 @@ import { GetCapabilities } from './routes/capabilities';
 import { GetPricing } from './routes/pricing';
 import { GetTopics } from './routes/topics';
 import { GetModelStats, GetFleetOverview } from './routes/metrics';
+import { ListSessions, GetSessionDetail } from './routes/sessions';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from './routes/api-keys';
 import {
   ListEnvironments,
@@ -533,6 +534,7 @@ export const openApiApp = fromHono(app, {
       { name: 'Environments', description: 'Per-app named environments (e.g. `dev`, `prod`). CRUD for env lifecycle.' },
       { name: 'Apps', description: 'App CRUD — the top-level tenant entity every other resource hangs off. Lets a headless agent provision an app without the dashboard.' },
       { name: 'Workers', description: 'Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app\'s connected repo; every response carries the dashboard deep link to the live thread.' },
+      { name: 'Sessions', description: 'Agent-coding session list and full transcript reads, with actor-privacy controls for machine keys.' },
       { name: 'Topics', description: 'Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet.' },
       { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles.' },
       { name: 'Health', description: 'Service health checks.' },
@@ -721,6 +723,7 @@ registerAuthenticatedRoute('get', '/v1/workers/environments/:envId', GetWorkerSe
 
 registerAuthenticatedRoute('post', '/v1/agents/sync', SyncAgentSessions);
 registerAuthenticatedRoute('get', '/v1/agents/blob/:sha256', GetAgentBlob);
+registerAuthenticatedRoute('get', '/v1/agents/blob-token/:token', GetAgentBlobByToken);
 
 // ============================================================================
 // Spans routes
@@ -746,6 +749,12 @@ registerAuthenticatedRoute('delete', '/v1/scores/:scoreId', DeleteScore);
 // Filter-schema discovery — machine-readable description of
 // the filterable surface, for agents/SDKs building structured filters.
 // ============================================================================
+
+// ============================================================================
+// Sessions routes
+// ============================================================================
+registerAuthenticatedRoute('get', '/v1/sessions', ListSessions);
+registerAuthenticatedRoute('get', '/v1/sessions/:traceId', GetSessionDetail);
 
 // ============================================================================
 // Topics routes

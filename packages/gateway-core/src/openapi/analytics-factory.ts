@@ -1,4 +1,4 @@
-import { AnalyticsService, createAnalyticsService, withReadScope, buildTopicsService, TopicsService, type TopicsRuntimeConfig } from '@repo/observability-service';
+import { AnalyticsService, createAnalyticsService, withReadScope, buildTopicsService, TopicsService, AgentSessionsService, type TopicsRuntimeConfig } from '@repo/observability-service';
 import type { IClickHouseQuery, QueryResult, ReadScope } from '@repo/observability-service';
 import type { TopicsModelEnv } from '@repo/trace-topics';
 import { createClient } from '@clickhouse/client-web';
@@ -167,6 +167,37 @@ export function getGatewayTopicsService(env: TopicsAnalyticsEnv, scope: ReadScop
   const adapter = resolveBaseAdapter(env);
   if (!adapter) return null;
   return buildTopicsService(withReadScope(adapter, scope), resolveTopicsRuntimeConfig(env));
+}
+
+/**
+ * Per-request `AgentSessionsService`, scoped the same way `getGatewayAnalyticsService`
+ * scopes `AnalyticsService` — same base adapter, same row-policy settings.
+ */
+export function getGatewaySessionsService(env: AnalyticsEnv, scope: ReadScope): AgentSessionsService | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return new AgentSessionsService(withReadScope(adapter, scope));
+}
+
+/** One parameterized query returning JSON rows — the minimal ClickHouse seam
+ * the PR-outcome reader needs (mirrors the dashboard's `ChQueryFn`). */
+export type ChQueryFn = (sql: string, params: Record<string, unknown>) => Promise<Record<string, unknown>[]>;
+
+/**
+ * Tenant/app-scoped raw-query function over the same base adapter every other
+ * gateway analytics factory shares. Used where a caller needs a plain
+ * `(sql, params) => rows` seam rather than a service facade — currently the
+ * sessions route's PR-outcome reader, which queries the `scores` table
+ * directly (mirrors the dashboard's `tenantChQuery`).
+ */
+export function getGatewayChQuery(env: AnalyticsEnv, scope: ReadScope): ChQueryFn | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  const scoped = withReadScope(adapter, scope);
+  return async (sql, params) => {
+    const result = await scoped.query({ query: sql, query_params: params, format: 'JSONEachRow' });
+    return result.json<Record<string, unknown>>();
+  };
 }
 
 export function resetGatewayAnalyticsService(): void {
