@@ -145,6 +145,6 @@ export function orgRolloutSnippet(cliBin: string): string {
     "managed-settings.json:",
     managed,
     "",
-    "Each developer still runs `outerlayer sync` once to connect their machine.",
+    "Each developer still runs `outerlayer login` once to connect their machine.",
   ].join("\n");
 }

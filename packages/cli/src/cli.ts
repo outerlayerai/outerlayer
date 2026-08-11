@@ -196,6 +196,32 @@ export async function runCli(processArgv: string[]): Promise<void> {
     });
 
   program
+    .command("login")
+    .description("Connect this machine to an OuterLayer dashboard via device-code login, then sync")
+    .option("--url <url>", "dashboard base URL (or OUTERLAYER_DASHBOARD_URL)")
+    .action(async (opts) => {
+      const { runLogin, LoginConfigError, LoginTransportError, LoginDeniedError, LoginTimeoutError } = await import(
+        "./login-cmd.js"
+      );
+      try {
+        const result = await runLogin({ url: opts.url });
+        process.stdout.write(result.output);
+      } catch (err) {
+        if (
+          err instanceof LoginConfigError ||
+          err instanceof LoginTransportError ||
+          err instanceof LoginDeniedError ||
+          err instanceof LoginTimeoutError
+        ) {
+          process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        throw err;
+      }
+    });
+
+  program
     .command("watch")
     .description("Run the copy-out daemon (mirrors transcripts before Claude Code deletes them)")
     .option("--once", "do a single mirror sweep and exit")
