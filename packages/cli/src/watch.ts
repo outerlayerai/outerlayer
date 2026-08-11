@@ -4,11 +4,40 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CaptureDaemon, StatuslineAggregator } from "@outerlayer/capture";
+import { CaptureDaemon, StatuslineAggregator, type DaemonLogEvent } from "@outerlayer/capture";
 
 export interface WatchOptions {
   once?: boolean;
   home?: string;
+}
+
+/** The slice of `StatuslineAggregator` `onLog` needs — narrowed so a fake
+ * can stand in without constructing a real aggregator. */
+export interface StatuslineNotifier {
+  notifyChange(): void;
+}
+
+/**
+ * Builds the daemon's `onLog` callback. Mirrored and evicted events print a
+ * line (stdout); an error prints to stderr. Mirrored AND rescan both nudge
+ * the statusline aggregator's debounced refresh — the statusline command
+ * itself never parses transcripts, so this is the only place a recompute
+ * gets scheduled in response to new data.
+ */
+export function makeWatchLogHandler(
+  statusline: StatuslineNotifier,
+  stdout: (s: string) => void = (s) => process.stdout.write(s),
+  stderr: (s: string) => void = (s) => process.stderr.write(s),
+): (e: DaemonLogEvent) => void {
+  return (e) => {
+    if (e.type === "mirrored") {
+      stdout(`mirrored ${e.file}\n`);
+      statusline.notifyChange();
+    }
+    if (e.type === "rescan") statusline.notifyChange();
+    if (e.type === "evicted") stdout(`evicted ${e.file}\n`);
+    if (e.type === "error") stderr(`error ${e.file}: ${e.detail}\n`);
+  };
 }
 
 /** `outerlayer watch` — start the copy-out daemon, writing a pidfile +
@@ -20,18 +49,7 @@ export async function runWatch(opts: WatchOptions = {}): Promise<void> {
   mkdirSync(stateDir, { recursive: true });
 
   const statusline = new StatuslineAggregator({ home });
-
-  const daemon = new CaptureDaemon({
-    onLog: (e) => {
-      if (e.type === "mirrored") {
-        process.stdout.write(`mirrored ${e.file}\n`);
-        statusline.notifyChange();
-      }
-      if (e.type === "rescan") statusline.notifyChange();
-      if (e.type === "evicted") process.stdout.write(`evicted ${e.file}\n`);
-      if (e.type === "error") process.stderr.write(`error ${e.file}: ${e.detail}\n`);
-    },
-  });
+  const daemon = new CaptureDaemon({ onLog: makeWatchLogHandler(statusline) });
 
   if (opts.once) {
     daemon.rescanNow();

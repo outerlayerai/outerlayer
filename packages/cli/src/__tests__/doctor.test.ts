@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDoctor, doctorExitCode, type Check } from "../doctor.js";
 import { runInit } from "../init.js";
-import { statuslineStatePath } from "../statusline-fast.js";
+import { statuslineStatePath, STATE_FRESH_MS } from "../statusline-fast.js";
+import { mergeStatusline } from "../settings.js";
 
 let home: string;
 // A bare name (no path separator) so `cliBinResolvable` trusts it via PATH
@@ -121,6 +122,42 @@ describe("runDoctor — the 8 failure modes each detected", () => {
     expect(c.fix).toMatch(/outerlayer init/);
   });
 
+  it("a statusLine slot explicitly set to JSON null does not crash the check — reads as not installed", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ statusLine: null }));
+    const c = byName(runDoctor({ home, ...STUBBED }), "Status line");
+    expect(c.status).toBe("warn");
+    expect(c.detail).toBe("not installed");
+  });
+
+  it("a foreign slot whose `command` is a non-string is never reported as 'occupied by' — reads as not installed", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ statusLine: { type: "command", command: 42 } }));
+    const c = byName(runDoctor({ home, ...STUBBED }), "Status line");
+    expect(c.status).toBe("warn");
+    expect(c.detail).toBe("not installed");
+  });
+
+  it("installed AND wrapping a foreign command → pass with the wrapped command named in the detail", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const wrapped = mergeStatusline({ statusLine: { type: "command", command: "my-status.sh --flag" } }, "outerlayer-test-bin").next;
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(wrapped));
+    const c = byName(runDoctor({ home, ...STUBBED }), "Status line");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("installed, wrapping: my-status.sh --flag");
+  });
+
+  it("installed with a non-string wrap marker still passes, but without a wrapping detail", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      JSON.stringify({ statusLine: { type: "command", command: "outerlayer-test-bin statusline", _outerlayer: true, _outerlayerWrapped: 12345 } }),
+    );
+    const c = byName(runDoctor({ home, ...STUBBED }), "Status line");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("installed");
+  });
+
   it("statusline installed (plain) → pass; no state file yet → Status-line state warns", () => {
     mkdirSync(join(home, ".claude"), { recursive: true });
     runInit({ scope: "user", cliBin: BIN, home });
@@ -143,6 +180,24 @@ describe("runDoctor — the 8 failure modes each detected", () => {
     const checks = runDoctor({ home, ...STUBBED, now });
     expect(byName(checks, "Status line").status).toBe("pass");
     expect(byName(checks, "Status-line state").status).toBe("pass");
+  });
+
+  it("state age exactly at STATE_FRESH_MS is still fresh — the boundary is inclusive", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    mkdirSync(join(home, ".outerlayer"), { recursive: true });
+    const now = Date.now();
+    writeFileSync(
+      statuslineStatePath(home),
+      JSON.stringify({
+        v: 1,
+        generatedAt: new Date(now - STATE_FRESH_MS).toISOString(),
+        today: { date: "2026-08-11", byAgent: {}, sessionCount: 0 },
+        sessions: {},
+      }),
+    );
+    const c = byName(runDoctor({ home, ...STUBBED, now: () => now }), "Status-line state");
+    expect(c.status).toBe("pass");
   });
 
   it("statusline installed + stale generatedAt → Status-line state warns 'degraded'", () => {

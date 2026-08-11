@@ -51,6 +51,16 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
+describe("localDateString", () => {
+  it("formats as YYYY-MM-DD with zero-padded month and day", () => {
+    expect(localDateString(Date.parse("2026-01-05T12:00:00.000Z"))).toBe("2026-01-05");
+  });
+
+  it("double-digit month and day need no padding", () => {
+    expect(localDateString(Date.parse("2026-11-23T12:00:00.000Z"))).toBe("2026-11-23");
+  });
+});
+
 describe("renderStatusline — fixture matrix", () => {
   it("full payload + fresh state: all three segments, exact ANSI", () => {
     const stdin: StatuslineStdin = { cost: { total_cost_usd: 0.87 } };
@@ -131,6 +141,12 @@ describe("renderStatusline — fixture matrix", () => {
     expect(line).toBe(`⬢ OL  $4.50 today across 3 sessions${SEP}12 unsynced`);
   });
 
+  it("sessionCount exactly 2 is already 'across N sessions' — the boundary is inclusive", () => {
+    const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 4.5 }, sessionCount: 2 } });
+    const line = renderStatusline({}, state, NOW);
+    expect(line).toBe(`⬢ OL  $4.50 today across 2 sessions${SEP}12 unsynced`);
+  });
+
   it("exactly one agent and exactly one session renders a bare '$X today' — no scope suffix", () => {
     const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 4.5 }, sessionCount: 1 } });
     const line = renderStatusline({}, state, NOW);
@@ -169,6 +185,11 @@ describe("renderStatusline — fixture matrix", () => {
     expect(line).toBe(`⬢ OL  $1,235 session${SEP}${DOCTOR_HINT}`);
   });
 
+  it("session cost of exactly $100 already uses the rounded form — the boundary is inclusive", () => {
+    const line = renderStatusline({ cost: { total_cost_usd: 100 } }, null, NOW);
+    expect(line).toBe(`⬢ OL  $100 session${SEP}${DOCTOR_HINT}`);
+  });
+
   it("today total >= $100 also renders rounded with thousands separators", () => {
     const state = freshState({ today: { date: localDateString(NOW), byAgent: { "claude-code": 3000, codex: 2000 }, sessionCount: 1 }, unsynced: 0 });
     const line = renderStatusline({}, state, NOW);
@@ -185,6 +206,68 @@ describe("renderStatusline — fixture matrix", () => {
   it("bare prefix with no segments at all when fresh state carries nothing to show", () => {
     const state = freshState({ today: { date: localDateString(NOW), byAgent: {}, sessionCount: 0 }, unsynced: 0 });
     expect(renderStatusline({}, state, NOW)).toBe("⬢ OL");
+  });
+});
+
+describe("renderStatusline — defends against a malformed on-disk state file", () => {
+  // The state file is daemon-written JSON, but readStatuslineState only
+  // shape-checks its OWN fields (v/generatedAt/today.date/today.byAgent) —
+  // a byAgent/sessionCount/unsynced VALUE of the wrong type still reaches
+  // render. These pin the runtime type guards that keep a stray string from
+  // being treated as a valid cost/count via loose `>`/`>=` coercion.
+  it("a byAgent value that is a numeric STRING is not treated as a real cost (loose '>' would coerce it truthy)", () => {
+    const corruptToday = { date: localDateString(NOW), byAgent: { "claude-code": "50" }, sessionCount: 1 } as unknown as StatuslineStateFile["today"];
+    const state = freshState({ today: corruptToday, unsynced: 0 });
+    expect(renderStatusline({}, state, NOW)).toBe("⬢ OL");
+  });
+
+  it("a sessionCount that is a numeric STRING never triggers the 'across N sessions' phrasing", () => {
+    const corruptToday = { date: localDateString(NOW), byAgent: { "claude-code": 4.5 }, sessionCount: "5" } as unknown as StatuslineStateFile["today"];
+    const state = freshState({ today: corruptToday, unsynced: 0 });
+    expect(renderStatusline({}, state, NOW)).toBe(`⬢ OL  $4.50 today`);
+  });
+
+  it("an unsynced value that is a numeric STRING never renders the unsynced segment", () => {
+    const state = freshState({ unsynced: "10" as unknown as number });
+    expect(renderStatusline({}, state, NOW)).toBe(`⬢ OL  $23.40 today across 3 agents`);
+  });
+});
+
+describe("readStatuslineState — shape guards, each isolated", () => {
+  function write(content: unknown): void {
+    mkdirSync(join(home, ".outerlayer"), { recursive: true });
+    writeFileSync(statuslineStatePath(home), JSON.stringify(content));
+  }
+
+  it("a bare JSON null is treated as absent", () => {
+    write(null);
+    expect(readStatuslineState(home)).toBeNull();
+  });
+
+  it("v !== 1 alone (everything else valid) reads as null", () => {
+    write({ v: 2, generatedAt: new Date(NOW).toISOString(), today: { date: "2026-08-11", byAgent: {} } });
+    expect(readStatuslineState(home)).toBeNull();
+  });
+
+  it("a non-string generatedAt alone (everything else valid) reads as null", () => {
+    write({ v: 1, generatedAt: 12345, today: { date: "2026-08-11", byAgent: {} } });
+    expect(readStatuslineState(home)).toBeNull();
+  });
+
+  it("a non-string today.date alone (everything else valid) reads as null", () => {
+    write({ v: 1, generatedAt: new Date(NOW).toISOString(), today: { date: 12345, byAgent: {} } });
+    expect(readStatuslineState(home)).toBeNull();
+  });
+
+  it("a non-object today.byAgent alone (everything else valid) reads as null", () => {
+    write({ v: 1, generatedAt: new Date(NOW).toISOString(), today: { date: "2026-08-11", byAgent: "not-an-object" } });
+    expect(readStatuslineState(home)).toBeNull();
+  });
+
+  it("a fully valid shape passes through untouched", () => {
+    const valid = { v: 1, generatedAt: new Date(NOW).toISOString(), today: { date: "2026-08-11", byAgent: { "claude-code": 1 } }, sessions: {} };
+    write(valid);
+    expect(readStatuslineState(home)).toEqual(valid);
   });
 });
 
@@ -213,6 +296,39 @@ describe("runStatuslineFast", () => {
       }),
     ).resolves.toBeUndefined();
     expect(writes).toEqual(["⬢ OL\n"]);
+  });
+
+  it("with no `read` injected and a TTY stdin, reads as {} instead of blocking on fd 0", async () => {
+    const original = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    try {
+      const writes: string[] = [];
+      await runStatuslineFast([], { home, write: (s) => writes.push(s), now: () => NOW });
+      expect(writes).toEqual([`⬢ OL  ${DOCTOR_HINT}\n`]);
+    } finally {
+      if (original) Object.defineProperty(process.stdin, "isTTY", original);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("with no `write` injected, prints through the real process.stdout.write", async () => {
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await runStatuslineFast([], { home, read: () => JSON.stringify({ cost: { total_cost_usd: 2 } }), now: () => NOW });
+      expect(spy).toHaveBeenCalledWith(`⬢ OL  $2.00 session${SEP}${DOCTOR_HINT}\n`);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("with no `now` injected, uses the real clock rather than throwing — output carries real content, not the crash fallback", async () => {
+    const writes: string[] = [];
+    await runStatuslineFast([], {
+      home,
+      read: () => JSON.stringify({ cost: { total_cost_usd: 5 } }),
+      write: (s) => writes.push(s),
+    });
+    expect(writes).toEqual([`⬢ OL  $5.00 session${SEP}${DOCTOR_HINT}\n`]);
   });
 });
 
@@ -302,11 +418,63 @@ describe("wrap mode — runWrappedStatusline", () => {
     await expect(promise).resolves.toBeNull();
   });
 
-  it("resolves null on a child 'error' event", async () => {
-    const { child, emitError } = fakeWrapChild();
-    const promise = runWrappedStatusline("original-cmd", "", { spawnImpl: () => child });
-    emitError(new Error("spawn EACCES"));
-    await expect(promise).resolves.toBeNull();
+  it("resolves null on a child 'error' event WITHOUT waiting for the timeout to elapse", async () => {
+    vi.useFakeTimers();
+    try {
+      const { child, emitError } = fakeWrapChild();
+      // A long timeout: if the 'error' handler were a no-op, this promise
+      // would still eventually resolve null once the timeout fires — so a
+      // fixed value alone can't distinguish a live handler from a dead one.
+      // Advancing only 1ms (nowhere near 10s) proves resolution came from
+      // the error handler itself.
+      const promise = runWrappedStatusline("original-cmd", "", { spawnImpl: () => child, timeoutMs: 10_000 });
+      emitError(new Error("spawn EACCES"));
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(promise).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never throws when the child has no stdin/stdout streams at all", async () => {
+    const listeners: { close: Array<(code: number | null) => void> } = { close: [] };
+    const nullChild: WrapChild = {
+      stdin: null,
+      stdout: null,
+      on(event: "close" | "error", listener: never) {
+        if (event === "close") listeners.close.push(listener as (code: number | null) => void);
+        return nullChild;
+      },
+      kill: () => true,
+    };
+    const promise = runWrappedStatusline("original-cmd", "some stdin", { spawnImpl: () => nullChild });
+    listeners.close.forEach((l) => l(0));
+    await expect(promise).resolves.toBe(""); // no stdout stream to collect from
+  });
+
+  it("a null stdout does not prevent stdin from still being written (independent optional chains)", async () => {
+    const stdinChunks: string[] = [];
+    const listeners: { close: Array<(code: number | null) => void> } = { close: [] };
+    const child: WrapChild = {
+      stdin: {
+        on: () => {},
+        write: (chunk: unknown) => {
+          stdinChunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
+          return true;
+        },
+        end: () => {},
+      } as unknown as NodeJS.WritableStream,
+      stdout: null,
+      on(event: "close" | "error", listener: never) {
+        if (event === "close") listeners.close.push(listener as (code: number | null) => void);
+        return child;
+      },
+      kill: () => true,
+    };
+    const promise = runWrappedStatusline("original-cmd", "payload bytes", { spawnImpl: () => child });
+    listeners.close.forEach((l) => l(0));
+    await promise;
+    expect(stdinChunks.join("")).toBe("payload bytes");
   });
 
   it("delivers stdin text to the child byte-for-byte", async () => {
@@ -419,6 +587,14 @@ describe("runStatuslineFast — wrap mode end to end", () => {
     expect(writes).toEqual([`⬢ OL  ${DOCTOR_HINT}\n`]);
   });
 
+  it("parseStatuslineArgs: no --wrap-id anywhere in argv returns a bare {} — no wrapId key at all", () => {
+    expect(parseStatuslineArgs(["--some-other-flag"])).toStrictEqual({});
+  });
+
+  it("parseStatuslineArgs: --wrap-id NOT at argv[0] still finds it, returning the following element", () => {
+    expect(parseStatuslineArgs(["--unrelated", "--wrap-id", "abc123"])).toEqual({ wrapId: "abc123" });
+  });
+
   it("a missing --wrap-id value runs the plain (non-wrap) path", async () => {
     expect(parseStatuslineArgs(["--wrap-id"])).toEqual({ wrapId: undefined });
     const writes: string[] = [];
@@ -428,6 +604,41 @@ describe("runStatuslineFast — wrap mode end to end", () => {
       write: (s) => writes.push(s),
       now: () => NOW,
     });
+    expect(writes).toEqual([`⬢ OL  ${DOCTOR_HINT}\n`]);
+  });
+
+  it("a wrap-id of all-invalid-base64 characters (non-empty, decodes to '') also skips the spawn attempt", async () => {
+    let spawnCalled = false;
+    const writes: string[] = [];
+    // "!!!" is non-empty (passes the outer wrapId check) but every character
+    // is outside the base64 alphabet, so Buffer.from(..., "base64") decodes
+    // it to an empty string — the inner falsy-original check must still catch it.
+    await runStatuslineFast(["--wrap-id", "!!!"], {
+      home,
+      read: () => JSON.stringify({}),
+      write: (s) => writes.push(s),
+      spawnImpl: () => {
+        spawnCalled = true;
+        throw new Error("should not be called");
+      },
+      now: () => NOW,
+    });
+    expect(spawnCalled).toBe(false);
+    expect(writes).toEqual([`⬢ OL  ${DOCTOR_HINT}\n`]);
+  });
+
+  it("a clean exit 0 with EMPTY wrapped stdout writes only our line — no blank extra line", async () => {
+    const { child, emitClose } = fakeWrapChild();
+    const writes: string[] = [];
+    const runPromise = runStatuslineFast(["--wrap-id", encodeWrappedCommand("their-status")], {
+      home,
+      read: () => JSON.stringify({}),
+      write: (s) => writes.push(s),
+      spawnImpl: () => child,
+      now: () => NOW,
+    });
+    emitClose(0); // no stdout data emitted — theirOutput resolves to ""
+    await runPromise;
     expect(writes).toEqual([`⬢ OL  ${DOCTOR_HINT}\n`]);
   });
 });

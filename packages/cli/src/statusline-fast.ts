@@ -128,8 +128,11 @@ export function renderStatusline(stdin: StatuslineStdin, state: StatuslineStateF
   const segments: string[] = [];
 
   const sessionCost = stdin.cost?.total_cost_usd;
-  if (typeof sessionCost === "number" && Number.isFinite(sessionCost)) {
-    segments.push(`${fmtUsd(sessionCost)} session`);
+  // Number.isFinite (unlike the global isFinite) never coerces, so it is
+  // already false for every non-number value — a separate `typeof` check
+  // would be redundant.
+  if (Number.isFinite(sessionCost)) {
+    segments.push(`${fmtUsd(sessionCost as number)} session`);
   }
 
   const fresh = state !== null && stateFresh(state, now);
@@ -208,6 +211,10 @@ export function runWrappedStatusline(
       return;
     }
     let out = "";
+    // A settled Promise silently ignores every resolve() after the first, so
+    // this latch guards `clearTimeout` re-entrance rather than the resolution
+    // itself — relevant when the child fires more than one terminal event
+    // (e.g. 'close' after a kill-triggered 'error').
     let done = false;
     const finish = (value: string | null) => {
       if (done) return;
@@ -241,10 +248,8 @@ export function runWrappedStatusline(
 /** Parses `outerlayer statusline`'s own argv. Hand-rolled, not commander —
  * this path must stay import-light like hook-fast.ts. */
 export function parseStatuslineArgs(args: string[]): { wrapId?: string } {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--wrap-id") return { wrapId: args[i + 1] };
-  }
-  return {};
+  const idx = args.indexOf("--wrap-id");
+  return idx === -1 ? {} : { wrapId: args[idx + 1] };
 }
 
 export interface RunStatuslineOptions {
@@ -268,6 +273,9 @@ export async function runStatuslineFast(args: string[], opts: RunStatuslineOptio
     const ourLine = renderStatusline(stdin, state, now);
 
     const { wrapId } = parseStatuslineArgs(args);
+    // Defense in depth, not just narrowing: even a missing/empty wrapId that
+    // somehow reached decodeWrappedCommand would come back null or "" and be
+    // caught by the `original` check below just the same.
     if (wrapId) {
       let original: string | null = null;
       try {
@@ -277,8 +285,8 @@ export async function runStatuslineFast(args: string[], opts: RunStatuslineOptio
       }
       if (original) {
         const theirOutput = await runWrappedStatusline(original, stdinText, {
-          ...(opts.spawnImpl ? { spawnImpl: opts.spawnImpl } : {}),
-          ...(opts.wrapTimeoutMs !== undefined ? { timeoutMs: opts.wrapTimeoutMs } : {}),
+          spawnImpl: opts.spawnImpl,
+          timeoutMs: opts.wrapTimeoutMs,
         });
         if (theirOutput !== null && theirOutput.length > 0) {
           write(theirOutput.replace(/\n$/, "") + "\n");

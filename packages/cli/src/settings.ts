@@ -354,6 +354,9 @@ export function mergeStatusline(
     next.statusLine = { type: "command", command: statuslineCommand(cliBin), [MARKER]: true };
     return { next, changed: true, outcome: "installed" };
   }
+  // A fast path, not the only guard: a JSON-sourced primitive here (string,
+  // number, boolean) has no `.command`/marker property of its own, so it
+  // would fall through to the same "skipped" verdict via the checks below.
   if (typeof slot !== "object") {
     return { next, changed: false, outcome: "skipped" };
   }

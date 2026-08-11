@@ -35,12 +35,21 @@ describe("mergeStatusline — empty slot", () => {
     expect(statuslineCommand(BIN)).toBe(`${BIN} statusline`);
   });
 
-  it("re-run is unchanged and produces a byte-identical settings object", () => {
+  it("re-run is unchanged and produces a byte-identical settings object, with no wrappedCommand key at all", () => {
     const first = mergeStatusline(null, BIN).next;
     const second = mergeStatusline(first, BIN);
     expect(second.changed).toBe(false);
     expect(second.outcome).toBe("unchanged");
     expect(second.next).toEqual(first);
+    expect("wrappedCommand" in second).toBe(false);
+  });
+
+  it("a statusLine slot explicitly set to JSON null is treated the same as an absent slot — installs fresh", () => {
+    const settings = { statusLine: null } as unknown as ClaudeSettings;
+    const { next, changed, outcome } = mergeStatusline(settings, BIN);
+    expect(changed).toBe(true);
+    expect(outcome).toBe("installed");
+    expect(next.statusLine).toEqual({ type: "command", command: statuslineCommand(BIN), _outerlayer: true });
   });
 
   it("runInit writes an exact settings object with the statusLine slot installed", () => {
@@ -78,12 +87,13 @@ describe("mergeStatusline — foreign slot", () => {
     });
   });
 
-  it("never double-wraps — merging the already-wrapped slot again is unchanged", () => {
+  it("never double-wraps — merging the already-wrapped slot again is unchanged and still reports the original command", () => {
     const wrapped = mergeStatusline(foreign, BIN).next;
     const second = mergeStatusline(wrapped, BIN);
     expect(second.changed).toBe(false);
     expect(second.outcome).toBe("unchanged");
     expect(second.next).toEqual(wrapped);
+    expect(second.wrappedCommand).toBe("my-status.sh --flag");
   });
 
   it("runInit on an occupied slot wraps it and reports the preserved command", () => {
@@ -120,21 +130,58 @@ describe("removeStatusline", () => {
     expect(next.statusLine).toEqual(foreign.statusLine);
   });
 
-  it("init then remove restores settings byte-identical to before init, when the slot started foreign", () => {
+  it("is a safe no-op — not a throw — when there is no statusLine key at all", () => {
+    const { next, changed } = removeStatusline({ model: "x" });
+    expect(changed).toBe(false);
+    expect(next).toEqual({ model: "x" });
+  });
+
+  it("is a safe no-op on a statusLine slot that is a non-object primitive (e.g. a stray number)", () => {
+    const settings = { statusLine: 42 } as unknown as ClaudeSettings;
+    const { next, changed } = removeStatusline(settings);
+    expect(changed).toBe(false);
+    expect(next.statusLine).toBe(42);
+  });
+
+  it("init then remove restores settings byte-identical to before init, when the slot started foreign, and reports the restored command", () => {
     mkdirSync(join(home, ".claude"), { recursive: true });
     const original = JSON.stringify({ statusLine: { type: "command", command: "my-status.sh --flag" } }, null, 2) + "\n";
     writeFileSync(userSettings(), original);
     runInit({ scope: "user", cliBin: BIN, home });
-    runInit({ scope: "user", cliBin: BIN, home, remove: true });
+    const removeResult = runInit({ scope: "user", cliBin: BIN, home, remove: true });
     expect(readFileSync(userSettings(), "utf8")).toBe(original);
+    expect(removeResult.statuslineWrappedCommand).toBe("my-status.sh --flag");
   });
 
-  it("runInit --remove on our plain install deletes the key and reports no restored command", () => {
+  it("--remove on settings with nothing to remove at all (no hooks, no statusLine) reports changed:false and writes no backup", () => {
+    const result = runInit({ scope: "user", cliBin: BIN, home, remove: true });
+    expect(result.changed).toBe(false);
+    expect(result.backupPath).toBeUndefined();
+  });
+
+  it("runInit --remove on our plain install deletes the key, reports no restored command, and reports removed:true / wrapped:[]", () => {
     runInit({ scope: "user", cliBin: BIN, home });
     const result = runInit({ scope: "user", cliBin: BIN, home, remove: true });
     expect(result.statuslineWrappedCommand).toBeUndefined();
+    expect(result.removed).toBe(true);
+    expect(result.wrapped).toEqual([]);
     const settings = JSON.parse(readFileSync(userSettings(), "utf8")) as ClaudeSettings;
     expect(settings.statusLine).toBeUndefined();
+  });
+
+  it("a statusline-only removal (an installed statusLine slot but no hooks at all) still reports changed and writes a backup", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const ourStatusline = mergeStatusline(null, BIN).next.statusLine;
+    const original = { model: "x", statusLine: ourStatusline };
+    writeFileSync(userSettings(), JSON.stringify(original, null, 2) + "\n");
+    const result = runInit({ scope: "user", cliBin: BIN, home, remove: true });
+    expect(result.changed).toBe(true);
+    expect(result.removed).toBe(true);
+    expect(result.wrapped).toEqual([]);
+    expect(result.backupPath).toMatch(new RegExp(`^${userSettings().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.bak-\\d+$`));
+    expect(JSON.parse(readFileSync(result.backupPath!, "utf8"))).toEqual(original);
+    const settings = JSON.parse(readFileSync(userSettings(), "utf8")) as ClaudeSettings;
+    expect(settings).toEqual({ model: "x" });
   });
 });
 
@@ -183,6 +230,14 @@ describe("unrecognized slot shape", () => {
     expect(next.statusLine).toEqual({ type: "command" });
   });
 
+  it("a valid string `command` but a non-'command' `type` is also skipped, left byte-for-byte untouched", () => {
+    const settings = { statusLine: { type: "not-a-command-type", command: "some-command" } } as unknown as ClaudeSettings;
+    const { next, changed, outcome } = mergeStatusline(settings, BIN);
+    expect(changed).toBe(false);
+    expect(outcome).toBe("skipped");
+    expect(next.statusLine).toEqual({ type: "not-a-command-type", command: "some-command" });
+  });
+
   it("runInit reports the skip and writes nothing else changed by it", () => {
     mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(userSettings(), JSON.stringify({ statusLine: "weird" }));
@@ -194,12 +249,13 @@ describe("unrecognized slot shape", () => {
 });
 
 describe("mergeStatusline — repair after a bin path change", () => {
-  it("plain install: repairs the command when cliBin moved", () => {
+  it("plain install: repairs the command when cliBin moved, with no wrappedCommand key at all", () => {
     const installedOld = mergeStatusline(null, "/old/path/outerlayer").next;
-    const { next, changed, outcome } = mergeStatusline(installedOld, "/new/path/outerlayer");
-    expect(changed).toBe(true);
-    expect(outcome).toBe("repaired");
-    expect(next.statusLine).toEqual({ type: "command", command: "/new/path/outerlayer statusline", _outerlayer: true });
+    const result = mergeStatusline(installedOld, "/new/path/outerlayer");
+    expect(result.changed).toBe(true);
+    expect(result.outcome).toBe("repaired");
+    expect(result.next.statusLine).toEqual({ type: "command", command: "/new/path/outerlayer statusline", _outerlayer: true });
+    expect("wrappedCommand" in result).toBe(false);
   });
 
   it("wrapped install: repairs the command's bin prefix while preserving the wrap-id payload and original marker", () => {

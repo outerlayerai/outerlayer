@@ -4,7 +4,7 @@
 import { Command } from "commander";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
-import { runInit, orgRolloutSnippet } from "./init.js";
+import { runInit, orgRolloutSnippet, type InitResult } from "./init.js";
 import {
   SettingsParseError,
   readSettings,
@@ -39,6 +39,70 @@ function icon(status: Check["status"]): string {
   if (status === "pass") return `${GREEN}✓${RESET}`;
   if (status === "warn") return `${YELLOW}!${RESET}`;
   return `${RED}✗${RESET}`;
+}
+
+/**
+ * Renders every stdout line a completed `runInit` call produces (everything
+ * EXCEPT the `cliBinUnresolved` stderr case, which the caller handles
+ * before ever reaching here). Pure — no commander, no real CLI binary
+ * resolution — so the statusline/hooks branching is unit-testable directly
+ * against a hand-built `InitResult`.
+ */
+export function formatInitOutput(result: InitResult): string {
+  const lines: string[] = [];
+  if (result.removed) {
+    lines.push(
+      result.changed
+        ? `${GREEN}✓${RESET} Removed OuterLayer hooks from ${result.path}${result.backupPath ? `\n${DIM}  backup: ${result.backupPath}${RESET}` : ""}\n`
+        : `${DIM}No OuterLayer hooks to remove in ${result.path}${RESET}\n`,
+    );
+    if (result.statuslineWrappedCommand) {
+      lines.push(`${GREEN}✓${RESET} Restored status line to: ${DIM}${result.statuslineWrappedCommand}${RESET}\n`);
+    }
+    return lines.join("");
+  }
+
+  if (!result.changed) {
+    lines.push(`${GREEN}✓${RESET} Hooks already installed in ${result.path} (no change)\n`);
+  } else {
+    lines.push(
+      `${GREEN}✓${RESET} Installed ${result.events.join(", ")} hooks → ${result.path}\n` +
+        (result.backupPath ? `${DIM}  backup: ${result.backupPath}${RESET}\n` : ""),
+    );
+  }
+  if (result.wrapped.length > 0) {
+    lines.push(
+      `${GREEN}✓${RESET} Auto-wrapped ${result.wrapped.length} hook(s) for execution evidence (adds one spawn per firing — see ${YELLOW}outerlayer hooks unwrap${RESET} to undo):\n`,
+    );
+    for (const w of result.wrapped) {
+      lines.push(`  ${DIM}${w.event}${w.matcher ? `[${w.matcher}]` : ""}: ${w.command}${RESET}\n`);
+    }
+  }
+  if (result.statusline === "installed" || result.statusline === "repaired") {
+    lines.push(`${GREEN}✓${RESET} Installed the OuterLayer status line (session + all-agent cost)\n`);
+  } else if (result.statusline === "wrapped") {
+    lines.push(
+      `${GREEN}✓${RESET} Status line was occupied — wrapped it (its output stays, ours appends):\n` +
+        `  ${DIM}${result.statuslineWrappedCommand}${RESET}\n`,
+    );
+  } else if (result.statusline === "skipped") {
+    lines.push(`${YELLOW}!${RESET} Status line slot has an unrecognized shape — left untouched\n`);
+  }
+  if (result.gitignoreUpdated) lines.push(`${GREEN}✓${RESET} Added .outerlayer/ to .gitignore\n`);
+  lines.push(
+    "\nSessions sync to your OuterLayer app with full content: prompts, agent\n" +
+      "messages, thinking, tool inputs/outputs, file paths, repo and branch\n" +
+      "names, models, token counts, and costs.\n" +
+      "\n" +
+      "Secrets are scrubbed before upload — API keys, tokens, and private keys\n" +
+      `are replaced with [REDACTED:<type>] on your machine, always. This\n` +
+      "cannot be disabled.\n" +
+      "\n" +
+      `Nothing syncs until you run ${YELLOW}outerlayer sync${RESET} (after that, sessions\n` +
+      "sync automatically in the background).\n",
+  );
+  lines.push(`\nNext: run ${YELLOW}outerlayer scan${RESET} to see your first insights.\n`);
+  return lines.join("");
 }
 
 export async function runCli(processArgv: string[]): Promise<void> {
@@ -85,57 +149,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
           process.exitCode = 1;
           return;
         }
-        if (result.removed) {
-          process.stdout.write(
-            result.changed
-              ? `${GREEN}✓${RESET} Removed OuterLayer hooks from ${result.path}${result.backupPath ? `\n${DIM}  backup: ${result.backupPath}${RESET}` : ""}\n`
-              : `${DIM}No OuterLayer hooks to remove in ${result.path}${RESET}\n`,
-          );
-          if (result.statuslineWrappedCommand) {
-            process.stdout.write(`${GREEN}✓${RESET} Restored status line to: ${DIM}${result.statuslineWrappedCommand}${RESET}\n`);
-          }
-          return;
-        }
-        if (!result.changed) {
-          process.stdout.write(`${GREEN}✓${RESET} Hooks already installed in ${result.path} (no change)\n`);
-        } else {
-          process.stdout.write(
-            `${GREEN}✓${RESET} Installed ${result.events.join(", ")} hooks → ${result.path}\n` +
-              (result.backupPath ? `${DIM}  backup: ${result.backupPath}${RESET}\n` : ""),
-          );
-        }
-        if (result.wrapped.length > 0) {
-          process.stdout.write(
-            `${GREEN}✓${RESET} Auto-wrapped ${result.wrapped.length} hook(s) for execution evidence (adds one spawn per firing — see ${YELLOW}outerlayer hooks unwrap${RESET} to undo):\n`,
-          );
-          for (const w of result.wrapped) {
-            process.stdout.write(`  ${DIM}${w.event}${w.matcher ? `[${w.matcher}]` : ""}: ${w.command}${RESET}\n`);
-          }
-        }
-        if (result.statusline === "installed" || result.statusline === "repaired") {
-          process.stdout.write(`${GREEN}✓${RESET} Installed the OuterLayer status line (session + all-agent cost)\n`);
-        } else if (result.statusline === "wrapped") {
-          process.stdout.write(
-            `${GREEN}✓${RESET} Status line was occupied — wrapped it (its output stays, ours appends):\n` +
-              `  ${DIM}${result.statuslineWrappedCommand}${RESET}\n`,
-          );
-        } else if (result.statusline === "skipped") {
-          process.stdout.write(`${YELLOW}!${RESET} Status line slot has an unrecognized shape — left untouched\n`);
-        }
-        if (result.gitignoreUpdated) process.stdout.write(`${GREEN}✓${RESET} Added .outerlayer/ to .gitignore\n`);
-        process.stdout.write(
-          "\nSessions sync to your OuterLayer app with full content: prompts, agent\n" +
-          "messages, thinking, tool inputs/outputs, file paths, repo and branch\n" +
-          "names, models, token counts, and costs.\n" +
-          "\n" +
-          "Secrets are scrubbed before upload — API keys, tokens, and private keys\n" +
-          `are replaced with [REDACTED:<type>] on your machine, always. This\n` +
-          "cannot be disabled.\n" +
-          "\n" +
-          `Nothing syncs until you run ${YELLOW}outerlayer sync${RESET} (after that, sessions\n` +
-          "sync automatically in the background).\n",
-        );
-        process.stdout.write(`\nNext: run ${YELLOW}outerlayer scan${RESET} to see your first insights.\n`);
+        process.stdout.write(formatInitOutput(result));
       } catch (err) {
         if (err instanceof SettingsParseError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
