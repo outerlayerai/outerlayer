@@ -136,6 +136,179 @@ describe('fetchOutcomesForTraces', () => {
     expect(chQuery).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ tenantId: TENANT }));
   });
 
+  it('routes ciGreen, merged, and reverted facts onto their own row fields', async () => {
+    const links = linksReader([{ traceId: 'trace-a', prNumber: 7 }]);
+    const chQuery = stubChQuery([
+      { Id: testId(APP, 'trace-a', 7, OUTCOME_SCORE_NAMES.ciGreen), Score: 1, Label: 'success' },
+      { Id: testId(APP, 'trace-a', 7, OUTCOME_SCORE_NAMES.merged), Score: 1, Label: 'merged' },
+      { Id: testId(APP, 'trace-a', 7, OUTCOME_SCORE_NAMES.reverted), Score: 0, Label: 'not_reverted' },
+    ]);
+
+    const result = await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a'],
+    });
+
+    expect(result.get('trace-a')).toEqual([
+      {
+        prNumber: 7,
+        prUrl: null,
+        ciGreen: { score: 1, label: 'success' },
+        merged: { score: 1, label: 'merged' },
+        reverted: { score: 0, label: 'not_reverted' },
+      },
+    ]);
+  });
+
+  it('passes confirmedLinks exactly the tenantId, appId, and traceIds it was given', async () => {
+    const links = linksReader([{ traceId: 'trace-a', prNumber: 7 }]);
+    const chQuery = stubChQuery([]);
+
+    await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a', 'trace-b'],
+    });
+
+    expect(links.confirmedLinks).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a', 'trace-b'],
+    });
+  });
+
+  it('never reads links or ClickHouse for a non-empty traceIds list whose confirmedLinks come back empty', async () => {
+    const links = linksReader([]);
+    const chQuery = stubChQuery([]);
+
+    const result = await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a'],
+    });
+
+    expect(result.size).toBe(0);
+    expect(links.confirmedLinks).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a'],
+    });
+    expect(links.prUrls).not.toHaveBeenCalled();
+    expect(chQuery).not.toHaveBeenCalled();
+  });
+
+  it('passes prUrls the exact deduplicated set of confirmed PR numbers, when at least one link is confirmed', async () => {
+    const links = linksReader(
+      [
+        { traceId: 'trace-a', prNumber: 7 },
+        { traceId: 'trace-b', prNumber: 7 },
+        { traceId: 'trace-a', prNumber: 9 },
+      ],
+      [
+        { prNumber: 7, url: 'https://github.com/acme/app/pull/7' },
+        { prNumber: 9, url: 'https://github.com/acme/app/pull/9' },
+      ],
+    );
+    const chQuery = stubChQuery([
+      { Id: testId(APP, 'trace-a', 7, OUTCOME_SCORE_NAMES.merged), Score: 1, Label: 'merged' },
+    ]);
+
+    await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a', 'trace-b'],
+    });
+
+    expect(links.prUrls).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      appId: APP,
+      prNumbers: expect.arrayContaining([7, 9]),
+    });
+    const call = (links.prUrls as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![0] as {
+      prNumbers: number[];
+    };
+    expect(call.prNumbers).toHaveLength(2);
+  });
+
+  it('gives two different traceIds independent PR maps rather than sharing one', async () => {
+    const links = linksReader([
+      { traceId: 'trace-a', prNumber: 7 },
+      { traceId: 'trace-b', prNumber: 8 },
+    ]);
+    const chQuery = stubChQuery([
+      { Id: testId(APP, 'trace-a', 7, OUTCOME_SCORE_NAMES.merged), Score: 1, Label: 'merged' },
+      { Id: testId(APP, 'trace-b', 8, OUTCOME_SCORE_NAMES.merged), Score: 0, Label: 'closed' },
+    ]);
+
+    const result = await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a', 'trace-b'],
+    });
+
+    expect(result.get('trace-a')).toEqual([
+      { prNumber: 7, prUrl: null, ciGreen: null, merged: { score: 1, label: 'merged' }, reverted: null },
+    ]);
+    expect(result.get('trace-b')).toEqual([
+      { prNumber: 8, prUrl: null, ciGreen: null, merged: { score: 0, label: 'closed' }, reverted: null },
+    ]);
+  });
+
+  it('chunks the ClickHouse Id lookup at the query-chunk boundary, calling chQuery once per chunk with the exact ids in each', async () => {
+    const links = linksReader(
+      Array.from({ length: 200 }, (_, i) => ({ traceId: `trace-${i}`, prNumber: i })),
+    );
+    const chQuery = stubChQuery([]);
+
+    await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: Array.from({ length: 200 }, (_, i) => `trace-${i}`),
+    });
+
+    // 200 links * 3 score names = 600 candidate ids > QUERY_CHUNK(500), so two chunked calls.
+    expect(chQuery).toHaveBeenCalledTimes(2);
+    const firstIds = (chQuery.mock.calls[0]![1] as { ids: string[] }).ids;
+    const secondIds = (chQuery.mock.calls[1]![1] as { ids: string[] }).ids;
+    expect(firstIds).toHaveLength(500);
+    expect(secondIds).toHaveLength(100);
+  });
+
+  it('passes chQuery the exact set of candidate ids for a small confirmed-link set', async () => {
+    const links = linksReader([{ traceId: 'trace-a', prNumber: 7 }]);
+    const chQuery = stubChQuery([]);
+
+    await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a'],
+    });
+
+    const ids = (chQuery.mock.calls[0]![1] as { ids: string[] }).ids;
+    expect(ids).toEqual(
+      Object.values(OUTCOME_SCORE_NAMES).map((name) => testId(APP, 'trace-a', 7, name)),
+    );
+  });
+
+  it('silently drops a raw score row whose Id matches no candidate', async () => {
+    const links = linksReader([{ traceId: 'trace-a', prNumber: 7 }]);
+    const chQuery = vi.fn(async () => [
+      { Id: 'unrelated-stale-id', Score: 1, Label: 'merged' },
+      { Id: testId(APP, 'trace-a', 7, OUTCOME_SCORE_NAMES.merged), Score: 1, Label: 'merged' },
+    ]);
+
+    const result = await fetchOutcomesForTraces(links, chQuery, testId, {
+      tenantId: TENANT,
+      appId: APP,
+      traceIds: ['trace-a'],
+    });
+
+    expect(result.get('trace-a')).toEqual([
+      { prNumber: 7, prUrl: null, ciGreen: null, merged: { score: 1, label: 'merged' }, reverted: null },
+    ]);
+  });
+
   it('accepts a synchronous computeId port, not just an async one', async () => {
     const links = linksReader([{ traceId: 'trace-a', prNumber: 7 }]);
     const chQuery = stubChQuery([

@@ -104,6 +104,105 @@ describe('signBlobToken / verifyBlobToken', () => {
   it('throws on a missing secret rather than signing with a substitute', async () => {
     await expect(signBlobToken(PORT, { secret: '', claims: CLAIMS })).rejects.toThrow(/non-empty secret/);
   });
+
+  it('rejects an empty payload half distinctly from an empty signature half', async () => {
+    expect(await verifyBlobToken(PORT, { secret: SECRET, token: '.sig', now: at(NOW) })).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+    expect(await verifyBlobToken(PORT, { secret: SECRET, token: 'payload.', now: at(NOW) })).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
+
+  it('rejects a payload with exactly one binding key non-string while the rest are valid', async () => {
+    const payload = Buffer.from(
+      JSON.stringify({ tenantId: 'tenant-1', appId: 'app-1', userId: 42, sha256: SHA, exp: NOW + 60 }),
+    ).toString('base64url');
+    const signature = await createSignature(SECRET, `${PORT.domain}.${payload}`);
+    const token = `${payload}.${signature.slice('sha256='.length)}`;
+
+    expect(await verifyBlobToken(PORT, { secret: SECRET, token, now: at(NOW) })).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
+
+  it('accepts a payload where every binding key is present and a string', async () => {
+    const payload = Buffer.from(
+      JSON.stringify({ tenantId: 'tenant-1', appId: 'app-1', userId: 'user-1', sha256: SHA, exp: NOW + 60 }),
+    ).toString('base64url');
+    const signature = await createSignature(SECRET, `${PORT.domain}.${payload}`);
+    const token = `${payload}.${signature.slice('sha256='.length)}`;
+
+    expect(await verifyBlobToken(PORT, { secret: SECRET, token, now: at(NOW) })).toEqual({
+      ok: true,
+      claims: { tenantId: 'tenant-1', appId: 'app-1', userId: 'user-1', sha256: SHA, exp: NOW + 60 },
+    });
+  });
+
+  it('rejects a payload whose exp is a string, not a number, even with valid binding and sha256', async () => {
+    const payload = Buffer.from(
+      JSON.stringify({ ...CLAIMS, exp: String(NOW + 60) }),
+    ).toString('base64url');
+    const signature = await createSignature(SECRET, `${PORT.domain}.${payload}`);
+    const token = `${payload}.${signature.slice('sha256='.length)}`;
+
+    expect(await verifyBlobToken(PORT, { secret: SECRET, token, now: at(NOW) })).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
+
+  it('rejects a payload missing sha256 even with valid binding and a numeric exp', async () => {
+    const { sha256: _sha256, ...withoutSha } = CLAIMS;
+    const payload = Buffer.from(JSON.stringify({ ...withoutSha, exp: NOW + 60 })).toString('base64url');
+    const signature = await createSignature(SECRET, `${PORT.domain}.${payload}`);
+    const token = `${payload}.${signature.slice('sha256='.length)}`;
+
+    expect(await verifyBlobToken(PORT, { secret: SECRET, token, now: at(NOW) })).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
+
+  it('round-trips a multi-byte claim value through base64url decode without corruption', async () => {
+    const claims = { ...CLAIMS, userId: 'usuário-héllo-日本語' };
+    const token = await signBlobToken(PORT, { secret: SECRET, claims, now: at(NOW) });
+    const result = await verifyBlobToken(PORT, { secret: SECRET, token, now: at(NOW) });
+
+    expect(result).toEqual({ ok: true, claims: { ...claims, exp: NOW + 7200 } });
+  });
+
+  it('round-trips claims of varying serialized length to exercise every base64 padding case', async () => {
+    for (const userId of ['a', 'ab', 'abc', 'abcd', 'abcde', 'abcdef', 'abcdefg']) {
+      const claims = { ...CLAIMS, userId };
+      const token = await signBlobToken(PORT, { secret: SECRET, claims, now: at(NOW) });
+      const result = await verifyBlobToken(PORT, { secret: SECRET, token, now: at(NOW) });
+      expect(result).toEqual({ ok: true, claims: { ...claims, exp: NOW + 7200 } });
+    }
+  });
+
+  it('verifies against a real near-future expiry when no now is supplied', async () => {
+    const farFutureExp = Math.floor(Date.now() / 1000) + 3600;
+    const payload = Buffer.from(JSON.stringify({ ...CLAIMS, exp: farFutureExp })).toString('base64url');
+    const signature = await createSignature(SECRET, `${PORT.domain}.${payload}`);
+    const token = `${payload}.${signature.slice('sha256='.length)}`;
+
+    const result = await verifyBlobToken(PORT, { secret: SECRET, token });
+    expect(result).toEqual({ ok: true, claims: { ...CLAIMS, exp: farFutureExp } });
+  });
+
+  it('reports expired against a real past expiry when no now is supplied', async () => {
+    const pastExp = Math.floor(Date.now() / 1000) - 3600;
+    const payload = Buffer.from(JSON.stringify({ ...CLAIMS, exp: pastExp })).toString('base64url');
+    const signature = await createSignature(SECRET, `${PORT.domain}.${payload}`);
+    const token = `${payload}.${signature.slice('sha256='.length)}`;
+
+    const result = await verifyBlobToken(PORT, { secret: SECRET, token });
+    expect(result).toEqual({ ok: false, reason: 'expired' });
+  });
 });
 
 describe('signBlobRefs', () => {

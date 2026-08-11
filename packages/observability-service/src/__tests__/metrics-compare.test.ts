@@ -90,6 +90,65 @@ describe('getTopicMixDeltas', () => {
     expect(result).toHaveLength(1);
   });
 
+  test('scopes every query to the exact tenant/app/environment/facet params', async () => {
+    const { client, calls } = capturingClient([[]]);
+    await getTopicMixDeltas(client, SCOPE, 'issues', WINDOW_A, WINDOW_B, 20);
+
+    expect(calls[0]!.query_params).toEqual({
+      tenantId: SCOPE.tenantId,
+      appId: SCOPE.appId,
+      environment: SCOPE.environment,
+      facet: 'issues',
+    });
+  });
+
+  test('drops a topic with zero rows in both windows but keeps one nonzero in only A or only B', async () => {
+    const { client } = capturingClient([
+      [
+        { TopicId: 'topic-zero', Name: 'Zero' },
+        { TopicId: 'topic-a-only', Name: 'A only' },
+        { TopicId: 'topic-b-only', Name: 'B only' },
+      ],
+      [{ TopicId: 'topic-a-only', c: '4' }],
+      [{ TopicId: 'topic-b-only', c: '6' }],
+    ]);
+
+    const result = await getTopicMixDeltas(client, SCOPE, 'issues', WINDOW_A, WINDOW_B, 20);
+
+    expect(result).toEqual([
+      { topicId: 'topic-b-only', name: 'B only', countA: 0, countB: 6 },
+      { topicId: 'topic-a-only', name: 'A only', countA: 4, countB: 0 },
+    ]);
+  });
+
+  test('sorts by the exact summed count across three or more rows', async () => {
+    const { client } = capturingClient([
+      [
+        { TopicId: 'topic-low', Name: 'Low' },
+        { TopicId: 'topic-high', Name: 'High' },
+        { TopicId: 'topic-mid', Name: 'Mid' },
+      ],
+      [
+        { TopicId: 'topic-low', c: '1' },
+        { TopicId: 'topic-high', c: '10' },
+        { TopicId: 'topic-mid', c: '5' },
+      ],
+      [
+        { TopicId: 'topic-low', c: '1' },
+        { TopicId: 'topic-high', c: '10' },
+        { TopicId: 'topic-mid', c: '4' },
+      ],
+    ]);
+
+    const result = await getTopicMixDeltas(client, SCOPE, 'issues', WINDOW_A, WINDOW_B, 20);
+
+    expect(result.map((r) => [r.topicId, r.countA + r.countB])).toEqual([
+      ['topic-high', 20],
+      ['topic-mid', 9],
+      ['topic-low', 2],
+    ]);
+  });
+
   test('the per-window queries filter on the caller-supplied date bounds', async () => {
     const { client, calls } = capturingClient([
       [{ TopicId: 'topic-1', Name: 'One' }],
