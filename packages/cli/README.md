@@ -52,6 +52,8 @@ session and your agents are costing today:
 ⬢ OL  $0.87 session · $23.40 today across 3 agents · 12 unsynced
 ```
 
+![The OuterLayer segment at the bottom of a live Claude Code session](docs/statusline.png)
+
 The session figure comes straight from Claude Code's own cost field, so it
 always matches what Claude Code itself would show. The cross-agent total and
 unsynced count come from `~/.outerlayer/statusline.json`, a small file the
