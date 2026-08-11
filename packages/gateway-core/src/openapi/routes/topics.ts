@@ -8,7 +8,7 @@
 import { mapClickHouseError, toErrorResponse, getErrorStatusCode, ServiceUnavailableError } from '@repo/observability-service';
 import { TopicsQuerySchema, TopicsResponseSchema } from '@repo/api-schemas';
 import type { TopicsScope } from '@repo/observability-service';
-import { BaseRoute, type AppContext, errorResponse, resolveEnvScope, getScopedSupabase } from './_shared';
+import { BaseRoute, type AppContext, errorResponse, entitlementRequiredResponse, resolveEnvScope, getScopedSupabase } from './_shared';
 import { getGatewayTopicsService } from '../analytics-factory';
 import { RATE_LIMITS } from '../../rate-limits';
 import type { GatewayPermission } from '../../lib/permissions';
@@ -79,6 +79,9 @@ export class GetTopics extends BaseRoute {
         },
       },
       401: errorResponse('Missing or invalid API key.'),
+      402: entitlementRequiredResponse(
+        "Tenant tier does not include the 'topics_enabled' feature.",
+      ),
     },
   };
 

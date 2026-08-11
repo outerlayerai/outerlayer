@@ -23,7 +23,7 @@ import {
   CompareWindowsResponseSchema,
 } from '@repo/api-schemas';
 import type { CompareWindowsQuery } from '@repo/api-schemas';
-import { BaseRoute, type AppContext, getService, buildTenantContext, errorResponse, resolveEnvScope } from './_shared';
+import { BaseRoute, type AppContext, getService, buildTenantContext, errorResponse, entitlementRequiredResponse, resolveEnvScope } from './_shared';
 import { getGatewayChClient } from '../analytics-factory';
 import { resolveTopicsScope } from './topics';
 import { RATE_LIMITS } from '../../rate-limits';
@@ -232,6 +232,9 @@ export class GetMetricsCompare extends BaseRoute {
         },
       },
       401: errorResponse('Missing or invalid API key.'),
+      402: entitlementRequiredResponse(
+        "Tenant tier does not include the 'topics_enabled' feature.",
+      ),
     },
   };
 
