@@ -66,7 +66,7 @@ const RUNTIME_ONLY_OPERATIONS: ReadonlySet<OperationKey> = new Set<OperationKey>
   // `POST /v1/mcp` is NOT an entry here, and never will be: it is mounted
   // directly on the underlying Hono app (`app.post`), bypassing chanfana's
   // route registration (`openApiApp.post`/`registerAuthenticatedRoute`)
-  // entirely — one JSON-RPC endpoint dispatching to five tools has no
+  // entirely — one JSON-RPC endpoint dispatching to multiple tools has no
   // single request/response JSON shape to document as an OpenAPI operation.
   // It is served (auth runs identically to every other /v1/* route) but
   // stays out of BOTH specs by construction — see the regression test below.

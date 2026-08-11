@@ -277,6 +277,20 @@ CREATE POLICY "gateway_tenant_update_worker_workspace" ON public.worker_workspac
     WITH CHECK (tenant_id = public.tenant_id());
 
 -- -----------------------------------------------------------------------------
+-- Context mirror surface (public.context_snapshot) — read-only, for
+-- GET /v1/context/changes. Permission enforcement (metrics.read) happens at
+-- the Hono middleware layer; RLS here only owes tenant isolation, matching
+-- every other table in this file. App scoping is applied by the route's own
+-- `.eq('app_id', ...)` filter, the same split `GetEnvironment`/`DeleteEnvironment`
+-- use for a tenant-wide gateway policy.
+-- -----------------------------------------------------------------------------
+GRANT SELECT ON public.context_snapshot TO gateway;
+
+CREATE POLICY "gateway_tenant_read_context_snapshot" ON public.context_snapshot
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+-- -----------------------------------------------------------------------------
 -- Storage policy for gateway: intentionally omitted
 -- -----------------------------------------------------------------------------
 -- An earlier iteration defined `gateway_tenant_read_template_bucket` on

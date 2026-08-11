@@ -14,7 +14,7 @@
  * composition `registerAuthenticatedRoute` builds for REST, just invoked
  * directly instead of installed on Hono's router — the mount bypasses that
  * registration path entirely (by design: `/v1/mcp` dispatches to one of
- * five tools per call, not one route per path), so nothing here is
+ * several tools per call, not one route per path), so nothing here is
  * automatic; every guard below is an explicit call.
  */
 

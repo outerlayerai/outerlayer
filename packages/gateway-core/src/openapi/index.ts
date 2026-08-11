@@ -23,6 +23,7 @@ import { GetPricing } from './routes/pricing';
 import { GetTopics } from './routes/topics';
 import { GetModelStats, GetFleetOverview } from './routes/metrics';
 import { ListSessions, GetSessionDetail } from './routes/sessions';
+import { ListContextChanges } from './routes/context';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from './routes/api-keys';
 import {
   ListEnvironments,
@@ -538,6 +539,7 @@ export const openApiApp = fromHono(app, {
       { name: 'Sessions', description: 'Agent-coding session list and full transcript reads, with actor-privacy controls for machine keys.' },
       { name: 'Topics', description: 'Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet.' },
       { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles.' },
+      { name: 'Context', description: 'Synced-commit history of the app\'s `.outerlayer/` context tree.' },
       { name: 'Health', description: 'Service health checks.' },
     ],
   },
@@ -769,6 +771,11 @@ registerAuthenticatedRoute('get', '/v1/metrics/models', GetModelStats);
 registerAuthenticatedRoute('get', '/v1/metrics/overview', GetFleetOverview);
 
 // ============================================================================
+// Context routes
+// ============================================================================
+registerAuthenticatedRoute('get', '/v1/context/changes', ListContextChanges);
+
+// ============================================================================
 // Datasets routes (task mining + run inputs)
 // ============================================================================
 
@@ -826,7 +833,7 @@ registerAuthenticatedRoute('patch', '/v1/apps/:appId', UpdateApp);
 registerAuthenticatedRoute('delete', '/v1/apps/:appId', DeleteApp);
 
 // ============================================================================
-// MCP mount — POST /v1/mcp, one JSON-RPC 2.0 dispatch point for five tools
+// MCP mount — POST /v1/mcp, one JSON-RPC 2.0 dispatch point for the MCP tool table
 // + one resource. Registered on the raw Hono `app`, NOT `openApiApp`
 // (chanfana's `.post`/`.get` proxy methods register every call — even a
 // plain function handler — into the generated OpenAPI spec; `app.post`
@@ -837,7 +844,7 @@ registerAuthenticatedRoute('delete', '/v1/apps/:appId', DeleteApp);
 // other /v1/* route; per-tool RBAC/entitlement/rate-limit enforcement is
 // the dispatcher's own job (see openapi/mcp/dispatcher.ts), since this
 // mount bypasses `registerAuthenticatedRoute` entirely (one path serving
-// five tools, not one route per path).
+// the tool table, not one route per path).
 // ============================================================================
 app.post('/v1/mcp', handleMcpRequest);
 app.get('/v1/mcp', mcpMethodNotAllowed);

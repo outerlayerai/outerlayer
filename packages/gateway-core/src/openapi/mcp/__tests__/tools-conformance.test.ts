@@ -14,6 +14,8 @@ import {
   ModelStatsQuerySchema,
   FleetOverviewQuerySchema,
   FleetOverviewSchema,
+  ContextChangesQuerySchema,
+  ContextChangesSchema,
 } from '@repo/api-schemas';
 import { GATEWAY_PERMISSIONS } from '../../../lib/permissions';
 import { MCP_TOOLS } from '../tools';
@@ -35,9 +37,16 @@ describe('MCP_TOOLS registry invariants', () => {
 
 // proves AC-052-06
 describe('tool schemas match their REST counterparts exactly', () => {
-  it('advertises exactly five tools plus the guide resource', () => {
+  it('advertises exactly six tools plus the guide resource', () => {
     expect(toolNames.sort()).toEqual(
-      ['get_fleet_overview', 'get_model_costs', 'get_session', 'list_sessions', 'list_topics'].sort(),
+      [
+        'get_fleet_overview',
+        'get_model_costs',
+        'get_session',
+        'list_context_changes',
+        'list_sessions',
+        'list_topics',
+      ].sort(),
     );
     expect(GUIDE_RESOURCE_URI).toBe('outerlayer://guide');
   });
@@ -68,5 +77,11 @@ describe('tool schemas match their REST counterparts exactly', () => {
     const tool = MCP_TOOLS.find((t) => t.name === 'get_fleet_overview')!;
     expect(tool.zodInputSchema).toBe(FleetOverviewQuerySchema);
     expect(tool.zodOutputSchema).toBe(FleetOverviewSchema);
+  });
+
+  it('list_context_changes validates against the same Zod objects GET /v1/context/changes uses', () => {
+    const tool = MCP_TOOLS.find((t) => t.name === 'list_context_changes')!;
+    expect(tool.zodInputSchema).toBe(ContextChangesQuerySchema);
+    expect(tool.zodOutputSchema).toBe(ContextChangesSchema);
   });
 });

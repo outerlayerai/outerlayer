@@ -3,8 +3,9 @@
  *
  * Every tool wraps the SAME service call and the SAME `@repo/api-schemas`
  * Zod objects its REST counterpart uses (`resolveTopicsScope` /
- * `sessionPolicy` / `buildPorts` / `daysAgo` / `today` are imported straight
- * from the route files, not reimplemented) — a REST response and the
+ * `sessionPolicy` / `buildPorts` / `daysAgo` / `today` / `listContextChanges`
+ * are imported straight from the route files, not reimplemented) — a REST
+ * response and the
  * matching tool call answer identically because they run the identical code
  * path, not because two implementations were kept in sync by hand.
  *
@@ -24,6 +25,8 @@ import {
   ModelStatsEntrySchema,
   FleetOverviewQuerySchema,
   FleetOverviewSchema,
+  ContextChangesQuerySchema,
+  ContextChangesSchema,
 } from '@repo/api-schemas';
 import { ServiceUnavailableError } from '@repo/observability-service';
 import type { AppContext } from '../routes/_shared';
@@ -31,6 +34,7 @@ import { getService, buildTenantContext, resolveEnvScope, structuredError } from
 import { resolveTopicsScope } from '../routes/topics';
 import { daysAgo, today } from '../routes/metrics';
 import { sessionPolicy, buildPorts } from '../routes/sessions';
+import { listContextChanges } from '../routes/context';
 import { getGatewayTopicsService, getGatewaySessionsService } from '../analytics-factory';
 import { RATE_LIMITS } from '../../rate-limits';
 import type { RouteRateLimit } from '../../rate-limits';
@@ -148,6 +152,11 @@ async function getFleetOverviewExecute(c: AppContext, input: z.infer<typeof Flee
   return { data: result };
 }
 
+async function listContextChangesExecute(c: AppContext, input: z.infer<typeof ContextChangesQuerySchema>) {
+  const result = await listContextChanges(c, input);
+  return { data: result };
+}
+
 export const MCP_TOOLS: readonly McpToolDefinition[] = [
   {
     name: 'list_topics',
@@ -206,6 +215,18 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     requiredPermission: 'metrics.read',
     rateLimit: RATE_LIMITS.observabilityRead,
     execute: getFleetOverviewExecute,
+  },
+  {
+    name: 'list_context_changes',
+    description:
+      'Synced-commit history of the app\'s .outerlayer/ context tree, newest first — a new entry appears only for a commit ' +
+      'whose context files actually changed. Use a change\'s timestamp as the boundary between two get_fleet_overview windows ' +
+      'to see its before/after effect.',
+    zodInputSchema: ContextChangesQuerySchema,
+    zodOutputSchema: ContextChangesSchema,
+    requiredPermission: 'metrics.read',
+    rateLimit: RATE_LIMITS.observabilityRead,
+    execute: listContextChangesExecute,
   },
 ];
 

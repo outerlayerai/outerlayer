@@ -59,6 +59,14 @@ returns its own \`prior\` period, which is the immediately preceding
 equal-length window — use that when you want "vs. right before this window"
 rather than a specific comparison window.
 
+## Comparing across a context change
+
+\`list_context_changes\` returns the app's synced \`.outerlayer/\` commit
+history, newest first, each with a \`createdAt\` timestamp. To see a
+change's effect: pick the change's \`createdAt\` as the boundary, then call
+\`get_fleet_overview\` for the days before it and again for the days after,
+and compare the two results yourself.
+
 ## Truncation
 
 \`get_session\` caps its span list (the SQL layer keeps at most 2000 spans)

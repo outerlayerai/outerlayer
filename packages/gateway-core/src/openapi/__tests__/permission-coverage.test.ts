@@ -29,7 +29,7 @@ const legacyKeys = new Set<string>();
 
 /**
  * `/v1/mcp` is authenticated (not in `UNAUTHENTICATED_V1_PATHS`) but carries
- * no single static permission: it dispatches to one of five tools per call,
+ * no single static permission: it dispatches to one of several tools per call,
  * each with its own `requiredPermission` enforced inside the JSON-RPC
  * dispatcher (`openapi/mcp/dispatcher.ts`), not via `setRoutePermission()`.
  * `openapi/mcp/tools-conformance.test.ts` is this route's equivalent

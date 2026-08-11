@@ -1,6 +1,6 @@
 /**
  * Protocol-level tests for `POST /v1/mcp` — the JSON-RPC 2.0 envelope, method
- * dispatch, and per-tool guard composition. Tool CONTENT (which five tools,
+ * dispatch, and per-tool guard composition. Tool CONTENT (which tools,
  * whether their schemas match REST) is covered by `tools-conformance.test.ts`
  * and `list-topics-parity.test.ts`; this suite fakes the tool table so it can
  * pin dispatcher behavior without wiring a real ClickHouse/Supabase call.

@@ -145,4 +145,13 @@ describe('tier-gated route registration', () => {
       expect(names).toContain('permissionGuard');
     });
   });
+
+  describe('context routes', () => {
+    it('GET /v1/context/changes stays open (no entitlementGuard or quotaGuard)', () => {
+      const names = handlerNames('GET', '/v1/context/changes');
+      expect(names).not.toContain('entitlementGuard');
+      expect(names).not.toContain('quotaGuard');
+      expect(names).toContain('permissionGuard');
+    });
+  });
 });

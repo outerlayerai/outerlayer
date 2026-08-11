@@ -22,6 +22,7 @@ import { ListApiKeys, CreateApiKey, RevokeApiKey } from '../routes/api-keys';
 import { GetTopics } from '../routes/topics';
 import { GetModelStats, GetFleetOverview } from '../routes/metrics';
 import { ListSessions, GetSessionDetail } from '../routes/sessions';
+import { ListContextChanges } from '../routes/context';
 
 // ---------------------------------------------------------------------------
 // Route definition correctness tests
@@ -96,6 +97,7 @@ const allRoutes: RouteEntry[] = [
   { name: 'GetFleetOverview', cls: GetFleetOverview, tag: 'Metrics', hasRequest: true },
   { name: 'ListSessions', cls: ListSessions, tag: 'Sessions', hasRequest: true },
   { name: 'GetSessionDetail', cls: GetSessionDetail, tag: 'Sessions', hasRequest: true },
+  { name: 'ListContextChanges', cls: ListContextChanges, tag: 'Context', hasRequest: true },
 ];
 
 describe('OpenAPI Route Definitions', () => {
@@ -142,7 +144,7 @@ describe('OpenAPI Route Definitions', () => {
 // ---------------------------------------------------------------------------
 
 describe('OpenAPI Tag Coverage', () => {
-  const expectedTags = ['Agents', 'Spans', 'Scoring', 'Health', 'API Keys', 'Topics', 'Metrics', 'Sessions'];
+  const expectedTags = ['Agents', 'Spans', 'Scoring', 'Health', 'API Keys', 'Topics', 'Metrics', 'Sessions', 'Context'];
 
   it.each(expectedTags)('should have at least one route with tag "%s"', (tag) => {
     const routesWithTag = allRoutes.filter((r) => r.tag === tag);
@@ -271,6 +273,12 @@ describe('Topics and Metrics route schemas', () => {
   });
 });
 
+describe('Context route schemas', () => {
+  it('should define 200 response for ListContextChanges', () => {
+    expectResponse(ListContextChanges, 200);
+  });
+});
+
 describe('Sessions route schemas', () => {
   it('should define 200 response for ListSessions', () => {
     expectResponse(ListSessions, 200);
@@ -290,8 +298,8 @@ describe('Sessions route schemas', () => {
 // ---------------------------------------------------------------------------
 
 describe('Route inventory', () => {
-  it('should have exactly 24 routes defined', () => {
-    expect(allRoutes).toHaveLength(24);
+  it('should have exactly 25 routes defined', () => {
+    expect(allRoutes).toHaveLength(25);
   });
 
   it('should have 3 Agents routes', () => {
@@ -320,5 +328,9 @@ describe('Route inventory', () => {
 
   it('should have 2 Sessions routes', () => {
     expect(allRoutes.filter((r) => r.tag === 'Sessions')).toHaveLength(2);
+  });
+
+  it('should have 1 Context route', () => {
+    expect(allRoutes.filter((r) => r.tag === 'Context')).toHaveLength(1);
   });
 });

@@ -46,6 +46,7 @@ describe('rate-limit guard registration', () => {
       ['GET', '/v1/metrics/overview'],
       ['GET', '/v1/sessions'],
       ['GET', '/v1/sessions/:traceId'],
+      ['GET', '/v1/context/changes'],
     ] as const)('%s %s', (method, path) => {
       const names = handlerNames(method, path);
       const permIdx = names.indexOf('permissionGuard');
