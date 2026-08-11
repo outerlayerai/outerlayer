@@ -77,6 +77,18 @@ describe("runInit", () => {
     expect(readdirSync(join(home, ".claude")).filter((f) => f.includes(".bak-"))).toEqual([]);
   });
 
+  it("flags when the Claude Code plugin's managed CLI install is already active", () => {
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    const result = runInit({ scope: "user", cliBin: BIN, home });
+    expect(result.pluginAlreadyActive).toBe(true);
+    expect(result.changed).toBe(true); // still installs — the user asked
+  });
+
+  it("does not flag plugin activity when the managed install is absent", () => {
+    const result = runInit({ scope: "user", cliBin: BIN, home });
+    expect(result.pluginAlreadyActive).toBe(false);
+  });
+
   it("project scope writes ./.claude and can update .gitignore", () => {
     const result = runInit({ scope: "project", cliBin: BIN, home, cwd, addGitignore: true });
     expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(true);

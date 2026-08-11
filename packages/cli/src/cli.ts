@@ -107,6 +107,12 @@ export async function runCli(processArgv: string[]): Promise<void> {
           }
         }
         if (result.gitignoreUpdated) process.stdout.write(`${GREEN}✓${RESET} Added .outerlayer/ to .gitignore\n`);
+        if (result.pluginAlreadyActive) {
+          process.stdout.write(
+            `${YELLOW}!${RESET} The Claude Code plugin already captures sessions on this machine — these settings hooks are redundant.\n` +
+              `  Run ${YELLOW}outerlayer init --remove${RESET} to drop them and rely on the plugin alone.\n`,
+          );
+        }
         process.stdout.write(
           "\nSessions sync to your OuterLayer app with full content: prompts, agent\n" +
           "messages, thinking, tool inputs/outputs, file paths, repo and branch\n" +
@@ -119,7 +125,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
           `Nothing syncs until you run ${YELLOW}outerlayer sync${RESET} (after that, sessions\n` +
           "sync automatically in the background).\n",
         );
-        process.stdout.write(`\nNext: run ${YELLOW}outerlayer scan${RESET} to see your first insights.\n`);
+        process.stdout.write(`\nNext: run ${YELLOW}outerlayer sync${RESET} to see your first insights.\n`);
       } catch (err) {
         if (err instanceof SettingsParseError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);

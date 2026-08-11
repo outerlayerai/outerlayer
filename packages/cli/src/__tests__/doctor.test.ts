@@ -100,6 +100,38 @@ describe("runDoctor — the 8 failure modes each detected", () => {
     expect(c.detail).toMatch(/multiple/);
   });
 
+  it("neither install path present → Install path fails", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/no install path/);
+  });
+
+  it("only the plugin's managed CLI install present → Install path passes as plugin", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("Claude Code plugin");
+  });
+
+  it("only settings hooks present (outerlayer init) → Install path passes as settings", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("settings hooks (outerlayer init)");
+  });
+
+  it("both the plugin and settings hooks present → Install path warns as redundant", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("warn");
+    expect(c.fix).toMatch(/outerlayer init --remove/);
+  });
+
   it("a fully healthy setup exits 0", () => {
     writeFileSync(join(claudeDir(), "s1.jsonl"), '{"type":"assistant"}\n');
     runInit({ scope: "user", cliBin: BIN, home });
