@@ -1013,6 +1013,7 @@ describe('authMiddleware', () => {
       }));
     });
 
+    // proves AC-052-11
     it('rejects a header naming a different app than the resolved key, never scoping to it', async () => {
       seedGatewaySupabaseMswState({
         verifyApiKeyResult: validUserMeta({ appId: 'app-real', tenantId: 'tenant-real' }),
