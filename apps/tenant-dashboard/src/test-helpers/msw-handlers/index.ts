@@ -131,11 +131,7 @@ export {
   seedPrSessionCommentReadError,
   type PrSessionCommentMswRow,
 } from './pr-session-comment';
-export {
-  seedDeviceAuthMswState,
-  getDeviceAuthMswRows,
-  type DeviceAuthRequestMswRow,
-} from './device-auth';
+export { seedDeviceAuthMswState, getDeviceAuthMswRows } from './device-auth';
 
 // MSW resolves handlers in registration order; the FIRST matching handler
 // wins. We register managed-deployment-tables BEFORE the shared supabase
