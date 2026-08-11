@@ -7,91 +7,22 @@
  * migration-29 row policies are inert. A query that omits it fails CI here
  * instead of leaking cross-tenant at runtime.
  *
- * Coverage: the static query constants, every SQL-emitting builder in
+ * Coverage here: the static query constants and every SQL-emitting builder in
  * `queries.ts` and `queries-agent-fleet.ts` (invoked so a predicate composed
  * from `scopeWhere`/`baseWhere` at runtime is proven, not just the literal
- * template), and the inline SQL in `services/*.ts` (source-scanned).
+ * template). The inline SQL in `services/*.ts` is covered by the source scan
+ * in tenant-id-source-scan.test.ts, which reads files off disk and therefore
+ * runs under every runner EXCEPT Stryker (see that file's header); the suites
+ * here work on imported values, so mutation testing grades them normally.
  *
  * If this fails, a query was added or changed without tenant scoping. Fix by
  * adding `AND TenantId = {tenantId:String}` to its WHERE clause.
  */
 
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
 import * as queries from '../queries';
 import * as fleetQueries from '../queries-agent-fleet';
-
-// ---------------------------------------------------------------------------
-// Tenant tables + predicate matcher
-// ---------------------------------------------------------------------------
-
-// Every table whose rows carry a TenantId (the migration-29 policy set).
-// Longer names first so the alternation matches `otel_traces_trace_id_ts`
-// before the `otel_traces` prefix.
-const TENANT_TABLES = [
-  'otel_traces_trace_id_ts',
-  'otel_traces',
-  'scores',
-  'agent_session_summary',
-  'agent_blobs',
-  'trace_facets',
-  'trace_topic_maps',
-] as const;
-
-const TENANT_TABLE_PATTERN = new RegExp(
-  `\\b(?:FROM|JOIN)\\s+(?:${TENANT_TABLES.join('|')})\\b`,
-  'i',
-);
-// Require TenantId in PREDICATE position (`TenantId = …` / `TenantId IN …`),
-// not merely as a projected/grouped column — a `SELECT TenantId FROM …` with no
-// filter must not pass. Residual limit (present tense): this proves a tenant
-// predicate is PRESENT in the query, not that it binds every tenant table a
-// multi-table query joins; per-table binding is not cheaply expressible as a
-// regex, so the row-policy client remains the by-construction backstop.
-const TENANT_ID_PATTERN = /TenantId\s*(?:=|IN\b)/i;
-
-// ---------------------------------------------------------------------------
-// Queries exempt from TenantId enforcement (present-tense reason required)
-// ---------------------------------------------------------------------------
-
-const ALLOWLIST = new Set([
-  // Health probe — `SELECT 1`, no table, no data access.
-  'HEALTH_CHECK_QUERY',
-  // Column/dimension maps — not query strings.
-  'SORT_FIELD_MAP',
-  // Delegates its WHERE entirely to `samplableRowsClause(scope, facet)`,
-  // whose own template literal (scanned separately in this same file) opens
-  // with a literal TenantId predicate — the interpolation just hides that
-  // text from this source scan, not from ClickHouse.
-  'topics.ts inline query #27',
-  // agent-sessions.ts builds its WHERE clauses from a JS array of
-  // plain-quoted filter strings (`filters`/`baseWhere`/`vocabWhere`), not a
-  // single template literal — this scanner only reads backtick template
-  // text, so it can't see that `filters`/`vocabWhere` open with the literal
-  // `'TenantId={tenantId:String}'` entry. The identity/repo-resolution
-  // queries interpolate the same way.
-  'agent-sessions.ts inline query #24', // identity predicate ($identity)
-  'agent-sessions.ts inline query #36', // list query, WHERE ${where}
-  'agent-sessions.ts inline query #37', // total count, WHERE ${where}
-  'agent-sessions.ts inline query #38', // origin counts, WHERE ${baseWhere}
-  'agent-sessions.ts inline query #39', // branch vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #40', // actor vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #41', // agentType vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #42', // model vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #43', // workerKind vocab, WHERE ${vocabWhere}
-]);
-
-function assertTenantId(name: string, sql: string): void {
-  if (ALLOWLIST.has(name)) return;
-  if (!TENANT_TABLE_PATTERN.test(sql)) return; // doesn't query a tenant table
-
-  expect(
-    TENANT_ID_PATTERN.test(sql),
-    `Query "${name}" references a tenant table but is missing a TenantId predicate.\n` +
-      `Add: AND TenantId = {tenantId:String}\n` +
-      `(or, if it is genuinely cross-tenant, add it to ALLOWLIST with a reason).`,
-  ).toBe(true);
-}
+import { TENANT_TABLE_PATTERN, TENANT_ID_PATTERN, assertTenantId } from './tenant-id-guard';
 
 // ---------------------------------------------------------------------------
 // Static query constants
@@ -213,40 +144,6 @@ describe('TenantId enforcement: queries-agent-fleet.ts builders', () => {
       scope: 'org',
     }).query;
     expect(TENANT_ID_PATTERN.test(sql)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Inline SQL in services/*.ts — source-scanned (the predicate is literal there)
-// ---------------------------------------------------------------------------
-
-describe('TenantId enforcement: services inline SQL', () => {
-  // Discover every service file by scanning the directory — a new service
-  // file cannot silently escape the guard by not being added to a list.
-  const SERVICES_DIR = new URL('../services/', import.meta.url);
-  const SERVICE_FILES = readdirSync(SERVICES_DIR)
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.d.ts'));
-
-  // Backtick-delimited template literals are the odd-indexed segments after a
-  // split on the backtick; SQL lives only in these, so comments that mention a
-  // table name are not scanned.
-  function templateLiterals(source: string): string[] {
-    return source.split('`').filter((_, i) => i % 2 === 1);
-  }
-
-  const cases = SERVICE_FILES.flatMap((file) => {
-    const source = readFileSync(new URL(file, SERVICES_DIR), 'utf8');
-    return templateLiterals(source)
-      .map((sql, index) => ({ file, index, sql }))
-      .filter(({ sql }) => TENANT_TABLE_PATTERN.test(sql));
-  });
-
-  it('at least one inline service query is scanned (guard is wired to real SQL)', () => {
-    expect(cases.length).toBeGreaterThan(0);
-  });
-
-  it.each(cases)('$file inline query #$index carries a TenantId predicate', ({ file, index, sql }) => {
-    assertTenantId(`${file} inline query #${index}`, sql);
   });
 });
 
