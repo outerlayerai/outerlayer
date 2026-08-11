@@ -1045,6 +1045,80 @@ export type Database = {
           },
         ]
       }
+      device_auth_request: {
+        Row: {
+          app_id: string | null
+          approved_at: string | null
+          approver_membership_id: string | null
+          consumed_at: string | null
+          created_at: string
+          device_code_digest: string
+          environment_id: string | null
+          expires_at: string
+          id: string
+          status: string
+          tenant_id: string | null
+          user_code: string
+        }
+        Insert: {
+          app_id?: string | null
+          approved_at?: string | null
+          approver_membership_id?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          device_code_digest: string
+          environment_id?: string | null
+          expires_at: string
+          id?: string
+          status?: string
+          tenant_id?: string | null
+          user_code: string
+        }
+        Update: {
+          app_id?: string | null
+          approved_at?: string | null
+          approver_membership_id?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          device_code_digest?: string
+          environment_id?: string | null
+          expires_at?: string
+          id?: string
+          status?: string
+          tenant_id?: string | null
+          user_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_auth_request_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "app"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_auth_request_approver_membership_id_fkey"
+            columns: ["approver_membership_id"]
+            isOneToOne: false
+            referencedRelation: "membership"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_auth_request_environment_id_fkey"
+            columns: ["environment_id"]
+            isOneToOne: false
+            referencedRelation: "environment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_auth_request_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["tenant_id"]
+          },
+        ]
+      }
       env_var: {
         Row: {
           app_id: string
