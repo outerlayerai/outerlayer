@@ -11,12 +11,24 @@
  * module mock.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../test-helpers/msw-server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Env } from '../types';
 import { bearerPermissionClientFactory } from './verify-bearer';
+
+const { createClientSpy } = vi.hoisted(() => ({ createClientSpy: vi.fn() }));
+vi.mock('@supabase/supabase-js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@supabase/supabase-js')>();
+  return {
+    ...actual,
+    createClient: (...args: Parameters<typeof actual.createClient>) => {
+      createClientSpy(...args);
+      return actual.createClient(...args);
+    },
+  };
+});
 
 const SUPABASE_URL = 'http://localhost:54321';
 const FAKE_ENV = {
@@ -58,5 +70,19 @@ describe('bearerPermissionClientFactory.create', () => {
     const headers = await capturedRequestHeaders(client);
     expect(headers.get('authorization')).toBe('Bearer the-jwt');
     expect(headers.get('x-tenant-id')).toBeNull();
+  });
+
+  it('disables client-side session persistence and auto-refresh — this client is a short-lived, per-request RPC caller, not a browser session', async () => {
+    // The gateway runs in a Worker with no storage to persist a session into
+    // and no reason to auto-refresh a token it was handed for one request;
+    // leaving these on would leak client-side session state across requests.
+    bearerPermissionClientFactory.create(FAKE_ENV, 'the-jwt', 'tenant-b');
+    expect(createClientSpy).toHaveBeenCalledWith(
+      SUPABASE_URL,
+      'anon-test',
+      expect.objectContaining({
+        auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+      }),
+    );
   });
 });

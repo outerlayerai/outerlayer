@@ -16,9 +16,11 @@ import {
   ROLE_PERMISSION_SETS,
   setRoutePermission,
   getRoutePermission,
+  getRegisteredRoutePaths,
   _resetRoutePermissions,
   checkPermission,
   permissionMiddleware,
+  enforcePermission,
 } from '../permissions';
 
 // ---------------------------------------------------------------------------
@@ -173,6 +175,24 @@ describe('route permission registry', () => {
       setRoutePermission('GET', '/v1/traces', 'trace.read');
       _resetRoutePermissions();
       expect(getRoutePermission('GET', '/v1/traces')).toBeNull();
+    });
+  });
+
+  describe('getRegisteredRoutePaths', () => {
+    it('returns the path, not the method, for every registered (method, path) pair', () => {
+      setRoutePermission('GET', '/v1/traces', 'trace.read');
+      setRoutePermission('POST', '/v1/scores', 'score.write');
+      expect(getRegisteredRoutePaths().slice().sort()).toEqual(['/v1/scores', '/v1/traces']);
+    });
+
+    it('lists a path once per method it is registered under, not deduplicated across methods', () => {
+      setRoutePermission('GET', '/v1/traces', 'trace.read');
+      setRoutePermission('POST', '/v1/traces', 'trace.write');
+      expect(getRegisteredRoutePaths().filter((p) => p === '/v1/traces')).toHaveLength(2);
+    });
+
+    it('returns an empty list when nothing is registered', () => {
+      expect(getRegisteredRoutePaths()).toEqual([]);
     });
   });
 });
@@ -568,5 +588,96 @@ describe('permissionMiddleware (bearer auth)', () => {
     // …but app_authorize says no, and the middleware trusts the RPC.
     expect(mockCheckBearerPermission).toHaveBeenCalledOnce();
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('logs the exact denial context (method, path, tenant, app, permission) on a bearer 403', async () => {
+    mockCheckBearerPermission.mockResolvedValueOnce(false);
+    const { c, next } = createMockContext({
+      user: { tenantId: 't1', appId: 'a1', authMode: 'bearer', userJwt: 'user-jwt', permissions: [] },
+      method: 'GET',
+      routePath: '/v1/traces',
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await permissionMiddleware(c, next);
+
+    expect(warnSpy).toHaveBeenCalledWith('[permissions] bearer denied by app_authorize', {
+      method: 'GET',
+      reqPath: '/v1/traces',
+      tenantId: 't1',
+      appId: 'a1',
+      required: 'trace.read',
+    });
+    warnSpy.mockRestore();
+  });
+
+  it('logs the exact denial context on an api-key 403', async () => {
+    const { c, next } = createMockContext({
+      user: { permissions: ['score.read'], tenantId: 't1', appId: 'a1' },
+      method: 'POST',
+      routePath: '/v1/traces',
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await permissionMiddleware(c, next);
+
+    expect(warnSpy).toHaveBeenCalledWith('[permissions] denied', {
+      method: 'POST',
+      reqPath: '/v1/traces',
+      tenantId: 't1',
+      appId: 'a1',
+      required: 'trace.write',
+    });
+    warnSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enforcePermission — the per-route (chanfana) guard, distinct from the
+// permissionMiddleware wildcard fallback tested above.
+// ---------------------------------------------------------------------------
+
+describe('enforcePermission', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calls next without consulting app_authorize when the context has no user at all', async () => {
+    const { c, next } = createMockContext({ user: undefined });
+    const guard = enforcePermission('trace.read');
+
+    await guard(c, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(mockCheckBearerPermission).not.toHaveBeenCalled();
+  });
+
+  it('denies an api-key context missing the required permission, independent of the wildcard middleware', async () => {
+    const { c, next, jsonSpy } = createMockContext({
+      user: { permissions: ['score.read'], tenantId: 't1', appId: 'a1' },
+      method: 'GET',
+      routePath: '/v1/traces',
+    });
+    const guard = enforcePermission('trace.read');
+
+    await guard(c, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(jsonSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.objectContaining({ required_permission: 'trace.read' }) }),
+      403,
+    );
+  });
+
+  it('allows an api-key context that carries the required permission', async () => {
+    const { c, next, jsonSpy } = createMockContext({
+      user: { permissions: ['trace.read'], tenantId: 't1', appId: 'a1' },
+    });
+    const guard = enforcePermission('trace.read');
+
+    await guard(c, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(jsonSpy).not.toHaveBeenCalled();
   });
 });

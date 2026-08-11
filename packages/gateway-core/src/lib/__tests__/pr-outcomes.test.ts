@@ -4,14 +4,22 @@ import type { ChQueryFn } from '../../openapi/analytics-factory';
 
 /** Chainable Supabase-select stand-in: every `.eq`/`.in`/`.select` returns
  * itself, and `await`-ing it resolves via `.then` — the same shape the real
- * client's builder has. */
-function fakeSupabase(byTable: Record<string, { data: unknown; error: { message: string } | null }>) {
+ * client's builder has. `fromSpy`/`inCalls` let tests assert whether a table
+ * was ever queried and with what `.in(...)` filter values. */
+function fakeSupabase(
+  byTable: Record<string, { data: unknown; error: { message: string } | null }>,
+  opts: { fromSpy?: ReturnType<typeof vi.fn>; inCalls?: { table: string; column: string; values: unknown[] }[] } = {},
+) {
   return {
     from: (table: string) => {
+      opts.fromSpy?.(table);
       const chain: any = {
         select: () => chain,
         eq: () => chain,
-        in: () => chain,
+        in: (column: string, values: unknown[]) => {
+          opts.inCalls?.push({ table, column, values });
+          return chain;
+        },
         then: (resolve: (v: unknown) => void, reject: (e: unknown) => void) =>
           Promise.resolve(byTable[table]).then(resolve, reject),
       };
@@ -109,5 +117,100 @@ describe('buildPrOutcomeReader', () => {
 
     expect(outcomeOf('trace-a')).toEqual([]);
     expect(prUrls).not.toHaveBeenCalled();
+  });
+
+  it('never queries Postgres when no ClickHouse client is configured', async () => {
+    const fromSpy = vi.fn();
+    const supabase = fakeSupabase({}, { fromSpy });
+
+    const reader = buildPrOutcomeReader(supabase as any, null, SCOPE);
+    await reader.forSessions(['trace-a']);
+
+    expect(fromSpy).not.toHaveBeenCalled();
+  });
+
+  it('an error on the confirmed-links read takes priority over any data present, discarding it', async () => {
+    // A real Supabase error response always carries data: null, but the code's
+    // own error-first guard is what makes that safe — assert the guard by
+    // giving the error response non-null data too (with a fully valid
+    // pull_request table so the ONLY thing standing between "the garbage
+    // data gets processed" and "it's discarded" is the guard on this line),
+    // which only a genuine error-first check discards.
+    const supabase = fakeSupabase({
+      pull_request_session: {
+        data: [{ trace_id: 'trace-a', pr_number: 7 }],
+        error: { message: 'boom' },
+      },
+      pull_request: { data: [{ pr_number: 7, url: 'https://github.com/acme/app/pull/7' }], error: null },
+    });
+    const chQuery: ChQueryFn = vi.fn(async () => [{ Id: 'whatever', Score: 1, Label: 'merged' }]);
+
+    const reader = buildPrOutcomeReader(supabase as any, chQuery, SCOPE);
+    const outcomeOf = await reader.forSessions(['trace-a']);
+
+    expect(outcomeOf('trace-a')).toEqual([]);
+    expect(chQuery).not.toHaveBeenCalled();
+  });
+
+  it('an error on the pr-urls read takes priority over any data present, discarding it', async () => {
+    const supabase = fakeSupabase({
+      pull_request_session: { data: [{ trace_id: 'trace-a', pr_number: 7 }], error: null },
+      pull_request: {
+        data: [{ pr_number: 7, url: 'https://github.com/acme/app/pull/7' }],
+        error: { message: 'boom' },
+      },
+    });
+    // Every requested score id resolves — so if the garbage pull_request data
+    // (with error set) were used instead of being discarded, the outcome
+    // would still carry a prUrl. It must not.
+    const chQuery: ChQueryFn = vi.fn(async (_sql, params) => {
+      const ids = params.ids as string[];
+      return ids.map((id) => ({ Id: id, Score: 1, Label: 'merged' }));
+    });
+
+    const reader = buildPrOutcomeReader(supabase as any, chQuery, SCOPE);
+    const outcomeOf = await reader.forSessions(['trace-a']);
+
+    // The whole read degrades to "no outcomes" — a garbage-but-error-flagged
+    // pr_number must never surface a prUrl scraped off a discarded row.
+    expect(outcomeOf('trace-a')).toEqual([]);
+  });
+
+  it('a confirmed-links read with null data and no error is treated as zero links, never querying ClickHouse', async () => {
+    const supabase = fakeSupabase({
+      pull_request_session: { data: null as unknown as unknown[], error: null },
+    });
+    const chQuery: ChQueryFn = vi.fn(async () => []);
+
+    const reader = buildPrOutcomeReader(supabase as any, chQuery, SCOPE);
+    const outcomeOf = await reader.forSessions(['trace-a']);
+
+    expect(outcomeOf('trace-a')).toEqual([]);
+    expect(chQuery).not.toHaveBeenCalled();
+  });
+
+  it('passes the exact set of confirmed PR numbers as the pull_request .in() filter', async () => {
+    const inCalls: { table: string; column: string; values: unknown[] }[] = [];
+    const supabase = fakeSupabase(
+      {
+        pull_request_session: {
+          data: [
+            { trace_id: 'trace-a', pr_number: 3 },
+            { trace_id: 'trace-b', pr_number: 9 },
+          ],
+          error: null,
+        },
+        pull_request: { data: [], error: null },
+      },
+      { inCalls },
+    );
+    const chQuery: ChQueryFn = vi.fn(async () => []);
+
+    const reader = buildPrOutcomeReader(supabase as any, chQuery, SCOPE);
+    await reader.forSessions(['trace-a', 'trace-b']);
+
+    const prUrlsCall = inCalls.find((c) => c.table === 'pull_request')!;
+    expect(prUrlsCall.column).toBe('pr_number');
+    expect(prUrlsCall.values).toEqual([3, 9]);
   });
 });
