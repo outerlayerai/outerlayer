@@ -179,8 +179,12 @@ export function computeStatuslineState(opts: ComputeStatuslineOptions = {}): Sta
       continue;
     }
     for (const entry of entries) {
+      // Unsynced is a BACKLOG number, not a today number: it spans all
+      // days (a sync broken since Friday must count Friday's work) and
+      // top-level transcripts only (subagents ship with their parent and
+      // would triple-count a busy session).
+      if (watermark !== null && !entry.isSubagent && entry.mtimeMs > watermark) unsyncedCount += 1;
       if (entry.mtimeMs < midnight) continue;
-      if (watermark !== null && entry.mtimeMs > watermark) unsyncedCount += 1;
       let session;
       try {
         session = adapter.parse(entry, { roots }).session;

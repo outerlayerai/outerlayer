@@ -30,11 +30,11 @@ const NOW = Date.parse("2026-08-11T12:00:00.000Z");
 const TODAY_MTIME = Date.parse("2026-08-11T09:00:00.000Z");
 const YESTERDAY_MTIME = Date.parse("2026-08-10T09:00:00.000Z");
 
-function minimalAgentSession(id: string, costUsd: number | null, turns: AgentSession["turns"] = []): AgentSession {
+function minimalAgentSession(id: string, costUsd: number | null, turns: AgentSession["turns"] = [], origin?: string): AgentSession {
   return {
     schemaVersion: 1,
     id,
-    agent: { type: "claude-code" },
+    agent: { type: "claude-code", ...(origin ? { origin } : {}) },
     env: {},
     startedAt: "2026-08-11T09:00:00.000Z",
     models: [],
@@ -56,6 +56,9 @@ interface FakeEntrySpec {
    * "today" contribution — the same shortcut costSince itself takes when no
    * turn carries a cost. */
   turns?: AgentSession["turns"];
+  /** `session.agent.origin`. Omitted ⇒ interactive (matches real writers
+   * that never set the field for a human-driven session). */
+  origin?: string;
 }
 
 /** A fake SourceAdapter over in-memory specs — no filesystem transcripts,
@@ -75,7 +78,7 @@ function makeFakeAdapter(id: string, specs: FakeEntrySpec[]): { adapter: SourceA
       parsedFiles.push(entry.file);
       const spec = specs.find((s) => entry.file === `/fake/${id}/${s.sessionId}.jsonl`)!;
       return {
-        session: minimalAgentSession(spec.sessionId, spec.costUsd, spec.turns ?? []),
+        session: minimalAgentSession(spec.sessionId, spec.costUsd, spec.turns ?? [], spec.origin),
         warnings: {},
         stats: { lines: 1, parsed: 1, skipped: 0, unmapped: 0 },
         versions: [],
@@ -170,6 +173,23 @@ describe("computeStatuslineState — sessionCount / subagent attribution", () =>
     expect(state.today.byAgent).toEqual({ "claude-code": 0 });
     expect(state.today.sessionCount).toBe(0);
   });
+
+  it("a headless origin:\"agent\" run sums into byAgent but is excluded from sessionCount", () => {
+    const { adapter } = makeFakeAdapter("claude-code", [{ sessionId: "headless", mtimeMs: TODAY_MTIME, costUsd: 4, origin: "agent" }]);
+    const state = computeStatuslineState({ home, now: () => NOW, adapters: [adapter] });
+    expect(state.today.byAgent).toEqual({ "claude-code": 4 });
+    expect(state.today.sessionCount).toBe(0);
+  });
+
+  it("origin:\"interactive\" and an unset origin both count — only origin:\"agent\" is excluded", () => {
+    const { adapter } = makeFakeAdapter("claude-code", [
+      { sessionId: "explicit-interactive", mtimeMs: TODAY_MTIME, costUsd: 1, origin: "interactive" },
+      { sessionId: "unset-origin", mtimeMs: TODAY_MTIME, costUsd: 1 },
+    ]);
+    const state = computeStatuslineState({ home, now: () => NOW, adapters: [adapter] });
+    expect(state.today.byAgent).toEqual({ "claude-code": 2 });
+    expect(state.today.sessionCount).toBe(2);
+  });
 });
 
 describe("readSyncWatermarkMs / unsynced derivation", () => {
@@ -205,15 +225,34 @@ describe("readSyncWatermarkMs / unsynced derivation", () => {
     expect(readSyncWatermarkMs(home)).toBeNull();
   });
 
-  it("config present but no watermarks.json: every today entry counts as unsynced (watermark 0)", () => {
+  it("config present but no watermarks.json: every top-level entry counts as unsynced (watermark 0), regardless of day", () => {
     writeConfig();
     const { adapter } = makeFakeAdapter("claude-code", [
       { sessionId: "s1", mtimeMs: TODAY_MTIME, costUsd: 1 },
       { sessionId: "s2", mtimeMs: TODAY_MTIME + 100, costUsd: 1 },
+      { sessionId: "old", mtimeMs: YESTERDAY_MTIME, costUsd: 1 },
     ]);
     expect(readSyncWatermarkMs(home)).toBe(0);
     const state = computeStatuslineState({ home, now: () => NOW, adapters: [adapter] });
-    expect(state.unsynced).toBe(2);
+    expect(state.unsynced).toBe(3);
+  });
+
+  it("a subagent entry newer than the watermark still sums into byAgent but is never counted as unsynced", () => {
+    writeConfig();
+    writeWatermark(TODAY_MTIME - 1000); // older than the entry, so it would count if it were top-level
+    const { adapter } = makeFakeAdapter("claude-code", [{ sessionId: "sub", mtimeMs: TODAY_MTIME, costUsd: 4, isSubagent: true }]);
+    const state = computeStatuslineState({ home, now: () => NOW, adapters: [adapter] });
+    expect(state.today.byAgent).toEqual({ "claude-code": 4 });
+    expect(state.unsynced).toBe(0);
+  });
+
+  it("unsynced spans all days while cost stays today-only: a yesterday-mtime top-level entry counts as unsynced but contributes nothing to today", () => {
+    writeConfig();
+    writeWatermark(YESTERDAY_MTIME - 1000); // older than the entry
+    const { adapter } = makeFakeAdapter("claude-code", [{ sessionId: "old", mtimeMs: YESTERDAY_MTIME, costUsd: 9 }]);
+    const state = computeStatuslineState({ home, now: () => NOW, adapters: [adapter] });
+    expect(state.unsynced).toBe(1);
+    expect(state.today).toEqual({ date: "2026-08-11", byAgent: {}, sessionCount: 0 });
   });
 });
 
