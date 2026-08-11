@@ -27,6 +27,16 @@ import { getRoutePermission } from '../../lib/permissions';
 
 const legacyKeys = new Set<string>();
 
+/**
+ * `/v1/mcp` is authenticated (not in `UNAUTHENTICATED_V1_PATHS`) but carries
+ * no single static permission: it dispatches to one of five tools per call,
+ * each with its own `requiredPermission` enforced inside the JSON-RPC
+ * dispatcher (`openapi/mcp/dispatcher.ts`), not via `setRoutePermission()`.
+ * `openapi/mcp/tools-conformance.test.ts` is this route's equivalent
+ * coverage check — it asserts every tool declares a real gateway permission.
+ */
+const MCP_DYNAMIC_PERMISSION_PATH = '/v1/mcp';
+
 describe('permission coverage', () => {
   const routes = (openApiApp as unknown as {
     routes: Array<{ method: string; path: string }>;
@@ -36,6 +46,7 @@ describe('permission coverage', () => {
     if (r.method === 'ALL') return false; // middleware registrations
     if (!r.path.startsWith('/v1/')) return false;
     if (UNAUTHENTICATED_V1_PATHS.has(r.path)) return false;
+    if (r.path === MCP_DYNAMIC_PERMISSION_PATH) return false;
     if (legacyKeys.has(`${r.method} ${r.path}`)) return false;
     return true;
   });

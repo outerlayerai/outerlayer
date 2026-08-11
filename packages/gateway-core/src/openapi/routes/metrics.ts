@@ -16,12 +16,16 @@ import { BaseRoute, type AppContext, getService, buildTenantContext, errorRespon
 import { RATE_LIMITS } from '../../rate-limits';
 import type { GatewayPermission } from '../../lib/permissions';
 
-/** `YYYY-MM-DD`, `days` back from today (UTC). */
-function daysAgo(days: number): string {
+/**
+ * `YYYY-MM-DD`, `days` back from today (UTC). Exported so the `get_model_costs`
+ * / `get_fleet_overview` MCP tools default their windows identically to these
+ * REST routes — one definition of "trailing N days", not two that can drift.
+ */
+export function daysAgo(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function today(): string {
+export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 

@@ -1,0 +1,252 @@
+/**
+ * Hand-rolled JSON-RPC 2.0 dispatcher mounted at `POST /v1/mcp`.
+ *
+ * `@modelcontextprotocol/sdk` is used for its TYPES/SCHEMAS only — no
+ * transport class from the SDK is imported, and nothing here holds a
+ * session: every request is a single stateless POST, matching every other
+ * `/v1/*` route. `check-gateway-core-imports.mjs` separately bans `ws`
+ * outright, so a transport import couldn't land here even by accident.
+ *
+ * Authorization reuses the EXACT REST guards (`enforcePermission`,
+ * `enforceEntitlement`, `enforceRateLimit`) by calling them as ordinary Hono
+ * middleware with a no-op `next` — a guard either calls `next()` (granted,
+ * the call proceeds) or returns a `Response` (denied). This is the same
+ * composition `registerAuthenticatedRoute` builds for REST, just invoked
+ * directly instead of installed on Hono's router — the mount bypasses that
+ * registration path entirely (by design: `/v1/mcp` dispatches to one of
+ * five tools per call, not one route per path), so nothing here is
+ * automatic; every guard below is an explicit call.
+ */
+
+import { ErrorCode, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import type {
+  CallToolResult,
+  InitializeResult,
+  ListResourcesResult,
+  ListToolsResult,
+  ReadResourceResult,
+  Tool,
+} from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
+import type { Next } from 'hono';
+import type { AppContext } from '../routes/_shared';
+import { enforcePermission } from '../../lib/permissions';
+import { enforceEntitlement } from '../../lib/entitlements';
+import { enforceRateLimit } from '../../lib/rate-limit';
+import { MCP_TOOLS, findTool, type McpToolDefinition } from './tools';
+import { GUIDE_RESOURCE_TEXT, GUIDE_RESOURCE_URI } from './resources';
+
+const SERVER_NAME = 'outerlayer-gateway';
+const SERVER_VERSION = '1.0';
+
+/** Server-defined JSON-RPC error codes in the implementation-defined range
+ * (-32000 to -32099 per the JSON-RPC 2.0 spec). The SDK's {@link ErrorCode}
+ * enum covers protocol-level failures only (parse/method/params); these
+ * three are OuterLayer's own application-level denials, deliberately kept
+ * OUT of a REST-shaped `{ error: { code, message } }` envelope — a
+ * permission-denied tool call is a JSON-RPC error, not the REST envelope. */
+const APP_ERROR_CODE = {
+  PermissionDenied: -32001,
+  EntitlementRequired: -32002,
+  RateLimited: -32003,
+} as const;
+
+type JsonRpcId = string | number | null;
+
+interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  id?: JsonRpcId;
+  method: string;
+  params?: unknown;
+}
+
+const JsonRpcRequestSchema = z.object({
+  jsonrpc: z.literal('2.0'),
+  id: z.union([z.string(), z.number(), z.null()]).optional(),
+  method: z.string().min(1),
+  params: z.unknown().optional(),
+});
+
+function jsonRpcResult(id: JsonRpcId | undefined, result: unknown) {
+  return { jsonrpc: '2.0' as const, id: id ?? null, result };
+}
+
+function jsonRpcError(id: JsonRpcId | undefined, code: number, message: string, data?: unknown) {
+  return { jsonrpc: '2.0' as const, id: id ?? null, error: { code, message, ...(data !== undefined ? { data } : {}) } };
+}
+
+const NO_OP_NEXT: Next = async () => undefined;
+
+/**
+ * Run a REST-shaped Hono guard (`enforcePermission(...)`, `enforceEntitlement(...)`,
+ * `enforceRateLimit(...)`) outside route registration. The guard calls
+ * `next()` (returns `undefined`) on success or returns a `Response` on
+ * denial — this reads that outcome as a boolean without ever installing the
+ * guard on Hono's router.
+ */
+async function guardPasses(
+  c: AppContext,
+  guard: (c: AppContext, next: Next) => Promise<Response | void>,
+): Promise<boolean> {
+  const outcome = await guard(c, NO_OP_NEXT);
+  return outcome === undefined;
+}
+
+function toolToMcpTool(tool: McpToolDefinition): Tool {
+  const schema = z.toJSONSchema(tool.zodInputSchema, { target: 'draft-7' }) as Record<string, unknown>;
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: {
+      type: 'object',
+      properties: (schema.properties as Tool['inputSchema']['properties']) ?? {},
+      required: (schema.required as string[] | undefined) ?? [],
+    },
+  };
+}
+
+async function handleInitialize(): Promise<InitializeResult> {
+  return {
+    protocolVersion: LATEST_PROTOCOL_VERSION,
+    capabilities: { tools: {}, resources: {} },
+    serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+  };
+}
+
+function handleToolsList(): ListToolsResult {
+  return { tools: MCP_TOOLS.map(toolToMcpTool) };
+}
+
+function handleResourcesList(): ListResourcesResult {
+  return {
+    resources: [
+      {
+        uri: GUIDE_RESOURCE_URI,
+        name: 'OuterLayer data model guide',
+        description: 'Session/trace/span, facet/topic, snapshot-vs-live, cost, and time semantics for the tools on this server.',
+        mimeType: 'text/markdown',
+      },
+    ],
+  };
+}
+
+function handleResourcesRead(params: unknown): ReadResourceResult {
+  const parsed = z.object({ uri: z.string() }).safeParse(params);
+  if (!parsed.success || parsed.data.uri !== GUIDE_RESOURCE_URI) {
+    throw new McpProtocolError(ErrorCode.InvalidParams, `Unknown resource: ${JSON.stringify(params)}`);
+  }
+  return {
+    contents: [{ uri: GUIDE_RESOURCE_URI, mimeType: 'text/markdown', text: GUIDE_RESOURCE_TEXT }],
+  };
+}
+
+class McpProtocolError extends Error {
+  constructor(
+    public readonly code: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+class McpAppError extends Error {
+  constructor(
+    public readonly code: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function handleToolsCall(c: AppContext, params: unknown): Promise<CallToolResult> {
+  const parsed = z.object({ name: z.string(), arguments: z.unknown().optional() }).safeParse(params);
+  if (!parsed.success) {
+    throw new McpProtocolError(ErrorCode.InvalidParams, 'tools/call requires { name, arguments? }');
+  }
+  const tool = findTool(parsed.data.name);
+  if (!tool) {
+    throw new McpProtocolError(ErrorCode.MethodNotFound, `Unknown tool: ${parsed.data.name}`);
+  }
+
+  const input = tool.zodInputSchema.safeParse(parsed.data.arguments ?? {});
+  if (!input.success) {
+    throw new McpProtocolError(ErrorCode.InvalidParams, `Invalid arguments for ${tool.name}: ${input.error.message}`);
+  }
+
+  // RBAC → entitlement → rate limit → handler — same guard order
+  // `registerAuthenticatedRoute` composes for REST (see openapi/index.ts).
+  if (!(await guardPasses(c, enforcePermission(tool.requiredPermission)))) {
+    throw new McpAppError(APP_ERROR_CODE.PermissionDenied, `Forbidden: missing required permission '${tool.requiredPermission}'`);
+  }
+  if (tool.entitlement && !(await guardPasses(c, enforceEntitlement(tool.entitlement)))) {
+    throw new McpAppError(APP_ERROR_CODE.EntitlementRequired, `Tenant tier does not include '${tool.entitlement}'`);
+  }
+  if (tool.rateLimit && !(await guardPasses(c, enforceRateLimit(tool.rateLimit)))) {
+    throw new McpAppError(APP_ERROR_CODE.RateLimited, 'Rate limit exceeded. Please retry later.');
+  }
+
+  const body = await tool.execute(c, input.data);
+  const isError = typeof body === 'object' && body !== null && 'error' in body;
+  return {
+    content: [{ type: 'text', text: JSON.stringify(body) }],
+    structuredContent: body as Record<string, unknown>,
+    ...(isError ? { isError: true } : {}),
+  };
+}
+
+async function dispatchOne(c: AppContext, request: JsonRpcRequest) {
+  try {
+    switch (request.method) {
+      case 'initialize':
+        return jsonRpcResult(request.id, await handleInitialize());
+      case 'tools/list':
+        return jsonRpcResult(request.id, handleToolsList());
+      case 'tools/call':
+        return jsonRpcResult(request.id, await handleToolsCall(c, request.params));
+      case 'resources/list':
+        return jsonRpcResult(request.id, handleResourcesList());
+      case 'resources/read':
+        return jsonRpcResult(request.id, handleResourcesRead(request.params));
+      default:
+        return jsonRpcError(request.id, ErrorCode.MethodNotFound, `Unknown method: ${request.method}`);
+    }
+  } catch (err) {
+    if (err instanceof McpProtocolError) return jsonRpcError(request.id, err.code, err.message);
+    if (err instanceof McpAppError) return jsonRpcError(request.id, err.code, err.message);
+    console.error('[mcp] tools/call handler threw', err);
+    return jsonRpcError(request.id, ErrorCode.InternalError, 'An unexpected error occurred');
+  }
+}
+
+/** `POST /v1/mcp` — the only method this mount accepts (see {@link mcpMethodNotAllowed}). */
+export async function handleMcpRequest(c: AppContext): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(jsonRpcError(null, ErrorCode.ParseError, 'Request body is not valid JSON.'), 400);
+  }
+
+  if (Array.isArray(body)) {
+    // JSON-RPC batch requests are spec-permitted to reject outright.
+    return c.json(jsonRpcError(null, ErrorCode.InvalidRequest, 'Batch requests are not supported.'), 400);
+  }
+
+  const parsed = JsonRpcRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(jsonRpcError(null, ErrorCode.InvalidRequest, 'Malformed JSON-RPC 2.0 request.'), 400);
+  }
+
+  const response = await dispatchOne(c, parsed.data);
+  return c.json(response, 200);
+}
+
+/** `GET` / `DELETE` `/v1/mcp` — this mount is POST-only (stateless: no
+ * session to establish with GET or tear down with DELETE). Plain HTTP 405,
+ * not a JSON-RPC error — there is no JSON-RPC request to respond to. */
+export function mcpMethodNotAllowed(c: AppContext): Response {
+  return c.json(
+    { error: { code: 'method_not_allowed', message: 'POST /v1/mcp is the only supported method.' } },
+    { status: 405, headers: { Allow: 'POST' } } as unknown as 405,
+  );
+}

@@ -51,6 +51,7 @@ import {
   LaunchWorkerRun,
 } from './routes/workers';
 import { countActiveEnvironmentsForTenant } from '../lib/workers';
+import { handleMcpRequest, mcpMethodNotAllowed } from './mcp/dispatcher';
 import {
   enforceEntitlement,
   enforceQuota,
@@ -823,3 +824,23 @@ registerAuthenticatedRoute('delete', '/v1/apps/:appId/git/link', UnlinkAppReposi
 registerAuthenticatedRoute('get', '/v1/apps/:appId', GetApp);
 registerAuthenticatedRoute('patch', '/v1/apps/:appId', UpdateApp);
 registerAuthenticatedRoute('delete', '/v1/apps/:appId', DeleteApp);
+
+// ============================================================================
+// MCP mount — POST /v1/mcp, one JSON-RPC 2.0 dispatch point for five tools
+// + one resource. Registered on the raw Hono `app`, NOT `openApiApp`
+// (chanfana's `.post`/`.get` proxy methods register every call — even a
+// plain function handler — into the generated OpenAPI spec; `app.post`
+// bypasses that entirely). `app` and `openApiApp` share the same underlying
+// router, so this still runs after every `app.use('/v1/*', ...)` middleware
+// registered above (CORS, gtx, authMiddleware, the wildcard
+// permissionMiddleware fallback) — auth happens exactly as it does for every
+// other /v1/* route; per-tool RBAC/entitlement/rate-limit enforcement is
+// the dispatcher's own job (see openapi/mcp/dispatcher.ts), since this
+// mount bypasses `registerAuthenticatedRoute` entirely (one path serving
+// five tools, not one route per path).
+// ============================================================================
+app.post('/v1/mcp', handleMcpRequest);
+app.get('/v1/mcp', mcpMethodNotAllowed);
+app.delete('/v1/mcp', mcpMethodNotAllowed);
+app.put('/v1/mcp', mcpMethodNotAllowed);
+app.patch('/v1/mcp', mcpMethodNotAllowed);

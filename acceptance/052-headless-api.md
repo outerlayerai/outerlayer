@@ -25,8 +25,8 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 ## MCP server
 
-6. **Given** an MCP client authenticated with an API key, **When** it lists tools, **Then** the five read tools and the guide resource are advertised with schemas matching the REST contracts.
-7. **Given** the MCP `list_topics` tool is called with `facet: "issues", limit: 3`, **Then** its result equals the REST `GET /v1/topics` response body for the same parameters.
+6. `AC-052-06` **Given** an MCP client authenticated with an API key, **When** it lists tools, **Then** the five read tools and the guide resource are advertised with schemas matching the REST contracts.
+7. `AC-052-07` **Given** the MCP `list_topics` tool is called with `facet: "issues", limit: 3`, **Then** its result equals the REST `GET /v1/topics` response body for the same parameters.
 8. **Given** the self-hosted Node gateway with Supabase-backed auth, **When** the same endpoints/tools are exercised, **Then** they behave identically to hosted (modulo rate limits, which are noop; OAuth is unavailable under `SELF_HOST_TRUST_PERIMETER` and documented as such).
 
 ## Authorization

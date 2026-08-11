@@ -1315,6 +1315,31 @@ jobs:
           (cd apps/integration-tests && npx tsx scripts/setup-db.ts teardown) || true
           docker system prune -f || true
 
+  # The Worker bundle must stay under Cloudflare's compressed upload limit —
+  # nothing else catches this before `wrangler deploy` in CD.
+  gateway-bundle-size:
+    name: Gateway Bundle Size
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.gateway == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Build workspace packages (the Worker bundle pulls their dist/)
+        run: yarn turbo build --filter='{./packages/*}'
+
+      - name: Check compressed bundle size
+        run: node scripts/ci/check-gateway-bundle-size.mjs
+
   # Shell script test suites — deploy gating
   agentmark-script-tests:
     name: Agentmark Script Tests

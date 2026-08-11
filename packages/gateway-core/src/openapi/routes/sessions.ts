@@ -25,7 +25,9 @@ import { buildPrOutcomeReader } from '../../lib/pr-outcomes';
 import { RATE_LIMITS } from '../../rate-limits';
 import type { GatewayPermission } from '../../lib/permissions';
 
-function sessionPolicy(c: AppContext): SessionAccessPolicy {
+/** Exported so `list_sessions` / `get_session` (MCP) apply the identical
+ * actor-privacy policy as these REST routes — one derivation, not two. */
+export function sessionPolicy(c: AppContext): SessionAccessPolicy {
   const user = c.get('user');
   return {
     kind: 'machine-key',
@@ -84,7 +86,9 @@ function buildImageRefSigner(c: AppContext): ImageRefSigner {
   };
 }
 
-async function buildPorts(c: AppContext) {
+/** Exported for the `list_sessions` / `get_session` MCP tools — same port
+ * wiring the REST handlers use, so behavior can't diverge between surfaces. */
+export async function buildPorts(c: AppContext) {
   const user = c.get('user');
   const supabase = await getScopedSupabase(c);
   const chQuery = getGatewayChQuery(c.env, { tenantId: user.tenantId, appId: user.appId });

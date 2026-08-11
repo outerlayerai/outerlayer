@@ -23,7 +23,7 @@ import type { GatewayPermission } from '../../lib/permissions';
  * (bearer auth, or a key with no environment binding) falls back to the
  * app's default environment, same as an unbound dashboard view.
  */
-async function resolveTopicsScope(c: AppContext): Promise<TopicsScope> {
+export async function resolveTopicsScope(c: AppContext): Promise<TopicsScope> {
   const user = c.get('user');
   const envScope = await resolveEnvScope(c);
   if (envScope?.environment) {
