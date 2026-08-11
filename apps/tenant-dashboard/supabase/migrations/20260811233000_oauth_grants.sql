@@ -47,6 +47,8 @@ BEGIN
   DELETE FROM auth.sessions
   WHERE id = target_session_id
     AND user_id = auth.uid()
+    -- Scoped to connector sessions only — this function must never become
+    -- a way to end a caller's own dashboard session by id.
     AND oauth_client_id IS NOT NULL;
   GET DIAGNOSTICS deleted_count = ROW_COUNT;
   RETURN deleted_count > 0;

@@ -75,6 +75,7 @@ schema_paths = [
     "./schemas/65-sso.sql",
     "./schemas/66-pull-request.sql",
     "./schemas/67-ai-cost-config.sql",
+    "./schemas/68-oauth-grants.sql",
     "./schemas/73-worker-run.sql",
     "./schemas/74-pull-request-session.sql",
     # Ops telemetry about the database itself. Own `ops` schema, off the
