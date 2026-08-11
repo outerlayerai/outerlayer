@@ -8,8 +8,26 @@ import {
 } from '../services/agent-sessions';
 import type { IClickHouseQuery } from '../client';
 import { ValidationError } from '../errors';
+import { TENANT_ID_PATTERN, TENANT_TABLE_PATTERN } from './tenant-id-guard';
 
 const SCOPE = { tenantId: 'tenant-1', appId: 'app-1' };
+
+/** Every query the fake client captured that touches a tenant table must
+ * carry a TenantId predicate AND bind the scope's tenantId as a param — the
+ * source-scan guard (tenant-id-source-scan.test.ts) can only see literal SQL
+ * text, so a query assembled from a JS array/variable (as this service's
+ * WHERE clauses are) needs this emitted-SQL check to catch a dropped filter. */
+function assertEveryTenantTableQueryIsScoped(
+  calls: { query: string; query_params: Record<string, unknown> | undefined }[],
+  tenantId: string,
+): void {
+  const tenantTableCalls = calls.filter((c) => TENANT_TABLE_PATTERN.test(c.query));
+  expect(tenantTableCalls.length).toBeGreaterThan(0);
+  for (const call of tenantTableCalls) {
+    expect(TENANT_ID_PATTERN.test(call.query)).toBe(true);
+    expect(call.query_params?.['tenantId']).toBe(tenantId);
+  }
+}
 
 const BASE_QUERY = {
   limit: 25,
@@ -599,6 +617,21 @@ describe('AgentSessionsService.getSessionDetail', () => {
     expect(result?.spans[0]!.input).toBe(JSON.stringify({ nested: 'value' }));
   });
 
+  test('every query touching a tenant table carries a TenantId predicate and the scope tenantId param', async () => {
+    const { client, calls } = fakeClient({
+      queue: [
+        [{ start: '2026-01-01 00:00:00.000000000', end: '2026-01-01 01:00:00.000000000' }],
+        [rootSpan()],
+        [richSummary],
+      ],
+    });
+    const service = new AgentSessionsService(client);
+    await service.getSessionDetail(SCOPE, 'trace-1', { kind: 'machine-key', canSeeTeamActors: true }, noopPorts());
+    assertEveryTenantTableQueryIsScoped(calls, SCOPE.tenantId);
+    // all three queries (range lookup, span read, summary read) touch a tenant table
+    expect(calls.filter((c) => TENANT_TABLE_PATTERN.test(c.query))).toHaveLength(3);
+  });
+
   test('an image with a non-string sha256 is dropped, and a missing mediaType defaults to image/png', async () => {
     const withImages = rootSpan({
       metadata: {
@@ -1097,6 +1130,32 @@ describe('AgentSessionsService.listSessions', () => {
       noopPorts(),
     );
     expect(page).not.toHaveProperty('originCounts');
+  });
+
+  test('every emitted query touching a tenant table carries a TenantId predicate and the scope tenantId param', async () => {
+    const { client, calls } = fakeClient({
+      byNeedle: [
+        { needle: 'GROUP BY GitRepo', rows: [{ repo: 'acme/app' }] },
+        { needle: 'TraceId AS traceId', rows: [] },
+        { needle: 'SELECT count() AS total', rows: [{ total: '0' }] },
+        { needle: 'countIf(Origin', rows: [{ interactive: '0', agent: '0', worker: '0' }] },
+        { needle: 'GROUP BY GitBranch', rows: [] },
+        { needle: 'GROUP BY ActorId', rows: [] },
+        { needle: 'GROUP BY AgentType', rows: [] },
+        { needle: 'GROUP BY model', rows: [] },
+        { needle: 'GROUP BY WorkerKind', rows: [] },
+      ],
+    });
+    const service = new AgentSessionsService(client);
+    await service.listSessions(
+      SCOPE,
+      { ...BASE_QUERY, branch: 'main', signal: 'tool-errors', q: 'fix' },
+      { kind: 'machine-key', canSeeTeamActors: true },
+      noopPorts(),
+    );
+    assertEveryTenantTableQueryIsScoped(calls, SCOPE.tenantId);
+    // repo resolution, list, total, origin counts, and 5 vocab queries
+    expect(calls.filter((c) => TENANT_TABLE_PATTERN.test(c.query))).toHaveLength(9);
   });
 
   test('an empty total-row result defaults total to 0', async () => {
