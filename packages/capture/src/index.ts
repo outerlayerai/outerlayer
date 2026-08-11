@@ -41,6 +41,15 @@ export {
 export type { SourceAdapter, SourceRoots, SourceParseOptions } from "./adapters/types.js";
 export { CaptureDaemon } from "./daemon.js";
 export type { DaemonOptions, DaemonLogEvent } from "./daemon.js";
+export {
+  StatuslineAggregator,
+  computeStatuslineState,
+  readStatuslineState,
+  writeStatuslineState,
+  readSyncWatermarkMs,
+  statuslineStatePath,
+} from "./statusline-state.js";
+export type { StatuslineState, StatuslineAggregatorOptions, ComputeStatuslineOptions } from "./statusline-state.js";
 export { WARNING_CODES } from "./warnings.js";
 export type { WarningCode } from "./warnings.js";
 export { SUPPORTED_VERSIONS, compareVersions, isNewerThanSupported } from "./versions.js";
