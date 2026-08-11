@@ -28,6 +28,15 @@ vi.mock('../_shared', async (importOriginal) => {
   };
 });
 
+const checkBearerPermission = vi.fn();
+vi.mock('../../../lib/verify-bearer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../lib/verify-bearer')>();
+  return {
+    ...actual,
+    checkBearerPermission: (...args: unknown[]) => checkBearerPermission(...(args as [])),
+  };
+});
+
 import { ListSessions, GetSessionDetail } from '../sessions';
 
 const MOCK_ROUTE_OPTIONS = {
@@ -42,10 +51,46 @@ function buildContext(permissions: string[] = ['session.read']): AppContext {
     req: { method: 'GET', path: '/v1/sessions' },
     env: { CLICKHOUSE_HOST: 'http://ch.local', OAUTH_STATE_SECRET: 'a'.repeat(32) },
     get: vi.fn((key: string) =>
-      key === 'user' ? { tenantId: 'tenant-1', appId: 'app-1', permissions, apiKeyId: 'key-1' } : undefined,
+      key === 'user'
+        ? { authMode: 'apikey', tenantId: 'tenant-1', appId: 'app-1', permissions, apiKeyId: 'key-1' }
+        : undefined,
     ),
     json: vi.fn((body: unknown, status?: number) => ({ body, status: status ?? 200 })),
   } as unknown as AppContext;
+}
+
+/** A bearer (dashboard/OAuth) caller — a seat, not a machine key. */
+function buildBearerContext(): AppContext {
+  return {
+    req: { method: 'GET', path: '/v1/sessions' },
+    env: { CLICKHOUSE_HOST: 'http://ch.local', OAUTH_STATE_SECRET: 'a'.repeat(32) },
+    get: vi.fn((key: string) =>
+      key === 'user'
+        ? {
+            authMode: 'bearer',
+            tenantId: 'tenant-1',
+            appId: 'app-1',
+            gatewayUserId: 'user-1',
+            userJwt: 'jwt-1',
+            permissions: [],
+          }
+        : undefined,
+    ),
+    json: vi.fn((body: unknown, status?: number) => ({ body, status: status ?? 200 })),
+  } as unknown as AppContext;
+}
+
+/** A membership-table stub servicing both `resolveMembershipId`'s
+ * `.eq(user_id).eq(tenant_id).single()` chain and the actor-name resolver's
+ * `.eq(tenant_id).in(ids)` chain off the same `.from().select().eq()` root. */
+function membershipSupabaseClient(callerMembershipId: string | null) {
+  const afterFirstEq = {
+    eq: () => ({ single: async () => ({ data: callerMembershipId ? { id: callerMembershipId } : null }) }),
+    in: async () => ({ data: [] }),
+  };
+  return {
+    from: () => ({ select: () => ({ eq: () => afterFirstEq }) }),
+  };
 }
 
 function routeWithValidatedData<T extends { validatedData: unknown }>(
@@ -107,6 +152,69 @@ describe('ListSessions', () => {
 
     expect(result.status).toBe(400);
   });
+
+  // proves the SEC-2 fix: a bearer caller without agents.sessions.team.read
+  // must be confined to their own seat, never the team-wide machine-key rows
+  // `session.read` alone (granted to every role) used to leak.
+  it('builds a self-scoped dashboard-member policy for a bearer caller without team.read', async () => {
+    checkBearerPermission.mockResolvedValue(false);
+    getScopedSupabase.mockResolvedValue(membershipSupabaseClient('membership-1'));
+    listSessions.mockResolvedValue({ sessions: [], total: 0 });
+    const query = { limit: 25, offset: 0 };
+    const route = routeWithValidatedData(ListSessions, { query });
+    const c = buildBearerContext();
+
+    await route.handle(c);
+
+    expect(checkBearerPermission).toHaveBeenCalledWith({
+      env: c.env,
+      userJwt: 'jwt-1',
+      permission: 'agents.sessions.team.read',
+      appId: 'app-1',
+      requestTenantId: 'tenant-1',
+    });
+    expect(listSessions).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', appId: 'app-1' },
+      query,
+      { kind: 'dashboard-member', membershipId: 'membership-1', canSeeTeam: false },
+      expect.any(Object),
+    );
+  });
+
+  it('builds a team-wide dashboard-member policy for a bearer caller with team.read', async () => {
+    checkBearerPermission.mockResolvedValue(true);
+    getScopedSupabase.mockResolvedValue(membershipSupabaseClient('membership-1'));
+    listSessions.mockResolvedValue({ sessions: [], total: 0 });
+    const query = { limit: 25, offset: 0 };
+    const route = routeWithValidatedData(ListSessions, { query });
+    const c = buildBearerContext();
+
+    await route.handle(c);
+
+    expect(listSessions).toHaveBeenCalledWith(
+      expect.any(Object),
+      query,
+      { kind: 'dashboard-member', membershipId: 'membership-1', canSeeTeam: true },
+      expect.any(Object),
+    );
+  });
+
+  it('fails closed to an unmatchable membershipId when the caller has no membership row', async () => {
+    checkBearerPermission.mockResolvedValue(false);
+    getScopedSupabase.mockResolvedValue(membershipSupabaseClient(null));
+    listSessions.mockResolvedValue({ sessions: [], total: 0 });
+    const query = { limit: 25, offset: 0 };
+    const route = routeWithValidatedData(ListSessions, { query });
+    const c = buildBearerContext();
+
+    await route.handle(c);
+
+    const policy = listSessions.mock.calls[0]![2] as { kind: string; membershipId: string; canSeeTeam: boolean };
+    expect(policy.kind).toBe('dashboard-member');
+    expect(policy.canSeeTeam).toBe(false);
+    expect(policy.membershipId).not.toBe('membership-1');
+    expect(policy.membershipId.length).toBeGreaterThan(0);
+  });
 });
 
 describe('GetSessionDetail', () => {
@@ -142,5 +250,28 @@ describe('GetSessionDetail', () => {
     expect(missing.status).toBe(404);
     expect(crossApp.status).toBe(404);
     expect(missing.body).toEqual(crossApp.body);
+  });
+
+  // proves the SEC-2 fix: a bearer caller without agents.sessions.team.read
+  // gets the same 404 for a teammate's traceId as for one that doesn't
+  // exist — the caller-scoped policy reaches the service either way, and
+  // the service (proven separately in agent-sessions.test.ts) 404s a
+  // transcript pinned to another actor.
+  it('passes a self-scoped dashboard-member policy for a bearer caller reading another traceId', async () => {
+    checkBearerPermission.mockResolvedValue(false);
+    getScopedSupabase.mockResolvedValue(membershipSupabaseClient('membership-1'));
+    getSessionDetail.mockResolvedValue(null);
+    const route = routeWithValidatedData(GetSessionDetail, { params: { traceId: 'teammates-trace' } });
+    const c = buildBearerContext();
+
+    const result = (await route.handle(c)) as { body: unknown; status: number };
+
+    expect(getSessionDetail).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', appId: 'app-1' },
+      'teammates-trace',
+      { kind: 'dashboard-member', membershipId: 'membership-1', canSeeTeam: false },
+      expect.any(Object),
+    );
+    expect(result.status).toBe(404);
   });
 });

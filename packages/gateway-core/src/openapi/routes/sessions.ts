@@ -4,11 +4,13 @@
  * `GET /v1/sessions` — filtered, paginated agent-session list.
  * `GET /v1/sessions/{traceId}` — full span-tree transcript for one session.
  *
- * Every caller of this REST/MCP surface is a machine key: there is no seat
- * to self-pin to (unlike the dashboard's `dashboard-member` policy), so every
- * read is team-scoped. `agents.sessions.team.read` controls only whether
- * actor IDENTITY is visible — the rows themselves are always visible to a
- * caller with `session.read`.
+ * A machine-key caller has no seat to self-pin to, so its reads are always
+ * team-scoped; `agents.sessions.team.read` controls only whether actor
+ * IDENTITY is visible for it. A bearer (dashboard/OAuth) caller DOES have a
+ * seat — its policy mirrors the dashboard's own default exactly: self-pinned
+ * to the caller's membership id unless it holds `agents.sessions.team.read`,
+ * in which case the read is team-wide. `session.read` alone (granted to
+ * every role) must never widen a bearer caller past their own sessions.
  */
 
 import { mapClickHouseError, toErrorResponse, getErrorStatusCode, ServiceUnavailableError } from '@repo/observability-service';
@@ -22,13 +24,62 @@ import { z, BaseRoute, type AppContext, errorResponse, getScopedSupabase, struct
 import { getGatewaySessionsService, getGatewayChQuery } from '../analytics-factory';
 import { signAgentBlobRefs } from '../../lib/agent-blob-token';
 import { buildPrOutcomeReader } from '../../lib/pr-outcomes';
+import { checkBearerPermission } from '../../lib/verify-bearer';
 import { RATE_LIMITS } from '../../rate-limits';
 import type { GatewayPermission } from '../../lib/permissions';
 
+/**
+ * Sentinel `membershipId` for a bearer caller whose membership row can't be
+ * resolved (should be unreachable — auth middleware already required an
+ * active membership to authenticate). Not a real membership UUID and not
+ * the `key:`-prefixed shape either, so it can never match a stored
+ * `actorId` — the policy fails closed to an empty result instead of
+ * throwing mid-request or, worse, resolving to `null` (team-wide).
+ */
+const UNRESOLVED_MEMBERSHIP_SENTINEL = 'unresolved-membership';
+
+/** The caller's own `membership.id` for the resolved tenant, via the
+ * RLS-scoped client — a user can always read their own membership row, the
+ * same rule the dashboard's `resolveCallerMembershipId` relies on. */
+async function resolveMembershipId(c: AppContext): Promise<string | null> {
+  const user = c.get('user');
+  const supabase = await getScopedSupabase(c);
+  const { data } = await supabase
+    .from('membership')
+    .select('id')
+    .eq('user_id', user.gatewayUserId ?? '')
+    .eq('tenant_id', user.tenantId)
+    .single();
+  return data?.id ?? null;
+}
+
 /** Exported so `list_sessions` / `get_session` (MCP) apply the identical
  * actor-privacy policy as these REST routes — one derivation, not two. */
-export function sessionPolicy(c: AppContext): SessionAccessPolicy {
+export async function sessionPolicy(c: AppContext): Promise<SessionAccessPolicy> {
   const user = c.get('user');
+
+  if (user.authMode === 'bearer') {
+    // Bearer permissions are resolved by RLS, not the `apikey` claims list
+    // (`user.permissions` is always empty for bearer) — so team visibility
+    // is checked the same way `enforcePermission` checks any other bearer
+    // permission: the `app_authorize` RPC under the caller's own JWT.
+    const canSeeTeam = user.userJwt
+      ? await checkBearerPermission({
+          env: c.env,
+          userJwt: user.userJwt,
+          permission: 'agents.sessions.team.read',
+          appId: user.appId,
+          requestTenantId: user.tenantId,
+        })
+      : false;
+    const membershipId = await resolveMembershipId(c);
+    return {
+      kind: 'dashboard-member',
+      membershipId: membershipId ?? UNRESOLVED_MEMBERSHIP_SENTINEL,
+      canSeeTeam,
+    };
+  }
+
   return {
     kind: 'machine-key',
     canSeeTeamActors: (user.permissions ?? []).includes('agents.sessions.team.read'),
@@ -133,7 +184,7 @@ export class ListSessions extends BaseRoute {
       const result = await service.listSessions(
         { tenantId: user.tenantId, appId: user.appId },
         query,
-        sessionPolicy(c),
+        await sessionPolicy(c),
         await buildPorts(c),
       );
       return c.json({ data: result });
@@ -180,7 +231,7 @@ export class GetSessionDetail extends BaseRoute {
       const result = await service.getSessionDetail(
         { tenantId: user.tenantId, appId: user.appId },
         traceId,
-        sessionPolicy(c),
+        await sessionPolicy(c),
         await buildPorts(c),
       );
       if (!result) {

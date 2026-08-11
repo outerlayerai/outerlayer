@@ -91,7 +91,7 @@ async function listSessionsExecute(c: AppContext, input: z.infer<typeof ListSess
   const result = await service.listSessions(
     { tenantId: user.tenantId, appId: user.appId },
     input,
-    sessionPolicy(c),
+    await sessionPolicy(c),
     await buildPorts(c),
   );
   return { data: result };
@@ -104,7 +104,7 @@ async function getSessionExecute(c: AppContext, input: z.infer<typeof GetSession
   const result = await service.getSessionDetail(
     { tenantId: user.tenantId, appId: user.appId },
     input.traceId,
-    sessionPolicy(c),
+    await sessionPolicy(c),
     await buildPorts(c),
   );
   if (!result) {
