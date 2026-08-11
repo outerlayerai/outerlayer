@@ -1,8 +1,7 @@
 /** The two shapes Supabase's OAuth server returns from
- * `GET /auth/v1/oauth/authorizations/{id}`, per spec §5.4 (spike-verified):
- * a pending authorization to render consent UI for, or an already-decided
- * one (repeat connect) that auto-approves and hands back a redirect target
- * with no consent step. */
+ * `GET /auth/v1/oauth/authorizations/{id}`: a pending authorization to
+ * render consent UI for, or an already-decided one (repeat connect) that
+ * auto-approves and hands back a redirect target with no consent step. */
 export type BoundAuthorization =
   | {
       status: "pending";
@@ -10,9 +9,11 @@ export type BoundAuthorization =
       clientName: string;
       scopes: string[];
       /** The RFC 8707 `resource` the connector requested, when present —
-       * shown so the user can see which URL/app was asked for. Not an
-       * enforcement point: the gateway derives the app from the path or
-       * key at request time regardless of what's echoed here. */
+       * shown so the user can see which URL/app was asked for. The current
+       * server does not echo it back on the bind response, so this is null
+       * in practice and the consent view simply omits the row. Not an
+       * enforcement point either way: the gateway derives the app from the
+       * path or key at request time regardless of what's echoed here. */
       resource: string | null;
     }
   | { status: "auto-approved"; redirectUrl: string };

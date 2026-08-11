@@ -1,15 +1,21 @@
 /**
- * Client for Supabase Auth's OAuth 2.1 server consent endpoints
- * (`/auth/v1/oauth/authorizations/{id}`). `supabase-js` has no typed
- * wrapper for these — they're plain REST, called with the signed-in
- * user's own access token, never the service role.
+ * Client for Supabase Auth's OAuth 2.1 server consent endpoints.
+ * `supabase-js` has no typed wrapper for these — they're plain REST, called
+ * with the signed-in user's own access token, never the service role.
  *
- * Response field names below (`client_name`, `scope`, `resource`,
- * `redirect_url`) follow the OAuth 2.1 / RFC 8707 conventions Supabase's
- * server is documented against. They have not been exercised against a
- * live instance with `[auth.oauth_server]` enabled in this environment —
- * treat as best-effort pending the pre-ship manual verification spec §5.4
- * calls for (a real connector over a tunnel).
+ * The two endpoints are NOT the same URL with different verbs: binding is
+ * `GET /auth/v1/oauth/authorizations/{id}` and the decision is
+ * `POST …/authorizations/{id}/consent`. The bind URL answers `Allow: GET`
+ * and 405s any POST, so collapsing them breaks consent outright.
+ *
+ * Field names, as the running server returns them:
+ *   - pending  → `{ authorization_id, redirect_uri, client: { id, name },
+ *                   user: { id, email }, scope }` — the client's display
+ *                   name is `client.name`, and `redirect_uri` here is the
+ *                   connector's REGISTERED uri, not a decision outcome.
+ *   - approved → `{ redirect_url }` alone, on both the repeat-connect bind
+ *                   and the consent POST. `redirect_url`'s presence is
+ *                   therefore the auto-approve signal; `redirect_uri`'s is not.
  */
 
 import type { BoundAuthorization, ConsentDecision, SubmitConsentResult } from "./types";
@@ -46,6 +52,7 @@ class OAuthConsentService {
 
     const client = body.client as Record<string, unknown> | undefined;
     const clientName =
+      (typeof client?.name === "string" && client.name) ||
       (typeof client?.client_name === "string" && client.client_name) ||
       (typeof body.client_name === "string" && body.client_name) ||
       "Unnamed connector";
@@ -64,14 +71,18 @@ class OAuthConsentService {
     };
   }
 
-  /** Submits the user's approve/deny decision for a bound authorization. */
+  /**
+   * Submits the user's approve/deny decision for a bound authorization.
+   * A denial is a successful call, not an error: the server answers 200 with
+   * a `redirect_url` carrying `error=access_denied` back to the connector.
+   */
   async submitConsent(
     supabaseApiBaseUrl: string,
     accessToken: string,
     authorizationId: string,
     decision: ConsentDecision,
   ): Promise<SubmitConsentResult> {
-    const response = await fetch(authorizationUrl(supabaseApiBaseUrl, authorizationId), {
+    const response = await fetch(`${authorizationUrl(supabaseApiBaseUrl, authorizationId)}/consent`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
