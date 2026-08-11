@@ -20,7 +20,7 @@ import { CreateScore, CreateScoresBatch, ListScores, SearchScores, GetScore, Get
 import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
 import { GetCapabilities } from './routes/capabilities';
 import { GetPricing } from './routes/pricing';
-import { GetOAuthProtectedResourceMetadata } from './routes/oauth';
+import { GetOAuthProtectedResourceMetadata, GetAppScopedOAuthProtectedResourceMetadata } from './routes/oauth';
 import { OAUTH_PROTECTED_RESOURCE_METADATA_PATH } from '../lib/oauth-metadata';
 import { GetTopics } from './routes/topics';
 import { GetModelStats, GetFleetOverview, GetMetricsCompare } from './routes/metrics';
@@ -704,6 +704,14 @@ registerPublicRoute(
   'get',
   OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
   GetOAuthProtectedResourceMetadata,
+);
+// RFC 9728 §3.1 path-insertion form for the per-app MCP mount — a distinct
+// document so a client validating the resource audience against
+// /v1/apps/{appId}/mcp doesn't have to accept the bare /v1/mcp one.
+registerPublicRoute(
+  'get',
+  `${OAUTH_PROTECTED_RESOURCE_METADATA_PATH}/v1/apps/:appId/mcp`,
+  GetAppScopedOAuthProtectedResourceMetadata,
 );
 
 // ============================================================================

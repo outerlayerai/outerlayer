@@ -56,6 +56,57 @@ paths:
       summary: "OAuth protected-resource metadata"
       tags:
         - "OAuth"
+  /.well-known/oauth-protected-resource/v1/apps/{appId}/mcp:
+    get:
+      description: "RFC 9728 protected-resource metadata for /v1/apps/{appId}/mcp. Points MCP clients at the Supabase-backed authorization server; unauthenticated."
+      operationId: "oauth-protected-resource-metadata-app-scoped"
+      parameters:
+        - in: "path"
+          name: "appId"
+          required: true
+          schema:
+            minLength: 1
+            type: "string"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  authorization_servers:
+                    items:
+                      type: "string"
+                    type: "array"
+                  resource:
+                    type: "string"
+                required:
+                  - "resource"
+                  - "authorization_servers"
+                type: "object"
+          description: "Protected-resource metadata for this app's MCP mount."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+      security: []
+      summary: "OAuth protected-resource metadata for the per-app MCP mount"
+      tags:
+        - "OAuth"
   /health:
     get:
       description: "Check if the gateway service is running. Returns healthy if all required

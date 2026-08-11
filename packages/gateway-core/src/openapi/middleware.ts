@@ -6,7 +6,10 @@ import { buildUserMetaCacheKey } from '../lib/verify-key';
 import { extractBearerToken, resolveBearerUser } from '../lib/verify-bearer';
 import { initCache } from '../utils';
 import { memory } from '../cache-store';
-import { buildOAuthProtectedResourceMetadataUrl } from '../lib/oauth-metadata';
+import {
+  buildOAuthProtectedResourceMetadataUrl,
+  buildAppScopedOAuthProtectedResourceMetadataUrl,
+} from '../lib/oauth-metadata';
 
 /** How the caller authenticated. Used by downstream helpers that pick the
  * right Supabase client (gateway-role for api-key, authenticated-role for
@@ -135,17 +138,28 @@ function extractAppScopedMcpAppId(c: Context): string | null {
  * without out-of-band configuration. Every other case — non-MCP routes,
  * non-401 statuses — calls `c.json` with exactly the two arguments it
  * always took, unchanged.
+ *
+ * The per-app mount (`appScopedMcpAppId` set) advertises ITS OWN metadata
+ * document (`resource` = this app's mount, not the bare `/v1/mcp`) — a
+ * client that already resolved the bare mount's metadata and validates the
+ * audience strictly must not be pointed back at a `resource` value it never
+ * connected to.
  */
 function jsonAuthError(
   c: Context,
   body: unknown,
   status: 401 | 500 | 502,
   mcpRoute: boolean,
+  appScopedMcpAppId: string | null = null,
 ): Response {
   if (!mcpRoute || status !== 401) return c.json(body, status);
   const origin = new URL(c.req.url).origin;
+  const resourceMetadataUrl =
+    appScopedMcpAppId !== null
+      ? buildAppScopedOAuthProtectedResourceMetadataUrl(origin, appScopedMcpAppId)
+      : buildOAuthProtectedResourceMetadataUrl(origin);
   return c.json(body, status, {
-    'WWW-Authenticate': `Bearer resource_metadata="${buildOAuthProtectedResourceMetadataUrl(origin)}"`,
+    'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl}"`,
   });
 }
 
@@ -167,6 +181,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
       { error: { code: 'unauthorized', message: 'Missing auth header' } },
       401,
       mcpRoute,
+      appScopedMcpAppId,
     );
   }
 
@@ -216,6 +231,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
       },
       401,
       mcpRoute,
+      appScopedMcpAppId,
     );
   }
 
@@ -229,6 +245,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
       { error: { code: 'unauthorized', message: 'Missing app id' } },
       401,
       mcpRoute,
+      appScopedMcpAppId,
     );
   }
 
@@ -261,6 +278,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
         { error: { code: 'unauthorized', message: result.message } },
         result.status as 401 | 500,
         mcpRoute,
+        appScopedMcpAppId,
       );
     }
     // Audit-log every successful authentication. Constitution IX.
@@ -322,6 +340,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
       { error: { code: result.code, message: result.message } },
       result.status as 401 | 500 | 502,
       mcpRoute,
+      appScopedMcpAppId,
     );
   }
 

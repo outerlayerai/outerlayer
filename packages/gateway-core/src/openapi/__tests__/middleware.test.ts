@@ -1320,7 +1320,10 @@ describe('authMiddleware', () => {
           },
         },
         401,
-        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
+        {
+          'WWW-Authenticate':
+            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/app-from-path/mcp"',
+        },
       );
       expect(next).not.toHaveBeenCalled();
     });
@@ -1337,7 +1340,10 @@ describe('authMiddleware', () => {
       expect(jsonSpy).toHaveBeenCalledWith(
         { error: { code: 'unauthorized', message: 'Missing auth header' } },
         401,
-        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
+        {
+          'WWW-Authenticate':
+            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/app-from-path/mcp"',
+        },
       );
       expect(next).not.toHaveBeenCalled();
     });
@@ -1367,7 +1373,10 @@ describe('authMiddleware', () => {
       expect(jsonSpy).toHaveBeenCalledWith(
         { error: { code: 'unauthorized', message: 'Not authorized' } },
         401,
-        { 'WWW-Authenticate': 'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"' },
+        {
+          'WWW-Authenticate':
+            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/some-other-app/mcp"',
+        },
       );
       expect(next).not.toHaveBeenCalled();
       vi.doUnmock('../../lib/verify-bearer');
