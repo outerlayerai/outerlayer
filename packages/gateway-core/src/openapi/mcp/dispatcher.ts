@@ -28,6 +28,7 @@ import type {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { mapClickHouseError, toErrorResponse, getErrorStatusCode } from '@repo/observability-service';
 import type { Next } from 'hono';
 import type { AppContext } from '../routes/_shared';
 import { enforcePermission } from '../../lib/permissions';
@@ -185,7 +186,19 @@ async function handleToolsCall(c: AppContext, params: unknown): Promise<CallTool
     throw new McpAppError(APP_ERROR_CODE.RateLimited, 'Rate limit exceeded. Please retry later.');
   }
 
-  const body = await tool.execute(c, input.data);
+  // Tool executors run the same service code as their REST twins and throw
+  // the same AnalyticsErrors (validation, timeout, unavailable). Map them to
+  // the identical structured envelope REST would return, delivered as an
+  // isError tool result — a rejected actor filter or a ClickHouse outage is
+  // a normal domain answer, not a JSON-RPC transport fault.
+  let body: unknown;
+  try {
+    body = await tool.execute(c, input.data);
+  } catch (err) {
+    const mapped = mapClickHouseError(err);
+    if (getErrorStatusCode(mapped) === 500) console.error('[mcp] tool execution failed', err);
+    body = toErrorResponse(mapped);
+  }
   const isError = typeof body === 'object' && body !== null && 'error' in body;
   return {
     content: [{ type: 'text', text: JSON.stringify(body) }],
@@ -246,7 +259,7 @@ export async function handleMcpRequest(c: AppContext): Promise<Response> {
  * not a JSON-RPC error — there is no JSON-RPC request to respond to. */
 export function mcpMethodNotAllowed(c: AppContext): Response {
   return c.json(
-    { error: { code: 'method_not_allowed', message: 'POST /v1/mcp is the only supported method.' } },
+    { error: { code: 'method_not_allowed', message: `POST ${new URL(c.req.url).pathname} is the only supported method.` } },
     { status: 405, headers: { Allow: 'POST' } } as unknown as 405,
   );
 }

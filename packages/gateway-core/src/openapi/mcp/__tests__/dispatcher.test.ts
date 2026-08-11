@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ValidationError, ServiceUnavailableError } from '@repo/observability-service';
 import type { AppContext } from '../../routes/_shared';
 
 vi.mock('../tools', async () => {
@@ -198,13 +199,53 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(result.body.error.code).toBe(-32003);
     expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
   });
+
+  // A domain error thrown by the shared service code must surface as the
+  // SAME structured envelope its REST twin returns — as an isError tool
+  // result — never as an opaque JSON-RPC InternalError.
+  it.each([
+    [new ValidationError('actorId filter requires agents.sessions.team.read'), 'validation_error'],
+    [new ServiceUnavailableError('ClickHouse host not configured'), 'service_unavailable'],
+  ] as const)('maps a thrown %s to a structured isError tool result', async (thrown, code) => {
+    FAKE_TOOL.execute.mockRejectedValueOnce(thrown);
+    const c = buildContext({ jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'fake_tool', arguments: { limit: 3 } } });
+
+    const result = (await handleMcpRequest(c)) as unknown as {
+      body: { result: { isError?: boolean; structuredContent: { error: { code: string; message: string } } } };
+    };
+
+    expect(result.body.result.isError).toBe(true);
+    expect(result.body.result.structuredContent).toEqual({
+      error: { code, message: thrown.message },
+    });
+  });
+
+  it('maps an unrecognized executor crash to the generic internal_error envelope without leaking the message', async () => {
+    FAKE_TOOL.execute.mockRejectedValueOnce(new Error('pool exhausted at 10.0.0.7'));
+    const c = buildContext({ jsonrpc: '2.0', id: 13, method: 'tools/call', params: { name: 'fake_tool', arguments: { limit: 3 } } });
+
+    const result = (await handleMcpRequest(c)) as unknown as {
+      body: { result: { isError?: boolean; structuredContent: { error: { code: string; message: string } } } };
+    };
+
+    expect(result.body.result.isError).toBe(true);
+    expect(result.body.result.structuredContent.error.code).toBe('internal_error');
+    expect(result.body.result.structuredContent.error.message).not.toContain('10.0.0.7');
+  });
 });
 
 describe('mcpMethodNotAllowed', () => {
-  it('returns a plain 405 with an Allow: POST header', () => {
-    const c = { json: vi.fn((body: unknown, init?: unknown) => ({ body, init })) } as unknown as AppContext;
-    const result = mcpMethodNotAllowed(c) as unknown as { init: { status: number; headers: { Allow: string } } };
+  it('returns a plain 405 with an Allow: POST header, naming the mount that was hit', () => {
+    const c = {
+      req: { url: 'https://gw.example.com/v1/apps/app-1/mcp' },
+      json: vi.fn((body: unknown, init?: unknown) => ({ body, init })),
+    } as unknown as AppContext;
+    const result = mcpMethodNotAllowed(c) as unknown as {
+      body: { error: { message: string } };
+      init: { status: number; headers: { Allow: string } };
+    };
     expect(result.init.status).toBe(405);
     expect(result.init.headers.Allow).toBe('POST');
+    expect(result.body.error.message).toBe('POST /v1/apps/app-1/mcp is the only supported method.');
   });
 });
