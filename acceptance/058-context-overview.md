@@ -33,9 +33,9 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 ## Drill-down
 
-8. `AC-058-08` **Given** the Overview, **When** a skill row is clicked, **Then** `skill=<name>` is added to the URL and a non-modal side panel shows the skill's figures, trend, sessions, and topics without navigating away.
-9. `AC-058-09` **Given** a URL containing `view=overview&skill=<name>`, **When** it is opened directly, **Then** the Overview renders with the panel already open for that skill and its row highlighted.
-10. `AC-058-10` **Given** an open detail panel, **When** it is closed, **Then** the `skill`/`server` param is removed and the range, sort, and top-N expansion state are preserved.
+8. `AC-058-08` **Given** the Overview, **When** a skill row is clicked, **Then** `skill=<name>` is added to the URL and the side drawer slides in from the right edge showing the skill's figures, trend, sessions, and topics — without navigating away, and with the tables still interactive beneath it.
+9. `AC-058-09` **Given** a URL containing `view=overview&skill=<name>`, **When** it is opened directly, **Then** the Overview renders with the drawer already open for that skill and its row highlighted.
+10. `AC-058-10` **Given** an open drawer, **When** it is closed, **Then** the `skill`/`server` param is removed and the range, sort, and top-N expansion state are preserved.
 
 ## Compatibility and degradation
 

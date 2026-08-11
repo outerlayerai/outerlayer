@@ -354,29 +354,35 @@ describe("<ContextView> — Overview status integrity", () => {
   });
 });
 
-describe("<ContextView> — Overview detail panel", () => {
+describe("<ContextView> — Overview detail drawer", () => {
   // AC-058-08
-  it("clicking a skill row writes ?skill= and the panel shows figures, trend, sessions, topics", async () => {
+  it("clicking a skill row writes ?skill= and the drawer shows figures, trend, sessions, topics over still-interactive tables", async () => {
     renderView(makeOverview());
     const table = await screen.findByTestId("overview-table-skill");
     fireEvent.click(within(table).getByTestId("overview-skill-row-alpha"));
     expect(replaceSpy).toHaveBeenCalledWith("/test-path?skill=alpha", { scroll: false });
 
-    // The URL param is the panel's state — rendering with it open proves the
-    // panel body without navigating away from the Overview.
+    // The URL param is the drawer's state — rendering with it open proves the
+    // drawer body without navigating away from the Overview.
     setSearch({ skill: "alpha" });
     renderView(makeOverview());
-    const panel = await screen.findByTestId("overview-detail-panel");
-    expect(within(panel).getByTestId("overview-panel-range")).toHaveTextContent("40");
-    expect(await within(panel).findByText("Backfill tenant ids")).toBeInTheDocument();
-    expect(within(panel).getByText("Migrations · 5")).toBeInTheDocument();
-    expect(within(panel).getByTestId("adoption-sparkline")).toBeInTheDocument();
-    // Still on the Overview — the tables render alongside the panel.
-    expect(screen.getAllByTestId("overview-table-skill").length).toBeGreaterThan(0);
+    const drawer = await screen.findByTestId("overview-detail-panel");
+    expect(within(drawer).getByTestId("overview-panel-range")).toHaveTextContent("40");
+    expect(await within(drawer).findByText("Backfill tenant ids")).toBeInTheDocument();
+    expect(within(drawer).getByText("Migrations · 5")).toBeInTheDocument();
+    expect(within(drawer).getByTestId("adoption-sparkline")).toBeInTheDocument();
+
+    // Scrim-free: no modal backdrop exists, and the tables beneath stay
+    // interactive — clicking another row swaps the selection param in place.
+    expect(document.querySelector(".MuiBackdrop-root")).toBeNull();
+    const openTable = screen.getAllByTestId("overview-table-skill")[0]!;
+    replaceSpy.mockClear();
+    fireEvent.click(within(openTable).getByTestId("overview-skill-row-dormant"));
+    expect(replaceSpy).toHaveBeenCalledWith("/test-path?skill=dormant", { scroll: false });
   });
 
   // AC-058-09
-  it("a deep link with view=overview&skill= opens with the panel already open and the row highlighted", async () => {
+  it("a deep link with view=overview&skill= opens with the drawer already open and the row highlighted", async () => {
     setSearch({ view: "overview", skill: "alpha" });
     renderView(makeOverview());
 
@@ -386,7 +392,7 @@ describe("<ContextView> — Overview detail panel", () => {
   });
 
   // AC-058-10
-  it("closing the panel removes the param and preserves range, sort, and expansion state", async () => {
+  it("closing the drawer removes the param and preserves range, sort, and expansion state", async () => {
     const overview = makeOverview();
     overview.skills = Array.from({ length: 10 }, (_, i) =>
       skillRow({
