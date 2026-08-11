@@ -102,6 +102,62 @@ describe("OAuthConsentService.bindAuthorization", () => {
       oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1"),
     ).rejects.toThrow(/404/);
   });
+
+  it("treats a non-string redirect_url as absent — stays pending rather than auto-approving", async () => {
+    stubFetchOnce({ status: 200, body: { redirect_url: 12345, scope: "" } });
+
+    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+    expect(result.status).toBe("pending");
+  });
+
+  it("ignores a non-string client_name on the nested client object, falling through to the top-level or the placeholder", async () => {
+    stubFetchOnce({ status: 200, body: { client: { client_name: 42 }, scope: "" } });
+
+    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+    expect(result.status === "pending" && result.clientName).toBe("Unnamed connector");
+  });
+
+  it("falls through an empty nested client_name to the top-level client_name field", async () => {
+    stubFetchOnce({ status: 200, body: { client: { client_name: "" }, client_name: "Top-Level Name", scope: "" } });
+
+    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+    expect(result.status === "pending" && result.clientName).toBe("Top-Level Name");
+  });
+
+  it("ignores a non-string top-level client_name too, falling through to the placeholder", async () => {
+    stubFetchOnce({ status: 200, body: { client_name: 42, scope: "" } });
+
+    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+    expect(result.status === "pending" && result.clientName).toBe("Unnamed connector");
+  });
+
+  it("ignores a non-string scope, falling through to space-delimited scopes", async () => {
+    stubFetchOnce({ status: 200, body: { scope: 42, scopes: "mcp:read mcp:write" } });
+
+    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+    expect(result.status === "pending" && result.scopes).toEqual(["mcp:read", "mcp:write"]);
+  });
+
+  it("ignores a non-string scopes too, reporting an empty scope list", async () => {
+    stubFetchOnce({ status: 200, body: { scopes: 42 } });
+
+    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+    expect(result.status === "pending" && result.scopes).toEqual([]);
+  });
+
+  it("prefers scope over scopes when both are present", async () => {
+    stubFetchOnce({ status: 200, body: { scope: "primary", scopes: "should-be-ignored" } });
+
+    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+    expect(result.status === "pending" && result.scopes).toEqual(["primary"]);
+  });
 });
 
 describe("OAuthConsentService.submitConsent", () => {
@@ -158,5 +214,13 @@ describe("OAuthConsentService.submitConsent", () => {
     await expect(
       oauthConsentService.submitConsent(SUPABASE_URL, "token-1", "auth-1", "approve"),
     ).rejects.toThrow(/500/);
+  });
+
+  it("treats a non-string redirect_url as absent and throws", async () => {
+    stubFetchOnce({ status: 200, body: { redirect_url: 12345 } });
+
+    await expect(
+      oauthConsentService.submitConsent(SUPABASE_URL, "token-1", "auth-1", "approve"),
+    ).rejects.toThrow(/redirect_url/);
   });
 });

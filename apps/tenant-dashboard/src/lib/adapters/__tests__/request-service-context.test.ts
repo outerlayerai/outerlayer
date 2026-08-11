@@ -23,6 +23,8 @@ vi.mock('next/headers', () => ({
 import {
   loadRequestServiceContext,
   loadPreTenantActor,
+  loadPreTenantActorSession,
+  loadPreTenantDb,
   checkRequestPermission,
 } from '../request-service-context';
 import {
@@ -107,6 +109,50 @@ describe('loadPreTenantActor', () => {
     cookieStore.delete('sb-localhost-auth-token');
 
     await expect(loadPreTenantActor()).resolves.toBeNull();
+  });
+});
+
+describe('loadPreTenantActorSession', () => {
+  beforeEach(() => {
+    headersGet.mockReset();
+    seedSupabaseAuth({ user: mockUser });
+  });
+
+  it('resolves the authenticated actor plus the raw session access token', async () => {
+    const result = await loadPreTenantActorSession();
+
+    expect(result).not.toBeNull();
+    expect(result!.actor).toEqual({ userId: 'user-1', email: 'test@example.com', raw: expect.objectContaining({ id: 'user-1' }) });
+    expect(typeof result!.accessToken).toBe('string');
+    expect(result!.accessToken.length).toBeGreaterThan(0);
+  });
+
+  it('returns null, not a thrown error, when the request is unauthenticated', async () => {
+    const cookieStore = getSupabaseTestCookieStore();
+    cookieStore.delete('sb-localhost-auth-token');
+
+    await expect(loadPreTenantActorSession()).resolves.toBeNull();
+  });
+});
+
+describe('loadPreTenantDb', () => {
+  beforeEach(() => {
+    headersGet.mockReset();
+    seedSupabaseAuth({ user: mockUser });
+  });
+
+  it('resolves a usable Supabase client for an authenticated caller', async () => {
+    const db = await loadPreTenantDb();
+
+    expect(db).not.toBeNull();
+    expect(typeof db!.rpc).toBe('function');
+  });
+
+  it('returns null, not a thrown error, when the request is unauthenticated', async () => {
+    const cookieStore = getSupabaseTestCookieStore();
+    cookieStore.delete('sb-localhost-auth-token');
+
+    await expect(loadPreTenantDb()).resolves.toBeNull();
   });
 });
 

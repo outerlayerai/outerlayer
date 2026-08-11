@@ -1,7 +1,15 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createMswRestClient } from "@/test-helpers/rest-client";
 import { seedOAuthGrantsMswState } from "@/test-helpers/msw-handlers";
 
 import { oauthGrantsService } from "./service";
+
+/** A minimal fake for the one `.rpc(...)` call each method makes, for
+ * pinning the error-surfacing path — the MSW fixture models only success
+ * responses. */
+function dbWithRpcResult(result: { data: unknown; error: { message: string } | null }) {
+  return { rpc: vi.fn().mockResolvedValue(result) } as unknown as SupabaseClient;
+}
 
 describe("OAuthGrantsService.list", () => {
   it("maps RPC rows to OAuthGrant, splitting the space-delimited scopes string", async () => {
@@ -59,6 +67,33 @@ describe("OAuthGrantsService.list", () => {
 
     expect(grants).toEqual([]);
   });
+
+  it("throws a named error when the RPC reports one, instead of returning it as data", async () => {
+    const db = dbWithRpcResult({ data: null, error: { message: "permission denied" } });
+
+    await expect(oauthGrantsService.list(db)).rejects.toThrow(
+      "list_current_user_oauth_grants failed: permission denied",
+    );
+  });
+
+  it("filters out empty tokens left by collapsing whitespace in a scopes string, not just splitting it", async () => {
+    seedOAuthGrantsMswState({
+      grants: [
+        {
+          session_id: "session-1",
+          client_id: "client-1",
+          client_name: "Claude",
+          scopes: "  mcp:read   mcp:tools  ",
+          created_at: "2026-08-01T00:00:00Z",
+          refreshed_at: null,
+        },
+      ],
+    });
+
+    const grants = await oauthGrantsService.list(createMswRestClient());
+
+    expect(grants[0]?.scopes).toEqual(["mcp:read", "mcp:tools"]);
+  });
 });
 
 describe("OAuthGrantsService.revoke", () => {
@@ -103,5 +138,13 @@ describe("OAuthGrantsService.revoke", () => {
 
     const revoked = await oauthGrantsService.revoke(createMswRestClient(), "session-1");
     expect(revoked).toBe(false);
+  });
+
+  it("throws a named error when the RPC reports one, instead of returning it as a revoked=false result", async () => {
+    const db = dbWithRpcResult({ data: null, error: { message: "permission denied" } });
+
+    await expect(oauthGrantsService.revoke(db, "session-1")).rejects.toThrow(
+      "revoke_current_user_oauth_grant failed: permission denied",
+    );
   });
 });
