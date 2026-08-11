@@ -92,6 +92,10 @@ schema_paths = [
     # after every file that creates a table or grants on one — it sweeps the
     # whole schema rather than naming tables.
     "./schemas/98-table-privilege-hardening.sql",
+    # Sweeps every authenticated-granted table (minus a short exemption
+    # list) for a RESTRICTIVE connector-token policy. Must load after every
+    # table-creating file, same ordering requirement as 98 above.
+    "./schemas/98a-connector-token-confinement.sql",
     "./schemas/99-triggers.sql",
     "./schemas/storage-policies.sql"
 ]
