@@ -272,6 +272,14 @@ describe('context overview — inventory ∪ usage join over real Supabase RLS +
     ]);
 
     expect(result.inventory).toEqual({ instructionScopes: 1, commands: 0, subagents: 0 });
+
+    // Totals count every usage row, including `ancient` — whose only burst
+    // sits in the PRIOR window (day 40) and whose row is dropped. Summing the
+    // rows instead would misstate the period-over-period delta.
+    expect(result.totals).toEqual({
+      activations: (ALPHA_TRACES + GHOST_TRACES.length) * SPANS_PER_TRACE,
+      priorActivations: SPANS_PER_TRACE,
+    });
   });
 
   // AC-058-04 (data half: the verdict's inputs — a zero usage row for

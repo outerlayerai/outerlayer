@@ -89,6 +89,17 @@ export function deriveOverviewResponse(input: DeriveOverviewInput): ContextOverv
     trendBySkill.set(point.skill, series);
   }
 
+  // Window totals over EVERY usage row, summed before the orphan-drop below:
+  // a removed skill with prior-window activity and none in the current window
+  // gets no row, but its prior usage must still weigh the tile's delta.
+  const totals = (analytics?.skills ?? []).reduce(
+    (sum, row) => ({
+      activations: sum.activations + Number(row.rangeActivations),
+      priorActivations: sum.priorActivations + Number(row.priorActivations),
+    }),
+    { activations: 0, priorActivations: 0 },
+  );
+
   const skillNames = new Set<string>([...scopesBySkill.keys(), ...skillUsage.keys()]);
   const skills: OverviewSkillRow[] = [];
   for (const skillName of skillNames) {
@@ -187,6 +198,7 @@ export function deriveOverviewResponse(input: DeriveOverviewInput): ContextOverv
     recentDays: input.recentDays,
     lookbackDays: input.lookbackDays,
     degraded: analytics === null,
+    totals,
     skills,
     mcpServers,
     coverage,

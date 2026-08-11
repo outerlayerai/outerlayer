@@ -234,6 +234,13 @@ interface OverviewInventory {
 /** The Overview payload: joined rows plus the coverage and topic rollups. */
 export interface ContextOverviewResponse {
   range: ContextOverviewRange;
+  /**
+   * Window totals summed over ALL usage rows — including removed-skill usage
+   * whose row the join drops for having no current-window activity. The
+   * activations tile's period-over-period delta must count a deleted skill's
+   * prior-window usage, or removal reads as growth.
+   */
+  totals: { activations: number; priorActivations: number };
   /** The fixed adoption thresholds the status pills derive from. */
   recentDays: number;
   lookbackDays: number;

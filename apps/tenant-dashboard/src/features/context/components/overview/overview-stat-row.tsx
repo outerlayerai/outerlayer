@@ -44,8 +44,10 @@ export function OverviewStatRow({ response }: { response: ContextOverviewRespons
   const skillTotal = response.skills.filter((r) => r.inRepo).length;
   const mcpTotal = response.mcpServers.filter((r) => r.inRepo).length;
 
-  const activations = response.skills.reduce((sum, r) => sum + r.activations, 0);
-  const priorActivations = response.skills.reduce((sum, r) => sum + r.priorActivations, 0);
+  // Totals come from the response, NOT a reduce over rows: the join drops
+  // removed-skill rows with no current-window activity, and summing rows
+  // would drop their prior-window usage from the delta with them.
+  const { activations, priorActivations } = response.totals;
 
   const pct = response.coverage
     ? coveragePct(response.coverage.sessions, response.coverage.sessionsWithSkill)

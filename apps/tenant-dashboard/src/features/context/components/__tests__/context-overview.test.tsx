@@ -126,6 +126,7 @@ function makeOverview(): ContextOverviewResponse {
     recentDays: 14,
     lookbackDays: 90,
     degraded: false,
+    totals: { activations: 40, priorActivations: 20 },
     skills: [
       skillRow({
         skillName: "alpha",
@@ -291,6 +292,7 @@ describe("<ContextView> — Overview status integrity", () => {
   it("zero sessions in the lookback → no never verdicts, no prior data, first-run banner", async () => {
     const overview = makeOverview();
     overview.skills = [skillRow({ skillName: "alpha" }), skillRow({ skillName: "dormant" })];
+    overview.totals = { activations: 0, priorActivations: 0 };
     overview.mcpServers = [];
     overview.coverage = {
       sessions: 0,
@@ -347,6 +349,7 @@ describe("<ContextView> — Overview status integrity", () => {
       }),
       skillRow({ skillName: "dormant" }),
     ];
+    overview.totals = { activations: 40, priorActivations: 0 };
     renderView(overview);
     const tiles = await screen.findByTestId("overview-stat-row");
     expect(tiles).toHaveTextContent("▪ no prior data");

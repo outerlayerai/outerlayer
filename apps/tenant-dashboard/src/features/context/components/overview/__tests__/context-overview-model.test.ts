@@ -62,6 +62,7 @@ function response(overrides: Partial<ContextOverviewResponse> = {}): ContextOver
     recentDays: 14,
     lookbackDays: 90,
     degraded: false,
+    totals: { activations: 0, priorActivations: 0 },
     skills: [],
     mcpServers: [],
     coverage: {

@@ -55,6 +55,7 @@ vi.mock("@/features/context/read-actions", () => ({
       recentDays: 14,
       lookbackDays: 90,
       degraded: false,
+      totals: { activations: 0, priorActivations: 0 },
       skills: [],
       mcpServers: [],
       coverage: { sessions: 0, sessionsWithSkill: 0, priorSessions: 0, priorSessionsWithSkill: 0, lookbackSessions: 0 },

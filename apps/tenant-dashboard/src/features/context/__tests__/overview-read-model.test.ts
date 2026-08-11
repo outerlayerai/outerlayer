@@ -90,6 +90,14 @@ describe("deriveOverviewResponse", () => {
     ]);
   });
 
+  it("totals sum EVERY usage row, including the dropped prior-only orphan", () => {
+    const result = derive(analytics());
+    // alpha 20 + ghost 7 + ancient 0 current; 10 + 10 + 10 prior — ancient
+    // has no row, but summing rows instead would misstate the delta by
+    // dropping its prior-window usage (removal would read as growth).
+    expect(result.totals).toEqual({ activations: 27, priorActivations: 30 });
+  });
+
   it("nulls scopePath on a name-keyed scope collision and pins the issue on the right skill", () => {
     const result = derive(analytics());
     const alpha = result.skills.find((r) => r.skillName === "alpha")!;
@@ -136,6 +144,7 @@ describe("deriveOverviewResponse", () => {
   it("degrades to inventory-only rows when analytics is null — never zeros masquerading as data", () => {
     const result = derive(null);
     expect(result.degraded).toBe(true);
+    expect(result.totals).toEqual({ activations: 0, priorActivations: 0 });
     expect(result.coverage).toBeNull();
     expect(result.topics).toEqual([]);
     // Inventory rows survive; orphaned usage obviously can't exist.
