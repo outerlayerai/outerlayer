@@ -249,8 +249,12 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(result.body.result).not.toHaveProperty('isError');
   });
 
-  it('an unexpected throw inside the tool handler surfaces as a generic InternalError, not the tool-specific error shape', async () => {
-    FAKE_TOOL.execute.mockRejectedValueOnce(new Error('boom, unrelated to guards or schema'));
+  it('an unexpected throw outside the executor (a guard crashing) surfaces as a generic InternalError', async () => {
+    // Executor throws map to structured isError results (tested above);
+    // dispatchOne's own catch still owns crashes in the guard chain.
+    enforcePermission.mockImplementation(() => {
+      throw new Error('boom, unrelated to guards or schema');
+    });
     const c = buildContext({ jsonrpc: '2.0', id: 16, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -258,6 +262,7 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
 
     expect(result.body.error.code).toBe(ErrorCode.InternalError);
     expect(result.body.error.message).toBe('An unexpected error occurred');
+    expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 
