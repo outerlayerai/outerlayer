@@ -47,7 +47,6 @@ export default async function OAuthConsentPage({
     <OAuthConsentView
       authorizationId={result.authorization.authorizationId}
       clientName={result.authorization.clientName}
-      scopes={result.authorization.scopes}
       resource={result.authorization.resource}
     />
   );

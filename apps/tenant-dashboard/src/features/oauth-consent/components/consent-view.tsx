@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Alert, Button, Card, Chip, Stack, Typography } from "@mui/material";
+import { Alert, Button, Card, Stack, Typography } from "@mui/material";
 import { useTranslate } from "@outerlayer/locales";
 
 import { decideOAuthConsentAction } from "../actions";
@@ -10,11 +10,10 @@ import type { ConsentDecision } from "../types";
 type Props = {
   authorizationId: string;
   clientName: string;
-  scopes: string[];
   resource: string | null;
 };
 
-export const OAuthConsentView = ({ authorizationId, clientName, scopes, resource }: Props) => {
+export const OAuthConsentView = ({ authorizationId, clientName, resource }: Props) => {
   const { t } = useTranslate();
   const [pending, setPending] = useState<ConsentDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,18 +57,12 @@ export const OAuthConsentView = ({ authorizationId, clientName, scopes, resource
           </Stack>
         )}
 
-        {scopes.length > 0 && (
-          <Stack spacing={0.5}>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {t("auth.oauthConsent.scopesLabel")}
-            </Typography>
-            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-              {scopes.map((scope) => (
-                <Chip key={scope} size="small" variant="outlined" label={scope} />
-              ))}
-            </Stack>
-          </Stack>
-        )}
+        <Stack spacing={0.5}>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {t("auth.oauthConsent.grantLabel")}
+          </Typography>
+          <Typography variant="body2">{t("auth.oauthConsent.grantDescription")}</Typography>
+        </Stack>
 
         {error && <Alert severity="error">{error}</Alert>}
 

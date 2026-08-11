@@ -868,7 +868,8 @@
       "title": "Connect to OuterLayer",
       "description": "{{clientName}} wants to access your OuterLayer data.",
       "resourceLabel": "Requested access",
-      "scopesLabel": "Requested scopes",
+      "grantLabel": "What this connects",
+      "grantDescription": "This connector gets read access to your organization's OuterLayer analytics via MCP — agent sessions, topics, metrics, and context changes — acting as you.",
       "approveButton": "Allow access",
       "denyButton": "Deny"
     },

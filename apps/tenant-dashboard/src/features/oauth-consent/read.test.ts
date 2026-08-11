@@ -37,7 +37,6 @@ describe("loadOAuthConsent", () => {
       status: "pending" as const,
       authorizationId: "auth-1",
       clientName: "Claude",
-      scopes: ["mcp:read"],
       resource: null,
     };
     mockBindAuthorization.mockResolvedValue(authorization);

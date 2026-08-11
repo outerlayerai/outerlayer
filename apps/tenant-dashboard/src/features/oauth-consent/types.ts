@@ -7,7 +7,6 @@ export type BoundAuthorization =
       status: "pending";
       authorizationId: string;
       clientName: string;
-      scopes: string[];
       /** The RFC 8707 `resource` the connector requested, when present —
        * shown so the user can see which URL/app was asked for. The current
        * server does not echo it back on the bind response, so this is null

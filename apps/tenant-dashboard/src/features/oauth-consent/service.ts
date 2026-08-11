@@ -16,6 +16,13 @@
  *   - approved → `{ redirect_url }` alone, on both the repeat-connect bind
  *                   and the consent POST. `redirect_url`'s presence is
  *                   therefore the auto-approve signal; `redirect_uri`'s is not.
+ *
+ * `scope` is part of the protocol response but is never parsed into
+ * `BoundAuthorization` — Supabase's OAuth server does not enforce OAuth
+ * scopes (every connector token is a full-power `authenticated` session,
+ * confined only by the gateway's own MCP-mount check and the database's
+ * RLS), so displaying the requested scope as if it bounded the grant would
+ * be inaccurate. The consent view instead states the fixed, actual grant.
  */
 
 import type { BoundAuthorization, ConsentDecision, SubmitConsentResult } from "./types";
@@ -56,17 +63,12 @@ class OAuthConsentService {
       (typeof client?.client_name === "string" && client.client_name) ||
       (typeof body.client_name === "string" && body.client_name) ||
       "Unnamed connector";
-    const scopeString =
-      (typeof body.scope === "string" && body.scope) ||
-      (typeof body.scopes === "string" && body.scopes) ||
-      "";
     const resource = typeof body.resource === "string" ? body.resource : null;
 
     return {
       status: "pending",
       authorizationId,
       clientName,
-      scopes: scopeString.split(/\s+/).filter(Boolean),
       resource,
     };
   }

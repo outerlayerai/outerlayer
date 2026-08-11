@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 describe("OAuthConsentService.bindAuthorization", () => {
-  it("reads the client display name from client.name and splits space-delimited scopes", async () => {
+  it("reads the client display name from client.name", async () => {
     // Verbatim live pending-bind shape.
     stubFetchOnce({
       status: 200,
@@ -47,11 +47,13 @@ describe("OAuthConsentService.bindAuthorization", () => {
     // `redirect_uri` on a pending bind is the connector's registered uri, NOT
     // an approval outcome — reading it as one would auto-approve every
     // first-time connect without ever showing the user a consent screen.
+    // The response's `scope` is deliberately dropped: Supabase does not
+    // enforce it, so parsing it into the result would let the consent view
+    // display a scope-shaped promise nothing backs.
     expect(result).toEqual({
       status: "pending",
       authorizationId: "auth-1",
       clientName: "Claude",
-      scopes: ["openid", "email", "offline_access"],
       resource: null,
     });
   });
@@ -76,7 +78,6 @@ describe("OAuthConsentService.bindAuthorization", () => {
       status: "pending",
       authorizationId: "auth-1",
       clientName: "Unnamed connector",
-      scopes: [],
       resource: null,
     });
   });
@@ -135,29 +136,6 @@ describe("OAuthConsentService.bindAuthorization", () => {
     expect(result.status === "pending" && result.clientName).toBe("Unnamed connector");
   });
 
-  it("ignores a non-string scope, falling through to space-delimited scopes", async () => {
-    stubFetchOnce({ status: 200, body: { scope: 42, scopes: "mcp:read mcp:write" } });
-
-    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
-
-    expect(result.status === "pending" && result.scopes).toEqual(["mcp:read", "mcp:write"]);
-  });
-
-  it("ignores a non-string scopes too, reporting an empty scope list", async () => {
-    stubFetchOnce({ status: 200, body: { scopes: 42 } });
-
-    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
-
-    expect(result.status === "pending" && result.scopes).toEqual([]);
-  });
-
-  it("prefers scope over scopes when both are present", async () => {
-    stubFetchOnce({ status: 200, body: { scope: "primary", scopes: "should-be-ignored" } });
-
-    const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
-
-    expect(result.status === "pending" && result.scopes).toEqual(["primary"]);
-  });
 });
 
 describe("OAuthConsentService.submitConsent", () => {
