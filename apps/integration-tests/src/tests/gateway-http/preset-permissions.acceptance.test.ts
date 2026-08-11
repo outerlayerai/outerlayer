@@ -198,8 +198,9 @@ describe('API-key preset authorization on the headless read endpoints', () => {
       // A 200 that carries an error envelope instead of a payload would mean
       // the route authorized but failed — `data` is the contract every one of
       // these endpoints returns.
-      const body = (await allowed.json()) as { data?: unknown };
-      expect(body.data, `${path} should return a data payload`).toBeDefined();
+      const body = (await allowed.json()) as Record<string, unknown>;
+      expect(Object.keys(body), `${path} should return a data payload`).toContain('data');
+      expect(Object.keys(body), `${path} must not carry an error envelope`).not.toContain('error');
     }
   });
 });

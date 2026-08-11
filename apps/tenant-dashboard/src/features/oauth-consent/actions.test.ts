@@ -9,9 +9,6 @@
  * `oauthConsentService.submitConsent` needs to hit Supabase Auth's OAuth
  * server directly.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 const mockLoadPreTenantActor = vi.hoisted(() => vi.fn());
 const mockLoadPreTenantActorSession = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adapters", async (importOriginal) => ({
@@ -26,10 +23,12 @@ vi.mock("./service", () => ({
 }));
 
 const preTenantActionSpy = vi.hoisted(() => vi.fn());
+const authorizedActionSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/action-kit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/action-kit")>();
   preTenantActionSpy.mockImplementation(actual.preTenantAction);
-  return { ...actual, preTenantAction: preTenantActionSpy };
+  authorizedActionSpy.mockImplementation(actual.authorizedAction);
+  return { ...actual, preTenantAction: preTenantActionSpy, authorizedAction: authorizedActionSpy };
 });
 
 import { ActionErrorCodes } from "@/lib/action-kit";
@@ -37,6 +36,8 @@ import * as actionsModule from "./actions";
 const { decideOAuthConsentAction } = actionsModule;
 
 const declaredReasons = preTenantActionSpy.mock.calls.map((call) => call[0].reason);
+// Captured before beforeEach's clearAllMocks wipes load-time calls.
+const authorizedActionLoadCalls = authorizedActionSpy.mock.calls.length;
 
 const ACTOR = { userId: "user-1", email: "user@example.com", raw: { id: "user-1" } };
 
@@ -50,11 +51,12 @@ describe("module boundary", () => {
     expect(declaredReasons).toEqual(["cross-tenant"]);
   });
 
-  it("does not import authorizedAction — this action is tenant-less by design", () => {
-    const source = readFileSync(join(__dirname, "actions.ts"), "utf8");
-    const actionKitImport = source.match(/^import \{([^}]*)\} from "@\/lib\/action-kit";$/m);
-    expect(actionKitImport).not.toBeNull();
-    expect(actionKitImport![1]).not.toContain("authorizedAction");
+  it("builds no export with authorizedAction — this action is tenant-less by design", () => {
+    // The wrapper spies record every action built at module load; a
+    // tenant-scoped wrapper appearing here means the action gained an org
+    // dependency it must not have. The reasons assertion above already pins
+    // that preTenantAction built every export.
+    expect(authorizedActionLoadCalls).toBe(0);
   });
 });
 
