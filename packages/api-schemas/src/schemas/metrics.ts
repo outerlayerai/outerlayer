@@ -186,3 +186,89 @@ export const CompareWindowsSchema = z.object({
 export const CompareWindowsResponseSchema = z.object({ data: CompareWindowsSchema });
 
 export type CompareWindowsQuery = z.infer<typeof CompareWindowsQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// GET /v1/metrics/breakdown — cost/session/error ranking for one dimension
+//
+// `branch` / `agent_type` / `worker_kind` and `model` rank
+// agent_session_summary sessions; `tool` ranks otel_traces tool-call spans
+// and has no session-level cost, so its items carry `requests` instead of
+// `sessions`/`costUsd`. Never an `actor` dimension — the privacy invariant
+// documented in observability-service's queries-agent-fleet.ts forbids a
+// per-actor breakdown anywhere on this surface.
+// ---------------------------------------------------------------------------
+
+export const METRICS_BREAKDOWN_DIMENSIONS = ['branch', 'agent_type', 'worker_kind', 'model', 'tool'] as const;
+
+export const MetricsBreakdownQuerySchema = z.object({
+  dimension: z.enum(METRICS_BREAKDOWN_DIMENSIONS),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+export const MetricsBreakdownItemSchema = z.object({
+  key: z.string(),
+  sessions: z.number().int().nonnegative().optional(),
+  costUsd: z.number().optional(),
+  toolErrorRate: z.number().optional(),
+  requests: z.number().int().nonnegative().optional(),
+});
+
+export const MetricsBreakdownSchema = z.object({
+  dimension: z.enum(METRICS_BREAKDOWN_DIMENSIONS),
+  items: z.array(MetricsBreakdownItemSchema),
+});
+
+export const MetricsBreakdownResponseSchema = z.object({ data: MetricsBreakdownSchema });
+
+export type MetricsBreakdownQuery = z.infer<typeof MetricsBreakdownQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// GET /v1/metrics/trends — daily sessions/cost/quality trend
+// ---------------------------------------------------------------------------
+
+export const MetricsTrendsQuerySchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+});
+
+export const MetricsTrendPointSchema = z.object({
+  date: z.string().date(),
+  sessions: z.number().int().nonnegative(),
+  costUsd: z.number(),
+  toolErrorRate: z.number(),
+  cleanSessionRate: z.number(),
+});
+
+export const MetricsTrendsSchema = z.object({ points: z.array(MetricsTrendPointSchema) });
+
+export const MetricsTrendsResponseSchema = z.object({ data: MetricsTrendsSchema });
+
+export type MetricsTrendsQuery = z.infer<typeof MetricsTrendsQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// GET /v1/prs/outcomes — session→PR attribution merged with cost
+//
+// No date window, matching the underlying attribution reads (a PR's session
+// set and cost include work that predates its merge). Merged/reverted/
+// CI-green rates aren't included — see AgentPrOutcomesResponse's doc comment
+// in @repo/api-types for why.
+// ---------------------------------------------------------------------------
+
+export const PrOutcomesItemSchema = z.object({
+  repo: z.string(),
+  branch: z.string(),
+  prNumber: z.number().int().nonnegative(),
+  steered: z.boolean(),
+  costUsd: z.number(),
+});
+
+export const PrOutcomesSchema = z.object({
+  branches: z.array(z.string()),
+  prNumbers: z.array(z.number().int().nonnegative()),
+  steeredPrNumbers: z.array(z.number().int().nonnegative()),
+  items: z.array(PrOutcomesItemSchema),
+});
+
+export const PrOutcomesResponseSchema = z.object({ data: PrOutcomesSchema });
