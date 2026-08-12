@@ -70,9 +70,18 @@
 --
 -- Keeping this list in sync: adding a new `GRANT ... TO authenticated` in
 --   any schema file needs a matching line here (or a documented addition to
---   the exemption list above) — `db diff` catches an omission as drift
---   (the fresh table would have no RESTRICTIVE policy, the way any other
---   missed policy would show up as an unexpected grant/policy diff).
+--   the exemption list above). `db diff` does NOT catch an omission — a
+--   table missing its RESTRICTIVE policy is, from a clean rebuild's
+--   perspective, simply a table that never had one; there is no prior state
+--   for it to drift against, so the omission is invisible to schema/migration
+--   diffing. `pr_session_comment` reached main exactly this way: its schema
+--   file was added in parallel with this one and neither PR's diff showed
+--   anything wrong. The catalog-driven test in
+--   apps/integration-tests/src/tests/connector-token-confinement.test.ts
+--   (enumerating `information_schema.role_table_grants` for `authenticated`
+--   against a live database and asserting every granted table carries a
+--   `connector_token_*` policy or sits on the exemption list above) is what
+--   actually catches this class of omission.
 --
 -- Dependencies: 01a-private-authz.sql (private.is_connector_token), every
 --   table-creating schema file (this must sort after all of them — see
@@ -114,6 +123,7 @@ CREATE POLICY connector_token_confinement ON public.worker_run                  
 CREATE POLICY connector_token_confinement ON public.worker_run_event              AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 CREATE POLICY connector_token_confinement ON public.worker_workspace              AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 CREATE POLICY connector_token_confinement ON public.ai_cost_config                AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
+CREATE POLICY connector_token_confinement ON public.pr_session_comment            AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 
 -- SELECT-exempt tables above still deny writes: a connector token reads
 -- membership/profile/environment/context_snapshot/pull_request/

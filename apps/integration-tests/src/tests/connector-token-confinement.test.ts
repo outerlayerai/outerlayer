@@ -29,6 +29,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createHmac } from 'node:crypto';
+import { Client } from 'pg';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { resolveBearerUser, checkBearerPermission } from '@repo/gateway-core/lib/verify-bearer';
 import type { Env } from '@repo/gateway-core/types';
@@ -40,6 +41,23 @@ import {
   SameTenantUser,
 } from './custom-roles/helpers';
 import { createSupabaseAdminClient } from '../lib/supabase-admin';
+
+const DATABASE_URL =
+  process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54332/postgres';
+
+// The six tables a connector token may still SELECT (not confined by a
+// connector_token_* RESTRICTIVE policy) because the MCP tool handlers read
+// them via the caller's forwarded JWT under their own existing RLS — see the
+// exemption note in
+// apps/tenant-dashboard/supabase/schemas/98a-connector-token-confinement.sql.
+const READ_EXEMPT_TABLES = new Set([
+  'membership',
+  'profile',
+  'environment',
+  'context_snapshot',
+  'pull_request',
+  'pull_request_session',
+]);
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54331';
 const SUPABASE_ANON_KEY =
@@ -220,5 +238,52 @@ describe('connector-token PostgREST confinement (SEC-1)', () => {
       .eq('app_id', testApp.id);
     expect(environment.error).toBeNull();
     expect(environment.data?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 4. Catalog-driven completeness — the class of gap that let
+  //    pr_session_comment through: a table gets a `GRANT ... TO authenticated`
+  //    in one schema file without a matching connector_token_* policy in this
+  //    one, and neither `db diff` nor a hardcoded table list catches it. This
+  //    enumerates the live grant catalog instead of a fixed list, so a future
+  //    table added the same way fails this test on its own.
+  // ---------------------------------------------------------------------------
+
+  describe('every authenticated-granted table is confined or exempted', () => {
+    let db: Client;
+
+    beforeAll(async () => {
+      db = new Client({ connectionString: DATABASE_URL });
+      await db.connect();
+    });
+
+    afterAll(async () => {
+      await db.end();
+    });
+
+    it('every public table granted to authenticated carries a connector_token_* RESTRICTIVE policy or sits on the exemption list', async () => {
+      const grants = await db.query<{ table_name: string }>(
+        `SELECT DISTINCT table_name
+           FROM information_schema.role_table_grants
+          WHERE table_schema = 'public'
+            AND grantee = 'authenticated'`,
+      );
+
+      const policies = await db.query<{ tablename: string }>(
+        `SELECT DISTINCT tablename
+           FROM pg_policies
+          WHERE schemaname = 'public'
+            AND policyname LIKE 'connector_token_%'`,
+      );
+      const confinedTables = new Set(policies.rows.map((r) => r.tablename));
+
+      const uncovered = grants.rows
+        .map((r) => r.table_name)
+        .filter((table) => !confinedTables.has(table) && !READ_EXEMPT_TABLES.has(table));
+
+      // Naming the offenders is the point: a bare "expect(uncovered.length).toBe(0)"
+      // would tell a future reader nothing about which table needs the fix.
+      expect(uncovered).toEqual([]);
+    });
   });
 });

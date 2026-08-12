@@ -60,6 +60,7 @@ CREATE POLICY connector_token_confinement ON public.worker_run                  
 CREATE POLICY connector_token_confinement ON public.worker_run_event              AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 CREATE POLICY connector_token_confinement ON public.worker_workspace              AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 CREATE POLICY connector_token_confinement ON public.ai_cost_config                AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
+CREATE POLICY connector_token_confinement ON public.pr_session_comment            AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 
 -- SELECT-exempt tables above still deny writes: a connector token reads
 -- membership/profile/environment/context_snapshot/pull_request/
