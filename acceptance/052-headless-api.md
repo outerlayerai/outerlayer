@@ -22,6 +22,9 @@ renumber an id. Retire one by deleting the line and the citation together.
 3. `AC-052-03` **Given** a session's trace id, **When** `GET /v1/sessions/{traceId}` is called with a key from another app, **Then** the response is the same 404 as for a nonexistent id.
 4. `AC-052-04` **Given** seeded generation spans with known per-model costs in a window, **When** `GET /v1/metrics/models` is called for that window, **Then** the response equals the precomputed fixture totals exactly.
 5. `AC-052-05` **Given** a key without `agents.sessions.team.read`, **When** `GET /v1/sessions` is called, **Then** sessions are returned with actor identities anonymized and `actorId` filters rejected; **Given** a key with it, real identities are returned.
+15. `AC-052-15` **Given** `dimension=tool` and a window with seeded tool-call spans, **When** `GET /v1/metrics/breakdown` is called, **Then** items rank by call volume with `requests` + `toolErrorRate` (never `sessions`/`costUsd`); for `branch`/`agent_type`/`worker_kind`/`model`, items carry `sessions` + `costUsd` + `toolErrorRate` instead, and `dimension=actor` is rejected as outside the closed vocabulary.
+16. `AC-052-16` **Given** a window with known daily session/cost/error activity, **When** `GET /v1/metrics/trends` is called, **Then** one point per day is returned with `sessions`, `costUsd`, `toolErrorRate`, and `cleanSessionRate`, all drawn from the same agent-session population `/v1/metrics/overview` reads.
+17. `AC-052-17` **Given** sessions attributed to PRs with known per-group cost, **When** `GET /v1/prs/outcomes` is called, **Then** the response merges the branch/PR-number attribution set with per-(repo, branch, prNumber) cost, defaulting an unattributed group's cost to `0`.
 
 ## MCP server
 

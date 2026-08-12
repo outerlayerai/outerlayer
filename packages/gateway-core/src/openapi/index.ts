@@ -543,6 +543,7 @@ export const openApiApp = fromHono(app, {
       { name: 'Topics', description: 'Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet.' },
       { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles, including two-window comparisons.' },
       { name: 'Context', description: 'Synced-commit history of the app\'s `.outerlayer/` context tree.' },
+      { name: 'PRs', description: 'Session→PR attribution: which agent sessions produced which pull requests, and what each attributed PR cost.' },
       { name: 'Health', description: 'Service health checks.' },
       { name: 'OAuth', description: 'OAuth 2.1 discovery metadata for MCP connector clients.' },
     ],

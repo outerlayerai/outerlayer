@@ -3803,6 +3803,126 @@ paths:
       summary: "Ingestion health"
       tags:
         - "Health"
+  /v1/metrics/breakdown:
+    get:
+      description: "Ranks `branch`, `agent_type`, `worker_kind`, `model`, or `tool` by spend/volume for `from`..`to` (UTC calendar dates, default trailing 30 days). `branch`/`agent_type`/`worker_kind`/`model` items carry `sessions` + `costUsd` + `toolErrorRate`; `tool` items carry `requests` + `toolErrorRate` instead — a tool call has no session-level cost of its own to rank by. Never breaks down by individual actor/developer."
+      operationId: "get-metrics-breakdown"
+      parameters:
+        - in: "query"
+          name: "dimension"
+          required: true
+          schema:
+            enum:
+              - "branch"
+              - "agent_type"
+              - "worker_kind"
+              - "model"
+              - "tool"
+            type: "string"
+        - in: "query"
+          name: "from"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+        - in: "query"
+          name: "to"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+        - in: "query"
+          name: "limit"
+          required: false
+          schema:
+            default: 10
+            maximum: 50
+            minimum: 1
+            type: "integer"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      dimension:
+                        enum:
+                          - "branch"
+                          - "agent_type"
+                          - "worker_kind"
+                          - "model"
+                          - "tool"
+                        type: "string"
+                      items:
+                        items:
+                          properties:
+                            costUsd:
+                              type: "number"
+                            key:
+                              type: "string"
+                            requests:
+                              minimum: 0
+                              type: "integer"
+                            sessions:
+                              minimum: 0
+                              type: "integer"
+                            toolErrorRate:
+                              type: "number"
+                          required:
+                            - "key"
+                          type: "object"
+                        type: "array"
+                    required:
+                      - "dimension"
+                      - "items"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "Ranked breakdown for the requested dimension and window."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "Get a cost/session/error breakdown by dimension"
+      tags:
+        - "Metrics"
   /v1/metrics/compare:
     get:
       description: "Correlational comparison — not causal attribution: returns fleet-behavior tiles and topic-mix facet-row counts for two EXPLICIT, caller-chosen windows (`a`, `b`; UTC calendar dates), side by side. Neither window defaults — this is for \"before vs. after a specific change\" (e.g. either side of a context sync from `GET /v1/context/changes`), not a rolling comparison.
@@ -4357,6 +4477,102 @@ paths:
       summary: "Get fleet overview"
       tags:
         - "Metrics"
+  /v1/metrics/trends:
+    get:
+      description: "Daily sessions, spend, tool-error rate, and clean-session rate for `from`..`to` (UTC calendar dates, default trailing 30 days) — one point per day, from the SAME agent-session population as `/v1/metrics/overview` (never blended with the per-LLM-call metered-cost population `/v1/metrics/models` reads)."
+      operationId: "get-metrics-trends"
+      parameters:
+        - in: "query"
+          name: "from"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+        - in: "query"
+          name: "to"
+          required: false
+          schema:
+            format: "date"
+            type: "string"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      points:
+                        items:
+                          properties:
+                            cleanSessionRate:
+                              type: "number"
+                            costUsd:
+                              type: "number"
+                            date:
+                              format: "date"
+                              type: "string"
+                            sessions:
+                              minimum: 0
+                              type: "integer"
+                            toolErrorRate:
+                              type: "number"
+                          required:
+                            - "date"
+                            - "sessions"
+                            - "costUsd"
+                            - "toolErrorRate"
+                            - "cleanSessionRate"
+                          type: "object"
+                        type: "array"
+                    required:
+                      - "points"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "Daily trend points for the requested window."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "Get the daily sessions/cost/quality trend"
+      tags:
+        - "Metrics"
   /v1/pricing:
     get:
       description: "Returns per-model pricing for cost calculation. Response is a dynamic map keyed by model ID (e.g. `gpt-5`, `claude-opus-4-6`). Prices are per 1,000 tokens.
@@ -4385,6 +4601,105 @@ paths:
       summary: "Get LLM pricing"
       tags:
         - "Pricing"
+  /v1/prs/outcomes:
+    get:
+      description: "How many sessions produced PRs, which branches/PR numbers they attribute to, which needed mid-session human steering, and what each attributed (repo, branch, PR number) group cost — for the app's dominant repo. Deliberately NOT date-windowed: a PR's session set and cost include work that predates its merge. Does not include merged/reverted/CI-green outcome rates — those require a Postgres join this attribution set does not carry a trace id to make."
+      operationId: "get-pr-outcomes"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      branches:
+                        items:
+                          type: "string"
+                        type: "array"
+                      items:
+                        items:
+                          properties:
+                            branch:
+                              type: "string"
+                            costUsd:
+                              type: "number"
+                            prNumber:
+                              minimum: 0
+                              type: "integer"
+                            repo:
+                              type: "string"
+                            steered:
+                              type: "boolean"
+                          required:
+                            - "repo"
+                            - "branch"
+                            - "prNumber"
+                            - "steered"
+                            - "costUsd"
+                          type: "object"
+                        type: "array"
+                      prNumbers:
+                        items:
+                          minimum: 0
+                          type: "integer"
+                        type: "array"
+                      steeredPrNumbers:
+                        items:
+                          minimum: 0
+                          type: "integer"
+                        type: "array"
+                    required:
+                      - "branches"
+                      - "prNumbers"
+                      - "steeredPrNumbers"
+                      - "items"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "Session→PR attribution merged with per-group cost."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Invalid request parameters (validation failed)."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "Get session→PR attribution merged with cost"
+      tags:
+        - "PRs"
   /v1/scores:
     get:
       description: "Returns a paginated list of scores for the authenticated application. Supports filtering by resource, name, source, and date range."
@@ -8117,6 +8432,8 @@ tags:
     name: "Metrics"
   - description: "Synced-commit history of the app's `.outerlayer/` context tree."
     name: "Context"
+  - description: "Session→PR attribution: which agent sessions produced which pull requests, and what each attributed PR cost."
+    name: "PRs"
   - description: "Service health checks."
     name: "Health"
   - description: "OAuth 2.1 discovery metadata for MCP connector clients."
