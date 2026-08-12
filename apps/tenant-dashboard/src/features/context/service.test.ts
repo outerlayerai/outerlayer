@@ -46,9 +46,7 @@ vi.mock("@/lib/analytics/client", () => ({
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ContextReadService,
-  getMcpAdoption,
   getMcpDrilldown,
-  getSkillAdoption,
   getSkillDrilldown,
   load,
 } from "./service";
@@ -92,36 +90,6 @@ function makeSupabase(responses: Record<string, unknown>): SupabaseClient<Databa
   return { from: (table: string) => build(table) } as unknown as SupabaseClient<Database>;
 }
 
-describe("getSkillAdoption", () => {
-  it("builds the row-policy client scoped to the tenant + app and maps rows to numbers", async () => {
-    chState.rows = [
-      { skill: "writing", recentActivations: "12", totalActivations: "40", totalSessions: "6", lastActivatedAt: "2026-07-16 09:00:00" },
-      { skill: "deploy", recentActivations: "0", totalActivations: "3", totalSessions: "2", lastActivatedAt: "" },
-    ];
-
-    const result = await getSkillAdoption({ tenantId: "t1", appId: "app-1" });
-
-    expect(chState.scopes).toEqual([{ tenantId: "t1", appId: "app-1" }]);
-    expect(chState.queries[0]!.params).toEqual({ tenantId: "t1", appId: "app-1", lookbackDays: 90, recentDays: 14 });
-    expect(result).toEqual({
-      skills: [
-        { skillName: "writing", recentActivations: 12, totalActivations: 40, totalSessions: 6, lastActivatedAt: "2026-07-16 09:00:00" },
-        { skillName: "deploy", recentActivations: 0, totalActivations: 3, totalSessions: 2, lastActivatedAt: null },
-      ],
-      recentDays: 14,
-      lookbackDays: 90,
-    });
-  });
-
-  it("degrades to an empty overlay (never a query) when no analytics backend is configured", async () => {
-    chState.configured = false;
-
-    const result = await getSkillAdoption({ tenantId: "t1", appId: "app-1" });
-
-    expect(result).toEqual({ skills: [], recentDays: 14, lookbackDays: 90 });
-    expect(chState.queries).toEqual([]);
-  });
-});
 
 describe("getSkillDrilldown", () => {
   it("maps each fanned-out query into its own slot with distinct per-query rows", async () => {
@@ -169,36 +137,6 @@ describe("getSkillDrilldown", () => {
   });
 });
 
-describe("getMcpAdoption", () => {
-  it("builds the row-policy client scoped to the tenant + app and maps rows to numbers", async () => {
-    chState.rows = [
-      { server: "playwright", recentCalls: "40", totalCalls: "120", totalSessions: "15", lastUsedAt: "2026-07-16 09:00:00" },
-      { server: "old-crm", recentCalls: "0", totalCalls: "3", totalSessions: "2", lastUsedAt: "" },
-    ];
-
-    const result = await getMcpAdoption({ tenantId: "t1", appId: "app-1" });
-
-    expect(chState.scopes).toEqual([{ tenantId: "t1", appId: "app-1" }]);
-    expect(chState.queries[0]!.params).toEqual({ tenantId: "t1", appId: "app-1", lookbackDays: 90, recentDays: 14 });
-    expect(result).toEqual({
-      servers: [
-        { serverName: "playwright", recentCalls: 40, totalCalls: 120, totalSessions: 15, lastUsedAt: "2026-07-16 09:00:00" },
-        { serverName: "old-crm", recentCalls: 0, totalCalls: 3, totalSessions: 2, lastUsedAt: null },
-      ],
-      recentDays: 14,
-      lookbackDays: 90,
-    });
-  });
-
-  it("degrades to an empty overlay (never a query) when no analytics backend is configured", async () => {
-    chState.configured = false;
-
-    const result = await getMcpAdoption({ tenantId: "t1", appId: "app-1" });
-
-    expect(result).toEqual({ servers: [], recentDays: 14, lookbackDays: 90 });
-    expect(chState.queries).toEqual([]);
-  });
-});
 
 describe("getMcpDrilldown", () => {
   it("maps each fanned-out query into its own slot with distinct per-query rows", async () => {
@@ -479,32 +417,29 @@ describe("ContextReadService.getSyncHistory", () => {
 
 describe("load", () => {
   // Minimal RLS client: every mirror read resolves empty, so getTree returns
-  // the no-git-connection tree without needing the full table graph. The
-  // overlays run against the (mocked) ClickHouse client, which is what this
-  // test drives.
+  // the no-git-connection tree without needing the full table graph.
   const emptyMaybe = { maybeSingle: async () => ({ data: null }) };
   const supabaseStub = {
     from: () => ({ select: () => ({ eq: () => emptyMaybe, match: () => emptyMaybe }) }),
   } as unknown as SupabaseClient<Database>;
 
-  it("degrades a failed adoption-overlay read to an empty overlay (logged) without failing the tree", async () => {
-    chState.rejectQuery = true;
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const result = await load(supabaseStub, "t1", "app-1");
-
-    // The tree still resolves — a rejected analytics read must not take the
-    // whole context render down with it.
-    expect(result.tree.gitConnection).toBeNull();
-    expect(result.tree.entries).toEqual([]);
+  it("seeds the tree and resolves no file when none is selected", async () => {
+    const result = await load(supabaseStub, "app-1", null);
     expect(result.file).toBeNull();
-    // Both overlays fall back to their empty (window-bounded) shape.
-    expect(result.skillAdoption).toEqual({ skills: [], recentDays: 14, lookbackDays: 90 });
-    expect(result.mcpAdoption).toEqual({ servers: [], recentDays: 14, lookbackDays: 90 });
-    // The failures are logged for operators, with the stable domain prefix.
-    expect(errorSpy).toHaveBeenCalledWith("[context] skill-adoption overlay read failed:", expect.any(Error));
-    expect(errorSpy).toHaveBeenCalledWith("[context] mcp-adoption overlay read failed:", expect.any(Error));
+    expect(result.tree).toEqual({
+      gitConnection: null,
+      head: null,
+      entries: [],
+      excludedCounts: [],
+      issues: [],
+      mcpServerCounts: [],
+      requirePullRequest: false,
+    });
+  });
 
-    errorSpy.mockRestore();
+  it("degrades a stale ?file= deep link to a null seed instead of failing the page", async () => {
+    // With no git connection, getFile throws NotFound — load must swallow it.
+    const result = await load(supabaseStub, "app-1", ".outerlayer/gone.md");
+    expect(result.file).toBeNull();
   });
 });

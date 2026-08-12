@@ -285,6 +285,25 @@ export const EnvSchema = z.object({
    * behind this queue as gap repair either way.
    */
   TOPICS_QUEUE: z.custom<QueueBatchProducer<unknown>>().optional(),
+  /**
+   * Queue producer for PR-session-comment refresh triggers (one message per
+   * `(tenant, repository, prNumber)` observed in a synced batch, sent with a
+   * debounce delay). OPTIONAL: absent on self-host / local dev without
+   * queues — the refresh then relies purely on the `pull_request` webhook
+   * and the hourly cron sweep, which stay behind this queue as gap repair
+   * either way, so an unbound queue degrades latency, not correctness.
+   */
+  PR_COMMENT_QUEUE: z.custom<QueueBatchProducer<unknown>>().optional(),
+  /**
+   * Shared secret the PR-comment queue consumer presents as
+   * `Authorization: Bearer <secret>` when it POSTs a coalesced refresh batch
+   * to the dashboard's `/api/internal/pr-comment-refresh`. OPTIONAL: absent
+   * on self-host / local dev without the queue bound — the consumer never
+   * runs there, so nothing needs it. A hosted deploy with the queue bound but
+   * this secret unset fails every refresh POST closed (401), same posture as
+   * the route's own missing-secret check.
+   */
+  PR_COMMENT_REFRESH_SECRET: z.string().optional(),
   /** R2 bucket for oversized span payloads lifted out at ingest (blob-offload) */
   TRACE_BLOBS: z.custom<BlobBucket>(),
   /**

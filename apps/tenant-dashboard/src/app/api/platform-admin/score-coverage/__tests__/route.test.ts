@@ -19,11 +19,6 @@ vi.mock("next/server", () => ({
   },
 }));
 
-vi.mock("@/config-global.server", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  DORA_ENVIRONMENT: "staging",
-}));
-
 const mockGetScoreCoverage = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/system/score-coverage/service", () => ({
   getScoreCoverage: mockGetScoreCoverage,
@@ -79,7 +74,7 @@ describe("GET /api/platform-admin/score-coverage", () => {
     expect(body).toEqual({ skipped: true, reason: "clickhouse not configured" });
   });
 
-  it("returns the coverage result with the deployment environment for an authenticated admin", async () => {
+  it("returns the coverage result for an authenticated admin", async () => {
     seedPlatformAdminAccess(makePlatformAdmin() as any);
     mockGetScoreCoverage.mockResolvedValue({ skipped: false, ...COVERAGE_RESULT });
 
@@ -87,7 +82,7 @@ describe("GET /api/platform-admin/score-coverage", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ environment: "staging", ...COVERAGE_RESULT });
+    expect(body).toEqual(COVERAGE_RESULT);
   });
 
   it("passes the appId query param through to getScoreCoverage", async () => {

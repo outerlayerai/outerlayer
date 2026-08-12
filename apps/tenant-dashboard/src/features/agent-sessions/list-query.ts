@@ -116,5 +116,6 @@ export function parseSessionsUrlParams(
     includeSubagents: flat.includeSubagents,
     origin: rawOrigin || undefined,
     ...salvageTopicPair(flat.topicId, flat.topicFacet),
+    pr: flat.pr,
   });
 }

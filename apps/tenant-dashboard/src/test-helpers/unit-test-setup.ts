@@ -361,11 +361,9 @@ const mockEnvValues = {
   // Signs git-connect OAuth state AND transcript image URLs; the schema
   // requires 32+ chars, so keep any replacement at least that long.
   OAUTH_STATE_SECRET: 'test-oauth-state-secret-at-least-32-chars',
-  DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
   TOKEN_ENCRYPTION_KEY: 'test-encryption-key-must-be-32-chars!',
   EMAIL_ENABLED: 'false',
   NODE_ENV: 'test' as const,
-  DORA_ENVIRONMENT: 'production' as const,
 
   // Server - Optional
   EMAIL_PROVIDER: 'resend',
@@ -432,7 +430,6 @@ vi.mock('../config-global', () => ({
   RESEND_API_KEY: 'test-resend-api-key',
   FROM_EMAIL: 'test@example.com',
   RESEND_BROADCAST_AUDIENCE_ID: 'test-audience-id',
-  DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
   CLICKHOUSE_HOST: undefined,
   CLICKHOUSE_PASSWORD: undefined,
   TOKEN_ENCRYPTION_KEY: 'test-encryption-key-must-be-32-chars!',

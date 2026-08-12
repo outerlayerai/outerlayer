@@ -129,129 +129,6 @@ CREATE POLICY "Platform admins can delete entitlement overrides"
     USING (private.platform_authorize('platform.entitlement.delete'::platform_permission));
 
 -- -----------------------------------------------------------------------------
--- Platform Deployment Table (DORA Metrics)
--- -----------------------------------------------------------------------------
-
--- Tracks our platform's own CI/CD deployments for DORA metrics.
--- This is NOT the user-facing deployment table (public.deployment).
--- Data comes from our CI/CD pipeline (GitHub Actions, etc.).
-CREATE TABLE IF NOT EXISTS public.platform_deployment (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    service TEXT NOT NULL,                      -- Platform service/component (e.g. 'tenant-dashboard', 'gateway', 'docs')
-    environment TEXT NOT NULL DEFAULT 'production', -- Deployment target (production, staging, preview)
-    status TEXT NOT NULL,                       -- 'success', 'failure', 'running'
-    commit_sha TEXT,                            -- Git commit SHA deployed
-    commit_message TEXT,                        -- First line of commit message
-    branch TEXT,                                -- Git branch deployed from
-    failure_reason TEXT,                        -- Reason for failure (null on success)
-    duration_ms BIGINT,                         -- Time from start to completion in milliseconds
-    triggered_by TEXT,                          -- Who/what triggered (e.g. 'github-actions', 'manual')
-    pipeline_url TEXT,                          -- URL to CI/CD pipeline run
-    external_id TEXT,                           -- External ID for deduplication (e.g. GitHub Actions run ID)
-    pr_number BIGINT,                           -- PR number for lead time calculation
-    pr_merged_at TIMESTAMPTZ,                   -- When PR was merged
-    first_commit_at TIMESTAMPTZ,                -- Earliest commit on PR branch for true DORA lead time
-    started_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- When deployment started
-    completed_at TIMESTAMPTZ,                  -- When deployment finished (null if still running)
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-COMMENT ON TABLE public.platform_deployment IS 'Tracks platform CI/CD deployments for DORA metrics (not user-facing deployments)';
-COMMENT ON COLUMN public.platform_deployment.service IS 'Platform service name (e.g. tenant-dashboard, gateway)';
-COMMENT ON COLUMN public.platform_deployment.environment IS 'Target environment: production, staging, preview';
-COMMENT ON COLUMN public.platform_deployment.duration_ms IS 'Deployment duration from start to completion in milliseconds';
-
--- Platform deployment indexes
-CREATE INDEX IF NOT EXISTS idx_platform_deployment_status ON public.platform_deployment(status);
-CREATE INDEX IF NOT EXISTS idx_platform_deployment_started_at ON public.platform_deployment(started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_platform_deployment_service_started ON public.platform_deployment(service, started_at DESC);
--- environment='production' is the default filter on every dashboard query;
--- without this index those queries scan started_at and filter in memory.
-CREATE INDEX IF NOT EXISTS idx_platform_deployment_env_started ON public.platform_deployment(environment, started_at DESC);
--- Full (not partial) unique index: ON CONFLICT (external_id) upserts cannot
--- target a partial index, and Postgres treats NULLs as distinct in unique
--- indexes so the WHERE external_id IS NOT NULL predicate was never needed.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_deployment_external_id ON public.platform_deployment(external_id);
-
--- RLS: service_role only (platform admin API uses service_role client)
-ALTER TABLE public.platform_deployment ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "service_role_all" ON public.platform_deployment
-    USING (( SELECT auth.role() AS role) = 'service_role'::text);
-
-GRANT ALL ON public.platform_deployment TO service_role;
-
--- -----------------------------------------------------------------------------
--- Platform Incident Table (DORA Metrics - Incident Data)
--- -----------------------------------------------------------------------------
-
--- Stores normalized incident data from BetterStack for MTTR and CFR.
-CREATE TABLE IF NOT EXISTS public.platform_incident (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    external_id TEXT NOT NULL,                     -- BetterStack incident ID (unique for dedup)
-    source TEXT NOT NULL DEFAULT 'betterstack',    -- Data source identifier
-    monitor_name TEXT,                             -- Name of the triggering monitor
-    service TEXT,                                  -- Mapped platform service name
-    environment TEXT,                              -- Mapped environment (production, staging); NULL = could not infer
-    severity TEXT,                                 -- Incident severity
-    cause TEXT,                                    -- Incident cause description
-    status TEXT NOT NULL,                          -- started, acknowledged, resolved
-    url TEXT,                                      -- Monitored endpoint URL
-    started_at TIMESTAMPTZ NOT NULL,               -- When incident was detected
-    acknowledged_at TIMESTAMPTZ,                   -- When incident was acknowledged
-    resolved_at TIMESTAMPTZ,                       -- When incident was resolved
-    resolution_ms BIGINT,                          -- resolved_at - started_at in milliseconds
-    deployment_id UUID REFERENCES public.platform_deployment(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ
-);
-
-COMMENT ON TABLE public.platform_incident IS 'Normalized incident data from monitoring systems for DORA MTTR and CFR';
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_incident_external_id ON public.platform_incident(external_id);
-CREATE INDEX IF NOT EXISTS idx_platform_incident_started_at ON public.platform_incident(started_at DESC);
--- environment is filtered on every MTTR/CFR query (the dashboard's env toggle)
-CREATE INDEX IF NOT EXISTS idx_platform_incident_env_started ON public.platform_incident(environment, started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_platform_incident_service ON public.platform_incident(service);
-CREATE INDEX IF NOT EXISTS idx_platform_incident_status ON public.platform_incident(status);
-CREATE INDEX IF NOT EXISTS idx_platform_incident_deployment ON public.platform_incident(deployment_id);
-
-ALTER TABLE public.platform_incident ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "service_role_all" ON public.platform_incident
-    USING (( SELECT auth.role() AS role) = 'service_role'::text);
-
-GRANT ALL ON public.platform_incident TO service_role;
-
--- -----------------------------------------------------------------------------
--- DORA Collection State (tracks incremental data collection)
--- -----------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS public.platform_dora_collection_state (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source TEXT NOT NULL,                          -- e.g. 'github_actions', 'betterstack_incidents'
-    last_collected_at TIMESTAMPTZ,                 -- Timestamp of latest record collected
-    last_run_at TIMESTAMPTZ,                       -- When collection last ran
-    last_run_status TEXT NOT NULL DEFAULT 'pending', -- pending, running, success, error
-    last_error TEXT,                                -- Error from last failed run
-    metadata JSONB NOT NULL DEFAULT '{}',           -- Source-specific state
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ
-);
-
-COMMENT ON TABLE public.platform_dora_collection_state IS 'Tracks incremental data collection state for DORA metrics sources';
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_dora_collection_state_source ON public.platform_dora_collection_state(source);
-
-ALTER TABLE public.platform_dora_collection_state ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "service_role_all" ON public.platform_dora_collection_state
-    USING (( SELECT auth.role() AS role) = 'service_role'::text);
-
-GRANT ALL ON public.platform_dora_collection_state TO service_role;
-
-
--- -----------------------------------------------------------------------------
 -- Data API role grants (explicit)
 -- -----------------------------------------------------------------------------
 -- Supabase no longer auto-grants anon/authenticated/service_role on public
@@ -282,8 +159,8 @@ GRANT ALL ON public.tenant_entitlement_override TO service_role;
 -- 01-types.sql. Without a row here the enum value exists but grants nothing:
 -- private.platform_authorize looks the pair up in this table.
 --
--- The changelog and alert_agent enum values are deliberately absent; 01-types.sql
--- records why they are retained but ungranted.
+-- The changelog, alert_agent, and dora enum values are deliberately absent;
+-- 01-types.sql records why they are retained but ungranted.
 INSERT INTO public.platform_role_permissions (role, permission) VALUES
     ('platform_admin', 'platform.org.read'),
     ('platform_admin', 'platform.org.delete'),
@@ -295,7 +172,6 @@ INSERT INTO public.platform_role_permissions (role, permission) VALUES
     ('platform_admin', 'platform.entitlement.read'),
     ('platform_admin', 'platform.entitlement.write'),
     ('platform_admin', 'platform.entitlement.delete'),
-    ('platform_admin', 'platform.dora.read'),
     ('platform_admin', 'platform.environment.read'),
     ('platform_admin', 'platform.sso_config.read')
 ON CONFLICT DO NOTHING;

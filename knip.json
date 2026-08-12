@@ -23,7 +23,6 @@
         "src/context/index.ts",
         "src/lib/system/client.ts",
         "src/lib/system/index.ts",
-        "src/lib/dora-metrics/index.ts",
         "src/lib/system/git/github/index.ts",
         "src/components/page-header/index.ts",
         "src/components/empty-state/index.ts",

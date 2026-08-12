@@ -84,53 +84,6 @@ type TermsAgreementRow = {
   version?: string;
 };
 
-type PlatformDeploymentRow = {
-  id: string;
-  service: string;
-  environment: string;
-  status: string;
-  commit_sha: string | null;
-  commit_message: string | null;
-  branch: string | null;
-  failure_reason: string | null;
-  duration_ms: number | null;
-  triggered_by: string | null;
-  pipeline_url: string | null;
-  external_id: string | null;
-  started_at: string;
-  completed_at: string | null;
-  first_commit_at?: string | null;
-};
-
-type PlatformIncidentRow = {
-  id: string;
-  external_id: string;
-  source: string;
-  monitor_name: string | null;
-  service: string | null;
-  environment?: string | null;
-  severity: string | null;
-  cause: string | null;
-  status: string;
-  url: string | null;
-  started_at: string;
-  acknowledged_at: string | null;
-  resolved_at: string | null;
-  resolution_ms: number | null;
-  deployment_id?: string | null;
-  updated_at?: string | null;
-};
-
-type PlatformDoraCollectionStateRow = {
-  source: string;
-  last_collected_at: string | null;
-  last_run_at: string | null;
-  last_run_status: string | null;
-  last_error: string | null;
-  updated_at?: string;
-  created_at?: string;
-};
-
 export type SavedTraceFilterRow = {
   id: string;
   user_id: string;
@@ -214,9 +167,6 @@ type SupabaseMswState = {
   tempAccessGrants: TempAccessGrantRow[];
   profiles: ProfileRow[];
   termsAgreements: TermsAgreementRow[];
-  platformDeployments: PlatformDeploymentRow[];
-  platformIncidents: PlatformIncidentRow[];
-  platformDoraCollectionStates: PlatformDoraCollectionStateRow[];
   savedTraceFilters: SavedTraceFilterRow[];
   tenantEntitlementOverrides: TenantEntitlementOverrideRow[];
   // Captured mutation payloads — tests assert against these instead of
@@ -257,9 +207,6 @@ const defaultState = (): SupabaseMswState => ({
   tempAccessGrants: [],
   profiles: [],
   termsAgreements: [],
-  platformDeployments: [],
-  platformIncidents: [],
-  platformDoraCollectionStates: [],
   savedTraceFilters: [],
   tenantEntitlementOverrides: [],
   upsertedEntitlementOverrides: [],
@@ -313,11 +260,6 @@ export function seedSupabaseMswState(nextState: Partial<SupabaseMswState>) {
     tempAccessGrants: nextState.tempAccessGrants ?? state.tempAccessGrants,
     profiles: nextState.profiles ?? state.profiles,
     termsAgreements: nextState.termsAgreements ?? state.termsAgreements,
-    platformDeployments:
-      nextState.platformDeployments ?? state.platformDeployments,
-    platformIncidents: nextState.platformIncidents ?? state.platformIncidents,
-    platformDoraCollectionStates:
-      nextState.platformDoraCollectionStates ?? state.platformDoraCollectionStates,
     savedTraceFilters: nextState.savedTraceFilters ?? state.savedTraceFilters,
     tenantEntitlementOverrides:
       nextState.tenantEntitlementOverrides?.map(applyOverrideDefaults) ??
@@ -695,191 +637,6 @@ export const supabaseHandlers = [
     );
     const updated = state.profiles.find((profile) => profile.id === id) ?? null;
     return buildSingleResponse(request, updated);
-  }),
-
-  http.get(`${SUPABASE_URL}/rest/v1/platform_deployment`, ({ request }) => {
-    const url = new URL(request.url);
-    const externalId = getEqParam(url, 'external_id');
-    const service = getEqParam(url, 'service');
-    const status = getEqParam(url, 'status');
-    const environment = getEqParam(url, 'environment');
-    // PostgREST range filters used by incident correlation:
-    //   completed_at=gte.<iso>&completed_at=lte.<iso>
-    const completedAtFilters = url.searchParams.getAll('completed_at');
-
-    const limit = url.searchParams.get('limit');
-    let rows = state.platformDeployments
-      .filter((deployment) => (externalId ? deployment.external_id === externalId : true))
-      .filter((deployment) => (service ? deployment.service === service : true))
-      .filter((deployment) => (status ? deployment.status === status : true))
-      .filter((deployment) => (environment ? deployment.environment === environment : true))
-      .filter((deployment) =>
-        completedAtFilters.every((filter) => {
-          if (!deployment.completed_at) return false;
-          if (filter.startsWith('gte.')) return deployment.completed_at >= filter.slice(4);
-          if (filter.startsWith('lte.')) return deployment.completed_at <= filter.slice(4);
-          return true;
-        }),
-      )
-      .sort((a, b) => (b.completed_at ?? '').localeCompare(a.completed_at ?? ''));
-    if (limit) rows = rows.slice(0, Number(limit));
-
-    if (wantsSingle(request)) {
-      const row = rows[0] ? projectSelectedFields(url, rows[0]) : null;
-      return buildSingleResponse(request, row);
-    }
-
-    return HttpResponse.json(rows.map((row) => projectSelectedFields(url, row)));
-  }),
-
-  http.post(`${SUPABASE_URL}/rest/v1/platform_deployment`, async ({ request }) => {
-    const url = new URL(request.url);
-    const body = (await request.json()) as Omit<PlatformDeploymentRow, 'id'>;
-    const prefer = request.headers.get('prefer') ?? '';
-
-    // Upsert with ON CONFLICT (external_id) DO NOTHING — PostgREST returns
-    // an empty representation array when the row already existed.
-    if (
-      prefer.includes('resolution=ignore-duplicates') &&
-      url.searchParams.get('on_conflict') === 'external_id' &&
-      body.external_id
-    ) {
-      const existing = state.platformDeployments.find(
-        (row) => row.external_id === body.external_id,
-      );
-      if (existing) {
-        return HttpResponse.json([], { status: 200 });
-      }
-    }
-
-    const inserted: PlatformDeploymentRow = {
-      id: `platform-deployment-${state.platformDeployments.length + 1}`,
-      ...body,
-    };
-
-    state.platformDeployments.push(inserted);
-
-    if (wantsSingle(request)) {
-      return HttpResponse.json(projectSelectedFields(url, inserted), {
-        status: 201,
-      });
-    }
-    return HttpResponse.json([projectSelectedFields(url, inserted)], {
-      status: 201,
-    });
-  }),
-
-  http.get(`${SUPABASE_URL}/rest/v1/platform_incident`, ({ request }) => {
-    const url = new URL(request.url);
-    // Filters used by incident correlation and the metrics service:
-    //   deployment_id=is.null & service=not.is.null|eq.<svc> &
-    //   environment=not.is.null|eq.<env> & started_at=gte.<iso>&started_at=lt.<iso>
-    const deploymentIdFilter = url.searchParams.get('deployment_id');
-    const serviceFilter = url.searchParams.get('service');
-    const environmentFilter = url.searchParams.get('environment');
-    const startedAtFilters = url.searchParams.getAll('started_at');
-
-    const limit = url.searchParams.get('limit');
-    let rows = state.platformIncidents
-      .filter((incident) =>
-        deploymentIdFilter === 'is.null' ? incident.deployment_id == null : true,
-      )
-      .filter((incident) => {
-        if (!serviceFilter) return true;
-        if (serviceFilter === 'not.is.null') return incident.service != null;
-        if (serviceFilter.startsWith('eq.')) return incident.service === serviceFilter.slice(3);
-        return true;
-      })
-      .filter((incident) => {
-        if (!environmentFilter) return true;
-        if (environmentFilter === 'not.is.null') return incident.environment != null;
-        if (environmentFilter.startsWith('eq.')) {
-          return incident.environment === environmentFilter.slice(3);
-        }
-        return true;
-      })
-      .filter((incident) =>
-        startedAtFilters.every((filter) => {
-          if (filter.startsWith('gte.')) return incident.started_at >= filter.slice(4);
-          if (filter.startsWith('lt.')) return incident.started_at < filter.slice(3);
-          return true;
-        }),
-      )
-      .sort((a, b) => b.started_at.localeCompare(a.started_at));
-    if (limit) rows = rows.slice(0, Number(limit));
-
-    if (wantsSingle(request)) {
-      const row = rows[0] ? projectSelectedFields(url, rows[0]) : null;
-      return buildSingleResponse(request, row);
-    }
-
-    return HttpResponse.json(rows.map((row) => projectSelectedFields(url, row)));
-  }),
-
-  http.post(`${SUPABASE_URL}/rest/v1/platform_incident`, async ({ request }) => {
-    const body = (await request.json()) as Omit<PlatformIncidentRow, 'id'>;
-
-    // Upsert ON CONFLICT (external_id) DO UPDATE — merge semantics
-    const existing = state.platformIncidents.find(
-      (row) => row.external_id === body.external_id,
-    );
-    if (existing) {
-      Object.assign(existing, body);
-      return HttpResponse.json([existing], { status: 200 });
-    }
-
-    const inserted: PlatformIncidentRow = {
-      id: `platform-incident-${state.platformIncidents.length + 1}`,
-      deployment_id: null,
-      ...body,
-    };
-    state.platformIncidents.push(inserted);
-    return HttpResponse.json([inserted], { status: 201 });
-  }),
-
-  http.patch(`${SUPABASE_URL}/rest/v1/platform_incident`, async ({ request }) => {
-    const url = new URL(request.url);
-    const id = getEqParam(url, 'id');
-    const update = (await request.json()) as Partial<PlatformIncidentRow>;
-
-    const existing = state.platformIncidents.find((row) => row.id === id);
-    if (existing) {
-      Object.assign(existing, update);
-    }
-    return HttpResponse.json(existing ? [existing] : [], { status: 200 });
-  }),
-
-  http.get(`${SUPABASE_URL}/rest/v1/platform_dora_collection_state`, ({ request }) => {
-    const url = new URL(request.url);
-    const source = getEqParam(url, 'source');
-    const rows = state.platformDoraCollectionStates
-      .filter((row) => (source ? row.source === source : true))
-      .sort((a, b) => a.source.localeCompare(b.source));
-
-    if (wantsSingle(request)) {
-      const row = rows[0] ? projectSelectedFields(url, rows[0]) : null;
-      return buildSingleResponse(request, row);
-    }
-
-    return HttpResponse.json(rows.map((row) => projectSelectedFields(url, row)));
-  }),
-
-  http.post(`${SUPABASE_URL}/rest/v1/platform_dora_collection_state`, async ({ request }) => {
-    const body = (await request.json()) as PlatformDoraCollectionStateRow;
-    const existingIndex = state.platformDoraCollectionStates.findIndex(
-      (row) => row.source === body.source,
-    );
-
-    if (existingIndex === -1) {
-      state.platformDoraCollectionStates.push(body);
-    } else {
-      state.platformDoraCollectionStates[existingIndex] = {
-        ...state.platformDoraCollectionStates[existingIndex],
-        ...body,
-      };
-    }
-
-    return HttpResponse.json(body, { status: 201 });
   }),
 
   http.head(`${SUPABASE_URL}/rest/v1/saved_trace_filters`, ({ request }) => {

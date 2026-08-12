@@ -171,6 +171,25 @@ max_retries = 20
 max_concurrency = 6
 retry_delay = 60
 
+# PR-session-comment refresh: the sync-ingest producer nominates each
+# distinct (tenant, repository, prNumber) a batch touched, delayed by
+# PR_COMMENT_QUEUE_DEBOUNCE_SECONDS so a chatty session's syncs coalesce. This
+# consumer coalesces AGAIN across the delivered batch and makes one POST to
+# the dashboard's internal refresh endpoint per distinct PR. max_retries stays
+# small (mirrors PR_COMMENT_MAX_RETRY_ATTEMPTS in code) and there is no DLQ —
+# the `pull_request` webhook and the hourly cron sweep are the retry of last
+# resort, so a message that exhausts its retries here is not lost work.
+[[env.staging.queues.producers]]
+queue = "pr-comment-refresh-staging"
+binding = "PR_COMMENT_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "pr-comment-refresh-staging"
+max_batch_size = 50
+max_batch_timeout = 10
+max_retries = 5
+retry_delay = 30
+
 # Object storage for oversized span payloads lifted out at ingest (see
 # src/services/blob-offload.ts). Full payloads live here; ClickHouse keeps
 # only an inline preview + a BlobRefs pointer. Zero egress + native binding.
@@ -264,6 +283,18 @@ max_batch_timeout = 10
 max_retries = 20
 max_concurrency = 5
 retry_delay = 60
+
+# PR-session-comment refresh — see the staging block for the rationale.
+[[env.production.queues.producers]]
+queue = "pr-comment-refresh-prod"
+binding = "PR_COMMENT_QUEUE"
+
+[[env.production.queues.consumers]]
+queue = "pr-comment-refresh-prod"
+max_batch_size = 50
+max_batch_timeout = 10
+max_retries = 5
+retry_delay = 30
 
 [[env.production.r2_buckets]]
 binding = "TRACE_BLOBS"

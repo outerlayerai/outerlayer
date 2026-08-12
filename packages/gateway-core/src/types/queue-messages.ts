@@ -2,10 +2,10 @@
  * Queue Message Types
  *
  * TypeScript interfaces + zod schemas for the messages flowing through this
- * gateway's Cloudflare Queues: the Stripe usage-meter fan-out and the topics
- * enrichment nomination queue. Each is the wire contract for its own
- * producer/consumer pair, so a change here changes the on-queue format for
- * both sides.
+ * gateway's Cloudflare Queues: the Stripe usage-meter fan-out, the topics
+ * enrichment nomination queue, and the PR-session-comment refresh queue.
+ * Each is the wire contract for its own producer/consumer pair, so a change
+ * here changes the on-queue format for both sides.
  */
 
 import { z } from 'zod';
@@ -78,4 +78,50 @@ export const TopicsEnrichmentQueueMessageSchema = z.object({
   traceId: z.string().min(1),
   enqueuedAt: z.number().positive(),
   job: z.enum(['live', 'batched_refresh', 'steering_sweep']).optional(),
+});
+
+// =============================================================================
+// PR-session-comment refresh
+// =============================================================================
+
+/**
+ * Delayed delivery IS the debounce: a chatty session syncing repeatedly (or a
+ * batch touching several sessions on the same PR) coalesces into one comment
+ * refresh instead of one per sync. This trades a slice of the p50 ≤ 2 min /
+ * p90 ≤ 5 min latency budget for write coalescing and GitHub rate-limit
+ * protection. Kept in this ONE place — the queue consumer reads it from here
+ * rather than redefining it.
+ */
+export const PR_COMMENT_QUEUE_DEBOUNCE_SECONDS = 30;
+
+/**
+ * One `(tenant, repository, prNumber)` observed in a synced session batch,
+ * enqueued by `POST /v1/agents/sync` after the insert is confirmed durable.
+ * `repository` is the CANONICAL bare `owner/repo` — the producer runs
+ * ClickHouse's host-qualified `agent_session_summary.GitRepo` through
+ * `canonicalPrCommentRepo` before enqueuing, and the consumer re-applies it
+ * so messages predating that still fold to the same key. One repository must
+ * have exactly one spelling across all three trigger paths, or a PR ends up
+ * with two identity rows and two comments. The consumer coalesces a batch of
+ * these by key and POSTs a single internal refresh per PR — at-least-once
+ * delivery is safe because the orchestrator's body-hash check makes a
+ * duplicate refresh a no-op.
+ *
+ * Enqueue is best-effort: a producer failure (queue unbound, `sendBatch`
+ * throw) never fails the sync — the `pull_request` webhook and the hourly
+ * cron sweep are the backstop.
+ */
+export interface PrCommentQueueMessage {
+  tenantId: string;
+  repository: string;
+  prNumber: number;
+  /** When the message was enqueued (epoch milliseconds) — for latency metrics. */
+  enqueuedAt: number;
+}
+
+export const PrCommentQueueMessageSchema = z.object({
+  tenantId: z.string().min(1),
+  repository: z.string().min(1),
+  prNumber: z.number().int().positive(),
+  enqueuedAt: z.number().positive(),
 });

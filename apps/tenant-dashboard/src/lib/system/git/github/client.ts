@@ -44,6 +44,43 @@ import {
 } from '../errors';
 
 /**
+ * Result of creating, updating, or fetching an issue comment (PR comments
+ * are issue comments in GitHub's API). A discriminated union rather than a
+ * thrown error, mirroring `CommitWithFallbackResult.landed` elsewhere in this
+ * file: a permission failure here is expected steady-state, not exceptional
+ * — the GitHub App does not yet hold `issues: write` on every installation,
+ * and each org admin must separately approve the upgraded permission set.
+ * Callers must treat `not_permitted` as a silent no-op, never surface it as
+ * an error.
+ */
+export type IssueCommentResult =
+  | { status: 'ok'; id: number; body: string; htmlUrl: string }
+  /** The App lacks `issues: write` on this installation (403). Silent no-op. */
+  | { status: 'not_permitted' }
+  /** The comment no longer exists on GitHub (404 on update/get). The caller
+   *  should clear any stored comment id and post a fresh comment. */
+  | { status: 'gone' };
+
+/**
+ * Result of listing an issue/PR's comments. `not_permitted` mirrors
+ * {@link IssueCommentResult}: a 403 is the expected steady state on an
+ * installation whose admin has not approved the upgraded permission set, and
+ * must degrade silently rather than throw.
+ */
+export type IssueCommentListResult =
+  | { status: 'ok'; comments: { id: number; body: string }[] }
+  | { status: 'not_permitted' };
+
+/**
+ * Page size and page ceiling for {@link GitHubProvider.listIssueComments}.
+ * The only caller looks for one bot comment it posted itself, so this is a
+ * bounded scan, never a full thread walk: 100 × 5 covers 500 comments, far
+ * past any real PR, and stops rather than paginating a pathological thread.
+ */
+const ISSUE_COMMENTS_PAGE_SIZE = 100;
+const ISSUE_COMMENTS_MAX_PAGES = 5;
+
+/**
  * Maximum number of times a non-fast-forward push is retried before the
  * caller surfaces a "retry — concurrent commit" error.
  */
@@ -1180,6 +1217,158 @@ export class GitHubProvider implements GitProvider {
       return await verifySignature(secret, signature, payload);
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Create a comment on an issue or pull request — PR comments are issue
+   * comments in GitHub's API, so this hits `POST
+   * /repos/{owner}/{repo}/issues/{issue_number}/comments`, not the separate
+   * pull-request review-comment endpoints.
+   *
+   * Returns a typed `not_permitted` result rather than throwing on 403: the
+   * GitHub App does not yet hold `issues: write` on every installation, and
+   * every call fails this way until each org admin approves the upgraded
+   * permission set. The feature that calls this must degrade silently.
+   */
+  async createIssueComment(
+    repo: string,
+    issueNumber: number,
+    body: string
+  ): Promise<IssueCommentResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+
+    try {
+      const response = await this.octokit.rest.issues.createComment({
+        owner,
+        repo: repoName,
+        issue_number: issueNumber,
+        body,
+      });
+
+      return {
+        status: 'ok',
+        id: response.data.id,
+        body: response.data.body ?? '',
+        htmlUrl: response.data.html_url,
+      };
+    } catch (error: unknown) {
+      if ((error as { status?: number }).status === 403) {
+        return { status: 'not_permitted' };
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
+  /**
+   * Update an existing issue comment's body — `PATCH
+   * /repos/{owner}/{repo}/issues/comments/{comment_id}`.
+   *
+   * A 404 means the comment was hand-deleted on GitHub (or the id is stale)
+   * and returns a typed `gone` result so the caller can clear the stored
+   * comment id and post a fresh comment instead of erroring. A 403 returns
+   * `not_permitted` for the same reason as {@link createIssueComment}.
+   */
+  async updateIssueComment(
+    repo: string,
+    commentId: number,
+    body: string
+  ): Promise<IssueCommentResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+
+    try {
+      const response = await this.octokit.rest.issues.updateComment({
+        owner,
+        repo: repoName,
+        comment_id: commentId,
+        body,
+      });
+
+      return {
+        status: 'ok',
+        id: response.data.id,
+        body: response.data.body ?? '',
+        htmlUrl: response.data.html_url,
+      };
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 403) {
+        return { status: 'not_permitted' };
+      }
+      if (status === 404) {
+        return { status: 'gone' };
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
+  /**
+   * Fetch a single issue comment by id — `GET
+   * /repos/{owner}/{repo}/issues/comments/{comment_id}`. Same typed
+   * `not_permitted` / `gone` handling as {@link updateIssueComment}.
+   */
+  /**
+   * List an issue/PR's comments — `GET
+   * /repos/{owner}/{repo}/issues/{issue_number}/comments`, bounded to
+   * {@link ISSUE_COMMENTS_MAX_PAGES}.
+   *
+   * Exists for one job: letting a poster find a comment it already posted
+   * when the id was never persisted (see `PR_SESSION_COMMENT_MARKER`). A 403
+   * returns `not_permitted` for the same reason as the write methods; there
+   * is no `gone` case, since a missing thread just lists empty.
+   */
+  async listIssueComments(repo: string, issueNumber: number): Promise<IssueCommentListResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+    const comments: { id: number; body: string }[] = [];
+
+    try {
+      for (let page = 1; page <= ISSUE_COMMENTS_MAX_PAGES; page += 1) {
+        const response = await this.octokit.rest.issues.listComments({
+          owner,
+          repo: repoName,
+          issue_number: issueNumber,
+          per_page: ISSUE_COMMENTS_PAGE_SIZE,
+          page,
+        });
+        for (const comment of response.data) {
+          comments.push({ id: comment.id, body: comment.body ?? '' });
+        }
+        if (response.data.length < ISSUE_COMMENTS_PAGE_SIZE) break;
+      }
+      return { status: 'ok', comments };
+    } catch (error: unknown) {
+      if ((error as { status?: number }).status === 403) {
+        return { status: 'not_permitted' };
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
+  async getIssueComment(repo: string, commentId: number): Promise<IssueCommentResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+
+    try {
+      const response = await this.octokit.rest.issues.getComment({
+        owner,
+        repo: repoName,
+        comment_id: commentId,
+      });
+
+      return {
+        status: 'ok',
+        id: response.data.id,
+        body: response.data.body ?? '',
+        htmlUrl: response.data.html_url,
+      };
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 403) {
+        return { status: 'not_permitted' };
+      }
+      if (status === 404) {
+        return { status: 'gone' };
+      }
+      throw this.handleError(error, repo);
     }
   }
 

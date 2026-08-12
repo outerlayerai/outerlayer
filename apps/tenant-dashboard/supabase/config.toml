@@ -78,6 +78,7 @@ schema_paths = [
     "./schemas/68-oauth-grants.sql",
     "./schemas/73-worker-run.sql",
     "./schemas/74-pull-request-session.sql",
+    "./schemas/76-pr-session-comment.sql",
     # Ops telemetry about the database itself. Own `ops` schema, off the
     # PostgREST surface, and depends on nothing in public.
     "./schemas/94-ops-usage-snapshots.sql",

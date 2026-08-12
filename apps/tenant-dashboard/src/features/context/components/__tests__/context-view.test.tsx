@@ -98,8 +98,6 @@ const { ctxState } = vi.hoisted(() => ({
   ctxState: {
     tree: null as unknown as import("../../types").ContextTreeResponse,
     files: [] as import("../../types").ContextFileResponse[],
-    skillAdoption: { skills: [], recentDays: 14, lookbackDays: 90 } as import("../../types").SkillAdoptionResponse,
-    mcpAdoption: { servers: [], recentDays: 14, lookbackDays: 90 } as import("../../types").McpAdoptionResponse,
   },
 }));
 // The read actions gate on context.read, so they resolve to the action-kit
@@ -112,9 +110,28 @@ vi.mock("@/features/context/read-actions", () => ({
     if (!match) throw new Error("context file not found");
     return { ok: true, data: match };
   }),
-  getContextSkillAdoption: vi.fn(async () => ({ ok: true, data: ctxState.skillAdoption })),
+  getContextOverview: vi.fn(async () => ({
+    ok: true,
+    data: {
+      range: "30d",
+      recentDays: 14,
+      lookbackDays: 90,
+      degraded: false,
+      totals: { activations: 0, priorActivations: 0 },
+      skills: [],
+      mcpServers: [],
+      coverage: {
+        sessions: 0,
+        sessionsWithSkill: 0,
+        priorSessions: 0,
+        priorSessionsWithSkill: 0,
+        lookbackSessions: 0,
+      },
+      topics: [],
+      inventory: { instructionScopes: 0, commands: 0, subagents: 0 },
+    },
+  })),
   getContextSkillDrilldown: vi.fn(async () => ({ ok: true, data: { trend: [], sessions: [], topics: [], lookbackDays: 90 } })),
-  getContextMcpAdoption: vi.fn(async () => ({ ok: true, data: ctxState.mcpAdoption })),
   getContextMcpDrilldown: vi.fn(async () => ({ ok: true, data: { tools: [], trend: [], sessions: [], lookbackDays: 90, recentDays: 14 } })),
 }));
 
@@ -278,12 +295,14 @@ function seedContextApi(tree: ContextTreeResponse, files: ContextFileResponse[] 
 }
 
 // The `?file=` the RSC seeded `initialFile` for — mirrors the real page, where
-// the RSC re-runs on a `?file=` change and reseeds the selected file.
+// the RSC re-runs on a `?file=` change and reseeds the selected file. This
+// suite exercises the FILES view, so the explicit `view=files` param rides
+// along (the bare URL lands on the Overview; its suite lives next door).
 let currentSelectedPath: string | null = null;
 function setSelectedFile(path: string | null) {
   currentSelectedPath = path;
   vi.mocked(useSearchParams).mockReturnValue(
-    new URLSearchParams(path ? { file: path } : {}) as never,
+    new URLSearchParams(path ? { view: "files", file: path } : { view: "files" }) as never,
   );
 }
 
@@ -304,8 +323,6 @@ function renderView() {
         appId="app-1"
         initialTree={ctxState.tree}
         initialFile={initialFile}
-        initialSkillAdoption={ctxState.skillAdoption}
-        initialMcpAdoption={ctxState.mcpAdoption}
         initialSelectedPath={currentSelectedPath}
       />
     </SWRConfig>,
@@ -318,8 +335,6 @@ beforeEach(() => {
   currentSelectedPath = null;
   ctxState.tree = null as unknown as ContextTreeResponse;
   ctxState.files = [];
-  ctxState.skillAdoption = { skills: [], recentDays: 14, lookbackDays: 90 };
-  ctxState.mcpAdoption = { servers: [], recentDays: 14, lookbackDays: 90 };
   hasPermissionMock = () => true;
   mockResync.mockClear();
   mockReadRemote.mockClear();
@@ -448,7 +463,7 @@ describe("<ContextView> — tree + viewer composition", () => {
     renderView();
     fireEvent.click(await screen.findByText("AGENTS.md"));
     expect(replaceSpy).toHaveBeenCalledWith(
-      "/test-path?file=.outerlayer%2FAGENTS.md",
+      "/test-path?view=files&file=.outerlayer%2FAGENTS.md",
       { scroll: false },
     );
   });
@@ -908,7 +923,7 @@ describe("<ContextView> — navigation guarding + delete", () => {
 
     fireEvent.click(screen.getByTestId("view-leave-discard"));
     expect(replaceSpy).toHaveBeenCalledWith(
-      "/test-path?file=.outerlayer%2FAGENTS.md&view=history",
+      "/test-path?view=history&file=.outerlayer%2FAGENTS.md",
       { scroll: false },
     );
   });
@@ -937,7 +952,7 @@ describe("<ContextView> — navigation guarding + delete", () => {
 
     expect(screen.getByTestId("changes-count")).toHaveTextContent("1 deleted");
     expect(mockCommit).not.toHaveBeenCalled();
-    expect(replaceSpy).not.toHaveBeenCalledWith("/test-path?", { scroll: false });
+    expect(replaceSpy).not.toHaveBeenCalledWith("/test-path?view=files", { scroll: false });
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
@@ -957,7 +972,7 @@ describe("<ContextView> — navigation guarding + delete", () => {
       }),
     );
     await waitFor(() => {
-      expect(replaceSpy).toHaveBeenCalledWith("/test-path?", { scroll: false });
+      expect(replaceSpy).toHaveBeenCalledWith("/test-path?view=files", { scroll: false });
     });
     // The delete lands with the same feedback as any other publish: a snackbar
     // naming where it went…
@@ -995,7 +1010,7 @@ describe("<ContextView> — navigation guarding + delete", () => {
 
     // Selection released and the landing snackbar shown.
     await waitFor(() =>
-      expect(replaceSpy).toHaveBeenCalledWith("/test-path?", { scroll: false }),
+      expect(replaceSpy).toHaveBeenCalledWith("/test-path?view=files", { scroll: false }),
     );
     expect(mockEnqueue).toHaveBeenCalledWith(
       expect.stringContaining("Changes pushed to main"),
@@ -1157,7 +1172,7 @@ describe("<ContextView> — pending-PR pane + create-draft selection", () => {
     replaceSpy.mockClear();
 
     fireEvent.click(screen.getByTestId("probe-discard-one"));
-    expect(replaceSpy).toHaveBeenCalledWith("/test-path?", { scroll: false });
+    expect(replaceSpy).toHaveBeenCalledWith("/test-path?view=files", { scroll: false });
   });
 });
 
@@ -1294,32 +1309,13 @@ describe("<ContextView> — read-only publish gating", () => {
   });
 });
 
-describe("<ContextView> — skill dir and mcp.json detail panes", () => {
-  const chTimestamp = (msAgo: number) =>
-    new Date(Date.now() - msAgo).toISOString().slice(0, 19).replace("T", " ");
-
-  it("selecting a skill dir shows its detail pane and never fetches the dir path as a file", async () => {
+describe("<ContextView> — the Files view carries no usage UI", () => {
+  it("a legacy skill-dir deep link renders the select-a-file placeholder, never fetching the dir as a file", async () => {
     seedContextApi(TREE, []);
-    ctxState.skillAdoption = {
-      skills: [
-        {
-          skillName: "deploy",
-          recentActivations: 8,
-          totalActivations: 12,
-          totalSessions: 6,
-          lastActivatedAt: chTimestamp(2 * 3_600_000),
-        },
-      ],
-      recentDays: 14,
-      lookbackDays: 90,
-    };
     setSelectedFile(".outerlayer/skills/deploy");
     renderView();
 
-    expect(await screen.findByTestId("skill-detail-pane")).toBeInTheDocument();
-    // The Usage tab leads with the overlay-fed stats; no editor for a dir.
-    await waitFor(() => expect(screen.getByTestId("skill-usage-recent")).toHaveTextContent("8"));
-    expect(screen.getByTestId("skill-usage-last-used")).toHaveTextContent("2h ago");
+    expect(await screen.findByText("Select a file to view its contents.")).toBeInTheDocument();
     expect(screen.queryByTestId("editor-probe")).toBeNull();
     // The dir selection must not be treated as a file read.
     expect(vi.mocked(getContextFile)).not.toHaveBeenCalledWith(
@@ -1327,7 +1323,23 @@ describe("<ContextView> — skill dir and mcp.json detail panes", () => {
     );
   });
 
-  it("selecting an mcp.json keeps the editor on a Content tab and adds the server Usage tab", async () => {
+  // AC-058-13
+  it("a skill's SKILL.md renders the bare editor — no Usage tab, no usage figures anywhere", async () => {
+    seedContextApi(TREE, [SKILL_FILE]);
+    setSelectedFile(SKILL_FILE.path);
+    renderView();
+
+    expect(await screen.findByTestId("editor-probe")).toHaveAttribute("data-path", SKILL_FILE.path);
+    // The old detail-pane tab chrome is gone for good…
+    expect(screen.queryByTestId("skill-tab-usage")).toBeNull();
+    expect(screen.queryByTestId("skill-detail-pane")).toBeNull();
+    // …and no usage strip or figures replaced it: Files is a pure explorer,
+    // usage lives in the Overview.
+    expect(screen.queryByTestId("context-usage-strip")).toBeNull();
+    expect(screen.queryByText(/activations/)).toBeNull();
+  });
+
+  it("an mcp.json renders the bare editor with only the inventory server count in the tree", async () => {
     const MCP_PATH = ".outerlayer/mcp.json";
     const mcpTree: ContextTreeResponse = {
       ...TREE,
@@ -1345,27 +1357,16 @@ describe("<ContextView> — skill dir and mcp.json detail panes", () => {
         frontmatter: { parsed: null, issues: [] },
       },
     ]);
-    // The default empty mcp-adoption overlay leaves the one installed server
-    // ("alpha") with no usage rows → the "never" state below.
     setSelectedFile(MCP_PATH);
     renderView();
 
-    expect(await screen.findByTestId("mcp-detail-tabs")).toBeInTheDocument();
-    // Content is the default tab — the editor pane rides through unchanged.
-    expect(screen.getByTestId("editor-probe")).toHaveAttribute("data-path", MCP_PATH);
-
-    fireEvent.click(screen.getByTestId("mcp-tab-usage"));
-    expect(await screen.findByTestId("mcp-usage-pane")).toBeInTheDocument();
-    // The one installed server has no usage rows → the honest red "never".
-    expect(screen.getByTestId("mcp-last-used-never-alpha")).toHaveTextContent("never");
-  });
-
-  it("a plain file keeps the bare editor — no tabs anywhere", async () => {
-    seedContextApi(TREE, [AGENTS_FILE]);
-    setSelectedFile(AGENTS_FILE.path);
-    renderView();
-    await screen.findByTestId("editor-probe");
+    expect(await screen.findByTestId("editor-probe")).toHaveAttribute("data-path", MCP_PATH);
     expect(screen.queryByTestId("mcp-detail-tabs")).toBeNull();
-    expect(screen.queryByTestId("skill-detail-pane")).toBeNull();
+    expect(screen.queryByTestId("context-usage-strip")).toBeNull();
+    // The tree keeps the INVENTORY annotation (installed count) — that is
+    // repo fact, not usage — while no last-used/never usage marks exist.
+    expect(screen.getByText(/·\s*1 server/)).toBeInTheDocument();
+    expect(screen.queryByTestId("tree-last-used")).toBeNull();
+    expect(screen.queryByTestId("tree-last-used-never")).toBeNull();
   });
 });

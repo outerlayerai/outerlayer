@@ -1,11 +1,11 @@
 /**
- * Skill-adoption query — which Claude Code skills the app's sessions
- * actually invoke. Reads the `skill_activation_by_day` rollup (populated at
- * ingest by its materialized view over root-span `skill_activated` events),
+ * Per-skill drill-down queries for the Context Overview — the trend, the
+ * activating sessions, and the topic breakdown. All reads hit the
+ * `skill_activation_by_day` / `skill_activation_sessions` rollups (populated
+ * at ingest by materialized views over root-span `skill_activated` events),
  * NOT raw `otel_traces`: the raw scan reads every span granule for the
  * tenant/app window just to find root spans — seconds on a busy app — and
- * this query backs the interactive Context adoption overlay. The rollup
- * read is an indexed aggregate over (TenantId, AppId, Skill, Day).
+ * these queries back an interactive surface.
  *
  * Counts stay exact despite span re-ingests: the rollup's uniqExact states
  * are keyed by (TraceId, SpanId, eventIdx), so replayed event arrays
@@ -17,58 +17,12 @@
  * No actor identity anywhere: adoption aggregates at skill grain only.
  */
 
-export interface SkillAdoptionQueryInput {
-  tenantId: string;
-  appId: string;
-  /** Total scan window (the "gone quiet" horizon). */
-  lookbackDays: number;
-  /** Recent-activity window the headline counts use. */
-  recentDays: number;
-}
-
 export interface SkillAdoptionQueryResult {
   query: string;
   params: Record<string, unknown>;
 }
 
-export interface SkillAdoptionRow {
-  skill: string;
-  recentActivations: number;
-  recentSessions: number;
-  totalActivations: number;
-  totalSessions: number;
-  lastActivatedAt: string;
-}
-
-export function buildSkillAdoptionQuery(
-  input: SkillAdoptionQueryInput,
-): SkillAdoptionQueryResult {
-  return {
-    query: `SELECT
-  Skill AS skill,
-  uniqExactMergeIf(Activations, Day >= today() - {recentDays:UInt32}) AS recentActivations,
-  uniqExactMergeIf(Sessions, Day >= today() - {recentDays:UInt32}) AS recentSessions,
-  uniqExactMerge(Activations) AS totalActivations,
-  uniqExactMerge(Sessions) AS totalSessions,
-  toString(toDateTime(max(LastActivatedAt))) AS lastActivatedAt
-FROM skill_activation_by_day
-WHERE TenantId = {tenantId:String}
-  AND AppId = {appId:String}
-  AND Day >= today() - {lookbackDays:UInt32}
-GROUP BY Skill
-ORDER BY recentActivations DESC, totalActivations DESC
-LIMIT 500`,
-    params: {
-      tenantId: input.tenantId,
-      appId: input.appId,
-      lookbackDays: input.lookbackDays,
-      recentDays: input.recentDays,
-    },
-  };
-}
-
 /* ------------------------------------------------------------------------- *
- * Per-skill drill-down: trend, activating sessions, topic breakdown.
  * Trend reads the day rollup (already day-keyed). Enumeration reads the
  * session-grain companion table `skill_activation_sessions` — merged agg
  * states can be counted but not enumerated, which is why the companion

@@ -202,6 +202,32 @@ describe('ListSessions', () => {
     expect(result.status).toBe(400);
   });
 
+  // pr filtering resolves a PR/MR number to confirmed-linked trace ids via a
+  // Postgres pull_request_session read no gateway host has wired for list
+  // reads (see ListSessionsConstraints in @repo/observability-service) — a
+  // pr value is rejected outright, never silently ignored.
+  it('rejects a pr filter with a 400, never reaching the shared service', async () => {
+    const route = routeWithValidatedData(ListSessions, { query: { limit: 25, offset: 0, pr: 812 } });
+    const c = buildContext(['session.read']);
+
+    const result = (await route.handle(c)) as { body: { error?: { code?: string } }; status: number };
+
+    expect(result.status).toBe(400);
+    expect(result.body.error?.code).toBe('validation_error');
+    expect(listSessions).not.toHaveBeenCalled();
+  });
+
+  it('lists sessions normally when pr is absent', async () => {
+    listSessions.mockResolvedValue({ sessions: [], total: 0 });
+    const route = routeWithValidatedData(ListSessions, { query: { limit: 25, offset: 0 } });
+    const c = buildContext(['session.read']);
+
+    const result = (await route.handle(c)) as { status: number };
+
+    expect(result.status).toBe(200);
+    expect(listSessions).toHaveBeenCalledOnce();
+  });
+
   // A bearer caller without agents.sessions.team.read must be confined to
   // their own seat — `session.read` alone (granted to every role) must never
   // widen a bearer read to the team-wide machine-key policy.

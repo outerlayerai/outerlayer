@@ -122,6 +122,20 @@ describe('list_sessions tool', () => {
       expect.any(Object),
     );
   });
+
+  // pr filtering resolves a PR/MR number to confirmed-linked trace ids via a
+  // Postgres pull_request_session read no gateway host has wired for list
+  // reads (see ListSessionsConstraints in @repo/observability-service) — a
+  // pr value throws, never reaching the shared service. The dispatcher maps
+  // the throw to a structured isError result (proven at the dispatcher
+  // level); this pins that execute() itself rejects.
+  it('rejects a pr filter, never reaching the shared service', async () => {
+    const tool = findTool('list_sessions')!;
+    const c = buildApiKeyContext(['session.read']);
+
+    await expect(tool.execute(c, { limit: 25, offset: 0, pr: 812 })).rejects.toThrow(/pr/);
+    expect(listSessions).not.toHaveBeenCalled();
+  });
 });
 
 describe('get_session tool', () => {

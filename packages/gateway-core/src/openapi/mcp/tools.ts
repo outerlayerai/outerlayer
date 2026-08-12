@@ -41,7 +41,7 @@ import { getService, buildTenantContext, resolveEnvScope, structuredError } from
 import { resolveTopicsScope } from '../routes/topics';
 import { daysAgo, today, compareWindows, metricsBreakdown, metricsTrends } from '../routes/metrics';
 import { prOutcomes } from '../routes/prs';
-import { sessionPolicy, buildPorts } from '../routes/sessions';
+import { sessionPolicy, buildPorts, rejectPrFilter } from '../routes/sessions';
 import { listContextChanges } from '../routes/context';
 import { getGatewayTopicsService, getGatewaySessionsService } from '../analytics-factory';
 import { RATE_LIMITS } from '../../rate-limits';
@@ -91,6 +91,7 @@ async function listTopicsExecute(c: AppContext, input: z.infer<typeof TopicsQuer
 }
 
 async function listSessionsExecute(c: AppContext, input: z.infer<typeof ListSessionsQuerySchema>) {
+  rejectPrFilter(input);
   const user = c.get('user');
   const service = getGatewaySessionsService(c.env, { tenantId: user.tenantId, appId: user.appId });
   if (!service) throw new ServiceUnavailableError('ClickHouse host not configured');
@@ -210,7 +211,8 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     description:
       'Filtered, paginated list of agent-coding sessions. Drill into a topic\'s sessions with topicId + topicFacet (topicId comes from list_topics). ' +
       'Without the agents.sessions.team.read permission, actor identities are anonymized and an actor filter is rejected. ' +
-      "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass repo to target another repo.",
+      "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass repo to target another repo. " +
+      'pr is dashboard-only for now and is rejected here — this surface has no reader wired to resolve a PR/MR number to its confirmed-linked sessions.',
     zodInputSchema: ListSessionsQuerySchema,
     zodOutputSchema: SessionsPageSchema,
     requiredPermission: 'session.read',

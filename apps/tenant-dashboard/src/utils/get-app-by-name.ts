@@ -13,7 +13,7 @@ import type { Database } from "../types/db";
 // PostgREST refuses to guess. Shared so the type-derivation query below and the
 // real one cannot drift apart.
 const APP_WITH_GIT_SELECT =
-  "*, git_connection!git_connection_app_id_fkey(app_id, repository, provider), git_branch!github_branch_app_id_fkey(branch_name)" as const;
+  "*, git_connection!git_connection_app_id_fkey(app_id, repository, provider, pr_comments_enabled), git_branch!github_branch_app_id_fkey(branch_name)" as const;
 
 // Referenced only via `typeof` for the `AppWithGitConnection` type below — the
 // function is never called, so no client is constructed to derive the shape.

@@ -14,20 +14,6 @@ export const UNKEY_API_KEY = env.UNKEY_API_KEY;
 // API-key store pepper (HMAC secret for minting/hashing key digests).
 export const API_KEY_PEPPER = env.API_KEY_PEPPER;
 
-// env.ts declares the pepper required, but t3-env validation is force-skipped
-// on Vercel (`skipValidation: !!process.env.VERCEL`), so a missing secret
-// would otherwise deploy fine and only surface when the first key mint throws.
-// Fail at module load instead: this file is imported by every server action
-// that mints keys, so a misconfigured deploy dies on first server render with
-// a clear message rather than shipping a dashboard that can't issue keys.
-if (process.env.VERCEL && !API_KEY_PEPPER) {
-  throw new Error(
-    'API_KEY_PEPPER is not set. The dashboard mints API keys and must hash ' +
-      'them with the same pepper the gateway verifies against — set the ' +
-      'API_KEY_PEPPER environment variable for this Vercel environment.',
-  );
-}
-
 // OAuth state secret — must match the gateway's OAUTH_STATE_SECRET
 // for signed state tokens minted by POST /v1/apps/:appId/git/connect
 // to verify cleanly in the dashboard's OAuth callback handlers.
@@ -58,15 +44,6 @@ export const STRIPE_STORAGE_METER_ID = env.STRIPE_STORAGE_METER_ID ?? "";
 // Cron
 export const CRON_SECRET = env.CRON_SECRET;
 
-// BetterStack Uptime API token (DORA incident collection). Exposed via the
-// validated env for a single typed source alongside the other server config.
-export const BETTERSTACK_API_TOKEN = env.BETTERSTACK_API_TOKEN;
-
-// DORA metrics: the deployment environment this dashboard instance IS.
-// All DORA reads and incident collection are pinned to it — the staging
-// dashboard can only ever see staging data, production only production.
-export const DORA_ENVIRONMENT = env.DORA_ENVIRONMENT;
-
 // GitHub App (server-only secrets)
 export const GITHUB_APP_ID = env.GITHUB_APP_ID;
 export const GITHUB_APP_PRIVATE_KEY = env.GITHUB_APP_PRIVATE_KEY;
@@ -88,9 +65,6 @@ export const SMTP_USER = env.SMTP_USER;
 export const SMTP_PASS = env.SMTP_PASS;
 export const SMTP_SECURE = env.SMTP_SECURE;
 
-// Database
-export const DATABASE_URL = env.DATABASE_URL;
-
 // ClickHouse (analytics) — optional for local dev without analytics
 export const CLICKHOUSE_HOST = env.CLICKHOUSE_HOST;
 export const CLICKHOUSE_PASSWORD = env.CLICKHOUSE_PASSWORD;
@@ -99,16 +73,12 @@ export const CLICKHOUSE_READ_USER = env.CLICKHOUSE_READ_USER;
 export const CLICKHOUSE_READ_PASSWORD = env.CLICKHOUSE_READ_PASSWORD;
 export const CLICKHOUSE_ALLOW_UNSCOPED_READS = env.CLICKHOUSE_ALLOW_UNSCOPED_READS;
 
-// Security
-export const TOKEN_ENCRYPTION_KEY = env.TOKEN_ENCRYPTION_KEY;
 
 // Email delivery gate
 export const EMAIL_ENABLED = env.EMAIL_ENABLED;
 
+
+
 // Billing gate (opt-out: hosted keeps Stripe; self-hosters disable)
 export const BILLING_ENABLED = env.BILLING_ENABLED;
 
-// Fly Machines API
-export const FLY_MACHINES_API_BASE = "https://api.machines.dev/v1";
-
-export const FLY_API_TOKEN = env.FLY_API_TOKEN;

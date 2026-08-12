@@ -47,4 +47,20 @@ describe("appPaths — env-scoped builders", () => {
     expect(url).toBe(`/orgs/${ORG}/apps/${APP}/context`);
     expect(url).not.toContain("/env/");
   });
+
+  it("context overview builds bare, ranged, and single-panel deep links", () => {
+    const base = `/orgs/${ORG}/apps/${APP}/context`;
+    expect(appPaths.context.overview(ORG, APP)).toBe(base);
+    expect(appPaths.context.overview(ORG, APP, { range: "30d" })).toBe(`${base}?range=30d`);
+    expect(appPaths.context.overview(ORG, APP, { range: "7d", skill: "db-migration" })).toBe(
+      `${base}?range=7d&skill=db-migration`,
+    );
+    expect(appPaths.context.overview(ORG, APP, { server: "github" })).toBe(
+      `${base}?server=github`,
+    );
+    // One panel at a time: skill wins when both are passed.
+    expect(appPaths.context.overview(ORG, APP, { skill: "a", server: "b" })).toBe(
+      `${base}?skill=a`,
+    );
+  });
 });

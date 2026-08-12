@@ -1421,6 +1421,7 @@ export type Database = {
           created_by: string | null
           id: string
           installation_id: number | null
+          pr_comments_enabled: boolean
           provider: string
           repository: string | null
           tenant_id: string
@@ -1435,6 +1436,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           installation_id?: number | null
+          pr_comments_enabled?: boolean
           provider?: string
           repository?: string | null
           tenant_id: string
@@ -1449,6 +1451,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           installation_id?: number | null
+          pr_comments_enabled?: boolean
           provider?: string
           repository?: string | null
           tenant_id?: string
@@ -1626,173 +1629,6 @@ export type Database = {
           },
         ]
       }
-      platform_deployment: {
-        Row: {
-          branch: string | null
-          commit_message: string | null
-          commit_sha: string | null
-          completed_at: string | null
-          created_at: string
-          duration_ms: number | null
-          environment: string
-          external_id: string | null
-          failure_reason: string | null
-          first_commit_at: string | null
-          id: string
-          pipeline_url: string | null
-          pr_merged_at: string | null
-          pr_number: number | null
-          service: string
-          started_at: string
-          status: string
-          triggered_by: string | null
-        }
-        Insert: {
-          branch?: string | null
-          commit_message?: string | null
-          commit_sha?: string | null
-          completed_at?: string | null
-          created_at?: string
-          duration_ms?: number | null
-          environment?: string
-          external_id?: string | null
-          failure_reason?: string | null
-          first_commit_at?: string | null
-          id?: string
-          pipeline_url?: string | null
-          pr_merged_at?: string | null
-          pr_number?: number | null
-          service: string
-          started_at?: string
-          status: string
-          triggered_by?: string | null
-        }
-        Update: {
-          branch?: string | null
-          commit_message?: string | null
-          commit_sha?: string | null
-          completed_at?: string | null
-          created_at?: string
-          duration_ms?: number | null
-          environment?: string
-          external_id?: string | null
-          failure_reason?: string | null
-          first_commit_at?: string | null
-          id?: string
-          pipeline_url?: string | null
-          pr_merged_at?: string | null
-          pr_number?: number | null
-          service?: string
-          started_at?: string
-          status?: string
-          triggered_by?: string | null
-        }
-        Relationships: []
-      }
-      platform_dora_collection_state: {
-        Row: {
-          created_at: string
-          id: string
-          last_collected_at: string | null
-          last_error: string | null
-          last_run_at: string | null
-          last_run_status: string
-          metadata: Json
-          source: string
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          last_collected_at?: string | null
-          last_error?: string | null
-          last_run_at?: string | null
-          last_run_status?: string
-          metadata?: Json
-          source: string
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          last_collected_at?: string | null
-          last_error?: string | null
-          last_run_at?: string | null
-          last_run_status?: string
-          metadata?: Json
-          source?: string
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      platform_incident: {
-        Row: {
-          acknowledged_at: string | null
-          cause: string | null
-          created_at: string
-          deployment_id: string | null
-          environment: string | null
-          external_id: string
-          id: string
-          monitor_name: string | null
-          resolution_ms: number | null
-          resolved_at: string | null
-          service: string | null
-          severity: string | null
-          source: string
-          started_at: string
-          status: string
-          updated_at: string | null
-          url: string | null
-        }
-        Insert: {
-          acknowledged_at?: string | null
-          cause?: string | null
-          created_at?: string
-          deployment_id?: string | null
-          environment?: string | null
-          external_id: string
-          id?: string
-          monitor_name?: string | null
-          resolution_ms?: number | null
-          resolved_at?: string | null
-          service?: string | null
-          severity?: string | null
-          source?: string
-          started_at: string
-          status: string
-          updated_at?: string | null
-          url?: string | null
-        }
-        Update: {
-          acknowledged_at?: string | null
-          cause?: string | null
-          created_at?: string
-          deployment_id?: string | null
-          environment?: string | null
-          external_id?: string
-          id?: string
-          monitor_name?: string | null
-          resolution_ms?: number | null
-          resolved_at?: string | null
-          service?: string | null
-          severity?: string | null
-          source?: string
-          started_at?: string
-          status?: string
-          updated_at?: string | null
-          url?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "platform_incident_deployment_id_fkey"
-            columns: ["deployment_id"]
-            isOneToOne: false
-            referencedRelation: "platform_deployment"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       platform_role_permissions: {
         Row: {
           id: string
@@ -1860,6 +1696,56 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "profile"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      pr_session_comment: {
+        Row: {
+          claimed_at: string | null
+          created_at: string
+          github_comment_id: number | null
+          id: string
+          last_body_hash: string
+          last_posted_at: string | null
+          needs_refresh: boolean
+          pr_number: number
+          repository: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          created_at?: string
+          github_comment_id?: number | null
+          id?: string
+          last_body_hash?: string
+          last_posted_at?: string | null
+          needs_refresh?: boolean
+          pr_number: number
+          repository: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          claimed_at?: string | null
+          created_at?: string
+          github_comment_id?: number | null
+          id?: string
+          last_body_hash?: string
+          last_posted_at?: string | null
+          needs_refresh?: boolean
+          pr_number?: number
+          repository?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pr_session_comment_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["tenant_id"]
           },
         ]
       }

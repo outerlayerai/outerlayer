@@ -1,14 +1,14 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-10T02:04:13.718Z",
+  "generatedAt": "2026-08-11T01:59:39.819Z",
   "sources": {
     "litellm": {
-      "fetchedAt": "2026-08-10T02:04:13.718Z",
+      "fetchedAt": "2026-08-11T01:59:39.819Z",
       "modelCount": 1508
     },
     "openrouter": {
-      "fetchedAt": "2026-08-10T02:04:13.718Z",
-      "modelCount": 184
+      "fetchedAt": "2026-08-11T01:59:39.819Z",
+      "modelCount": 183
     }
   },
   "models": {
@@ -2841,10 +2841,7 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      },
-      "supportedParameters": [
-        "max_tokens"
-      ]
+      }
     },
     "gpt-5.2-chat-2025-12-11": {
       "provider": "azure",
@@ -2897,7 +2894,7 @@
     },
     "gpt-5.3-chat": {
       "provider": "azure",
-      "displayName": "OpenAI: GPT-5.3 Chat",
+      "displayName": "Gpt 5.3 Chat",
       "mode": "chat",
       "source": "litellm",
       "pricing": {
@@ -2917,10 +2914,7 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      },
-      "supportedParameters": [
-        "max_tokens"
-      ]
+      }
     },
     "gpt-5.3-codex": {
       "provider": "openai",
@@ -30325,7 +30319,7 @@
         "top_p"
       ],
       "pricing": {
-        "inputCostPerToken": 9e-8,
+        "inputCostPerToken": 8e-8,
         "outputCostPerToken": 1.8e-7
       },
       "context": {

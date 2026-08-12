@@ -18,12 +18,6 @@ vi.mock("@outerlayer/locales", async () => {
   return realLocalesModule();
 });
 
-/** ClickHouse-format UTC timestamp `msAgo` before now — relative-time fixtures. */
-const chTimestamp = (msAgo: number) =>
-  new Date(Date.now() - msAgo).toISOString().slice(0, 19).replace("T", " ");
-const HOUR = 3_600_000;
-const DAY = 24 * HOUR;
-
 const RESPONSE: ContextTreeResponse = {
   gitConnection: { repository: "acme/app", branch: "main" },
   head: { commitSha: "abc", snapshotId: "s1", syncedAt: "2026-07-10T00:00:00Z" },
@@ -57,40 +51,33 @@ describe("ContextTree", () => {
     expect(screen.getAllByText(".outerlayer")).toHaveLength(2);
   });
 
-  it("renders the rows in tree order, with the skill directory collapsed to one selectable row", () => {
+  it("renders the rows in tree order, with the skill directory collapsed to one row", () => {
     renderTree();
-    // The selectable rows carry aria-selected: every file row, plus the collapsed
-    // `writing` skill dir (a selectable treeitem now — selecting it opens the skill
-    // pane). Plain dirs and scope headers are treeitems too but carry aria-expanded,
-    // so filtering on aria-selected isolates the selectable rows in tree order.
+    // Selectable rows carry aria-selected — FILE rows only. Directories (skill
+    // dirs included) are expand/collapse rows with aria-expanded, never
+    // selectable, so filtering on aria-selected isolates the file rows in tree
+    // order and proves the collapsed skill's SKILL.md is not rendered.
     const names = screen
       .getAllByRole("treeitem")
       .filter((el) => el.hasAttribute("aria-selected"))
       .map((el) => el.textContent?.replace(/shadows$/, "").trim());
-    // Root: commands/deploy.md, skills/orphan/references/note.md, the collapsed
-    // `writing` skill dir, then AGENTS.md; then apps/web: commands/deploy.md. The
-    // collapsed skill's SKILL.md is not rendered.
-    expect(names).toEqual(["deploy.md", "note.md", "writing", "AGENTS.md", "deploy.md"]);
+    expect(names).toEqual(["deploy.md", "note.md", "AGENTS.md", "deploy.md"]);
   });
 
-  it("expands a collapsed skill directory from its chevron, without selecting it", () => {
+  // AC-058-14
+  it("clicking a skill directory row expands and collapses it in place, never selecting it", async () => {
     const onSelect = vi.fn();
     renderTree({ onSelect });
     // The skill's own SKILL.md is hidden while its directory is collapsed…
     expect(screen.queryByText("SKILL.md")).toBeNull();
-    // …and the chevron (not the row) is the expand affordance.
-    fireEvent.click(screen.getByTestId("tree-dir-chevron-.outerlayer/skills/writing"));
-    expect(screen.getByText("SKILL.md")).toBeInTheDocument();
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  it("clicking a skill directory row selects its dir path without expanding it", () => {
-    const onSelect = vi.fn();
-    renderTree({ onSelect });
+    // …and the ROW is the toggle affordance: expand…
     fireEvent.click(screen.getByText("writing"));
-    expect(onSelect).toHaveBeenCalledWith(".outerlayer/skills/writing");
-    // Selection is the pane's business — the dir stays collapsed.
-    expect(screen.queryByText("SKILL.md")).toBeNull();
+    expect(screen.getByText("SKILL.md")).toBeInTheDocument();
+    // …and collapse again — with no selection at any point (the editor pane
+    // renders only files; a dir click must not change it).
+    fireEvent.click(screen.getByText("writing"));
+    await waitFor(() => expect(screen.queryByText("SKILL.md")).toBeNull());
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("shows the shadows chip exactly once", () => {
@@ -168,76 +155,16 @@ describe("ContextTree", () => {
     expect(screen.getByText(/·\s*2 servers/)).toBeInTheDocument();
   });
 
-  describe("MCP adoption overlay — last-used column", () => {
-    const MCP_RESPONSE = {
-      ...RESPONSE,
-      entries: [{ path: ".outerlayer/mcp.json", kind: "mcp" as const, scopePath: "", blobSha: "m1" }],
-      excludedCounts: [],
-      issues: [],
-      mcpServerCounts: [{ path: ".outerlayer/mcp.json", count: 2, servers: ["alpha", "beta"] }],
-    };
-    const usageMap = (
-      rows: Array<{ serverName: string; recentCalls: number; totalCalls: number; lastUsedAt: string }>,
-    ) => new Map(rows.map((r) => [r.serverName, { ...r, totalSessions: 3 }]));
-
-    it("shows NO time column when the usage overlay is not supplied (unknown ≠ never)", () => {
-      render(<ContextTree response={MCP_RESPONSE} selectedPath={null} onSelect={() => {}} />);
-      expect(screen.queryByTestId("tree-last-used")).toBeNull();
-      expect(screen.queryByTestId("tree-last-used-never")).toBeNull();
-    });
-
-    it("a partially-used file shows the most recent use as a muted time — never 'never'", () => {
-      // alpha used 3h ago; beta has no usage row. The row must not read as
-      // "never" (one server IS used) and must carry the freshest timestamp.
-      render(
-        <ContextTree
-          response={MCP_RESPONSE}
-          selectedPath={null}
-          onSelect={() => {}}
-          mcpUsage={usageMap([
-            { serverName: "alpha", recentCalls: 5, totalCalls: 9, lastUsedAt: chTimestamp(3 * HOUR) },
-          ])}
-        />,
-      );
-      expect(screen.getByTestId("tree-last-used")).toHaveTextContent("3h ago");
-      expect(screen.queryByTestId("tree-last-used-never")).toBeNull();
-    });
-
-    it("all servers unused → the red 'never' mark, and no relative time", () => {
-      render(
-        <ContextTree response={MCP_RESPONSE} selectedPath={null} onSelect={() => {}} mcpUsage={new Map()} />,
-      );
-      expect(screen.getByTestId("tree-last-used-never")).toHaveTextContent("never");
-      expect(screen.queryByTestId("tree-last-used")).toBeNull();
-    });
-
-    it("the row keeps only the name, server count, and time — no chips or call counts", () => {
-      render(
-        <ContextTree
-          response={MCP_RESPONSE}
-          selectedPath={null}
-          onSelect={() => {}}
-          mcpUsage={usageMap([
-            { serverName: "alpha", recentCalls: 5, totalCalls: 9, lastUsedAt: chTimestamp(45 * DAY) },
-            { serverName: "beta", recentCalls: 2, totalCalls: 2, lastUsedAt: chTimestamp(3 * HOUR) },
-          ])}
-        />,
-      );
-      const row = screen.getByText("mcp.json").closest('[role="treeitem"]');
-      expect(row).toHaveTextContent(/^mcp\.json· 2 servers3h ago$/);
-    });
-  });
-
   it("renders the muted excluded-files line for the skill's non-content files once expanded", () => {
     renderTree();
     // The note lives inside the collapsed skill dir — expand it to reveal it.
-    fireEvent.click(screen.getByTestId("tree-dir-chevron-.outerlayer/skills/writing"));
+    fireEvent.click(screen.getByText("writing"));
     expect(screen.getByText(/3 other files in git/)).toBeInTheDocument();
   });
 
   it("uses the singular excluded-files line for a count of one", () => {
     renderTree({ response: { ...RESPONSE, excludedCounts: [{ scopePath: "", skillName: "writing", count: 1 }] } });
-    fireEvent.click(screen.getByTestId("tree-dir-chevron-.outerlayer/skills/writing"));
+    fireEvent.click(screen.getByText("writing"));
     expect(screen.getByText(/1 other file in git/)).toBeInTheDocument();
   });
 
@@ -275,11 +202,11 @@ describe("ContextTree", () => {
     expect(screen.getByText("SKILL.md")).toBeInTheDocument();
   });
 
-  it("a manual chevron click while filtered collapses the dir back — the filter's force-open doesn't win", async () => {
+  it("a manual row click while filtered collapses the dir back — the filter's force-open doesn't win", async () => {
     renderTree({ query: "skill.md" });
     expect(screen.getByText("SKILL.md")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("tree-dir-chevron-.outerlayer/skills/writing"));
+    fireEvent.click(screen.getByText("writing"));
 
     // The click must actually collapse it, not silently no-op under the filter
     // (the Collapse unmounts the child after its exit transition).
@@ -288,7 +215,7 @@ describe("ContextTree", () => {
 
   it("a manual collapse-then-reopen toggle still works while the same filter stays active", async () => {
     renderTree({ query: "skill.md" });
-    const chevron = screen.getByTestId("tree-dir-chevron-.outerlayer/skills/writing");
+    const chevron = screen.getByText("writing");
 
     fireEvent.click(chevron);
     await waitFor(() => expect(screen.queryByText("SKILL.md")).toBeNull());
@@ -300,7 +227,7 @@ describe("ContextTree", () => {
     const { rerender } = render(
       <ContextTree response={RESPONSE} selectedPath={null} onSelect={() => {}} query="skill.md" />,
     );
-    fireEvent.click(screen.getByTestId("tree-dir-chevron-.outerlayer/skills/writing"));
+    fireEvent.click(screen.getByText("writing"));
     await waitFor(() => expect(screen.queryByText("SKILL.md")).toBeNull());
 
     // Clear the filter, then start a new one that matches the same file.
@@ -694,89 +621,6 @@ describe("ContextTree — discard from the tree's change dots", () => {
   });
 });
 
-describe("ContextTree — skill adoption last-used column", () => {
-  afterEach(cleanup);
-
-  const withAdoption = (lastActivatedAt: string | null) =>
-    new Map([[
-      "writing",
-      { skillName: "writing", recentActivations: 12, totalActivations: 40, totalSessions: 6, lastActivatedAt },
-    ]]);
-
-  it("renders a recent activation as a muted relative time — no chips, no counts", () => {
-    render(
-      <ContextTree
-        response={RESPONSE}
-        selectedPath={null}
-        onSelect={() => {}}
-        skillActivations={withAdoption(chTimestamp(2 * HOUR))}
-      />,
-    );
-    expect(screen.getByTestId("tree-last-used")).toHaveTextContent("2h ago");
-    // The whole row is just the name and the time — the chip/count vocabulary
-    // ("8×", "quiet", "never used") is gone from the tree.
-    const row = screen.getByText("writing").closest('[role="treeitem"]');
-    expect(row).toHaveTextContent(/^writing2h ago$/);
-  });
-
-  it("buckets an old activation into days ('45d ago' reads as going stale)", () => {
-    render(
-      <ContextTree
-        response={RESPONSE}
-        selectedPath={null}
-        onSelect={() => {}}
-        skillActivations={withAdoption(chTimestamp(45 * DAY))}
-      />,
-    );
-    expect(screen.getByTestId("tree-last-used")).toHaveTextContent("45d ago");
-  });
-
-  it("marks an installed-but-unactivated skill with the red 'never' (map present, skill absent)", () => {
-    render(<ContextTree response={RESPONSE} selectedPath={null} onSelect={() => {}} skillActivations={new Map()} />);
-    expect(screen.getByTestId("tree-last-used-never")).toHaveTextContent("never");
-    expect(screen.queryByTestId("tree-last-used")).toBeNull();
-  });
-
-  it("suppresses the 'never used' mark while the skill is a brand-new unpublished draft", () => {
-    const drafts = new Map<string, "edit" | "create">([
-      [".outerlayer/skills/writing/SKILL.md", "create"],
-    ]);
-    render(
-      <ContextTree
-        response={RESPONSE}
-        selectedPath={null}
-        onSelect={() => {}}
-        skillActivations={new Map()}
-        draftChangeTypes={drafts}
-      />,
-    );
-    // No usage history is expected for something not yet published — the mark is noise.
-    expect(screen.queryByTestId("tree-last-used-never")).toBeNull();
-  });
-
-  it("shows NO time column when no activation data is supplied (unknown ≠ never)", () => {
-    render(<ContextTree response={RESPONSE} selectedPath={null} onSelect={() => {}} />);
-    expect(screen.queryByTestId("tree-last-used")).toBeNull();
-    expect(screen.queryByTestId("tree-last-used-never")).toBeNull();
-  });
-
-  it("a draft dot and the time coexist on one row — usage never reuses the dot form", () => {
-    const drafts = new Map<string, "edit" | "create">([[".outerlayer/skills/writing/SKILL.md", "edit"]]);
-    render(
-      <ContextTree
-        response={RESPONSE}
-        selectedPath={null}
-        onSelect={() => {}}
-        draftChangeTypes={drafts}
-        skillActivations={withAdoption(chTimestamp(2 * HOUR))}
-      />,
-    );
-    // The bubbled amber draft dot and the muted time both render; the time is
-    // text, not another dot.
-    expect(screen.getByLabelText("Contains unsaved changes")).toBeInTheDocument();
-    expect(screen.getByTestId("tree-last-used")).toHaveTextContent("2h ago");
-  });
-});
 
 describe("buildOuterlayerNode — the root .outerlayer row's node shape", () => {
   it("wraps the given nodes as the .outerlayer dir's children, without cloning the array", () => {

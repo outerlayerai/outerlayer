@@ -49,7 +49,10 @@ const ROUTE_FILE = /^route\.(?:[jt]sx?|[mc][jt]s)$/;
  * middleware treats as strip-only: adding a session-tenant route here would let
  * it read a claim tenant off-URL, which is exactly what this gate forbids.
  */
-const STAY_PUT_EXACT = new Set(['health', 'analytics', 'analytics/health']);
+// `health/config` reports the deployment's own configuration — no tenant is
+// involved in the question or the answer, and it authenticates with CRON_SECRET
+// rather than a session.
+const STAY_PUT_EXACT = new Set(['health', 'health/config', 'analytics', 'analytics/health']);
 const STAY_PUT_PREFIXES = [
   'orgs/', // born-canonical — allowed by construction, not "legacy"
   'webhooks/',

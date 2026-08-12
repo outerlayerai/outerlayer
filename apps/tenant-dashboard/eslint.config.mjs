@@ -548,6 +548,13 @@ const eslintConfig = defineConfig([
             // type re-exports are the public contract for callers outside
             // this package and have none yet.
             "src/lib/system/context-sync/index.ts",
+            // refreshPrSessionComment + its params type are the only exports
+            // every trigger path actually imports through this barrel; the
+            // read-layer/renderer/GitHub-client re-exports are the module's
+            // public contract for future callers outside this package and
+            // have none yet — current consumers (this package's own tests)
+            // import those directly from the sibling files.
+            "src/lib/system/pr-session-comment/index.ts",
             // Context save-path backend — the save/create adapter input types
             // land ahead of their UI consumer, a later task.
             "src/features/context/action-adapters.ts",
@@ -570,7 +577,6 @@ const eslintConfig = defineConfig([
             "src/lib/api/generated/**",
             "vitest.config.ts",
             "vitest.integration.config.ts",
-            "vitest.e2e-local.config.ts",
             "stryker.config.mjs",
             "stryker.config.money-auth.mjs",
             "stryker.config.patch.mjs"

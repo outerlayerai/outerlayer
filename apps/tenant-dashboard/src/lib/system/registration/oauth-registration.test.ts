@@ -43,10 +43,6 @@ vi.mock('../../adapters/server-error-log', () => ({
   logServerError: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../validation', () => ({
-  validateBusinessEmail: vi.fn().mockReturnValue({ isValid: true }),
-}));
-
 vi.mock('../../../utils/scrub-email', () => ({
   scrubEmail: vi.fn((email: string) => email),
 }));

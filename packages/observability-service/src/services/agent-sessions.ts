@@ -77,6 +77,23 @@ export interface AgentSessionsPorts {
   images: ImageRefSigner;
 }
 
+/**
+ * A pre-resolved trace-id constraint for AgentSessionsService.listSessions,
+ * applied as a parameterized TraceId IN (...) filter. This package has no
+ * Postgres dependency, so it can't resolve query.pr (a PR/MR number) into
+ * trace ids itself — a host that supports pr filtering resolves it via its
+ * own pull_request_session read BEFORE calling in, then passes the result
+ * here. traceIds: undefined means no constraint; an empty array means the
+ * constraint is active but resolved to nothing, which must produce zero
+ * rows, not "no filter" — the same "active but empty differs from absent"
+ * rule a topic drill-down's topicId/topicFacet pair follows. When set (even
+ * to an empty array), the list spans repos rather than pinning to the app's
+ * dominant repo, mirroring how a topic drill-down scopes.
+ */
+export interface ListSessionsConstraints {
+  traceIds?: readonly string[];
+}
+
 export interface AgentSessionsScope {
   tenantId: string;
   appId: string;
@@ -445,10 +462,16 @@ export class AgentSessionsService {
     query: ListSessionsQuery,
     policy: SessionAccessPolicy,
     ports: AgentSessionsPorts,
+    constraints: ListSessionsConstraints = {},
   ): Promise<SessionsPage> {
     const { tenantId, appId } = scope;
     const { limit, offset, branch, agentType, model, workerKind, q, from, to, sort, dir, includeSubagents, origin, signal, topicId, topicFacet } = query;
     const topicActive = Boolean(topicId && topicFacet);
+    // A caller-resolved trace-id constraint (today: the dashboard's pr
+    // drill-down) spans repos the same way a topic drill-down does — see
+    // {@link ListSessionsConstraints}.
+    const traceIdsConstrained = constraints.traceIds !== undefined;
+    const repoPinned = !topicActive && !traceIdsConstrained;
 
     const pinnedActor = pinnedActorFor(policy);
     if (mustMaskActors(policy) && query.actor) {
@@ -460,7 +483,7 @@ export class AgentSessionsService {
     const actor = pinnedActor ?? query.actor;
 
     const repoPin = pinnedActor !== null ? ' AND ActorId={actor:String}' : '';
-    const repo = topicActive
+    const repo = !repoPinned
       ? ''
       : query.repo ??
         (
@@ -475,7 +498,7 @@ export class AgentSessionsService {
         '';
 
     const filters = ['TenantId={tenantId:String}', 'AppId={appId:String}'];
-    if (!topicActive) filters.push('GitRepo={repo:String}');
+    if (repoPinned) filters.push('GitRepo={repo:String}');
     if (!includeSubagents) filters.push("ParentSessionId = ''");
     if (topicActive) {
       const assignedTraces = `
@@ -510,6 +533,12 @@ export class AgentSessionsService {
     if (q) filters.push('positionCaseInsensitive(Title, {q:String}) > 0');
     if (from) filters.push('StartedAt >= parseDateTimeBestEffort({from:String})');
     if (to) filters.push('StartedAt <= parseDateTimeBestEffort({to:String})');
+    // Empty (not absent) constraints.traceIds means the constraint is active
+    // but resolved to nothing — TraceId IN () is invalid ClickHouse syntax,
+    // so an always-false predicate stands in for "filter to nothing" instead.
+    if (traceIdsConstrained) {
+      filters.push(constraints.traceIds!.length > 0 ? 'TraceId IN {traceIdsConstraint:Array(String)}' : '1=0');
+    }
     const baseWhere = filters.join(' AND ');
     const originLiterals = origin
       ? [...new Set(origin.split(','))]
@@ -538,6 +567,9 @@ export class AgentSessionsService {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
       ...(topicActive ? { topicId, topicFacet } : {}),
+      ...(traceIdsConstrained && constraints.traceIds!.length > 0
+        ? { traceIdsConstraint: constraints.traceIds }
+        : {}),
     };
 
     const listPromise = queryRows<Record<string, unknown>>(

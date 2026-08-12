@@ -13,7 +13,13 @@
  * every role) must never widen a bearer caller past their own sessions.
  */
 
-import { mapClickHouseError, toErrorResponse, getErrorStatusCode, ServiceUnavailableError } from '@repo/observability-service';
+import {
+  mapClickHouseError,
+  toErrorResponse,
+  getErrorStatusCode,
+  ServiceUnavailableError,
+  ValidationError,
+} from '@repo/observability-service';
 import type { ActorNameResolver, ImageRefSigner, SessionAccessPolicy } from '@repo/observability-service';
 import {
   ListSessionsQuerySchema,
@@ -164,6 +170,26 @@ export async function buildPorts(c: AppContext, policy: SessionAccessPolicy) {
   };
 }
 
+/**
+ * `pr` filtering resolves a PR/MR number to confirmed-linked trace ids via a
+ * Postgres `pull_request_session` read (see `ListSessionsConstraints` in
+ * `@repo/observability-service`, and the dashboard's own resolution in
+ * `agent-sessions/service.ts`) — no host on this surface has that reader
+ * wired for list reads. Rejected explicitly here, the same way an
+ * unauthorized `actor` filter is rejected, rather than silently ignoring
+ * the caller's filter and returning an unfiltered page (which would look
+ * like "every session matched" instead of "this filter isn't supported").
+ * Shared by the REST route and the `list_sessions` MCP tool.
+ */
+export function rejectPrFilter(query: { pr?: number }): void {
+  if (query.pr !== undefined) {
+    throw new ValidationError(
+      'This surface cannot filter sessions by pr — pr filtering is dashboard-only for now.',
+      'pr',
+    );
+  }
+}
+
 export class ListSessions extends BaseRoute {
   static requiredPermission: GatewayPermission = 'session.read';
   static rateLimit = RATE_LIMITS.observabilityRead;
@@ -173,7 +199,8 @@ export class ListSessions extends BaseRoute {
     operationId: 'list-sessions',
     description:
       'Returns a filtered, paginated list of agent-coding sessions for one repo. Without `agents.sessions.team.read`, actor identities are anonymized and `actor` filters are rejected. ' +
-      "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass `repo` to target another repo.",
+      "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass `repo` to target another repo. " +
+      '`pr` is dashboard-only for now — this surface has no Postgres reader wired to resolve a PR/MR number to its confirmed-linked sessions, so a `pr` value is rejected rather than silently ignored.',
     request: {
       query: ListSessionsQuerySchema,
     },
@@ -193,6 +220,7 @@ export class ListSessions extends BaseRoute {
     const user = c.get('user');
 
     try {
+      rejectPrFilter(query);
       const service = getGatewaySessionsService(c.env, { tenantId: user.tenantId, appId: user.appId });
       if (!service) throw new ServiceUnavailableError('ClickHouse host not configured');
 

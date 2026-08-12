@@ -5842,7 +5842,7 @@ paths:
         - "Scoring"
   /v1/sessions:
     get:
-      description: "Returns a filtered, paginated list of agent-coding sessions for one repo. Without `agents.sessions.team.read`, actor identities are anonymized and `actor` filters are rejected. When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass `repo` to target another repo."
+      description: "Returns a filtered, paginated list of agent-coding sessions for one repo. Without `agents.sessions.team.read`, actor identities are anonymized and `actor` filters are rejected. When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass `repo` to target another repo. `pr` is dashboard-only for now — this surface has no Postgres reader wired to resolve a PR/MR number to its confirmed-linked sessions, so a `pr` value is rejected rather than silently ignored."
       operationId: "list-sessions"
       parameters:
         - in: "query"
@@ -5969,6 +5969,13 @@ paths:
               - "issues"
               - "steering"
             type: "string"
+        - in: "query"
+          name: "pr"
+          required: false
+          schema:
+            exclusiveMinimum: true
+            minimum: 0
+            type: "integer"
       responses:
         "200":
           content:

@@ -4,15 +4,14 @@
  *
  * Surface enumerated from `features/context/read-actions.ts` and
  * `features/context/service.ts` (the `context.read`-gated actions and the
- * `ContextReadService` / adoption functions they wrap):
+ * `ContextReadService` / usage functions they wrap):
  *   - ContextReadService.getTree   → getContextTree
  *   - ContextReadService.getFile   → getContextFile
- *   - getSkillAdoption             → getContextSkillAdoption
+ *   - getOverview                  → getContextOverview
  *   - getSkillDrilldown            → getContextSkillDrilldown
- *   - getMcpAdoption               → getContextMcpAdoption
  *   - getMcpDrilldown              → getContextMcpDrilldown
  *
- * This suite drives `ContextReadService` and the adoption functions directly
+ * This suite drives `ContextReadService` and the usage functions directly
  * (the same "exported service method" the read actions call after their
  * `authorizedAction` permission check), against a real authenticated,
  * tenant-scoped Supabase client — so `context_snapshot` / `context_blob` /
@@ -45,9 +44,8 @@ import {
 } from '../custom-roles/helpers';
 import { ContextReadService } from 'tenant-dashboard/src/features/context/service';
 import {
-  getSkillAdoption,
+  getOverview,
   getSkillDrilldown,
-  getMcpAdoption,
   getMcpDrilldown,
 } from 'tenant-dashboard/src/features/context/service';
 import { NotFoundError } from '@repo/observability-service';
@@ -375,26 +373,33 @@ describe('context read surface — ContextReadService + adoption overlays under 
     });
   });
 
-  describe('skill/MCP adoption overlays — degrade to empty when no analytics backend is configured', () => {
+  describe('overview + drill-downs — degrade honestly when no analytics backend is configured', () => {
     // The integration harness runs with CLICKHOUSE_HOST unset (src/test-setup.ts),
-    // so createTenantReadClient() returns null and every overlay function takes
-    // its documented empty-fallback path. That fallback IS the behavior
-    // under test — a real ClickHouse-backed adoption read (skills/servers
-    // populated from usage rollups) is UNCOVERABLE here: this harness has no
-    // ClickHouse fixture for this suite.
-    it('getSkillAdoption returns an empty overlay with the window bounds, not an error', async () => {
-      const result = await getSkillAdoption({ tenantId: owner.tenantId, appId: connectedAppId });
-      expect(result).toEqual({ skills: [], recentDays: 14, lookbackDays: 90 });
+    // so createTenantReadClient() returns null and every usage read takes its
+    // documented degraded path. That path IS the behavior under test here; the
+    // real ClickHouse-backed join runs in context-overview.acceptance.test.ts
+    // under the `clickhouse` project.
+    // AC-058-12 (data half: real RLS inventory survives a dead analytics backend)
+    it('getOverview degrades to inventory-only rows — real tree under RLS, usage unknown, never zeros-as-data', async () => {
+      const result = await getOverview(
+        owner.client as never,
+        { tenantId: owner.tenantId, appId: connectedAppId },
+        '30d',
+      );
+      expect(result.degraded).toBe(true);
+      expect(result.coverage).toBeNull();
+      expect(result.topics).toEqual([]);
+      // The mirrored inventory still produces the rows (the page never blanks):
+      // the mcp.json's servers appear with zero usage and no last-used claim.
+      expect(result.mcpServers.map((row) => [row.serverName, row.inRepo, row.lastUsedAt])).toEqual([
+        ['github', true, null],
+        ['linear', true, null],
+      ]);
     });
 
     it('getSkillDrilldown returns empty trend/sessions/topics with the lookback bound', async () => {
       const result = await getSkillDrilldown({ tenantId: owner.tenantId, appId: connectedAppId, skill: 'deploy' });
       expect(result).toEqual({ trend: [], sessions: [], topics: [], lookbackDays: 90 });
-    });
-
-    it('getMcpAdoption returns an empty overlay with the window bounds, not an error', async () => {
-      const result = await getMcpAdoption({ tenantId: owner.tenantId, appId: connectedAppId });
-      expect(result).toEqual({ servers: [], recentDays: 14, lookbackDays: 90 });
     });
 
     it('getMcpDrilldown returns empty tools/trend/sessions with both window bounds', async () => {

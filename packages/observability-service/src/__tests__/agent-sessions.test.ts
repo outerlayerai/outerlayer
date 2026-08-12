@@ -836,6 +836,66 @@ describe('AgentSessionsService.listSessions', () => {
     expect(listQuery.query).not.toContain("Origin != 'agent'");
   });
 
+  test('a traceIds constraint filters to exactly those trace ids, parameterized, and spans repos like a topic drill-down', async () => {
+    const { client, calls } = fakeClient({
+      byNeedle: [
+        { needle: 'TraceId AS traceId', rows: [] },
+        { needle: 'SELECT count() AS total', rows: [{ total: '0' }] },
+        { needle: 'countIf(Origin', rows: [{ interactive: '0', agent: '0', worker: '0' }] },
+      ],
+    });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    await service.listSessions(SCOPE, BASE_QUERY, policy, noopPorts(), { traceIds: ['t1', 't2'] });
+
+    // No dominant-repo resolution — the constraint spans repos.
+    expect(calls.some((c) => c.query.includes('GROUP BY GitRepo'))).toBe(false);
+
+    const listQuery = calls.find((c) => c.query.includes('TraceId AS traceId'))!;
+    expect(listQuery.query).toContain('TraceId IN {traceIdsConstraint:Array(String)}');
+    expect(listQuery.query).not.toContain('GitRepo={repo:String}');
+    expect(listQuery.query_params?.['traceIdsConstraint']).toEqual(['t1', 't2']);
+    assertEveryTenantTableQueryIsScoped(calls, SCOPE.tenantId);
+  });
+
+  test('an empty (but resolved) traceIds constraint resolves to zero rows, not "no filter"', async () => {
+    const { client, calls } = fakeClient({
+      byNeedle: [
+        { needle: 'TraceId AS traceId', rows: [] },
+        { needle: 'SELECT count() AS total', rows: [{ total: '0' }] },
+        { needle: 'countIf(Origin', rows: [{ interactive: '0', agent: '0', worker: '0' }] },
+      ],
+    });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    await service.listSessions(SCOPE, BASE_QUERY, policy, noopPorts(), { traceIds: [] });
+
+    const listQuery = calls.find((c) => c.query.includes('TraceId AS traceId'))!;
+    expect(listQuery.query).toContain('1=0');
+    expect(listQuery.query).not.toContain('TraceId IN {traceIdsConstraint:Array(String)}');
+    expect(listQuery.query_params?.['traceIdsConstraint']).toBeUndefined();
+  });
+
+  test('an absent traceIds constraint (the default) filters to nothing extra and resolves the dominant repo as usual', async () => {
+    const { client, calls } = fakeClient({
+      byNeedle: [
+        { needle: 'GROUP BY GitRepo', rows: [{ repo: 'acme/app' }] },
+        { needle: 'TraceId AS traceId', rows: [] },
+        { needle: 'SELECT count() AS total', rows: [{ total: '0' }] },
+        { needle: 'countIf(Origin', rows: [{ interactive: '0', agent: '0', worker: '0' }] },
+      ],
+    });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    // No 5th argument at all — the default `{}` must behave like "no constraint".
+    await service.listSessions(SCOPE, BASE_QUERY, policy, noopPorts());
+
+    expect(calls.some((c) => c.query.includes('GROUP BY GitRepo'))).toBe(true);
+    const listQuery = calls.find((c) => c.query.includes('TraceId AS traceId'))!;
+    expect(listQuery.query).not.toContain('TraceId IN {traceIdsConstraint:Array(String)}');
+    expect(listQuery.query).not.toContain('1=0');
+  });
+
   test('every optional filter composes into the WHERE clause with its param bound', async () => {
     const { client, calls } = fakeClient({
       byNeedle: [

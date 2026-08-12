@@ -66,6 +66,15 @@ export const ListSessionsQuerySchema = z.object({
    * in trace_facets) for the given facet. Set together; spans repos. */
   topicId: z.string().optional(),
   topicFacet: z.enum(['task', 'issues', 'steering']).optional(),
+  /** PR filter: show only sessions CONFIRMED-linked (via
+   * `pull_request_session`) to this provider PR/MR number. The header link
+   * in a rendered PR session comment (`…/sessions?pr=<n>`) is the primary
+   * producer of this param. Composes with every other filter; spans repos,
+   * the same as the topic drill-down above. Dashboard-only today — resolving
+   * it needs a Postgres `pull_request_session` read no gateway/MCP host has
+   * wired for list reads, so those surfaces reject a `pr` value rather than
+   * silently ignoring it. */
+  pr: z.coerce.number().int().positive().optional(),
 }).refine((v) => (v.topicId === undefined) === (v.topicFacet === undefined), {
   message: 'topicId and topicFacet must be set together',
   path: ['topicFacet'],

@@ -13,7 +13,7 @@
   },
   "packages/gateway-core": {
     "statements": 87,
-    "branches": 80.2,
+    "branches": 81.2,
     "functions": 83.1,
     "lines": 87.3
   },
