@@ -130,11 +130,22 @@ describe('parseSessionsUrlParams', () => {
     expect(query.to).toBe('2026-01-01T00:00:00Z');
   });
 
-  it('drops an invalid topicFacet token instead of passing it through', () => {
+  it('drops BOTH topicId and topicFacet when the facet token is invalid — an invalid facet invalidates the whole topic filter', () => {
     const query = parseSessionsUrlParams({ topicId: 't1', topicFacet: 'not-a-facet' }, false);
     expect(query.topicFacet).toBeUndefined();
-    // topicId itself is a free string — it still survives the salvage.
+    expect(query.topicId).toBeUndefined();
+  });
+
+  it('drops topicFacet too when topicId is missing — a facet with no matching topic id is not a valid filter', () => {
+    const query = parseSessionsUrlParams({ topicFacet: 'task' }, false);
+    expect(query.topicId).toBeUndefined();
+    expect(query.topicFacet).toBeUndefined();
+  });
+
+  it('keeps the pair when both topicId and topicFacet are valid', () => {
+    const query = parseSessionsUrlParams({ topicId: 't1', topicFacet: 'task' }, false);
     expect(query.topicId).toBe('t1');
+    expect(query.topicFacet).toBe('task');
   });
 
   it('passes includeSubagents=1 through, and drops any other value', () => {

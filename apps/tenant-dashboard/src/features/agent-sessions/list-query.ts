@@ -38,6 +38,30 @@ function salvageParse<Shape extends z.ZodRawShape>(
 }
 
 /**
+ * topicId/topicFacet are a matched pair — `ListSessionsQuerySchema` refines
+ * that one is set iff the other is. Per-field salvage (above) has no
+ * concept of a pair: it would keep whichever half survives and drop the
+ * other, then hand `schema.parse` a lone half that fails the refine. This
+ * resolves the pair BEFORE that per-field loop, using the same field
+ * schemas the loop would use — either both raw values individually
+ * validate and both survive, or neither is forwarded, so an invalid OR a
+ * missing half drops the whole topic filter rather than throwing.
+ */
+function salvageTopicPair(
+  rawTopicId: string | undefined,
+  rawTopicFacet: string | undefined,
+): { topicId?: string; topicFacet?: string } {
+  const topicIdResult =
+    rawTopicId === undefined ? undefined : ListSessionsQuerySchema.shape.topicId.safeParse(rawTopicId);
+  const topicFacetResult =
+    rawTopicFacet === undefined ? undefined : ListSessionsQuerySchema.shape.topicFacet.safeParse(rawTopicFacet);
+  if (topicIdResult?.success && topicFacetResult?.success) {
+    return { topicId: topicIdResult.data, topicFacet: topicFacetResult.data };
+  }
+  return {};
+}
+
+/**
  * The list's URL vocabulary → the service's `ListSessionsQuery` shape. The
  * URL uses short, human filter-bar keys (`agent`/`developer`/`source`, a
  * 0-based `page`) the service schema does not share (`agentType`/`actor`/
@@ -91,7 +115,6 @@ export function parseSessionsUrlParams(
     signal: flat.signal,
     includeSubagents: flat.includeSubagents,
     origin: rawOrigin || undefined,
-    topicId: flat.topicId,
-    topicFacet: flat.topicFacet,
+    ...salvageTopicPair(flat.topicId, flat.topicFacet),
   });
 }
