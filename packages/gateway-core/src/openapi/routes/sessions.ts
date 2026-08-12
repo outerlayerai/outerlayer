@@ -172,7 +172,8 @@ export class ListSessions extends BaseRoute {
     summary: 'List agent sessions',
     operationId: 'list-sessions',
     description:
-      'Returns a filtered, paginated list of agent-coding sessions for one repo. Without `agents.sessions.team.read`, actor identities are anonymized and `actor` filters are rejected.',
+      'Returns a filtered, paginated list of agent-coding sessions for one repo. Without `agents.sessions.team.read`, actor identities are anonymized and `actor` filters are rejected. ' +
+      "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass `repo` to target another repo.",
     request: {
       query: ListSessionsQuerySchema,
     },
