@@ -2,15 +2,15 @@
  * HTTP-level coverage for `POST /v1/mcp` against the real (hosted) gateway —
  * the wrangler-dev boundary `client.ts`'s `gatewayFetch` drives, as opposed to
  * `self-host/mcp.test.ts`'s direct `dispatchRequest` call. Covers: session
- * bootstrap (`initialize`), the full tool catalog (`tools/list`), a
+ * bootstrap (`initialize`), the full ten-tool catalog (`tools/list`), a
  * `tools/call` per tool with its `structuredContent` validated against the
  * same `@repo/api-schemas` output schema `openapi/mcp/tools.ts` declares, the
  * permission/entitlement JSON-RPC app-error codes the dispatcher raises
  * (`-32001`/`-32002` — see `openapi/mcp/dispatcher.ts`), a tool executor
  * domain error surfacing as an `isError` result (not a transport fault), and
- * REST/MCP parity for `list_topics` (the HTTP-level analogue of
- * `list-topics-parity.test.ts`, which proves the same invariant at the unit
- * layer).
+ * REST/MCP parity for `list_topics` and `get_breakdown` (the HTTP-level
+ * analogue of `list-topics-parity.test.ts`, which proves the same invariant
+ * at the unit layer).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -23,6 +23,9 @@ import {
   FleetOverviewResponseSchema,
   ContextChangesResponseSchema,
   CompareWindowsResponseSchema,
+  MetricsBreakdownResponseSchema,
+  MetricsTrendsResponseSchema,
+  PrOutcomesResponseSchema,
 } from '@repo/api-schemas';
 import { getPermissionsForRole } from 'tenant-dashboard/src/lib/gateway-permissions';
 import { executeClickHouse } from '../../../clickhouse/setup-clickhouse';
@@ -44,6 +47,15 @@ const MODEL_NAME = `mcp-http-model-${RUN_ID}`;
 const MODEL_COSTS_LIMIT = 40 + (parseInt(RUN_ID.slice(0, 2), 16) % 40);
 const TOPIC_ID = `mcp-http-topic-${RUN_ID}`;
 const ACTOR_ID = `actor-mcp-${RUN_ID}`;
+const BREAKDOWN_BRANCH_KEY = `mcp-breakdown-branch-${RUN_ID}`;
+const BREAKDOWN_TOOL_KEY = `mcp-${RUN_ID}`;
+const RUN_NUM = parseInt(RUN_ID.slice(0, 6), 16) % 900_000;
+const PR_NUMBER = RUN_NUM + 3;
+const PR_BRANCH = `mcp-pr-${RUN_ID}`;
+const TRACE_BREAKDOWN = `mcp-breakdown-trace-${RUN_ID}`;
+const TRACE_TOOL = `mcp-tool-trace-${RUN_ID}`;
+const SPAN_TOOL = `mcp-tool-span-${RUN_ID}`;
+const TRACE_PR = `mcp-pr-trace-${RUN_ID}`;
 
 interface JsonRpcResponse<T = unknown> {
   jsonrpc: '2.0';
@@ -181,6 +193,51 @@ describe('POST /v1/mcp (hosted gateway)', () => {
       VALUES ('${tenantId}', '${appId}', '${envName}', 'mcp-http-facet-${RUN_ID}', 'issues', 0, 1, 'mcp fixture summary', 'ok', '${TOPIC_ID}', 1)
     `);
 
+    // get_breakdown fixture: a RUN_ID-unique branch isolates the item this
+    // tool call ranks, the same way sessions.test.ts pins repo='org/repo' to
+    // stay on the shared tenant's dominant repo.
+    await executeClickHouse(`
+      INSERT INTO agent_session_summary (
+        TenantId, AppId, TraceId, SessionId, Title, AgentType, ActorId,
+        GitRepo, GitBranch, CommitSha, CaptureTier,
+        StartedAt, EndedAt, TurnCount, ToolCallCount, ErrorCount, CostUsd, Models,
+        InsertedAt, Origin
+      ) VALUES (
+        '${tenantId}','${appId}','${TRACE_BREAKDOWN}','mcp-breakdown-session-${RUN_ID}','mcp breakdown fixture','claude-code','${ACTOR_ID}',
+        'org/repo','${BREAKDOWN_BRANCH_KEY}','','full',
+        now64(3) - INTERVAL 1 HOUR, now64(3), 3, 5, 1, 6.0, ['${MODEL_NAME}'],
+        now(), 'cli'
+      )
+    `);
+    // get_breakdown dimension=tool fixture — tenant+app scoped, not repo-scoped.
+    await executeClickHouse(`
+      INSERT INTO otel_traces (
+        Timestamp, TraceId, SpanId, ParentSpanId, SpanName,
+        StatusCode, Type, Duration, InputTokens, OutputTokens, TotalTokens, Cost,
+        TenantId, AppId, SessionId, UserId, TraceName,
+        EndTime, Input, Output, UpdatedAt, IsDeleted
+      ) VALUES (
+        now64(3) - INTERVAL 1 HOUR, '${TRACE_TOOL}', '${SPAN_TOOL}', '', 'agent.tool.${BREAKDOWN_TOOL_KEY}',
+        '1', 'SPAN', 100, 0, 0, 0, 0,
+        '${tenantId}', '${appId}', '${SESSION_ID}', '${ACTOR_ID}', 'mcp breakdown tool fixture',
+        now64(3), 'call', 'result', now64(3), 0
+      )
+    `);
+    // get_pr_outcomes fixture — UserTurnCount > 1 makes this PR "steered".
+    await executeClickHouse(`
+      INSERT INTO agent_session_summary (
+        TenantId, AppId, TraceId, SessionId, Title, AgentType, ActorId,
+        GitRepo, GitBranch, PrNumber, UserTurnCount, CommitSha, CaptureTier,
+        StartedAt, EndedAt, TurnCount, ToolCallCount, ErrorCount, CostUsd, Models,
+        InsertedAt, Origin
+      ) VALUES (
+        '${tenantId}','${appId}','${TRACE_PR}','mcp-pr-session-${RUN_ID}','mcp pr outcomes fixture','claude-code','${ACTOR_ID}',
+        'org/repo','${PR_BRANCH}',${PR_NUMBER},2,'','full',
+        now64(3) - INTERVAL 1 HOUR, now64(3), 4, 2, 0, 2.75, ['${MODEL_NAME}'],
+        now(), 'cli'
+      )
+    `);
+
     const admin = getSupabaseAdmin();
     const { data: snapshotRow, error: snapshotError } = await admin
       .from('context_snapshot')
@@ -214,11 +271,19 @@ describe('POST /v1/mcp (hosted gateway)', () => {
       `SELECT count() AS n FROM trace_facets WHERE TenantId = '${tenantId}' AND TopicId = '${TOPIC_ID}' FORMAT JSONEachRow`,
       (rows) => rows.length > 0 && Number(rows[0].n) >= 1,
     );
+    await flushAndWaitForClickHouse(
+      `SELECT count() AS n FROM agent_session_summary WHERE TraceId IN ('${TRACE_BREAKDOWN}', '${TRACE_PR}') FORMAT JSONEachRow`,
+      (rows) => rows.length > 0 && Number(rows[0].n) >= 2,
+    );
+    await flushAndWaitForClickHouse(
+      `SELECT count() AS n FROM otel_traces WHERE TraceId = '${TRACE_TOOL}' FORMAT JSONEachRow`,
+      (rows) => rows.length > 0 && Number(rows[0].n) >= 1,
+    );
   }, 60_000);
 
   afterAll(async () => {
-    await executeClickHouse(`ALTER TABLE agent_session_summary DELETE WHERE TraceId = '${TRACE_ID}'`);
-    await executeClickHouse(`ALTER TABLE otel_traces DELETE WHERE TraceId = '${TRACE_ID}'`);
+    await executeClickHouse(`ALTER TABLE agent_session_summary DELETE WHERE TraceId IN ('${TRACE_ID}', '${TRACE_BREAKDOWN}', '${TRACE_PR}')`);
+    await executeClickHouse(`ALTER TABLE otel_traces DELETE WHERE TraceId IN ('${TRACE_ID}', '${TRACE_TOOL}')`);
     for (const table of ['trace_topic_maps', 'trace_facets']) {
       await executeClickHouse(`ALTER TABLE ${table} DELETE WHERE TenantId = '${tenantId}' AND TopicId = '${TOPIC_ID}'`);
     }
@@ -238,14 +303,17 @@ describe('POST /v1/mcp (hosted gateway)', () => {
     expect(res.result!.serverInfo.name).toBe('outerlayer-gateway');
   });
 
-  it('tools/list returns exactly the 7 headless tools', async () => {
+  it('tools/list returns exactly the 10 headless tools', async () => {
     const res = await mcpCall<{ tools: Array<{ name: string }> }>('tools/list', {}, 2);
     expect(res.result!.tools.map((t) => t.name).sort()).toEqual(
       [
         'compare_windows',
+        'get_breakdown',
         'get_fleet_overview',
         'get_model_costs',
+        'get_pr_outcomes',
         'get_session',
+        'get_trends',
         'list_context_changes',
         'list_sessions',
         'list_topics',
@@ -328,6 +396,53 @@ describe('POST /v1/mcp (hosted gateway)', () => {
       const parsed = CompareWindowsResponseSchema.safeParse(res.result!.structuredContent);
       expect(parsed.success, `schema violation: ${JSON.stringify(parsed.success ? null : parsed.error.issues)}`).toBe(true);
     });
+
+    it('get_breakdown', async () => {
+      const res = await toolsCall('get_breakdown', { dimension: 'branch', limit: 50 }, 17);
+      expect(res.error).toBeUndefined();
+      const parsed = MetricsBreakdownResponseSchema.safeParse(res.result!.structuredContent);
+      expect(parsed.success, `schema violation: ${JSON.stringify(parsed.success ? null : parsed.error.issues)}`).toBe(true);
+      const data = (res.result!.structuredContent as { data: { items: Array<{ key: string; sessions: number; costUsd: number; toolErrorRate: number }> } }).data;
+      const item = data.items.find((i) => i.key === BREAKDOWN_BRANCH_KEY);
+      expect(item).toEqual({ key: BREAKDOWN_BRANCH_KEY, sessions: 1, costUsd: 6.0, toolErrorRate: 0.2 });
+    });
+
+    it('get_breakdown (dimension=tool) carries requests + toolErrorRate, never sessions/costUsd', async () => {
+      const res = await toolsCall('get_breakdown', { dimension: 'tool', limit: 50 }, 42);
+      expect(res.error).toBeUndefined();
+      const parsed = MetricsBreakdownResponseSchema.safeParse(res.result!.structuredContent);
+      expect(parsed.success, `schema violation: ${JSON.stringify(parsed.success ? null : parsed.error.issues)}`).toBe(true);
+      const data = (res.result!.structuredContent as {
+        data: { items: Array<{ key: string; requests?: number; toolErrorRate?: number; sessions?: number; costUsd?: number }> };
+      }).data;
+      const item = data.items.find((i) => i.key === BREAKDOWN_TOOL_KEY);
+      expect(item).toEqual({ key: BREAKDOWN_TOOL_KEY, requests: 1, toolErrorRate: 0 });
+    });
+
+    it('get_trends', async () => {
+      const res = await toolsCall('get_trends', {}, 18);
+      expect(res.error).toBeUndefined();
+      const parsed = MetricsTrendsResponseSchema.safeParse(res.result!.structuredContent);
+      expect(parsed.success, `schema violation: ${JSON.stringify(parsed.success ? null : parsed.error.issues)}`).toBe(true);
+      const data = (res.result!.structuredContent as { data: { points: Array<{ date: string; sessions: number }> } }).data;
+      const todayDate = new Date().toISOString().slice(0, 10);
+      expect(data.points.map((p) => p.date)).toContain(todayDate);
+      const today = data.points.find((p) => p.date === todayDate)!;
+      expect(today.sessions).toBeGreaterThanOrEqual(1);
+    });
+
+    it('get_pr_outcomes', async () => {
+      const res = await toolsCall('get_pr_outcomes', {}, 19);
+      expect(res.error).toBeUndefined();
+      const parsed = PrOutcomesResponseSchema.safeParse(res.result!.structuredContent);
+      expect(parsed.success, `schema violation: ${JSON.stringify(parsed.success ? null : parsed.error.issues)}`).toBe(true);
+      const data = (res.result!.structuredContent as {
+        data: { items: Array<{ repo: string; branch: string; prNumber: number; steered: boolean; costUsd: number }>; steeredPrNumbers: number[] };
+      }).data;
+      expect(data.steeredPrNumbers).toContain(PR_NUMBER);
+      const item = data.items.find((i) => i.prNumber === PR_NUMBER);
+      expect(item).toEqual({ repo: 'org/repo', branch: PR_BRANCH, prNumber: PR_NUMBER, steered: true, costUsd: 2.75 });
+    });
   });
 
   describe('permission and entitlement denial', () => {
@@ -391,6 +506,17 @@ describe('POST /v1/mcp (hosted gateway)', () => {
     const restBody = (await restRes.json()) as { data: unknown };
 
     const mcpRes = await toolsCall('list_topics', { facet: 'issues', limit: 10 }, 40);
+    const mcpData = (mcpRes.result!.structuredContent as { data: unknown }).data;
+
+    expect(mcpData).toEqual(restBody.data);
+  });
+
+  it('REST GET /v1/metrics/breakdown and the get_breakdown MCP tool return the identical data for the same query', async () => {
+    const restRes = await gatewayFetch('/v1/metrics/breakdown?dimension=branch&limit=50');
+    expect(restRes.status).toBe(200);
+    const restBody = (await restRes.json()) as { data: unknown };
+
+    const mcpRes = await toolsCall('get_breakdown', { dimension: 'branch', limit: 50 }, 41);
     const mcpData = (mcpRes.result!.structuredContent as { data: unknown }).data;
 
     expect(mcpData).toEqual(restBody.data);
