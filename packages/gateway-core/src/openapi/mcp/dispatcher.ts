@@ -212,6 +212,8 @@ async function dispatchOne(c: AppContext, request: JsonRpcRequest) {
     switch (request.method) {
       case 'initialize':
         return jsonRpcResult(request.id, await handleInitialize());
+      case 'ping':
+        return jsonRpcResult(request.id, {});
       case 'tools/list':
         return jsonRpcResult(request.id, handleToolsList());
       case 'tools/call':
@@ -248,6 +250,17 @@ export async function handleMcpRequest(c: AppContext): Promise<Response> {
   const parsed = JsonRpcRequestSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(jsonRpcError(null, ErrorCode.InvalidRequest, 'Malformed JSON-RPC 2.0 request.'), 400);
+  }
+
+  // A JSON-RPC Notification is a request with no `id` MEMBER at all — Zod's
+  // `.optional()` leaves `id` as `undefined` in exactly that case, and only
+  // that case (a request that explicitly sends `id: null` parses to `null`,
+  // a normal — if discouraged — request id, not a notification). The spec
+  // forbids any JSON-RPC response to a Notification, including an error for
+  // an unrecognized method; the Streamable HTTP transport instead requires a
+  // bare 202 with no body.
+  if (parsed.data.id === undefined) {
+    return c.body(null, 202);
   }
 
   const response = await dispatchOne(c, parsed.data);

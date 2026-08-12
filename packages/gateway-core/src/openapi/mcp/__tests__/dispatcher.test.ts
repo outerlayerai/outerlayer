@@ -64,6 +64,7 @@ function buildContext(body: unknown): AppContext {
     env: {},
     get: vi.fn((key: string) => (key === 'user' ? { tenantId: 'tenant-1', appId: 'app-1', permissions: [] } : undefined)),
     json: vi.fn((body: unknown, status?: number) => ({ body, status: status ?? 200 })),
+    body: vi.fn((body: unknown, status?: number) => ({ body, status: status ?? 200 })),
   } as unknown as AppContext;
 }
 
@@ -127,10 +128,15 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(result.body.result.serverInfo).toEqual({ name: 'outerlayer-gateway', version: '1.0' });
   });
 
-  it('defaults a missing request id to null on an error response, not to falsy-and-null-collapsed', async () => {
-    const c = buildContext({ jsonrpc: '2.0', method: 'not/a/method' });
-    const result = (await handleMcpRequest(c)) as unknown as { body: { id: null } };
+  it('answers an explicit id: null request with id: null on an error response, not a Notification', async () => {
+    // A request with an "id" MEMBER present, even if its value is null, is a
+    // normal (if discouraged) Request under JSON-RPC 2.0 — distinct from a
+    // Notification, which has no "id" member at all. It still gets a
+    // response.
+    const c = buildContext({ jsonrpc: '2.0', id: null, method: 'not/a/method' });
+    const result = (await handleMcpRequest(c)) as unknown as { body: { id: null; error: { code: number } } };
     expect(result.body.id).toBeNull();
+    expect(result.body.error.code).toBe(-32601);
   });
 
   it('returns MethodNotFound for an unrecognized JSON-RPC method', async () => {
@@ -138,6 +144,30 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number } } };
 
     expect(result.body.error.code).toBe(-32601);
+  });
+
+  it('answers ping with an empty result, echoing the request id', async () => {
+    const c = buildContext({ jsonrpc: '2.0', id: 42, method: 'ping' });
+    const result = (await handleMcpRequest(c)) as unknown as { body: { id: number; result: object } };
+
+    expect(result.body.id).toBe(42);
+    expect(result.body.result).toEqual({});
+  });
+
+  it('replies to a Notification (no id member) with a bare 202 and no JSON-RPC body, even for a known method', async () => {
+    const c = buildContext({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    const result = (await handleMcpRequest(c)) as unknown as { body: unknown; status: number };
+
+    expect(result.status).toBe(202);
+    expect(result.body).toBeNull();
+  });
+
+  it('replies to a Notification with 202 even for an UNRECOGNIZED method — the spec forbids any reply, including an error', async () => {
+    const c = buildContext({ jsonrpc: '2.0', method: 'not/a/method' });
+    const result = (await handleMcpRequest(c)) as unknown as { body: unknown; status: number };
+
+    expect(result.status).toBe(202);
+    expect(result.body).toBeNull();
   });
 
   it('lists the fake tool with a JSON-schema inputSchema derived from its Zod schema', async () => {
