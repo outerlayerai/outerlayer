@@ -512,6 +512,9 @@ const eslintConfig = defineConfig([
     // Stryker's mutation-run temp dir. Created/destroyed mid-run; linting it
     // races its deletion (ENOENT) when the pre-push mutation + lint gates overlap.
     '.stryker-tmp/**',
+    // Supabase CLI state (gitignored): `supabase start` drops minified edge-runtime
+    // bundles here that fail lint on any machine with a local stack running.
+    'supabase/.temp/**',
     'next-env.d.ts',
     "scripts/**",
     "src/theme/**",
