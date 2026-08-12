@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { FleetOverviewSchema } from '@repo/api-schemas';
 import { dispatchRequest } from '@repo/gateway-core/dispatch-request';
+import { MCP_TOOLS } from '@repo/gateway-core/openapi/mcp/tools';
 import { setGatewayContextFactory } from '@repo/gateway-core/openapi';
 import { initCache } from '@repo/gateway-core/utils';
 import { memory } from '@repo/gateway-core/cache-store';
@@ -136,20 +137,17 @@ describe('self-host: POST /v1/mcp (SelfHostAuthResolver + NoopRateLimiter)', () 
   });
 
   // proves AC-052-08
-  it('lists the same seven tools + guide resource as hosted', async () => {
+  it('lists the same tool catalog + guide resource as hosted', async () => {
     const res = await callSelfHostGateway(appId, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { result: { tools: Array<{ name: string }> } };
-    expect(body.result.tools.map((t) => t.name).sort()).toEqual(
-      [
-        'compare_windows',
-        'get_fleet_overview',
-        'get_model_costs',
-        'get_session',
-        'list_context_changes',
-        'list_sessions',
-        'list_topics',
-      ].sort(),
+    const returnedNames = body.result.tools.map((t) => t.name).sort();
+    // Derived from the same MCP_TOOLS catalog the dispatcher serves — the two
+    // can't drift out of sync. The three analytics-tool names are also
+    // asserted literally so an accidentally-emptied MCP_TOOLS can't self-verify.
+    expect(returnedNames).toEqual(MCP_TOOLS.map((t) => t.name).sort());
+    expect(returnedNames).toEqual(
+      expect.arrayContaining(['get_breakdown', 'get_trends', 'get_pr_outcomes']),
     );
 
     const resourcesRes = await callSelfHostGateway(appId, { jsonrpc: '2.0', id: 2, method: 'resources/list' });
