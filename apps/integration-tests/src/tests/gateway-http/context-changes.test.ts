@@ -1,8 +1,8 @@
 /**
- * HTTP-level coverage for `GET /v1/context/changes` — zero integration
- * coverage before this file. The route reads Postgres (`context_snapshot`),
- * not ClickHouse, so fixtures are seeded via Supabase REST the same way
- * `response-schema-conformance.test.ts` seeds `api_key` rows.
+ * HTTP-level coverage for `GET /v1/context/changes`. The route reads
+ * Postgres (`context_snapshot`), not ClickHouse, so fixtures are seeded via
+ * Supabase REST the same way `response-schema-conformance.test.ts` seeds
+ * `api_key` rows.
  */
 
 import { randomUUID } from 'node:crypto';

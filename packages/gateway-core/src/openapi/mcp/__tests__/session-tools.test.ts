@@ -4,7 +4,7 @@
  * These tools share `sessionPolicy`/`buildPorts` with the REST routes
  * (`../routes/sessions`), so the actor-privacy contract is proven once
  * there (`routes/__tests__/sessions.test.ts`). This suite pins the one
- * thing specific to the MCP path: `execute()` awaits the (now-async)
+ * thing specific to the MCP path: `execute()` awaits the async
  * `sessionPolicy` before calling the service, so a bearer caller's policy
  * resolution actually completes before the ClickHouse query runs rather
  * than a pending Promise being forwarded as the policy argument.

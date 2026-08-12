@@ -1,8 +1,8 @@
 /**
- * HTTP-level coverage for `GET /v1/prs/outcomes` — new, previously
- * uncovered, headless read route. No entitlement gate, no date window
- * (see `openapi/routes/prs.ts`), dominant-repo scoped like every other
- * `agent_session_summary` read in this suite (GitRepo='org/repo').
+ * HTTP-level coverage for `GET /v1/prs/outcomes` — a headless read route.
+ * No entitlement gate, no date window (see `openapi/routes/prs.ts`),
+ * dominant-repo scoped like every other `agent_session_summary` read in
+ * this suite (GitRepo='org/repo').
  *
  * `steered` is `UserTurnCount > 1` (see `AgentFleetService.getAgentPrAttribution`);
  * cost merges from a second, parallel attribution query keyed on the same

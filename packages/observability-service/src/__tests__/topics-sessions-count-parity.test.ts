@@ -3,10 +3,9 @@
  * `TopicsService.listTopics` must equal `AgentSessionsService.listSessions`'s
  * `total` when the list is drilled down to that same topic — the invariant
  * the Topics card's per-row count and the drill-down's list length both
- * promise the user. Both services now live in this package but query
- * different tables (`trace_topic_maps`/`trace_facets` vs
- * `agent_session_summary`), so nothing besides a shared test fixture pins
- * them to agreement.
+ * promise the user. Both services live in this package but query different
+ * tables (`trace_topic_maps`/`trace_facets` vs `agent_session_summary`), so
+ * nothing besides a shared test fixture pins them to agreement.
  *
  * The fixture below is ONE root session (`s-A`, two facet-fanout rows both
  * assigned to topic `v1-c0`) plus one unrelated session (`s-B`, assigned to

@@ -1,7 +1,6 @@
 /**
  * HTTP-level coverage for `GET /v1/metrics/models`, `GET /v1/metrics/overview`,
- * and `GET /v1/metrics/compare` — the last of which had zero integration
- * coverage before this file. `compare` shares the `topics_enabled`
+ * and `GET /v1/metrics/compare`. `compare` shares the `topics_enabled`
  * entitlement gate with `GET /v1/topics` (its topic-mix half needs the same
  * feature), so the gate is proven here too.
  *
