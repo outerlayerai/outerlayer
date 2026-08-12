@@ -240,6 +240,25 @@ describe('AgentSessionsService.getSessionDetail', () => {
     expect(result?.truncated).toBe(false);
   });
 
+  test('a truncated session reports the rollup\'s full-session turnCount/toolCallCount/errorCount/models, not the truncated span slice\'s', async () => {
+    const spans = [rootSpan(), ...Array.from({ length: 2100 }, (_, i) => rootSpan({ spanId: `s${i + 1}`, name: 'agent.turn.assistant', model: 'claude-opus-4-8' }))];
+    // The rollup's counts reflect the FULL session (written at ingest, not
+    // capped at MAX_SESSION_SPANS) — deliberately far from what counting the
+    // 2000 returned (truncated) spans would produce, so the assertion below
+    // can only pass if the rollup value actually won.
+    const summary = { turnCount: 5000, toolCallCount: 3000, errorCount: 40, models: ['gpt-5'] };
+    const { client } = fakeClient({ queue: [[], spans.slice(0, 2001), [summary]] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+
+    expect(result?.truncated).toBe(true);
+    expect(result?.session.turnCount).toBe(5000);
+    expect(result?.session.toolCallCount).toBe(3000);
+    expect(result?.session.errorCount).toBe(40);
+    expect(result?.session.models).toEqual(['gpt-5']);
+  });
+
   test('turn I/O in the gen_ai messages-array shape unwraps to joined content strings', async () => {
     const withMessages = rootSpan({
       name: 'agent.turn.user',
@@ -360,6 +379,14 @@ describe('AgentSessionsService.getSessionDetail', () => {
     workerKind: 'cloud',
     costUsd: 4.5,
     durationMs: 9000,
+    // Deliberately unreachable from the fixture's single non-turn root span
+    // (whose own span-derived turnCount/toolCallCount/errorCount/models
+    // would all read 0/[]) — proves the rollup values win, not just that
+    // they happen to agree with the span-derived fallback.
+    turnCount: 12,
+    toolCallCount: 8,
+    errorCount: 2,
+    models: ['claude-opus-4-8', 'gpt-5'],
     userTurnCount: 3,
     rejectedToolCallCount: 2,
     permissionPromptCount: 1,
@@ -404,11 +431,11 @@ describe('AgentSessionsService.getSessionDetail', () => {
       project: 'acme/app',
       startedAt: '2026-01-01T00:00:00.000Z',
       durationMs: 9000,
-      turnCount: 0,
-      toolCallCount: 0,
-      errorCount: 0,
+      turnCount: 12,
+      toolCallCount: 8,
+      errorCount: 2,
       costUsd: 4.5,
-      models: [],
+      models: ['claude-opus-4-8', 'gpt-5'],
       captureTier: 'lite',
       userTurnCount: 3,
       rejectedToolCallCount: 2,

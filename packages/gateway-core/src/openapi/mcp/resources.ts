@@ -78,7 +78,9 @@ size. Either cap sets \`truncated: true\` on the response; when truncated you
 have the session's FIRST spans, not necessarily its last, and there is no
 pagination past the cap on either surface. The session-level aggregate
 fields (\`turnCount\`, \`toolCallCount\`, \`errorCount\`, \`costUsd\`, \`models\`,
-…) are computed over the FULL session regardless of truncation — rely on
-those for anything that needs whole-session totals rather than trying to
-page through spans.
+…) are sourced from the session rollup and cover the FULL session
+regardless of truncation — rely on those for anything that needs
+whole-session totals rather than trying to page through spans. They fall
+back to counting the returned (possibly truncated) spans only on the rare
+session with no rollup row yet.
 `;

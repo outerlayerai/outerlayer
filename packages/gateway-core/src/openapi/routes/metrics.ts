@@ -338,7 +338,8 @@ export class GetMetricsTrends extends BaseRoute {
     operationId: 'get-metrics-trends',
     description:
       'Daily sessions, spend, tool-error rate, and clean-session rate for `from`..`to` (UTC calendar dates, ' +
-      'default trailing 30 days) — one point per day, from the SAME agent-session population as `/v1/metrics/overview` ' +
+      'default trailing 30 days) — one point per day WITH activity; a day with zero sessions has no point, so ' +
+      'the series is not dense over the window. From the SAME agent-session population as `/v1/metrics/overview` ' +
       '(never blended with the per-LLM-call metered-cost population `/v1/metrics/models` reads).',
     request: {
       query: MetricsTrendsQuerySchema,

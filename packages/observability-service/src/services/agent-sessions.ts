@@ -308,6 +308,7 @@ export class AgentSessionsService {
         `
         SELECT SessionId AS sessionId, WorkerKind AS workerKind, CostUsd AS costUsd,
                if(EndedAt > StartedAt, dateDiff('millisecond', StartedAt, EndedAt), 0) AS durationMs,
+               TurnCount AS turnCount, ToolCallCount AS toolCallCount, ErrorCount AS errorCount, Models AS models,
                UserTurnCount AS userTurnCount, RejectedToolCallCount AS rejectedToolCallCount,
                PermissionPromptCount AS permissionPromptCount, ApiErrorCount AS apiErrorCount,
                HookExecutionCount AS hookExecutionCount, HookDurationMs AS hookDurationMs,
@@ -402,11 +403,23 @@ export class AgentSessionsService {
         project: projectFrom(meta, masked),
         startedAt: iso(root.startTime),
         durationMs: summaryDuration > 0 ? summaryDuration : rootDuration > 0 ? rootDuration : null,
-        turnCount: turns.length,
-        toolCallCount: rows.filter((r) => String(r.name).startsWith('agent.tool.')).length,
-        errorCount: rows.filter((r) => String(r.name).startsWith('agent.tool.') && r.statusCode === '2').length,
+        // turnCount/toolCallCount/errorCount/models prefer the rollup, the
+        // same as every other summary-backed field below — it's written from
+        // the full session at ingest, so it stays accurate past the span
+        // read's MAX_SESSION_SPANS cap. Falls back to counting the (possibly
+        // truncated) returned spans only when no rollup row exists yet.
+        turnCount: summary ? num(summary.turnCount) : turns.length,
+        toolCallCount: summary
+          ? num(summary.toolCallCount)
+          : rows.filter((r) => String(r.name).startsWith('agent.tool.')).length,
+        errorCount: summary
+          ? num(summary.errorCount)
+          : rows.filter((r) => String(r.name).startsWith('agent.tool.') && r.statusCode === '2').length,
         costUsd: knownCost(summaryCost > 0 ? summaryCost : spanCostSum),
-        models: [...new Set(turns.map((r) => r.model as string).filter(Boolean))],
+        models:
+          summary && Array.isArray(summary.models)
+            ? (summary.models as string[])
+            : [...new Set(turns.map((r) => r.model as string).filter(Boolean))],
         captureTier: (root.captureTier as string) || 'full',
         userTurnCount: summary ? num(summary.userTurnCount) : turns.filter((r) => r.name === 'agent.turn.user').length,
         rejectedToolCallCount: summary ? num(summary.rejectedToolCallCount) : rejectedFromSpans,

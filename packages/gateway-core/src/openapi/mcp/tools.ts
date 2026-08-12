@@ -222,7 +222,7 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     description:
       'Full transcript (span tree) for one session, by trace id (from list_sessions or list_topics-driven list_sessions). ' +
       'A missing or cross-app trace id returns the same not-found error. Output is capped at 2000 spans (same cap on REST) — truncated: true means only the FIRST spans are included, and there is no pagination past the cap; ' +
-      'the session-level aggregate fields (turnCount, toolCallCount, errorCount, costUsd, models) cover the full session regardless.',
+      'the session-level aggregate fields (turnCount, toolCallCount, errorCount, costUsd, models) are sourced from the session rollup and cover the full session regardless of truncation, falling back to the returned spans only on the rare session with no rollup row yet.',
     zodInputSchema: GetSessionInputSchema,
     zodOutputSchema: AgentSessionDetailSchema,
     requiredPermission: 'session.read',
@@ -292,8 +292,8 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     name: 'get_trends',
     description:
       'Is spend/quality trending up or down day by day? Daily sessions, spend, tool-error rate, and clean-session rate for from..to (UTC ' +
-      'calendar dates, default trailing 30 days), one point per day. Use to spot a spike or a slow drift that a single current/prior tile ' +
-      '(get_fleet_overview) would blend away.',
+      'calendar dates, default trailing 30 days), one point per day WITH activity — a day with zero sessions has no point, so do not ' +
+      'assume a dense series. Use to spot a spike or a slow drift that a single current/prior tile (get_fleet_overview) would blend away.',
     zodInputSchema: MetricsTrendsQuerySchema,
     zodOutputSchema: MetricsTrendsSchema,
     requiredPermission: 'metrics.read',
