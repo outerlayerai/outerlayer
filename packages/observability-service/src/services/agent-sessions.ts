@@ -215,22 +215,44 @@ const IDENTITY_METADATA_KEY_PATTERN = /email|actor|user(name)?|home(dir)?/i;
 /** The leaf path segment, OS-agnostic. env.cwd rides Metadata as a full
  * absolute path (/Users/name/…, /home/name/…, C:\Users\name\…) that embeds
  * the OS username in a PARENT segment — masking the key isn't enough, the
- * value itself must be cut down. */
+ * value itself must be cut down. Every path-VALUED field applies this same
+ * treatment, not just cwd: a key denylist alone still leaks the identity
+ * class through any field whose VALUE happens to be an absolute path. */
 function pathBasename(path: string): string {
   const trimmed = path.replace(/[/\\]+$/, '');
   const idx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
   return idx === -1 ? trimmed : trimmed.slice(idx + 1);
 }
 
+/** Path-valued Metadata keys reduced to {@link pathBasename} on a masked
+ * read, rather than dropped like {@link IDENTITY_METADATA_KEY_PATTERN} keys
+ * — the leaf value (repo folder, edited file name) is still useful to a
+ * masked caller, only the parent path carrying the OS username is not. */
+const PATH_VALUED_METADATA_KEYS = new Set(['cwd', 'file']);
+
+/** Home-directory-rooted tokens (whitespace-delimited, as they appear inside
+ * a shell command string) reduced to their {@link pathBasename} in place —
+ * unlike a Metadata value, a command string is not itself a single path, so
+ * the whole string can't be basenamed; only the home-rooted tokens within it
+ * carry a username. */
+const HOME_PATH_TOKEN_PATTERN = /(^|\s)(~\/\S*|\/(?:Users|home)\/\S*)/g;
+
+function scrubHomePaths(command: string): string {
+  return command.replace(HOME_PATH_TOKEN_PATTERN, (_match, boundary: string, token: string) => {
+    return boundary + pathBasename(token);
+  });
+}
+
 /** Redacts identity-bearing values from a span's Metadata map for a masked
- * read: cwd collapses to its basename (the leaf directory — e.g. the repo
- * folder — without the parent path that carries the username), and any key
- * matching {@link IDENTITY_METADATA_KEY_PATTERN} is dropped entirely. */
+ * read: keys in {@link PATH_VALUED_METADATA_KEYS} collapse to their basename
+ * (the leaf directory or file name, without the parent path that carries the
+ * username), and any key matching {@link IDENTITY_METADATA_KEY_PATTERN} is
+ * dropped entirely. */
 function maskIdentityMetadata(meta: Record<string, string>): Record<string, string> {
   const masked: Record<string, string> = {};
   for (const [key, value] of Object.entries(meta)) {
     if (IDENTITY_METADATA_KEY_PATTERN.test(key)) continue;
-    masked[key] = key === 'cwd' ? pathBasename(value) : value;
+    masked[key] = PATH_VALUED_METADATA_KEYS.has(key) ? pathBasename(value) : value;
   }
   return masked;
 }
@@ -396,13 +418,20 @@ export class AgentSessionsService {
         String(r.name).startsWith('agent.tool.') &&
         ((r.metadata as Record<string, string>) ?? {}).toolStatus === 'rejected',
     ).length;
-    const editRetryLoop = findEditRetryLoop(
+    const rawEditRetryLoop = findEditRetryLoop(
       rows.map((r) => ({
         name: String(r.name),
         statusCode: String(r.statusCode),
         metadata: (r.metadata as Record<string, string>) ?? {},
       })),
     );
+    // findEditRetryLoop reads the file field off the UNmasked metadata (it
+    // runs on the raw rows, not the already-masked spans array above), so
+    // its result needs the same path-basename treatment independently.
+    const editRetryLoop =
+      rawEditRetryLoop && masked
+        ? { ...rawEditRetryLoop, file: pathBasename(rawEditRetryLoop.file) }
+        : rawEditRetryLoop;
 
     const outcomeLookup = await ports.prOutcomes.forSessions([traceId]);
 
@@ -447,7 +476,9 @@ export class AgentSessionsService {
         hookDurationMs: summary ? num(summary.hookDurationMs) : 0,
         hookUnreportedCount: summary ? num(summary.hookUnreportedCount) : 0,
         slowestHookMs: summary ? num(summary.slowestHookMs) : 0,
-        slowestHookCommand: (summary?.slowestHookCommand as string) || '',
+        slowestHookCommand: masked
+          ? scrubHomePaths((summary?.slowestHookCommand as string) || '')
+          : (summary?.slowestHookCommand as string) || '',
       },
       spans,
     };

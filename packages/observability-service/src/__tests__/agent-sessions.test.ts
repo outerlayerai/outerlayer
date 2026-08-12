@@ -169,6 +169,123 @@ describe('AgentSessionsService.getSessionDetail', () => {
     expect(result?.spans[0]!.metadata).toEqual({ title: 'My Session' });
   });
 
+  test('a masked read strips a tool span\'s file path down to its basename, same as cwd', async () => {
+    const withFile = rootSpan({
+      metadata: { isEdit: '1', file: '/Users/kashif/projects/acme-app/src/index.ts' },
+    });
+    const { client } = fakeClient({ queue: [[], [withFile], []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.spans[0]!.metadata).toEqual({ isEdit: '1', file: 'index.ts' });
+  });
+
+  test('an unmasked read leaves a tool span\'s file path intact', async () => {
+    const withFile = rootSpan({
+      metadata: { isEdit: '1', file: '/Users/kashif/projects/acme-app/src/index.ts' },
+    });
+    const { client } = fakeClient({ queue: [[], [withFile], []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.spans[0]!.metadata).toEqual({
+      isEdit: '1',
+      file: '/Users/kashif/projects/acme-app/src/index.ts',
+    });
+  });
+
+  test('a masked read strips the retried file down to its basename in editRetryLoop', async () => {
+    const editSpan = (over: Record<string, unknown> = {}) =>
+      rootSpan({
+        spanId: `edit-${Math.random()}`,
+        name: 'agent.tool.edit',
+        statusCode: '2',
+        metadata: { isEdit: '1', file: '/Users/kashif/projects/acme-app/src/flaky.ts' },
+        ...over,
+      });
+    const spans = [rootSpan(), editSpan(), editSpan(), editSpan()];
+    const { client } = fakeClient({ queue: [[], spans, []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.session.editRetryLoop).toEqual({ file: 'flaky.ts', fails: 3 });
+  });
+
+  test('an unmasked read leaves the retried file path intact in editRetryLoop', async () => {
+    const editSpan = (over: Record<string, unknown> = {}) =>
+      rootSpan({
+        spanId: `edit-${Math.random()}`,
+        name: 'agent.tool.edit',
+        statusCode: '2',
+        metadata: { isEdit: '1', file: '/Users/kashif/projects/acme-app/src/flaky.ts' },
+        ...over,
+      });
+    const spans = [rootSpan(), editSpan(), editSpan(), editSpan()];
+    const { client } = fakeClient({ queue: [[], spans, []] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.session.editRetryLoop).toEqual({
+      file: '/Users/kashif/projects/acme-app/src/flaky.ts',
+      fails: 3,
+    });
+  });
+
+  test('a masked read scrubs home-directory tokens out of slowestHookCommand', async () => {
+    const summary = {
+      sessionId: 'sess-1',
+      slowestHookCommand: 'eslint /Users/kashif/projects/acme-app/src/index.ts --fix',
+    };
+    const { client } = fakeClient({ queue: [[], [rootSpan()], [summary]] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.session.slowestHookCommand).toBe('eslint index.ts --fix');
+  });
+
+  test('an unmasked read leaves slowestHookCommand intact', async () => {
+    const summary = {
+      sessionId: 'sess-1',
+      slowestHookCommand: 'eslint /Users/kashif/projects/acme-app/src/index.ts --fix',
+    };
+    const { client } = fakeClient({ queue: [[], [rootSpan()], [summary]] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: true };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+    expect(result?.session.slowestHookCommand).toBe('eslint /Users/kashif/projects/acme-app/src/index.ts --fix');
+  });
+
+  // Recursively scans the whole masked response, rather than pinning one
+  // field at a time — the class of bug this closes is "a NEW path-valued
+  // field slips through the redaction untreated", which only a blanket scan
+  // (not a per-field assertion) catches for a field nobody's written a test
+  // for yet.
+  test('a masked read leaves no home-directory path substring anywhere in the response', async () => {
+    const homePath = '/Users/kashif/projects/acme-app';
+    const editSpan = (over: Record<string, unknown> = {}) =>
+      rootSpan({
+        spanId: `edit-${Math.random()}`,
+        name: 'agent.tool.edit',
+        statusCode: '2',
+        metadata: { isEdit: '1', file: `${homePath}/src/flaky.ts`, cwd: homePath },
+        ...over,
+      });
+    const spans = [rootSpan({ metadata: { cwd: homePath } }), editSpan(), editSpan(), editSpan()];
+    const summary = {
+      sessionId: 'sess-1',
+      slowestHookCommand: `eslint ${homePath}/src/index.ts --fix`,
+    };
+    const { client } = fakeClient({ queue: [[], spans, [summary]] });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
+
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('/Users/');
+    expect(serialized).not.toContain('~/');
+    expect(serialized).not.toContain('kashif');
+  });
+
   test('returns null for a nonexistent trace', async () => {
     const { client } = fakeClient({ queue: [[], [], []] });
     const service = new AgentSessionsService(client);
