@@ -9,7 +9,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AppContext } from '../_shared';
+import { errorResponse } from '../_shared';
 import type { SessionAccessPolicy } from '@repo/observability-service';
+import { ListSessionsQuerySchema, SessionsListResponseSchema, SessionDetailResponseSchema } from '@repo/api-schemas';
 
 const listSessions = vi.fn();
 const getSessionDetail = vi.fn();
@@ -38,7 +40,14 @@ vi.mock('../../../lib/verify-bearer', async (importOriginal) => {
   };
 });
 
-import { ListSessions, GetSessionDetail, buildPorts, sessionPolicy, blobTokenKeyId } from '../sessions';
+import {
+  ListSessions,
+  GetSessionDetail,
+  GetSessionDetailParamsSchema,
+  buildPorts,
+  sessionPolicy,
+  blobTokenKeyId,
+} from '../sessions';
 import { verifyAgentBlobToken } from '../../../lib/agent-blob-token';
 
 const MOCK_ROUTE_OPTIONS = {
@@ -314,6 +323,31 @@ describe('ListSessions', () => {
     expect(result.status).toBe(503);
     expect(listSessions).not.toHaveBeenCalled();
   });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new ListSessions(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Sessions'],
+      summary: 'List agent sessions',
+      operationId: 'list-sessions',
+      description:
+        'Returns a filtered, paginated list of agent-coding sessions for one repo. Without `agents.sessions.team.read`, actor identities are anonymized and `actor` filters are rejected. ' +
+        "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass `repo` to target another repo. " +
+        '`pr` is dashboard-only for now — this surface has no Postgres reader wired to resolve a PR/MR number to its confirmed-linked sessions, so a `pr` value is rejected rather than silently ignored.',
+      request: {
+        query: ListSessionsQuerySchema,
+      },
+      responses: {
+        200: {
+          description: 'A page of agent sessions.',
+          content: { 'application/json': { schema: SessionsListResponseSchema } },
+        },
+        400: errorResponse('This key cannot filter sessions by actor.'),
+        401: errorResponse('Missing or invalid API key.'),
+      },
+    });
+  });
 });
 
 describe('GetSessionDetail', () => {
@@ -393,6 +427,30 @@ describe('GetSessionDetail', () => {
     await route.handle(c);
 
     expect(getGatewaySessionsService).toHaveBeenCalledWith(c.env, { tenantId: 'tenant-1', appId: 'app-1' });
+  });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new GetSessionDetail(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Sessions'],
+      summary: 'Get agent session detail',
+      operationId: 'get-session-detail',
+      description:
+        'Returns the full span tree + rollup identity for one session. Span count is capped — `truncated: true` means only the FIRST spans (not necessarily the last) are included. ' +
+        'A missing trace and a trace from another app return the identical 404 — there is no existence oracle for a transcript the caller cannot see.',
+      request: {
+        params: GetSessionDetailParamsSchema,
+      },
+      responses: {
+        200: {
+          description: 'Full session transcript.',
+          content: { 'application/json': { schema: SessionDetailResponseSchema } },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+        404: errorResponse('Session not found.'),
+      },
+    });
   });
 });
 

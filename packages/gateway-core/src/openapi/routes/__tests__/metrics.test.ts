@@ -6,6 +6,19 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AppContext } from '../_shared';
+import { errorResponse, entitlementRequiredResponse } from '../_shared';
+import {
+  ModelStatsQuerySchema,
+  ModelStatsResponseSchema,
+  FleetOverviewQuerySchema,
+  FleetOverviewResponseSchema,
+  CompareWindowsQuerySchema,
+  CompareWindowsResponseSchema,
+  MetricsBreakdownQuerySchema,
+  MetricsBreakdownResponseSchema,
+  MetricsTrendsQuerySchema,
+  MetricsTrendsResponseSchema,
+} from '@repo/api-schemas';
 
 const getModelStats = vi.fn();
 const getAgentFleetOverview = vi.fn();
@@ -120,6 +133,34 @@ describe('GetModelStats', () => {
     const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
     expect(spanDays).toBe(7);
   });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new GetModelStats(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Metrics'],
+      summary: 'Get per-model stats',
+      operationId: 'get-model-stats',
+      description:
+        'Returns metered token spend, request counts, and latency per model for the authenticated application, ' +
+        'over `from`..`to` (UTC calendar dates, default trailing 7 days).\n\n' +
+        'Cost is metered LLM spend for this app only — it excludes seat/subscription costs.',
+      request: {
+        query: ModelStatsQuerySchema,
+      },
+      responses: {
+        200: {
+          description: 'Per-model stats for the requested window.',
+          content: {
+            'application/json': {
+              schema: ModelStatsResponseSchema,
+            },
+          },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+      },
+    });
+  });
 });
 
 const FLEET_OVERVIEW_FIXTURE = {
@@ -164,6 +205,34 @@ describe('GetFleetOverview', () => {
     const end = new Date(dateRange.end as string);
     const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
     expect(spanDays).toBe(30);
+  });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new GetFleetOverview(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Metrics'],
+      summary: 'Get fleet overview',
+      operationId: 'get-fleet-overview',
+      description:
+        'Returns fleet-wide agent behavior tiles (sessions, tool-error rate, hands-on rate, spend, and more) for `from`..`to` ' +
+        '(UTC calendar dates, default trailing 30 days), each as a `{ current, prior }` pair against the equal-length preceding period. ' +
+        'Call twice with explicit windows to compare before/after a change.',
+      request: {
+        query: FleetOverviewQuerySchema,
+      },
+      responses: {
+        200: {
+          description: 'Fleet overview tiles for the requested window.',
+          content: {
+            'application/json': {
+              schema: FleetOverviewResponseSchema,
+            },
+          },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+      },
+    });
   });
 });
 
@@ -297,6 +366,40 @@ describe('GetMetricsCompare', () => {
     expect(status).toBe(503);
     expect(body.error.code).toBe('service_unavailable');
   });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new GetMetricsCompare(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Metrics'],
+      summary: 'Compare metrics across two windows',
+      operationId: 'compare-windows',
+      description:
+        'Correlational comparison — not causal attribution: returns fleet-behavior tiles and topic-mix facet-row ' +
+        'counts for two EXPLICIT, caller-chosen windows (`a`, `b`; UTC calendar dates), side by side. Neither window ' +
+        'defaults — this is for "before vs. after a specific change" (e.g. either side of a context sync from ' +
+        '`GET /v1/context/changes`), not a rolling comparison.\n\n' +
+        '`topicMix` counts are raw facet rows per topic in each window (not deduplicated to root sessions like ' +
+        '`/v1/topics`\' `sessionCount`) — use them to judge relative shift and sample size, not as an exact session total.',
+      request: {
+        query: CompareWindowsQuerySchema,
+      },
+      responses: {
+        200: {
+          description: 'Fleet metrics and topic-mix deltas for both windows.',
+          content: {
+            'application/json': {
+              schema: CompareWindowsResponseSchema,
+            },
+          },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+        402: entitlementRequiredResponse(
+          "Tenant tier does not include the 'topics_enabled' feature.",
+        ),
+      },
+    });
+  });
 });
 
 const BREAKDOWN_FIXTURE = {
@@ -342,6 +445,35 @@ describe('GetMetricsBreakdown', () => {
     const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
     expect(spanDays).toBe(30);
   });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new GetMetricsBreakdown(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Metrics'],
+      summary: 'Get a cost/session/error breakdown by dimension',
+      operationId: 'get-metrics-breakdown',
+      description:
+        'Ranks `branch`, `agent_type`, `worker_kind`, `model`, or `tool` by spend/volume for `from`..`to` ' +
+        '(UTC calendar dates, default trailing 30 days). `branch`/`agent_type`/`worker_kind`/`model` items carry ' +
+        '`sessions` + `costUsd` + `toolErrorRate`; `tool` items carry `requests` + `toolErrorRate` instead — a tool ' +
+        'call has no session-level cost of its own to rank by. Never breaks down by individual actor/developer.',
+      request: {
+        query: MetricsBreakdownQuerySchema,
+      },
+      responses: {
+        200: {
+          description: 'Ranked breakdown for the requested dimension and window.',
+          content: {
+            'application/json': {
+              schema: MetricsBreakdownResponseSchema,
+            },
+          },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+      },
+    });
+  });
 });
 
 const TRENDS_FIXTURE = {
@@ -379,5 +511,34 @@ describe('GetMetricsTrends', () => {
     const end = new Date(dateRange.end as string);
     const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
     expect(spanDays).toBe(30);
+  });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new GetMetricsTrends(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Metrics'],
+      summary: 'Get the daily sessions/cost/quality trend',
+      operationId: 'get-metrics-trends',
+      description:
+        'Daily sessions, spend, tool-error rate, and clean-session rate for `from`..`to` (UTC calendar dates, ' +
+        'default trailing 30 days) — one point per day WITH activity; a day with zero sessions has no point, so ' +
+        'the series is not dense over the window. From the SAME agent-session population as `/v1/metrics/overview` ' +
+        '(never blended with the per-LLM-call metered-cost population `/v1/metrics/models` reads).',
+      request: {
+        query: MetricsTrendsQuerySchema,
+      },
+      responses: {
+        200: {
+          description: 'Daily trend points for the requested window.',
+          content: {
+            'application/json': {
+              schema: MetricsTrendsResponseSchema,
+            },
+          },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+      },
+    });
   });
 });

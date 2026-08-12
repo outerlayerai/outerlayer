@@ -11,8 +11,14 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSelectChain, lastStub } = vi.hoisted(() => ({
+const { mockSelectChain, mockHeadCountChain, lastStub } = vi.hoisted(() => ({
   mockSelectChain: vi.fn(),
+  // Backs the PGRST103 recovery path's head-only re-query
+  // (`.select('id', { count: 'exact', head: true }).eq('app_id', ...)`,
+  // no `.range()`/`.order()`) — `chain` itself is made thenable so that
+  // query's terminal `.eq()` call resolves through this queue instead of
+  // `mockSelectChain`, which only the ranged query's `.range()` reads.
+  mockHeadCountChain: vi.fn(),
   lastStub: { current: null as null | ReturnType<typeof makeSupabaseStub> },
 }));
 
@@ -21,7 +27,14 @@ function makeSupabaseStub() {
   const eq = vi.fn(() => chain);
   const order = vi.fn(() => chain);
   const range = vi.fn(() => mockSelectChain());
-  const chain: Record<string, unknown> = { select, eq, order, range };
+  const chain: Record<string, unknown> = {
+    select,
+    eq,
+    order,
+    range,
+    then: (resolve: (v: unknown) => void, reject: (e: unknown) => void) =>
+      Promise.resolve(mockHeadCountChain()).then(resolve, reject),
+  };
   const fromSpy = vi.fn((_table: string) => chain);
   return { from: fromSpy, select, eq, order, range };
 }
@@ -133,6 +146,63 @@ describe('ListContextChanges', () => {
     mockSelectChain.mockResolvedValue({ data: null, error: { message: 'connection reset' }, count: null });
 
     const route = routeWithValidatedData({ limit: 20, offset: 0 });
+    const c = buildContext();
+    const result = (await route.handle(c)) as { body: { error: { code: string } }; status: number };
+
+    expect(result.status).toBe(500);
+    expect(result.body.error.code).toBe('internal_error');
+  });
+
+  // proves the OpenAPI-fuzz-found bug: an offset past the end of the result
+  // set (e.g. offset=1 against zero rows) makes PostgREST return PGRST103
+  // ("Requested range not satisfiable"), not a normal empty result — the
+  // route must still answer 200 + an empty page with the TRUE total, not a
+  // 500 or a wrongly-zeroed total.
+  it('answers 200 + an empty page with the recovered true total when PostgREST reports PGRST103 (offset past the end)', async () => {
+    mockSelectChain.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST103', message: 'Requested range not satisfiable' },
+      count: null,
+    });
+    mockHeadCountChain.mockResolvedValue({ count: 7, error: null });
+
+    const route = routeWithValidatedData({ limit: 20, offset: 100 });
+    const c = buildContext();
+    const result = (await route.handle(c)) as { body: unknown; status: number };
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      data: {
+        snapshots: [],
+        pagination: { total: 7, limit: 20, offset: 100 },
+      },
+    });
+  });
+
+  it('re-queries head-only (no range/order) for the recovery count, scoped to the same app id', async () => {
+    mockSelectChain.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST103', message: 'Requested range not satisfiable' },
+      count: null,
+    });
+    mockHeadCountChain.mockResolvedValue({ count: 0, error: null });
+
+    const route = routeWithValidatedData({ limit: 20, offset: 1 });
+    await route.handle(buildContext());
+
+    expect(lastStub.current!.select).toHaveBeenCalledWith('id', { count: 'exact', head: true });
+    expect(lastStub.current!.eq).toHaveBeenCalledWith('app_id', 'app-1');
+  });
+
+  it('surfaces a genuine error from the PGRST103 recovery re-query as a 500, not a silent empty page', async () => {
+    mockSelectChain.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST103', message: 'Requested range not satisfiable' },
+      count: null,
+    });
+    mockHeadCountChain.mockResolvedValue({ count: null, error: { message: 'connection reset' } });
+
+    const route = routeWithValidatedData({ limit: 20, offset: 1 });
     const c = buildContext();
     const result = (await route.handle(c)) as { body: { error: { code: string } }; status: number };
 

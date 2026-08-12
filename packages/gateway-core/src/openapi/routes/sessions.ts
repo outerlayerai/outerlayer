@@ -240,6 +240,11 @@ export class ListSessions extends BaseRoute {
   }
 }
 
+/** Named so route-schema tests can assert against the identical instance,
+ * rather than a separately-constructed zod schema that deep-equals wrong
+ * (internal zod state differs between two logically-equivalent instances). */
+export const GetSessionDetailParamsSchema = z.object({ traceId: z.string().min(1) });
+
 export class GetSessionDetail extends BaseRoute {
   static requiredPermission: GatewayPermission = 'session.read';
   static rateLimit = RATE_LIMITS.sessionDetail;
@@ -251,7 +256,7 @@ export class GetSessionDetail extends BaseRoute {
       'Returns the full span tree + rollup identity for one session. Span count is capped — `truncated: true` means only the FIRST spans (not necessarily the last) are included. ' +
       'A missing trace and a trace from another app return the identical 404 — there is no existence oracle for a transcript the caller cannot see.',
     request: {
-      params: z.object({ traceId: z.string().min(1) }),
+      params: GetSessionDetailParamsSchema,
     },
     responses: {
       200: {

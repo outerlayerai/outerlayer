@@ -4,6 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AppContext } from '../_shared';
+import { errorResponse } from '../_shared';
+import { PrOutcomesResponseSchema } from '@repo/api-schemas';
 
 const getAgentPrAttribution = vi.fn();
 const getAgentPrCostAttribution = vi.fn();
@@ -108,5 +110,32 @@ describe('GetPrOutcomes', () => {
 
     const [, status] = c.json.mock.calls[0]! as [unknown, number];
     expect(status).toBeGreaterThanOrEqual(500);
+  });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = buildRoute();
+
+    expect(route.schema).toEqual({
+      tags: ['PRs'],
+      summary: 'Get session→PR attribution merged with cost',
+      operationId: 'get-pr-outcomes',
+      description:
+        'How many sessions produced PRs, which branches/PR numbers they attribute to, which needed mid-session ' +
+        'human steering, and what each attributed (repo, branch, PR number) group cost — for the app\'s dominant ' +
+        'repo. Deliberately NOT date-windowed: a PR\'s session set and cost include work that predates its merge. ' +
+        'Does not include merged/reverted/CI-green outcome rates — those require a Postgres join this attribution ' +
+        'set does not carry a trace id to make.',
+      responses: {
+        200: {
+          description: 'Session→PR attribution merged with per-group cost.',
+          content: {
+            'application/json': {
+              schema: PrOutcomesResponseSchema,
+            },
+          },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+      },
+    });
   });
 });

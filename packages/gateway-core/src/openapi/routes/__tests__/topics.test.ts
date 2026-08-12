@@ -9,7 +9,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AppContext } from '../_shared';
+import { errorResponse, entitlementRequiredResponse } from '../_shared';
 import type { TopicsList } from '@repo/api-schemas';
+import { TopicsQuerySchema, TopicsResponseSchema } from '@repo/api-schemas';
 
 const listTopics = vi.fn();
 const getGatewayTopicsService = vi.fn(() => ({ listTopics }));
@@ -186,5 +188,37 @@ describe('GetTopics', () => {
     expect(listTopics).not.toHaveBeenCalled();
     const call = (c.json as unknown as { mock: { calls: [unknown, number?][] } }).mock.calls[0]!;
     expect(call[1]).toBe(503);
+  });
+
+  it('declares the exact OpenAPI schema — tags, summary, operationId, request/response contracts', () => {
+    const route = new GetTopics(MOCK_ROUTE_OPTIONS);
+
+    expect(route.schema).toEqual({
+      tags: ['Topics'],
+      summary: 'Get topics',
+      operationId: 'get-topics',
+      description:
+        'Returns the active topic map for one facet (task, issues, or steering) — clusters of agent sessions sized by session count.\n\n' +
+        '`sessionCount`, `share`, and `trend` are LIVE — they include sessions the enrichment cron classified after the map was generated. ' +
+        '`avgLatencyMs`, `avgCostUsd`, and `errorRate` are snapshots computed at generation time (as of `generatedAt`) over the sampled member traces — they do not move as new sessions are classified.\n\n' +
+        '`trendDays` buckets are UTC.',
+      request: {
+        query: TopicsQuerySchema,
+      },
+      responses: {
+        200: {
+          description: 'The active topic map for the requested facet.',
+          content: {
+            'application/json': {
+              schema: TopicsResponseSchema,
+            },
+          },
+        },
+        401: errorResponse('Missing or invalid API key.'),
+        402: entitlementRequiredResponse(
+          "Tenant tier does not include the 'topics_enabled' feature.",
+        ),
+      },
+    });
   });
 });
