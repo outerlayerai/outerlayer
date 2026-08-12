@@ -72,7 +72,7 @@ vi.mock('../../routes/metrics', async (importOriginal) => {
   return { ...actual, compareWindows: (...args: unknown[]) => compareWindows(...(args as [])) };
 });
 
-import { findTool } from '../tools';
+import { findTool, MAX_SESSION_TOOL_OUTPUT_CHARS } from '../tools';
 import { daysAgo, today } from '../../routes/metrics';
 
 function buildContext(): AppContext {
@@ -107,6 +107,17 @@ describe('list_topics tool — ClickHouse host unconfigured', () => {
     await expect(tool.execute(c, { facet: 'issues', limit: 3 })).rejects.toThrow('ClickHouse host not configured');
     expect(listTopics).not.toHaveBeenCalled();
   });
+
+  it('looks up the ClickHouse client scoped to the resolved tenant/app, and wraps the result in { data }', async () => {
+    listTopics.mockResolvedValue({ topics: [{ topicId: 't1' }] });
+    const tool = findTool('list_topics')!;
+    const c = buildContext();
+
+    const result = await tool.execute(c, { facet: 'issues', limit: 3 });
+
+    expect(getGatewayTopicsService).toHaveBeenCalledWith(c.env, { tenantId: 'tenant-1', appId: 'app-1' });
+    expect(result).toEqual({ data: { topics: [{ topicId: 't1' }] } });
+  });
 });
 
 describe('list_sessions / get_session tools — ClickHouse host unconfigured', () => {
@@ -117,6 +128,27 @@ describe('list_sessions / get_session tools — ClickHouse host unconfigured', (
 
     await expect(tool.execute(c, { limit: 25, offset: 0 })).rejects.toThrow('ClickHouse host not configured');
     expect(listSessions).not.toHaveBeenCalled();
+  });
+
+  it('list_sessions looks up the ClickHouse client scoped to the caller tenant/app, and wraps the result in { data }', async () => {
+    listSessions.mockResolvedValue({ sessions: [{ traceId: 't1' }], total: 1 });
+    const tool = findTool('list_sessions')!;
+    const c = buildContext();
+
+    const result = await tool.execute(c, { limit: 25, offset: 0 });
+
+    expect(getGatewaySessionsService).toHaveBeenCalledWith(c.env, { tenantId: 'tenant-1', appId: 'app-1' });
+    expect(result).toEqual({ data: { sessions: [{ traceId: 't1' }], total: 1 } });
+  });
+
+  it('get_session looks up the ClickHouse client scoped to the caller tenant/app', async () => {
+    getSessionDetail.mockResolvedValue(null);
+    const tool = findTool('get_session')!;
+    const c = buildContext();
+
+    await tool.execute(c, { traceId: 't1' });
+
+    expect(getGatewaySessionsService).toHaveBeenCalledWith(c.env, { tenantId: 'tenant-1', appId: 'app-1' });
   });
 
   it('get_session throws ServiceUnavailableError, never calling getSessionDetail', async () => {
@@ -168,14 +200,48 @@ describe('get_session tool — output size cap', () => {
     expect(result.data.spans.length).toBeGreaterThan(0);
     expect(JSON.stringify({ data: result.data })).not.toMatch(/s49/);
   });
+
+  it('returns the body unmodified, not truncated, when the serialized size lands exactly on the cap', async () => {
+    const probe = { session: { traceId: 't1', pad: '' }, truncated: false, prOutcomes: [], spans: [] as unknown[] };
+    const baseLen = JSON.stringify({ data: probe }).length;
+    const detail = { ...probe, session: { ...probe.session, pad: 'x'.repeat(MAX_SESSION_TOOL_OUTPUT_CHARS - baseLen) } };
+    expect(JSON.stringify({ data: detail }).length).toBe(MAX_SESSION_TOOL_OUTPUT_CHARS);
+    getSessionDetail.mockResolvedValue(detail);
+    const tool = findTool('get_session')!;
+
+    const result = await tool.execute(buildContext(), { traceId: 't1' });
+
+    expect(result).toEqual({ data: detail });
+  });
+
+  it('stops popping once no spans remain, even if the body is still over the cap', async () => {
+    const detail = {
+      session: { traceId: 't1', pad: 'x'.repeat(MAX_SESSION_TOOL_OUTPUT_CHARS) },
+      truncated: false,
+      prOutcomes: [],
+      spans: [
+        { spanId: 's0', pad: 'y'.repeat(100) },
+        { spanId: 's1', pad: 'y'.repeat(100) },
+      ],
+    };
+    getSessionDetail.mockResolvedValue(detail);
+    const tool = findTool('get_session')!;
+
+    const result = await tool.execute(buildContext(), { traceId: 't1' });
+
+    expect(result).toEqual({
+      data: { ...detail, spans: [], truncated: true },
+      note: 'Output exceeded the MCP size cap and was truncated to the first spans. Fetch the full transcript via GET /v1/sessions/{traceId} over REST.',
+    });
+  });
 });
 
 describe('get_model_costs tool — default window', () => {
-  it('defaults both from and to when neither is provided', async () => {
-    getModelStats.mockResolvedValue([]);
+  it('defaults both from and to when neither is provided, and wraps the result in { data }', async () => {
+    getModelStats.mockResolvedValue({ models: [{ model: 'gpt-5' }] });
     const tool = findTool('get_model_costs')!;
 
-    await tool.execute(buildContext(), { limit: 10 } as never);
+    const result = await tool.execute(buildContext(), { limit: 10 } as never);
 
     expect(getModelStats).toHaveBeenCalledWith(
       { tenantId: 'tenant-1', appId: 'app-1' },
@@ -184,6 +250,7 @@ describe('get_model_costs tool — default window', () => {
       undefined,
       undefined,
     );
+    expect(result).toEqual({ data: { models: [{ model: 'gpt-5' }] } });
   });
 
   it('uses the caller-supplied from/to instead of the defaults when both are provided', async () => {
@@ -203,16 +270,17 @@ describe('get_model_costs tool — default window', () => {
 });
 
 describe('get_fleet_overview tool — default window', () => {
-  it('defaults both from and to (trailing 30 days) when neither is provided', async () => {
-    getAgentFleetOverview.mockResolvedValue({});
+  it('defaults both from and to (trailing 30 days) when neither is provided, and wraps the result in { data }', async () => {
+    getAgentFleetOverview.mockResolvedValue({ sessions: { current: 5, prior: 3 } });
     const tool = findTool('get_fleet_overview')!;
 
-    await tool.execute(buildContext(), {} as never);
+    const result = await tool.execute(buildContext(), {} as never);
 
     expect(getAgentFleetOverview).toHaveBeenCalledWith(
       { tenantId: 'tenant-1', appId: 'app-1' },
       { start: daysAgo(30), end: today() },
     );
+    expect(result).toEqual({ data: { sessions: { current: 5, prior: 3 } } });
   });
 
   it('uses the caller-supplied from/to instead of the defaults when both are provided', async () => {
@@ -257,11 +325,11 @@ describe('compare_windows tool', () => {
 });
 
 describe('get_breakdown tool — default window', () => {
-  it('defaults both from and to (trailing 30 days) and passes dimension/limit through', async () => {
-    getAgentFleetMetricsBreakdown.mockResolvedValue({ dimension: 'branch', items: [] });
+  it('defaults both from and to (trailing 30 days), passes dimension/limit through, and wraps the result in { data }', async () => {
+    getAgentFleetMetricsBreakdown.mockResolvedValue({ dimension: 'branch', items: [{ key: 'main' }] });
     const tool = findTool('get_breakdown')!;
 
-    await tool.execute(buildContext(), { dimension: 'branch', limit: 10 } as never);
+    const result = await tool.execute(buildContext(), { dimension: 'branch', limit: 10 } as never);
 
     expect(getAgentFleetMetricsBreakdown).toHaveBeenCalledWith(
       { tenantId: 'tenant-1', appId: 'app-1' },
@@ -269,6 +337,7 @@ describe('get_breakdown tool — default window', () => {
       'branch',
       10,
     );
+    expect(result).toEqual({ data: { dimension: 'branch', items: [{ key: 'main' }] } });
   });
 
   it('uses the caller-supplied from/to instead of the defaults when both are provided', async () => {
@@ -287,16 +356,17 @@ describe('get_breakdown tool — default window', () => {
 });
 
 describe('get_trends tool — default window', () => {
-  it('defaults both from and to (trailing 30 days) when neither is provided', async () => {
-    getAgentFleetDailyTrend.mockResolvedValue({ points: [] });
+  it('defaults both from and to (trailing 30 days) when neither is provided, and wraps the result in { data }', async () => {
+    getAgentFleetDailyTrend.mockResolvedValue({ points: [{ date: '2026-01-01', sessions: 1 }] });
     const tool = findTool('get_trends')!;
 
-    await tool.execute(buildContext(), {} as never);
+    const result = await tool.execute(buildContext(), {} as never);
 
     expect(getAgentFleetDailyTrend).toHaveBeenCalledWith(
       { tenantId: 'tenant-1', appId: 'app-1' },
       { start: daysAgo(30), end: today() },
     );
+    expect(result).toEqual({ data: { points: [{ date: '2026-01-01', sessions: 1 }] } });
   });
 });
 

@@ -60,9 +60,10 @@ const GetSessionInputSchema = z.object({
  * Output cap for `get_session`, on top of the SQL-layer span cap
  * (`MAX_SESSION_SPANS`). A pathological session's spans can still exceed 2000
  * rows' worth of tool I/O text; this keeps a single tool call from producing
- * an unusable multi-megabyte result for an MCP client.
+ * an unusable multi-megabyte result for an MCP client. Exported so tests can
+ * build a fixture that lands exactly on the boundary.
  */
-const MAX_SESSION_TOOL_OUTPUT_CHARS = 50_000;
+export const MAX_SESSION_TOOL_OUTPUT_CHARS = 50_000;
 
 /** One entry in {@link MCP_TOOLS}. `execute` returns the exact JSON body a
  * REST caller would receive at `{ data: ... }` — the dispatcher places it
