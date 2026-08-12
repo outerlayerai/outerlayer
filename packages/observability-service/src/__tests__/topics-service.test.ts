@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   TopicsService,
   TOPICS_QUERY_SETTINGS,
+  MAX_MAP_TOPICS,
   buildTopicsService,
   facetsEnvClause,
   minExtractorVersionForFacet,
@@ -45,15 +46,48 @@ function capturingClient(results: unknown[][]) {
 }
 
 describe('TopicsService.listTopics', () => {
-  test('defaults the map query to 20 rows and carries the caller\'s limit otherwise', async () => {
+  test('the map query fetches the safety cap, not the caller\'s limit — ranking happens after the fetch', async () => {
     const { client, calls } = capturingClient([[], [{ c: '0' }]]);
     await buildTopicsService(client, { modelEnv: {} }).listTopics(SCOPE, 'task');
-    expect(calls[0]!.query).toContain('LIMIT {limit:UInt32}');
-    expect(calls[0]!.query_params!['limit']).toBe(20);
+    expect(calls[0]!.query).toContain('LIMIT {mapRowsCap:UInt32}');
+    expect(calls[0]!.query_params!['mapRowsCap']).toBe(MAX_MAP_TOPICS);
 
     const { client: client2, calls: calls2 } = capturingClient([[], [{ c: '0' }]]);
     await buildTopicsService(client2, { modelEnv: {} }).listTopics(SCOPE, 'task', 5);
-    expect(calls2[0]!.query_params!['limit']).toBe(5);
+    // A tiny caller limit must not shrink the map fetch — session counts for
+    // every topic have to be known before ranking picks the top 5.
+    expect(calls2[0]!.query_params!['mapRowsCap']).toBe(MAX_MAP_TOPICS);
+  });
+
+  test('ranks all of a facet\'s topics by live session count before truncating to limit — TopicId order disagrees with count order here', async () => {
+    const mapRows = ['v1-a', 'v1-b', 'v1-c'].map((topicId) => ({
+      TopicId: topicId,
+      Name: topicId,
+      Description: '',
+      MapVersion: 1,
+      GeneratedAt: '2026-07-01 12:00:00.000',
+      AvgLatencyMs: 0,
+      AvgCostUsd: 0,
+      ErrorRate: 0,
+    }));
+    // TopicId-ascending order (a, b, c) disagrees with session-count order
+    // (c, b, a) — a `LIMIT 2` applied before counting would keep a+b and
+    // drop c, the highest-traffic topic.
+    const { client } = capturingClient([
+      mapRows,
+      [
+        { TopicId: 'v1-a', c: '1' },
+        { TopicId: 'v1-b', c: '2' },
+        { TopicId: 'v1-c', c: '100' },
+      ],
+      [{ c: '103' }],
+      [],
+      [{ c: '0' }],
+    ]);
+    const list = await new TopicsService(client, { modelEnv: {} }).listTopics(SCOPE, 'task', 2);
+    expect(list.topics).toHaveLength(2);
+    expect(list.topics.map((t) => t.topicId)).toEqual(['v1-c', 'v1-b']);
+    expect(list.topics.map((t) => t.sessionCount)).toEqual([100, 2]);
   });
 
   test('every emitted query carries the ClickHouse resource caps', async () => {

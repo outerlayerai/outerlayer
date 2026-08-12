@@ -46,6 +46,15 @@ import { generationFloorForFacet } from '@repo/api-schemas';
 /** Default rows returned per {@link TopicsService.listTopics} call. */
 const DEFAULT_TOPICS_LIMIT = 20;
 
+/** Safety cap on map rows fetched per generation, not a real limit — a map
+ * targets tens of topics by design (resolve_min_cluster_size in
+ * apps/topics-clustering/app/clustering.py keeps clusters at ~<=50-topic
+ * granularity even at its 50k-vector ceiling). The list route must rank ALL
+ * of a facet's topics by live session count before truncating to the
+ * caller's limit (see {@link TopicsService.listTopics}), so this can't be
+ * that limit — it exists only to bound a pathological map. */
+export const MAX_MAP_TOPICS = 1000;
+
 /** ClickHouse resource caps every lifted query in this module carries, on
  * top of {@link QUERY_TIMEOUT_SETTINGS} — bounds the blast radius of a
  * misbehaving query on the shared analytics cluster (see
@@ -338,9 +347,9 @@ export class TopicsService {
             AND IsDeleted = 0
         )
       ORDER BY TopicId
-      LIMIT {limit:UInt32}
+      LIMIT {mapRowsCap:UInt32}
       `,
-      { ...scopeParams(scope), facet, limit },
+      { ...scopeParams(scope), facet, mapRowsCap: MAX_MAP_TOPICS },
     );
 
     if (mapRows.length === 0) {
@@ -436,7 +445,8 @@ export class TopicsService {
           trend: trendByTopic.get(row.TopicId) ?? new Array(trendDays.length).fill(0),
         };
       })
-      .sort((a, b) => b.sessionCount - a.sessionCount || a.topicId.localeCompare(b.topicId));
+      .sort((a, b) => b.sessionCount - a.sessionCount || a.topicId.localeCompare(b.topicId))
+      .slice(0, limit);
 
     return {
       facet,
