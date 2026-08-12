@@ -106,7 +106,7 @@ class AgentSessionsService {
     const ch = createTenantReadClient({ tenantId: ctx.tenantId, appId: ctx.appId });
     if (!ch) throw new Error("ClickHouse not configured");
     const [policy] = await Promise.all([resolvePolicy(ctx)]);
-    const service = new ObservabilityAgentSessionsService(ch as unknown as IClickHouseQuery);
+    const service = new ObservabilityAgentSessionsService(ch as IClickHouseQuery);
     return service.getSessionDetail(
       { tenantId: ctx.tenantId, appId: ctx.appId },
       traceId,
@@ -119,7 +119,7 @@ class AgentSessionsService {
     const ch = createTenantReadClient({ tenantId: ctx.tenantId, appId: ctx.appId });
     if (!ch) throw new Error("ClickHouse not configured");
     const policy = await resolvePolicy(ctx);
-    const service = new ObservabilityAgentSessionsService(ch as unknown as IClickHouseQuery);
+    const service = new ObservabilityAgentSessionsService(ch as IClickHouseQuery);
 
     // `?pr=` filter: only sessions CONFIRMED-linked (via `pull_request_session`)
     // to this app's PR/MR number, resolved to trace ids HERE rather than
