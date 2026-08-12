@@ -84,8 +84,9 @@ export type GatewayEntitlement =
   // persistent-session routes in routes/workers.ts.
   | 'workers_enabled'
   | 'persistent_worker_environments'
-  // GET /v1/topics: same plan gate as the dashboard Topics feature, so
-  // headless access can't become a side door around a gate the UI enforces.
+  // GET /v1/topics: gates headless (REST/MCP) access only. The dashboard
+  // Topics UI renders for every tier regardless of this entitlement — there
+  // is no dashboard-side check on it yet.
   | 'topics_enabled';
 
 /**
