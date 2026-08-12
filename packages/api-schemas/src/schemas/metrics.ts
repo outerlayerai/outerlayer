@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { itemResponse } from "./common";
 import { TOPIC_FACETS } from "./topics";
+import { reasonableChDate } from "../validators";
 
 // ---------------------------------------------------------------------------
 // Request schemas
@@ -71,8 +72,8 @@ export type MetricsResponse = z.infer<typeof MetricsResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export const ModelStatsQuerySchema = z.object({
-  from: z.string().date().optional(),
-  to: z.string().date().optional(),
+  from: z.string().date().refine(...reasonableChDate).optional(),
+  to: z.string().date().refine(...reasonableChDate).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
 
@@ -96,8 +97,8 @@ export const ModelStatsResponseSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const FleetOverviewQuerySchema = z.object({
-  from: z.string().date().optional(),
-  to: z.string().date().optional(),
+  from: z.string().date().refine(...reasonableChDate).optional(),
+  to: z.string().date().refine(...reasonableChDate).optional(),
 });
 
 const FleetTileSchema = z.object({
@@ -137,10 +138,10 @@ export type FleetOverviewQuery = z.infer<typeof FleetOverviewQuerySchema>;
 // ---------------------------------------------------------------------------
 
 export const CompareWindowsQuerySchema = z.object({
-  aFrom: z.string().date(),
-  aTo: z.string().date(),
-  bFrom: z.string().date(),
-  bTo: z.string().date(),
+  aFrom: z.string().date().refine(...reasonableChDate),
+  aTo: z.string().date().refine(...reasonableChDate),
+  bFrom: z.string().date().refine(...reasonableChDate),
+  bTo: z.string().date().refine(...reasonableChDate),
   facet: z.enum(TOPIC_FACETS).default("issues"),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -202,8 +203,8 @@ export const METRICS_BREAKDOWN_DIMENSIONS = ['branch', 'agent_type', 'worker_kin
 
 export const MetricsBreakdownQuerySchema = z.object({
   dimension: z.enum(METRICS_BREAKDOWN_DIMENSIONS),
-  from: z.string().date().optional(),
-  to: z.string().date().optional(),
+  from: z.string().date().refine(...reasonableChDate).optional(),
+  to: z.string().date().refine(...reasonableChDate).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(10),
 });
 
@@ -229,8 +230,8 @@ export type MetricsBreakdownQuery = z.infer<typeof MetricsBreakdownQuerySchema>;
 // ---------------------------------------------------------------------------
 
 export const MetricsTrendsQuerySchema = z.object({
-  from: z.string().date().optional(),
-  to: z.string().date().optional(),
+  from: z.string().date().refine(...reasonableChDate).optional(),
+  to: z.string().date().refine(...reasonableChDate).optional(),
 });
 
 export const MetricsTrendPointSchema = z.object({

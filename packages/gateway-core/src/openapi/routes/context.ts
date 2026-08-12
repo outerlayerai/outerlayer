@@ -46,6 +46,21 @@ export async function listContextChanges(c: AppContext, query: ContextChangesQue
     .range(offset, offset + limit - 1);
 
   if (error) {
+    // PostgREST returns PGRST103 ("Requested range not satisfiable") when
+    // `offset` starts past the end of the result set — REST pagination
+    // convention is an empty page + the true total, not a 500. `count`
+    // comes back null on this error path, so recover the real total with a
+    // head-only re-query rather than reporting a wrong 0.
+    if ((error as { code?: string }).code === 'PGRST103') {
+      const { count: totalCount, error: countError } = await supabase
+        .from('context_snapshot')
+        .select('id', { count: 'exact', head: true })
+        .eq('app_id', String(user.appId));
+      if (countError) {
+        throw new Error(`context_snapshot count failed: ${countError.message}`);
+      }
+      return { snapshots: [], pagination: { total: totalCount ?? 0, limit, offset } };
+    }
     throw new Error(`context_snapshot list failed: ${error.message}`);
   }
 

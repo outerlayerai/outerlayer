@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import {
   METRICS_BREAKDOWN_DIMENSIONS,
+  ModelStatsQuerySchema,
+  FleetOverviewQuerySchema,
+  CompareWindowsQuerySchema,
   MetricsBreakdownQuerySchema,
   MetricsBreakdownResponseSchema,
   MetricsTrendsQuerySchema,
@@ -24,6 +27,15 @@ describe('MetricsBreakdownQuerySchema', () => {
     expect(MetricsBreakdownQuerySchema.parse({ dimension: 'tool' }).limit).toBe(10);
     expect(MetricsBreakdownQuerySchema.safeParse({ dimension: 'tool', limit: 51 }).success).toBe(false);
     expect(MetricsBreakdownQuerySchema.safeParse({ dimension: 'tool', limit: 50 }).success).toBe(true);
+  });
+
+  // A far-future `to` reaches ClickHouse's DateTime range and throws there
+  // instead of failing input validation — rejected here at the schema
+  // instead, the same way spans/scores' date filters already are.
+  test('rejects a from/to outside ClickHouse\'s representable date range', () => {
+    expect(MetricsBreakdownQuerySchema.safeParse({ dimension: 'tool', to: '4000-01-01' }).success).toBe(false);
+    expect(MetricsBreakdownQuerySchema.safeParse({ dimension: 'tool', from: '1900-01-01' }).success).toBe(false);
+    expect(MetricsBreakdownQuerySchema.safeParse({ dimension: 'tool', from: '2026-01-01', to: '2026-02-01' }).success).toBe(true);
   });
 });
 
@@ -57,6 +69,33 @@ describe('MetricsTrendsQuerySchema', () => {
 
   test('rejects a non-date from/to', () => {
     expect(MetricsTrendsQuerySchema.safeParse({ from: 'not-a-date' }).success).toBe(false);
+  });
+
+  test('rejects a from/to outside ClickHouse\'s representable date range', () => {
+    expect(MetricsTrendsQuerySchema.safeParse({ from: '2000-01-01', to: '4000-01-01' }).success).toBe(false);
+  });
+});
+
+describe('ModelStatsQuerySchema', () => {
+  test('rejects a from/to outside ClickHouse\'s representable date range', () => {
+    expect(ModelStatsQuerySchema.safeParse({ from: '2000-01-01', to: '4000-01-01' }).success).toBe(false);
+    expect(ModelStatsQuerySchema.safeParse({ from: '2026-01-01', to: '2026-01-07' }).success).toBe(true);
+  });
+});
+
+describe('FleetOverviewQuerySchema', () => {
+  test('rejects a from/to outside ClickHouse\'s representable date range', () => {
+    expect(FleetOverviewQuerySchema.safeParse({ from: '2000-01-01', to: '4000-01-01' }).success).toBe(false);
+    expect(FleetOverviewQuerySchema.safeParse({ from: '2026-01-01', to: '2026-01-31' }).success).toBe(true);
+  });
+});
+
+describe('CompareWindowsQuerySchema', () => {
+  test('rejects a from/to outside ClickHouse\'s representable date range on either window', () => {
+    const validWindow = { aFrom: '2026-01-01', aTo: '2026-01-07', bFrom: '2026-02-01', bTo: '2026-02-07' };
+    expect(CompareWindowsQuerySchema.safeParse(validWindow).success).toBe(true);
+    expect(CompareWindowsQuerySchema.safeParse({ ...validWindow, aFrom: '4000-01-01' }).success).toBe(false);
+    expect(CompareWindowsQuerySchema.safeParse({ ...validWindow, bTo: '4000-01-01' }).success).toBe(false);
   });
 });
 
