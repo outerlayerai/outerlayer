@@ -488,6 +488,82 @@ export interface AgentPrCostAttributionResponse {
   items: { repo: string; branch: string; prNumber: number; costUsd: number }[];
 }
 
+/**
+ * The dimensions `getAgentFleetMetricsBreakdown` ranks by. `branch` /
+ * `agent_type` / `worker_kind` delegate straight to
+ * `getAgentFleetDimensionBreakdown`; `model` ranks the same population
+ * `getAgentFleetOverview`'s model mix draws from; `tool` is the only
+ * dimension backed by `otel_traces` rather than `agent_session_summary` —
+ * see `buildAgentFleetToolBreakdownQuery`. Never an identity dimension
+ * (no `actor`) — the privacy constraint documented in
+ * `queries-agent-fleet.ts` forbids a per-actor breakdown anywhere in this
+ * package.
+ */
+export type MetricsBreakdownDimension = AgentFleetDimension | 'model' | 'tool';
+
+/**
+ * One ranked row. Fields are optional per-dimension so one shape covers all
+ * five: `branch`/`agent_type`/`worker_kind`/`model` carry `sessions` +
+ * `costUsd` + `toolErrorRate`; `tool` carries `requests` + `toolErrorRate`
+ * (a tool call has no session-level cost of its own to rank by).
+ */
+export interface MetricsBreakdownItem {
+  key: string;
+  sessions?: number;
+  costUsd?: number;
+  toolErrorRate?: number;
+  requests?: number;
+}
+
+export interface MetricsBreakdownResponse {
+  dimension: MetricsBreakdownDimension;
+  items: MetricsBreakdownItem[];
+}
+
+/**
+ * One day's fleet snapshot for `getAgentFleetDailyTrend` — sessions, spend,
+ * and quality (tool-error rate, clean-session rate) from ONE population
+ * (`agent_session_summary`), so a day's numbers never mix with the
+ * `otel_traces` GENERATION population `queries.ts`'s cost trend reads (see
+ * that file's header: the two tables "do not reconcile").
+ */
+export interface AgentFleetDailyTrendPoint {
+  date: string;
+  sessions: number;
+  costUsd: number;
+  toolErrorRate: number;
+  cleanSessionRate: number;
+}
+
+export interface AgentFleetDailyTrendResponse {
+  points: AgentFleetDailyTrendPoint[];
+}
+
+/**
+ * Session→PR attribution merged with per-group cost — how many sessions
+ * produced PRs, and what each one cost. `items` joins
+ * `AgentPrAttributionResponse.items` with `AgentPrCostAttributionResponse.items`
+ * on `(repo, branch, prNumber)`; a group absent from the cost set (no
+ * session had positive spend) reads `costUsd: 0`. Merged/reverted/CI-green
+ * outcome rates are NOT included — those require the Postgres `pull_request`
+ * join keyed by trace id (`fetchOutcomesForTraces`), which this
+ * dominant-repo attribution set does not carry a trace id to join against.
+ */
+export interface AgentPrOutcomesResponse {
+  branches: string[];
+  prNumbers: number[];
+  steeredPrNumbers: number[];
+  items: AgentPrOutcomesItem[];
+}
+
+export interface AgentPrOutcomesItem {
+  repo: string;
+  branch: string;
+  prNumber: number;
+  steered: boolean;
+  costUsd: number;
+}
+
 // ============================================================================
 // Traces Types
 // ============================================================================
@@ -1399,6 +1475,30 @@ export interface IAnalyticsService {
     ctx: TenantContext,
     options?: AgentFleetQueryOptions,
   ): Promise<AgentAutonomyLadderAttributionResponse>;
+
+  /**
+   * Cost/session/error ranking for one dimension — the unified read behind
+   * `GET /v1/metrics/breakdown` and the `get_breakdown` MCP tool. Optional
+   * for the same source-compatibility reason as `getAgentFleetOverview`.
+   */
+  getAgentFleetMetricsBreakdown?(
+    ctx: TenantContext,
+    dateRange: DateRange,
+    dimension: MetricsBreakdownDimension,
+    limit: number,
+    options?: AgentFleetQueryOptions,
+  ): Promise<MetricsBreakdownResponse>;
+
+  /**
+   * Daily sessions/cost/quality trend — the unified read behind
+   * `GET /v1/metrics/trends` and the `get_trends` MCP tool. Optional for the
+   * same reason as `getAgentFleetOverview`.
+   */
+  getAgentFleetDailyTrend?(
+    ctx: TenantContext,
+    dateRange: DateRange,
+    options?: AgentFleetQueryOptions,
+  ): Promise<AgentFleetDailyTrendResponse>;
 }
 
 export interface SpanKindBreakdownRecord {

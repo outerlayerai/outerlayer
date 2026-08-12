@@ -27,6 +27,9 @@ import {
   buildAgentFleetTilesQuery,
   buildAgentFleetModelMixQuery,
   buildAgentFleetDimensionQuery,
+  buildAgentFleetModelBreakdownQuery,
+  buildAgentFleetToolBreakdownQuery,
+  buildAgentFleetDailyTrendQuery,
   buildAgentFleetPercentileTrendQuery,
   buildAgentFleetAutonomyMixTrendQuery,
   buildAgentFleetActiveActorTrendQuery,
@@ -52,6 +55,9 @@ import type {
   AgentPrAttributionItem,
   AgentPrCostAttributionResponse,
   AgentAutonomyLadderAttributionResponse,
+  MetricsBreakdownDimension,
+  MetricsBreakdownResponse,
+  AgentFleetDailyTrendResponse,
 } from '../types';
 import type { TenantContext } from '../tenant-context';
 import { QUERY_TIMEOUT_SETTINGS, toNumber } from '../shared';
@@ -142,6 +148,20 @@ interface RawAutonomyLadderRow {
   prNumber: string | number;
   minLevel: string | number;
   classifiedSessions: string | number;
+}
+
+interface RawToolBreakdownRow {
+  dimensionValue: string;
+  requests: string | number;
+  errors: string | number;
+}
+
+interface RawDailyTrendRow {
+  date: string;
+  sessions: string | number;
+  costUsd: string | number;
+  toolErrorRate: string | number;
+  cleanSessionRate: string | number;
 }
 
 /** Minimum flagged delta before a cost anomaly surfaces — see the query header. */
@@ -301,6 +321,128 @@ export class AgentFleetService {
         sessions: toNumber(row.sessions),
         costUsd: toNumber(row.costUsd),
         toolErrorRate: toNumber(row.toolErrorRate),
+      })),
+    };
+  }
+
+  /**
+   * Cost/session/error ranking for one dimension — the unified read behind
+   * `GET /v1/metrics/breakdown`. `branch`/`agent_type`/`worker_kind` and
+   * `model` are `agent_session_summary` reads scoped to the resolved repo
+   * (like every other dimension query in this service); `tool` reads
+   * `otel_traces` scoped to tenant+app only (see
+   * `buildAgentFleetToolBreakdownQuery`) — the one dimension with no
+   * session-grain cost to rank by, so its items carry `requests` instead of
+   * `sessions`/`costUsd`.
+   */
+  async getAgentFleetMetricsBreakdown(
+    ctx: TenantContext,
+    dateRange: DateRange,
+    dimension: MetricsBreakdownDimension,
+    limit: number,
+    options?: AgentFleetQueryOptions,
+  ): Promise<MetricsBreakdownResponse> {
+    const { appId, tenantId } = ctx;
+    const endDate = isoToClickHouseDate(dateRange.end);
+
+    if (dimension === 'tool') {
+      const startDate = this.clampToRetention(ctx, isoToClickHouseDate(dateRange.start));
+      const q = buildAgentFleetToolBreakdownQuery({ appId, tenantId, startDate, endDate, limit });
+      const result = await this.client.query({
+        query: q.query,
+        query_params: q.params,
+        format: 'JSONEachRow',
+        clickhouse_settings: QUERY_TIMEOUT_SETTINGS,
+      });
+      const rows = await result.json<RawToolBreakdownRow>();
+      return {
+        dimension,
+        items: rows.map((row) => {
+          const requests = toNumber(row.requests);
+          const errors = toNumber(row.errors);
+          return {
+            key: row.dimensionValue,
+            requests,
+            toolErrorRate: requests > 0 ? errors / requests : 0,
+          };
+        }),
+      };
+    }
+
+    const { repo, scope } = await this.resolveScope(ctx, options);
+    const startDate = this.clampToRetention(ctx, isoToClickHouseDate(dateRange.start));
+
+    if (dimension === 'model') {
+      const q = buildAgentFleetModelBreakdownQuery({ appId, tenantId, repo, scope, startDate, endDate, limit });
+      const result = await this.client.query({
+        query: q.query,
+        query_params: q.params,
+        format: 'JSONEachRow',
+        clickhouse_settings: QUERY_TIMEOUT_SETTINGS,
+      });
+      const rows = await result.json<RawDimensionRow>();
+      return {
+        dimension,
+        items: rows.map((row) => ({
+          key: row.dimensionValue,
+          sessions: toNumber(row.sessions),
+          costUsd: toNumber(row.costUsd),
+          toolErrorRate: toNumber(row.toolErrorRate),
+        })),
+      };
+    }
+
+    const q = buildAgentFleetDimensionQuery({ appId, tenantId, repo, scope, dimension, startDate, endDate, limit });
+    const result = await this.client.query({
+      query: q.query,
+      query_params: q.params,
+      format: 'JSONEachRow',
+      clickhouse_settings: QUERY_TIMEOUT_SETTINGS,
+    });
+    const rows = await result.json<RawDimensionRow>();
+    return {
+      dimension,
+      items: rows.map((row) => ({
+        key: row.dimensionValue,
+        sessions: toNumber(row.sessions),
+        costUsd: toNumber(row.costUsd),
+        toolErrorRate: toNumber(row.toolErrorRate),
+      })),
+    };
+  }
+
+  /**
+   * Daily sessions/cost/tool-error-rate/clean-session-rate — the unified
+   * read behind `GET /v1/metrics/trends`. One `agent_session_summary` scan
+   * bucketed per day; see `buildAgentFleetDailyTrendQuery` for why this
+   * doesn't reuse `queries.ts`'s `otel_traces` cost trend.
+   */
+  async getAgentFleetDailyTrend(
+    ctx: TenantContext,
+    dateRange: DateRange,
+    options?: AgentFleetQueryOptions,
+  ): Promise<AgentFleetDailyTrendResponse> {
+    const { appId, tenantId } = ctx;
+    const { repo, scope } = await this.resolveScope(ctx, options);
+    const startDate = this.clampToRetention(ctx, isoToClickHouseDate(dateRange.start));
+    const endDate = isoToClickHouseDate(dateRange.end);
+
+    const q = buildAgentFleetDailyTrendQuery({ appId, tenantId, repo, scope, startDate, endDate });
+    const result = await this.client.query({
+      query: q.query,
+      query_params: q.params,
+      format: 'JSONEachRow',
+      clickhouse_settings: QUERY_TIMEOUT_SETTINGS,
+    });
+    const rows = await result.json<RawDailyTrendRow>();
+
+    return {
+      points: rows.map((row) => ({
+        date: row.date,
+        sessions: toNumber(row.sessions),
+        costUsd: toNumber(row.costUsd),
+        toolErrorRate: toNumber(row.toolErrorRate),
+        cleanSessionRate: toNumber(row.cleanSessionRate),
       })),
     };
   }
