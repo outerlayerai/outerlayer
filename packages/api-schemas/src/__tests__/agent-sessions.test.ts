@@ -12,6 +12,19 @@ describe('ListSessionsQuerySchema', () => {
     expect(result).toMatchObject({ limit: 25, offset: 0, sort: 'startedAt', dir: 'desc' });
   });
 
+  test('rejects a non-integer limit or offset', () => {
+    expect(ListSessionsQuerySchema.safeParse({ limit: '2.5' }).success).toBe(false);
+    expect(ListSessionsQuerySchema.safeParse({ offset: '3.1' }).success).toBe(false);
+    expect(ListSessionsQuerySchema.safeParse({ limit: '10', offset: '0' }).success).toBe(true);
+  });
+
+  test('requires topicId and topicFacet together, not one without the other', () => {
+    expect(ListSessionsQuerySchema.safeParse({}).success).toBe(true);
+    expect(ListSessionsQuerySchema.safeParse({ topicId: 'v1-c0', topicFacet: 'task' }).success).toBe(true);
+    expect(ListSessionsQuerySchema.safeParse({ topicId: 'v1-c0' }).success).toBe(false);
+    expect(ListSessionsQuerySchema.safeParse({ topicFacet: 'task' }).success).toBe(false);
+  });
+
   test('rejects an origin token outside the closed vocabulary', () => {
     expect(ListSessionsQuerySchema.safeParse({ origin: 'agent' }).success).toBe(true);
     expect(ListSessionsQuerySchema.safeParse({ origin: 'bogus' }).success).toBe(false);

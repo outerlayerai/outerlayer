@@ -30,8 +30,8 @@ export const SESSIONS_PAGE_SIZE = 25;
 export const MAX_SESSIONS_OFFSET = 10_000;
 
 export const ListSessionsQuerySchema = z.object({
-  limit: z.coerce.number().min(1).max(100).default(SESSIONS_PAGE_SIZE),
-  offset: z.coerce.number().min(0).max(MAX_SESSIONS_OFFSET).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(SESSIONS_PAGE_SIZE),
+  offset: z.coerce.number().int().min(0).max(MAX_SESSIONS_OFFSET).default(0),
   repo: z.string().optional(),
   branch: z.string().optional(),
   agentType: z.string().optional(),
@@ -66,6 +66,9 @@ export const ListSessionsQuerySchema = z.object({
    * in trace_facets) for the given facet. Set together; spans repos. */
   topicId: z.string().optional(),
   topicFacet: z.enum(['task', 'issues', 'steering']).optional(),
+}).refine((v) => (v.topicId === undefined) === (v.topicFacet === undefined), {
+  message: 'topicId and topicFacet must be set together',
+  path: ['topicFacet'],
 });
 
 export type ListSessionsQuery = z.infer<typeof ListSessionsQuerySchema>;

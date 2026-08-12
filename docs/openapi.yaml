@@ -5852,7 +5852,7 @@ paths:
             default: 25
             maximum: 100
             minimum: 1
-            type: "number"
+            type: "integer"
         - in: "query"
           name: "offset"
           required: false
@@ -5861,7 +5861,7 @@ paths:
             maximum: 10000
             minimum: 0
             nullable: true
-            type: "number"
+            type: "integer"
         - in: "query"
           name: "repo"
           required: false
