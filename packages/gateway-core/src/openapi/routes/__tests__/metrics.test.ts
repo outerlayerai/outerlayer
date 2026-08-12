@@ -1,6 +1,7 @@
 /**
  * Route-level tests for GET /v1/metrics/models, GET /v1/metrics/overview,
- * and GET /v1/metrics/compare.
+ * GET /v1/metrics/compare, GET /v1/metrics/breakdown, and
+ * GET /v1/metrics/trends.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -8,7 +9,14 @@ import type { AppContext } from '../_shared';
 
 const getModelStats = vi.fn();
 const getAgentFleetOverview = vi.fn();
-const getService = vi.fn(() => ({ getModelStats, getAgentFleetOverview }));
+const getAgentFleetMetricsBreakdown = vi.fn();
+const getAgentFleetDailyTrend = vi.fn();
+const getService = vi.fn(() => ({
+  getModelStats,
+  getAgentFleetOverview,
+  getAgentFleetMetricsBreakdown,
+  getAgentFleetDailyTrend,
+}));
 const resolveEnvScope = vi.fn();
 vi.mock('../_shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../_shared')>();
@@ -42,7 +50,7 @@ vi.mock('@repo/observability-service', async (importOriginal) => {
   };
 });
 
-import { GetModelStats, GetFleetOverview, GetMetricsCompare } from '../metrics';
+import { GetModelStats, GetFleetOverview, GetMetricsCompare, GetMetricsBreakdown, GetMetricsTrends } from '../metrics';
 
 const MOCK_ROUTE_OPTIONS = {
   router: { getRequest: () => ({}) },
@@ -288,5 +296,88 @@ describe('GetMetricsCompare', () => {
     const [body, status] = c.json.mock.calls[0]! as [{ error: { code: string } }, number];
     expect(status).toBe(503);
     expect(body.error.code).toBe('service_unavailable');
+  });
+});
+
+const BREAKDOWN_FIXTURE = {
+  dimension: 'branch',
+  items: [{ key: 'main', sessions: 8, costUsd: 12.5, toolErrorRate: 0.125 }],
+};
+
+describe('GetMetricsBreakdown', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAgentFleetMetricsBreakdown.mockResolvedValue(BREAKDOWN_FIXTURE);
+  });
+
+  it('passes dimension/limit through and returns the breakdown as-is', async () => {
+    const route = routeWithValidatedData(GetMetricsBreakdown, {
+      dimension: 'branch',
+      from: '2026-08-01',
+      to: '2026-08-07',
+      limit: 5,
+    });
+    const c = buildContext();
+
+    await route.handle(c);
+
+    expect(c.json).toHaveBeenCalledWith({ data: BREAKDOWN_FIXTURE });
+    expect(getAgentFleetMetricsBreakdown).toHaveBeenCalledWith(
+      { userId: '', tenantId: 'tenant-1', appId: 'app-1', dataRetentionDays: -1 },
+      { start: '2026-08-01', end: '2026-08-07' },
+      'branch',
+      5,
+    );
+  });
+
+  it('defaults to a trailing 30-day window when from/to are omitted', async () => {
+    const route = routeWithValidatedData(GetMetricsBreakdown, { dimension: 'tool', limit: 10 });
+    const c = buildContext();
+
+    await route.handle(c);
+
+    const [, dateRange] = getAgentFleetMetricsBreakdown.mock.calls[0]!;
+    const start = new Date(dateRange.start as string);
+    const end = new Date(dateRange.end as string);
+    const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+    expect(spanDays).toBe(30);
+  });
+});
+
+const TRENDS_FIXTURE = {
+  points: [{ date: '2026-08-01', sessions: 5, costUsd: 10.5, toolErrorRate: 0.1, cleanSessionRate: 0.8 }],
+};
+
+describe('GetMetricsTrends', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAgentFleetDailyTrend.mockResolvedValue(TRENDS_FIXTURE);
+  });
+
+  // proves AC-052-16
+  it('returns the daily trend points as-is', async () => {
+    const route = routeWithValidatedData(GetMetricsTrends, { from: '2026-08-01', to: '2026-08-07' });
+    const c = buildContext();
+
+    await route.handle(c);
+
+    expect(c.json).toHaveBeenCalledWith({ data: TRENDS_FIXTURE });
+    expect(getAgentFleetDailyTrend).toHaveBeenCalledWith(
+      { userId: '', tenantId: 'tenant-1', appId: 'app-1', dataRetentionDays: -1 },
+      { start: '2026-08-01', end: '2026-08-07' },
+    );
+  });
+
+  it('defaults to a trailing 30-day window when from/to are omitted', async () => {
+    const route = routeWithValidatedData(GetMetricsTrends, {});
+    const c = buildContext();
+
+    await route.handle(c);
+
+    const [, dateRange] = getAgentFleetDailyTrend.mock.calls[0]!;
+    const start = new Date(dateRange.start as string);
+    const end = new Date(dateRange.end as string);
+    const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+    expect(spanDays).toBe(30);
   });
 });

@@ -23,7 +23,8 @@ import { GetPricing } from './routes/pricing';
 import { GetOAuthProtectedResourceMetadata, GetAppScopedOAuthProtectedResourceMetadata } from './routes/oauth';
 import { OAUTH_PROTECTED_RESOURCE_METADATA_PATH } from '../lib/oauth-metadata';
 import { GetTopics } from './routes/topics';
-import { GetModelStats, GetFleetOverview, GetMetricsCompare } from './routes/metrics';
+import { GetModelStats, GetFleetOverview, GetMetricsCompare, GetMetricsBreakdown, GetMetricsTrends } from './routes/metrics';
+import { GetPrOutcomes } from './routes/prs';
 import { ListSessions, GetSessionDetail } from './routes/sessions';
 import { ListContextChanges } from './routes/context';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from './routes/api-keys';
@@ -788,6 +789,9 @@ registerAuthenticatedRoute('get', '/v1/topics', GetTopics, { entitlement: 'topic
 registerAuthenticatedRoute('get', '/v1/metrics/models', GetModelStats);
 registerAuthenticatedRoute('get', '/v1/metrics/overview', GetFleetOverview);
 registerAuthenticatedRoute('get', '/v1/metrics/compare', GetMetricsCompare, { entitlement: 'topics_enabled' });
+registerAuthenticatedRoute('get', '/v1/metrics/breakdown', GetMetricsBreakdown);
+registerAuthenticatedRoute('get', '/v1/metrics/trends', GetMetricsTrends);
+registerAuthenticatedRoute('get', '/v1/prs/outcomes', GetPrOutcomes);
 
 // ============================================================================
 // Context routes

@@ -4,6 +4,8 @@
  * `GET /v1/metrics/models` — per-model token spend and latency.
  * `GET /v1/metrics/overview` — fleet-wide behavior tiles, current vs prior period.
  * `GET /v1/metrics/compare` — fleet metrics + topic mix across two explicit windows.
+ * `GET /v1/metrics/breakdown` — cost/session/error ranking for one dimension.
+ * `GET /v1/metrics/trends` — daily sessions/cost/quality trend.
  */
 
 import {
@@ -21,8 +23,12 @@ import {
   FleetOverviewResponseSchema,
   CompareWindowsQuerySchema,
   CompareWindowsResponseSchema,
+  MetricsBreakdownQuerySchema,
+  MetricsBreakdownResponseSchema,
+  MetricsTrendsQuerySchema,
+  MetricsTrendsResponseSchema,
 } from '@repo/api-schemas';
-import type { CompareWindowsQuery } from '@repo/api-schemas';
+import type { CompareWindowsQuery, MetricsBreakdownQuery, MetricsTrendsQuery } from '@repo/api-schemas';
 import { BaseRoute, type AppContext, getService, buildTenantContext, errorResponse, entitlementRequiredResponse, resolveEnvScope } from './_shared';
 import { getGatewayChClient } from '../analytics-factory';
 import { resolveTopicsScope } from './topics';
@@ -244,6 +250,118 @@ export class GetMetricsCompare extends BaseRoute {
 
     try {
       const result = await compareWindows(c, query);
+      return c.json({ data: result });
+    } catch (error) {
+      console.error(`[${c.req.method} ${c.req.path}]`, error);
+      const mapped = mapClickHouseError(error);
+      return c.json(toErrorResponse(mapped), getErrorStatusCode(mapped) as 500);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/metrics/breakdown
+// ---------------------------------------------------------------------------
+
+/** Shared by the REST handler and the `get_breakdown` MCP tool. */
+export async function metricsBreakdown(c: AppContext, query: MetricsBreakdownQuery) {
+  const service = getService(c);
+  const ctx = buildTenantContext(c);
+  return service.getAgentFleetMetricsBreakdown(
+    ctx,
+    { start: query.from ?? daysAgo(30), end: query.to ?? today() },
+    query.dimension,
+    query.limit,
+  );
+}
+
+export class GetMetricsBreakdown extends BaseRoute {
+  static requiredPermission: GatewayPermission = 'metrics.read';
+  static rateLimit = RATE_LIMITS.observabilityRead;
+  schema = {
+    tags: ['Metrics'],
+    summary: 'Get a cost/session/error breakdown by dimension',
+    operationId: 'get-metrics-breakdown',
+    description:
+      'Ranks `branch`, `agent_type`, `worker_kind`, `model`, or `tool` by spend/volume for `from`..`to` ' +
+      '(UTC calendar dates, default trailing 30 days). `branch`/`agent_type`/`worker_kind`/`model` items carry ' +
+      '`sessions` + `costUsd` + `toolErrorRate`; `tool` items carry `requests` + `toolErrorRate` instead — a tool ' +
+      'call has no session-level cost of its own to rank by. Never breaks down by individual actor/developer.',
+    request: {
+      query: MetricsBreakdownQuerySchema,
+    },
+    responses: {
+      200: {
+        description: 'Ranked breakdown for the requested dimension and window.',
+        content: {
+          'application/json': {
+            schema: MetricsBreakdownResponseSchema,
+          },
+        },
+      },
+      401: errorResponse('Missing or invalid API key.'),
+    },
+  };
+
+  async handle(c: AppContext) {
+    const data = await this.getValidatedData();
+    const query = data.query as MetricsBreakdownQuery;
+
+    try {
+      const result = await metricsBreakdown(c, query);
+      return c.json({ data: result });
+    } catch (error) {
+      console.error(`[${c.req.method} ${c.req.path}]`, error);
+      const mapped = mapClickHouseError(error);
+      return c.json(toErrorResponse(mapped), getErrorStatusCode(mapped) as 500);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/metrics/trends
+// ---------------------------------------------------------------------------
+
+/** Shared by the REST handler and the `get_trends` MCP tool. */
+export async function metricsTrends(c: AppContext, query: MetricsTrendsQuery) {
+  const service = getService(c);
+  const ctx = buildTenantContext(c);
+  return service.getAgentFleetDailyTrend(ctx, { start: query.from ?? daysAgo(30), end: query.to ?? today() });
+}
+
+export class GetMetricsTrends extends BaseRoute {
+  static requiredPermission: GatewayPermission = 'metrics.read';
+  static rateLimit = RATE_LIMITS.observabilityRead;
+  schema = {
+    tags: ['Metrics'],
+    summary: 'Get the daily sessions/cost/quality trend',
+    operationId: 'get-metrics-trends',
+    description:
+      'Daily sessions, spend, tool-error rate, and clean-session rate for `from`..`to` (UTC calendar dates, ' +
+      'default trailing 30 days) — one point per day, from the SAME agent-session population as `/v1/metrics/overview` ' +
+      '(never blended with the per-LLM-call metered-cost population `/v1/metrics/models` reads).',
+    request: {
+      query: MetricsTrendsQuerySchema,
+    },
+    responses: {
+      200: {
+        description: 'Daily trend points for the requested window.',
+        content: {
+          'application/json': {
+            schema: MetricsTrendsResponseSchema,
+          },
+        },
+      },
+      401: errorResponse('Missing or invalid API key.'),
+    },
+  };
+
+  async handle(c: AppContext) {
+    const data = await this.getValidatedData();
+    const query = data.query as MetricsTrendsQuery;
+
+    try {
+      const result = await metricsTrends(c, query);
       return c.json({ data: result });
     } catch (error) {
       console.error(`[${c.req.method} ${c.req.path}]`, error);
