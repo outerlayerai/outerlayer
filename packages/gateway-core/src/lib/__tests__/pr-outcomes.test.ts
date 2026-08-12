@@ -90,6 +90,23 @@ describe('buildPrOutcomeReader', () => {
     expect(outcomeOf('trace-a')).toEqual([]);
   });
 
+  it('logs the thrown read error before degrading, rather than swallowing it silently', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const supabase = fakeSupabase({
+      pull_request_session: { data: null, error: { message: 'permission denied for table pull_request_session' } },
+    });
+    const chQuery: ChQueryFn = vi.fn(async () => []);
+
+    const reader = buildPrOutcomeReader(supabase as any, chQuery, SCOPE);
+    await reader.forSessions(['trace-a']);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[buildPrOutcomeReader] degrading to no outcomes',
+      expect.objectContaining({ message: expect.stringContaining('pull_request_session read failed') }),
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
   it('degrades to [] for every trace when the pull_request url read fails', async () => {
     const supabase = fakeSupabase({
       pull_request_session: { data: [{ trace_id: 'trace-a', pr_number: 7 }], error: null },

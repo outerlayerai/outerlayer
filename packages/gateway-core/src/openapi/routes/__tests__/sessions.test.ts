@@ -481,6 +481,37 @@ describe('resolveMembershipId (via sessionPolicy for a bearer caller)', () => {
 
     expect(firstEqCalls[0]).toEqual(['user_id', '']);
   });
+
+  it('logs a read error before degrading to the unresolved-membership sentinel, rather than swallowing it silently', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const erroringClient = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              single: async () => ({ data: null, error: { message: 'permission denied for table membership' } }),
+            }),
+          }),
+        }),
+      }),
+    };
+    getScopedSupabase.mockResolvedValue(erroringClient);
+    checkBearerPermission.mockResolvedValue(false);
+    const c = buildBearerContext({ gatewayUserId: 'user-42' });
+
+    const policy = await sessionPolicy(c);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[resolveMembershipId] degrading to unresolved membership',
+      expect.objectContaining({ message: 'permission denied for table membership' }),
+    );
+    expect(policy).toEqual({
+      kind: 'dashboard-member',
+      membershipId: 'unresolved-membership',
+      canSeeTeam: false,
+    });
+    consoleErrorSpy.mockRestore();
+  });
 });
 
 describe('buildActorNameResolver (via buildPorts)', () => {
@@ -585,6 +616,63 @@ describe('buildActorNameResolver (via buildPorts)', () => {
     const names = await ports.actorNames.resolve(['mem-1']);
 
     expect(names).toEqual({});
+  });
+
+  it('logs the membership read error before degrading to an empty map, rather than swallowing it silently', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const client = {
+      from: (table: string) => {
+        if (table === 'membership') {
+          return {
+            select: () => ({
+              eq: () => ({
+                in: async () => ({ data: null, error: { message: 'permission denied for table membership' } }),
+              }),
+            }),
+          };
+        }
+        throw new Error(`should not query ${table} once the membership read has errored`);
+      },
+    };
+    getScopedSupabase.mockResolvedValue(client);
+    const c = buildContext();
+
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
+    const names = await ports.actorNames.resolve(['mem-1']);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[buildActorNameResolver] degrading to unresolved names',
+      expect.objectContaining({ message: 'permission denied for table membership' }),
+    );
+    expect(names).toEqual({});
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('logs the profile read error before degrading to an empty map, rather than swallowing it silently', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const client = {
+      from: (table: string) => {
+        if (table === 'membership') {
+          return { select: () => ({ eq: () => ({ in: async () => ({ data: [{ id: 'mem-1', user_id: 'user-1' }], error: null }) }) }) };
+        }
+        if (table === 'profile') {
+          return { select: () => ({ in: async () => ({ data: null, error: { message: 'permission denied for table profile' } }) }) };
+        }
+        throw new Error(`unexpected table queried: ${table}`);
+      },
+    };
+    getScopedSupabase.mockResolvedValue(client);
+    const c = buildContext();
+
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: true });
+    const names = await ports.actorNames.resolve(['mem-1']);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[buildActorNameResolver] degrading to unresolved names',
+      expect.objectContaining({ message: 'permission denied for table profile' }),
+    );
+    expect(names).toEqual({});
+    consoleErrorSpy.mockRestore();
   });
 });
 

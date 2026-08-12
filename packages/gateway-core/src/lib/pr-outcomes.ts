@@ -65,7 +65,9 @@ function linksReader(supabase: SupabaseClient<any>): PrOutcomeLinksReader {
  * Builds the `PrOutcomeReader` port `AgentSessionsService` calls. A read
  * failure degrades to "no outcomes" for every trace rather than failing the
  * whole session read — the Outcome column/strip just doesn't render, same as
- * the dashboard's behavior.
+ * the dashboard's behavior. The error is logged before degrading: a silent
+ * swallow here is indistinguishable from "this session genuinely has no PR
+ * outcomes", which is exactly what hid the missing gateway-role grants.
  */
 export function buildPrOutcomeReader(
   supabase: SupabaseClient<any>,
@@ -79,7 +81,10 @@ export function buildPrOutcomeReader(
         tenantId: scope.tenantId,
         appId: scope.appId,
         traceIds,
-      }).catch(() => new Map<string, SessionPrOutcome[]>());
+      }).catch((error: unknown) => {
+        console.error('[buildPrOutcomeReader] degrading to no outcomes', error);
+        return new Map<string, SessionPrOutcome[]>();
+      });
       return (traceId: string) => byTrace.get(traceId) ?? [];
     },
   };

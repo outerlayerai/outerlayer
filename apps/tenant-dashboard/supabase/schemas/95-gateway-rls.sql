@@ -291,6 +291,54 @@ CREATE POLICY "gateway_tenant_read_context_snapshot" ON public.context_snapshot
     USING (tenant_id = public.tenant_id());
 
 -- -----------------------------------------------------------------------------
+-- PR outcomes + actor names (public.membership, public.profile,
+-- public.pull_request, public.pull_request_session) — read-only, for the
+-- `prOutcomes` and `actorNames` ports an API-key caller's session reads build
+-- (packages/gateway-core/src/lib/pr-outcomes.ts,
+-- packages/gateway-core/src/openapi/routes/sessions.ts). Without these, every
+-- query under the `gateway` role fails RLS and the caller silently gets
+-- "no PR outcome" / "no actor name" for every session — permission
+-- enforcement (session.read) happens at the Hono middleware layer, matching
+-- every other table in this file.
+-- -----------------------------------------------------------------------------
+GRANT SELECT ON public.membership TO gateway;
+
+CREATE POLICY "gateway_tenant_read_membership" ON public.membership
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+-- profile carries no tenant_id (a user can belong to multiple tenants), so
+-- gateway scoping mirrors the "Users can read profiles" policy in
+-- 12-rbac.sql: readable rows are exactly the active members of the caller's
+-- tenant, via a membership join, rather than the self-row branch that
+-- policy also has (the gateway role has no `auth.uid()` — it acts for a
+-- tenant, not a signed-in user).
+GRANT SELECT ON public.profile TO gateway;
+
+CREATE POLICY "gateway_tenant_read_profile" ON public.profile
+    FOR SELECT TO gateway
+    USING (
+      id IN (
+        SELECT m.user_id
+        FROM public.membership m
+        WHERE m.tenant_id = public.tenant_id()
+          AND (m.status)::text = 'active'::text
+      )
+    );
+
+GRANT SELECT ON public.pull_request TO gateway;
+
+CREATE POLICY "gateway_tenant_read_pull_request" ON public.pull_request
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+GRANT SELECT ON public.pull_request_session TO gateway;
+
+CREATE POLICY "gateway_tenant_read_pull_request_session" ON public.pull_request_session
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+-- -----------------------------------------------------------------------------
 -- Storage policy for gateway: intentionally omitted
 -- -----------------------------------------------------------------------------
 -- An earlier iteration defined `gateway_tenant_read_template_bucket` on

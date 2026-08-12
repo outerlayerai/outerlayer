@@ -50,12 +50,16 @@ const UNRESOLVED_MEMBERSHIP_SENTINEL = 'unresolved-membership';
 async function resolveMembershipId(c: AppContext): Promise<string | null> {
   const user = c.get('user');
   const supabase = await getScopedSupabase(c);
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('membership')
     .select('id')
     .eq('user_id', user.gatewayUserId ?? '')
     .eq('tenant_id', user.tenantId)
     .single();
+  if (error) {
+    console.error('[resolveMembershipId] degrading to unresolved membership', error);
+    return null;
+  }
   return data?.id ?? null;
 }
 
@@ -107,15 +111,26 @@ function buildActorNameResolver(c: AppContext): ActorNameResolver {
 
       const user = c.get('user');
       const supabase = await getScopedSupabase(c);
-      const { data: memberships } = await supabase
+      const { data: memberships, error: membershipError } = await supabase
         .from('membership')
         .select('id, user_id')
         .eq('tenant_id', user.tenantId)
         .in('id', membershipIds);
+      if (membershipError) {
+        console.error('[buildActorNameResolver] degrading to unresolved names', membershipError);
+        return out;
+      }
       const userIds = (memberships ?? []).map((m) => m.user_id).filter((id): id is string => Boolean(id));
       if (userIds.length === 0) return out;
 
-      const { data: profiles } = await supabase.from('profile').select('id, name, email').in('id', userIds);
+      const { data: profiles, error: profileError } = await supabase
+        .from('profile')
+        .select('id, name, email')
+        .in('id', userIds);
+      if (profileError) {
+        console.error('[buildActorNameResolver] degrading to unresolved names', profileError);
+        return out;
+      }
       const nameByUser = new Map((profiles ?? []).map((p) => [p.id, p.name || p.email]));
       for (const m of memberships ?? []) {
         const name = m.user_id ? nameByUser.get(m.user_id) : undefined;
