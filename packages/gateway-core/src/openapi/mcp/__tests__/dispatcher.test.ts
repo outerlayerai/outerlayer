@@ -278,6 +278,24 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
   });
 
+  it('runs the guards in permission → entitlement → rate-limit order', async () => {
+    const order: string[] = [];
+    enforcePermission.mockImplementation(() => async () => {
+      order.push('permission');
+    });
+    enforceEntitlement.mockImplementation(() => async () => {
+      order.push('entitlement');
+    });
+    enforceRateLimit.mockImplementation(() => async () => {
+      order.push('rateLimit');
+    });
+    const c = buildContext({ jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+
+    await handleMcpRequest(c);
+
+    expect(order).toEqual(['permission', 'entitlement', 'rateLimit']);
+  });
+
   it('a rate-limited tool call is a JSON-RPC error', async () => {
     enforceRateLimit.mockImplementation(denyWith({ error: { code: 'rate_limited', message: 'slow down' } }, 429));
     const c = buildContext({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
