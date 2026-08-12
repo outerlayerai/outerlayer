@@ -6,6 +6,7 @@
 
 import { z, BaseRoute, type AppContext } from './_shared';
 import { getRegisteredRoutePaths } from '../../lib/permissions';
+import { requestOrigin } from '../../lib/oauth-metadata';
 
 // ---------------------------------------------------------------------------
 // GET /v1/capabilities
@@ -74,8 +75,7 @@ export class GetCapabilities extends BaseRoute {
   };
 
   async handle(c: AppContext) {
-    const url = new URL(c.req.url);
-    const baseUrl = `${url.protocol}//${url.host}`;
+    const baseUrl = requestOrigin(c.req);
     const derived = deriveRouteCapabilities();
 
     return c.json({

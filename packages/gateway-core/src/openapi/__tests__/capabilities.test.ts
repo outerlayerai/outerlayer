@@ -37,11 +37,14 @@ interface CapturedResponse {
   status: number;
 }
 
-function createMockContext(): { ctx: AppContext; getResponse: () => CapturedResponse } {
+function createMockContext(
+  url = 'https://gateway.example.com/v1/capabilities',
+  headers: Record<string, string> = {},
+): { ctx: AppContext; getResponse: () => CapturedResponse } {
   let captured: CapturedResponse = { body: undefined, status: 200 };
 
   const ctx = {
-    req: { url: 'https://gateway.example.com/v1/capabilities' },
+    req: { url, header: vi.fn((name: string) => headers[name]) },
     json: vi.fn((body: unknown, status?: number) => {
       captured = { body, status: status ?? 200 };
       return new Response(JSON.stringify(body), { status: status ?? 200 });
@@ -169,6 +172,20 @@ describe('GetCapabilities handler', () => {
         topics: false,
       },
     });
+  });
+
+  it('reports the https origin behind a TLS-terminating proxy that hands this process a plain-http request URL', async () => {
+    mockGetRegisteredRoutePaths.mockReturnValue([]);
+
+    const route = createRouteInstance();
+    const { ctx, getResponse } = createMockContext('http://gateway.example.com/v1/capabilities', {
+      'X-Forwarded-Proto': 'https',
+    });
+
+    await route.handle(ctx);
+
+    const { body } = getResponse() as { body: { url: string } };
+    expect(body.url).toBe('https://gateway.example.com');
   });
 });
 

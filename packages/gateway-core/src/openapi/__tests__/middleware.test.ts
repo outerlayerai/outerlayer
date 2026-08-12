@@ -1078,6 +1078,36 @@ describe('authMiddleware', () => {
       expect(next).not.toHaveBeenCalled();
       // Auth was rejected before c.set('user', ...) ever ran — a forged
       // header can't influence scope because there is no resolved identity
+      // to influence.
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+
+    it('the WWW-Authenticate resource_metadata URL is https behind a TLS-terminating proxy that sends X-Forwarded-Proto: https', async () => {
+      seedGatewaySupabaseMswState({
+        verifyApiKeyResult: validUserMeta({ appId: 'app-real', tenantId: 'tenant-real' }),
+      });
+
+      const { c, next, jsonSpy, setSpy } = createMockHonoContext({
+        headers: {
+          Authorization: 'sk_outerlayer_mcp_key',
+          'X-Outerlayer-App-Id': 'app-forged',
+          'X-Forwarded-Proto': 'https',
+        },
+        method: 'POST',
+        path: '/v1/mcp',
+        routePath: '/v1/*',
+      });
+
+      await authMiddleware(c, next);
+
+      expect(jsonSpy).toHaveBeenCalledWith(
+        { error: { code: 'unauthorized', message: 'Not authorized' } },
+        401,
+        { 'WWW-Authenticate': 'Bearer resource_metadata="https://localhost/.well-known/oauth-protected-resource"' },
+      );
+      expect(next).not.toHaveBeenCalled();
+      // Auth was rejected before c.set('user', ...) ever ran — a forged
+      // header can't influence scope because there is no resolved identity
       // for it to influence.
       expect(setSpy).not.toHaveBeenCalled();
     });

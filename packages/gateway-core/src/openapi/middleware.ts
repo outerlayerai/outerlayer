@@ -9,6 +9,7 @@ import { memory } from '../cache-store';
 import {
   buildOAuthProtectedResourceMetadataUrl,
   buildAppScopedOAuthProtectedResourceMetadataUrl,
+  requestOrigin,
 } from '../lib/oauth-metadata';
 
 /** How the caller authenticated. Used by downstream helpers that pick the
@@ -153,7 +154,7 @@ function jsonAuthError(
   appScopedMcpAppId: string | null = null,
 ): Response {
   if (!mcpRoute || status !== 401) return c.json(body, status);
-  const origin = new URL(c.req.url).origin;
+  const origin = requestOrigin(c.req);
   const resourceMetadataUrl =
     appScopedMcpAppId !== null
       ? buildAppScopedOAuthProtectedResourceMetadataUrl(origin, appScopedMcpAppId)

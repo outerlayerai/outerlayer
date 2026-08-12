@@ -10,6 +10,7 @@
  */
 
 import { z, BaseRoute, type AppContext } from './_shared';
+import { requestOrigin } from '../../lib/oauth-metadata';
 
 const OAuthProtectedResourceMetadataSchema = z.object({
   resource: z.string(),
@@ -38,7 +39,7 @@ export class GetOAuthProtectedResourceMetadata extends BaseRoute {
   };
 
   async handle(c: AppContext) {
-    const origin = new URL(c.req.url).origin;
+    const origin = requestOrigin(c.req);
     return c.json(
       {
         resource: `${origin}/v1/mcp`,
@@ -86,7 +87,7 @@ export class GetAppScopedOAuthProtectedResourceMetadata extends BaseRoute {
   async handle(c: AppContext) {
     const data = await this.getValidatedData();
     const { appId } = data.params as { appId: string };
-    const origin = new URL(c.req.url).origin;
+    const origin = requestOrigin(c.req);
     return c.json(
       {
         resource: `${origin}/v1/apps/${appId}/mcp`,

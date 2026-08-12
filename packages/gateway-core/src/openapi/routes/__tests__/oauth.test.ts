@@ -14,9 +14,14 @@ const MOCK_ROUTE_OPTIONS = {
   urlParams: [],
 };
 
-function buildContext(url: string, supabaseApiBaseUrl: string): AppContext {
+function buildContext(url: string, supabaseApiBaseUrl: string, headers: Record<string, string> = {}): AppContext {
   return {
-    req: { method: 'GET', path: '/.well-known/oauth-protected-resource', url },
+    req: {
+      method: 'GET',
+      path: '/.well-known/oauth-protected-resource',
+      url,
+      header: vi.fn((name: string) => headers[name]),
+    },
     env: { SUPABASE_API_BASE_URL: supabaseApiBaseUrl },
     json: vi.fn((body: unknown, status?: number) => ({ body, status })),
   } as unknown as AppContext;
@@ -58,6 +63,17 @@ describe('GetOAuthProtectedResourceMetadata', () => {
     const result = (await route.handle(c)) as unknown as { body: { authorization_servers: string[] } };
 
     expect(result.body.authorization_servers).toEqual(['https://another-project.supabase.co']);
+  });
+
+  it('honors X-Forwarded-Proto: https behind a TLS-terminating proxy that hands this process a plain-http request URL', async () => {
+    const route = new GetOAuthProtectedResourceMetadata(MOCK_ROUTE_OPTIONS);
+    const c = buildContext('http://gw.example.com/.well-known/oauth-protected-resource', 'https://proj.supabase.co', {
+      'X-Forwarded-Proto': 'https',
+    });
+
+    const result = (await route.handle(c)) as unknown as { body: { resource: string } };
+
+    expect(result.body.resource).toBe('https://gw.example.com/v1/mcp');
   });
 });
 
@@ -112,5 +128,18 @@ describe('GetAppScopedOAuthProtectedResourceMetadata', () => {
     const result = (await route.handle(c)) as unknown as { body: { authorization_servers: string[] } };
 
     expect(result.body.authorization_servers).toEqual(['https://another-project.supabase.co']);
+  });
+
+  it('honors X-Forwarded-Proto: https behind a TLS-terminating proxy that hands this process a plain-http request URL', async () => {
+    const route = appScopedRoute({ appId: 'app-123' });
+    const c = buildContext(
+      'http://gw.example.com/.well-known/oauth-protected-resource/v1/apps/app-123/mcp',
+      'https://proj.supabase.co',
+      { 'X-Forwarded-Proto': 'https' },
+    );
+
+    const result = (await route.handle(c)) as unknown as { body: { resource: string } };
+
+    expect(result.body.resource).toBe('https://gw.example.com/v1/apps/app-123/mcp');
   });
 });
