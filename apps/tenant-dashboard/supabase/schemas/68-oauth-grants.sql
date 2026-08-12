@@ -12,6 +12,13 @@
 -- oauth_consents. An already-issued access token stays valid for up to its
 -- remaining lifetime (≤1h) regardless — there is no server-side access-token
 -- revocation list.
+--
+-- Both functions stay callable by a connector (OAuth) token — the
+-- confinement in 98a-connector-token-confinement.sql narrows table access,
+-- not RPC execution. That's safe here: `auth.uid()` scopes both to the
+-- caller's own grants, so a connector token can only list or revoke
+-- sessions belonging to the same user who approved it, including its own
+-- session — self-revocation via the connector is intended, not a gap.
 
 CREATE OR REPLACE FUNCTION public.list_current_user_oauth_grants()
  RETURNS TABLE (
@@ -20,7 +27,7 @@ CREATE OR REPLACE FUNCTION public.list_current_user_oauth_grants()
    client_name text,
    scopes text,
    created_at timestamptz,
-   refreshed_at timestamp
+   refreshed_at timestamptz
  )
  LANGUAGE sql
  STABLE SECURITY DEFINER

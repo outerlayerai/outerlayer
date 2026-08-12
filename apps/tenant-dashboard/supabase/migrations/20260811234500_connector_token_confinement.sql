@@ -61,4 +61,34 @@ CREATE POLICY connector_token_confinement ON public.worker_run_event            
 CREATE POLICY connector_token_confinement ON public.worker_workspace              AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 CREATE POLICY connector_token_confinement ON public.ai_cost_config                AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 
+-- SELECT-exempt tables above still deny writes: a connector token reads
+-- membership/profile/environment/context_snapshot/pull_request/
+-- pull_request_session under ordinary RLS (see the exemption note above),
+-- but FOR ALL can't be split into "SELECT permissive, everything else
+-- restrictive" in one policy — a RESTRICTIVE USING clause governs SELECT
+-- too. Three narrower policies per table cover INSERT/UPDATE/DELETE only.
+CREATE POLICY connector_token_write_confinement ON public.membership              AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.membership             AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.membership             AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.profile                 AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.profile                AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.profile                AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.environment             AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.environment            AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.environment            AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.context_snapshot        AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.context_snapshot       AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.context_snapshot       AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.pull_request            AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.pull_request           AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.pull_request           AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.pull_request_session    AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.pull_request_session   AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.pull_request_session   AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
 COMMIT;

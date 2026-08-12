@@ -30,13 +30,16 @@
 --   that clean rebuild. An explicit list has no such dependency: it matches
 --   whatever `db diff` builds, in any environment, always.
 --
--- Exemptions — tables a connector token still needs, because the gateway's
---   own MCP tool handlers read them via the caller's forwarded JWT
+-- Exemptions — tables a connector token still needs to READ, because the
+--   gateway's own MCP tool handlers read them via the caller's forwarded JWT
 --   (`getScopedSupabase` in packages/gateway-core/src/openapi/routes/
 --   _shared.ts, bearer branch). Each is already gated by the SAME RLS an
 --   ordinary signed-in dashboard user faces for that table — a leaked
---   connector token gains no access beyond what ties directly to the
---   MCP surface the user already approved:
+--   connector token gains no read access beyond what ties directly to the
+--   MCP surface the user already approved. No MCP tool handler writes to any
+--   of these tables, so the exemption is SELECT-only: a separate RESTRICTIVE
+--   block below denies INSERT/UPDATE/DELETE from a connector token on all
+--   six, same as every other table in this file:
 --     * membership         — resolveMembershipId / buildActorNameResolver
 --                             (sessions.ts): the caller's own membership
 --                             row, or teammates' rows gated by the
@@ -60,7 +63,10 @@
 --                             keeps that logic in one place.
 --   Every other table a connector token could reach today — billing,
 --   api_key, tenant, sso_config, audit_log, custom_role, and the rest —
---   is fully confined: a connector token gets zero rows.
+--   is fully confined: a connector token gets zero rows. A connector token
+--   gains nothing beyond the MCP read surface: on the six exempted tables it
+--   reads under the same RLS a signed-in user faces, and on every table
+--   (exempted or not) it cannot INSERT, UPDATE, or DELETE a single row.
 --
 -- Keeping this list in sync: adding a new `GRANT ... TO authenticated` in
 --   any schema file needs a matching line here (or a documented addition to
@@ -108,3 +114,33 @@ CREATE POLICY connector_token_confinement ON public.worker_run                  
 CREATE POLICY connector_token_confinement ON public.worker_run_event              AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 CREATE POLICY connector_token_confinement ON public.worker_workspace              AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
 CREATE POLICY connector_token_confinement ON public.ai_cost_config                AS RESTRICTIVE FOR ALL TO authenticated USING (NOT private.is_connector_token());
+
+-- SELECT-exempt tables above still deny writes: a connector token reads
+-- membership/profile/environment/context_snapshot/pull_request/
+-- pull_request_session under ordinary RLS (see the exemption note above),
+-- but FOR ALL can't be split into "SELECT permissive, everything else
+-- restrictive" in one policy — a RESTRICTIVE USING clause governs SELECT
+-- too. Three narrower policies per table cover INSERT/UPDATE/DELETE only.
+CREATE POLICY connector_token_write_confinement ON public.membership              AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.membership             AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.membership             AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.profile                 AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.profile                AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.profile                AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.environment             AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.environment            AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.environment            AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.context_snapshot        AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.context_snapshot       AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.context_snapshot       AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.pull_request            AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.pull_request           AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.pull_request           AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());
+
+CREATE POLICY connector_token_write_confinement ON public.pull_request_session    AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_update_confinement ON public.pull_request_session   AS RESTRICTIVE FOR UPDATE TO authenticated USING (NOT private.is_connector_token()) WITH CHECK (NOT private.is_connector_token());
+CREATE POLICY connector_token_delete_confinement ON public.pull_request_session   AS RESTRICTIVE FOR DELETE TO authenticated USING (NOT private.is_connector_token());

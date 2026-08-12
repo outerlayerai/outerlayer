@@ -14,7 +14,7 @@ CREATE OR REPLACE FUNCTION public.list_current_user_oauth_grants()
    client_name text,
    scopes text,
    created_at timestamptz,
-   refreshed_at timestamp
+   refreshed_at timestamptz
  )
  LANGUAGE sql
  STABLE SECURITY DEFINER
