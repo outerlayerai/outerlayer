@@ -1,8 +1,9 @@
 /**
  * Preset-role authorization on the headless read surface.
  *
- * The five read endpoints are reachable with an API key, so the preset a user
- * picks in the key-creation UI is the whole authorization story for them. Two
+ * Every read endpoint below is reachable with an API key, so the preset a
+ * user picks in the key-creation UI is the whole authorization story for
+ * them. Two
  * presets bracket the surface: `sdk` (ingest-only — `trace.write`/`score.write`)
  * must be refused everywhere, and `read-only` must succeed everywhere. The
  * failure this pins is a route registered without a `requiredPermission`, or
@@ -37,13 +38,18 @@ const TRACE_ID = `${RUN_HEX}${'0'.repeat(32 - RUN_HEX.length)}`;
 const SPAN_ID = `${RUN_HEX}${'0'.repeat(16 - RUN_HEX.length)}`;
 const SESSION_ID = `preset-perms-${RUN_ID}`;
 
-/** The five endpoints this feature adds, with the permission each demands. */
+/** The headless read endpoints this feature adds, with the permission each demands. */
 const READ_ENDPOINTS = [
   { path: '/v1/topics?facet=issues&limit=3', permission: 'metrics.read' },
   { path: '/v1/sessions?limit=5', permission: 'session.read' },
   { path: `/v1/sessions/${TRACE_ID}`, permission: 'session.read' },
   { path: '/v1/metrics/models', permission: 'metrics.read' },
   { path: '/v1/metrics/overview', permission: 'metrics.read' },
+  { path: '/v1/metrics/compare?aFrom=2026-01-01&aTo=2026-01-07&bFrom=2026-01-08&bTo=2026-01-14', permission: 'metrics.read' },
+  { path: '/v1/metrics/breakdown?dimension=model', permission: 'metrics.read' },
+  { path: '/v1/metrics/trends', permission: 'metrics.read' },
+  { path: '/v1/prs/outcomes', permission: 'metrics.read' },
+  { path: '/v1/context/changes', permission: 'metrics.read' },
 ] as const;
 
 const mintedKeyNames: string[] = [];
