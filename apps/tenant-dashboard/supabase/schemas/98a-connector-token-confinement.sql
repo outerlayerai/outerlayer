@@ -65,7 +65,7 @@
 -- Keeping this list in sync: adding a new `GRANT ... TO authenticated` in
 --   any schema file needs a matching line here (or a documented addition to
 --   the exemption list above) — `db diff` catches an omission as drift
---   (the fresh table would have no RESTRICTIVE policy, same as any other
+--   (the fresh table would have no RESTRICTIVE policy, the way any other
 --   missed policy would show up as an unexpected grant/policy diff).
 --
 -- Dependencies: 01a-private-authz.sql (private.is_connector_token), every

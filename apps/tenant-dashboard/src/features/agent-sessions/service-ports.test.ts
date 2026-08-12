@@ -112,21 +112,21 @@ describe("resolvePolicy", () => {
   it("resolves team scope to the exact fixed dashboard-member/canSeeTeam policy", async () => {
     mockScope.value = { kind: "team" };
     await agentSessionsService.getSessionDetail(ctx(), "trace-1");
-    const policy = mockGetSessionDetail.mock.calls[0]![2] as unknown as SessionAccessPolicy;
+    const policy = mockGetSessionDetail.mock.calls[0]![2] as SessionAccessPolicy;
     expect(policy).toEqual({ kind: "dashboard-member", membershipId: "", canSeeTeam: true });
   });
 
   it("resolves self scope to the caller's membershipId with canSeeTeam false", async () => {
     mockScope.value = { kind: "self", actorId: "membership-1" };
     await agentSessionsService.getSessionDetail(ctx(), "trace-1");
-    const policy = mockGetSessionDetail.mock.calls[0]![2] as unknown as SessionAccessPolicy;
+    const policy = mockGetSessionDetail.mock.calls[0]![2] as SessionAccessPolicy;
     expect(policy).toEqual({ kind: "dashboard-member", membershipId: "membership-1", canSeeTeam: false });
   });
 
   it("resolves self scope with no membership row to the fail-closed sentinel", async () => {
     mockScope.value = { kind: "self", actorId: null };
     await agentSessionsService.getSessionDetail(ctx(), "trace-1");
-    const policy = mockGetSessionDetail.mock.calls[0]![2] as unknown as SessionAccessPolicy;
+    const policy = mockGetSessionDetail.mock.calls[0]![2] as SessionAccessPolicy;
     expect(policy).toEqual({ kind: "dashboard-member", membershipId: "__no_actor__", canSeeTeam: false });
   });
 });

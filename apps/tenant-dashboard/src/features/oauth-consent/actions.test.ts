@@ -1,7 +1,7 @@
 /**
  * Tests for `features/oauth-consent/actions.ts` — the single `decideOAuthConsentAction`
  * pre-tenant action. `cross-tenant`: the action authorizes a connector client as the
- * user, not as any one tenant's member.
+ * user, not as a member of any one tenant.
  *
  * Seams: `preTenantAction` resolves the outer actor via `loadPreTenantActor`
  * (mocked so the wrapper's own auth gate always passes); the handler itself
