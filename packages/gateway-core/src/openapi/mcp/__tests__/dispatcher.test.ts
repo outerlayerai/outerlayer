@@ -172,13 +172,18 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
 
   it('lists the fake tool with a JSON-schema inputSchema derived from its Zod schema', async () => {
     const c = buildContext({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { tools: Array<{ name: string; inputSchema: { type: string; properties: object } }> } } };
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { tools: Array<{ name: string; inputSchema: { type: string; properties: object; required: string[] } }> } } };
 
     expect(result.body.result.tools).toEqual([
       {
         name: 'fake_tool',
         description: FAKE_TOOL.description,
-        inputSchema: { type: 'object', properties: expect.objectContaining({ limit: expect.any(Object) }), required: ['limit'] },
+        // `limit` carries a Zod .default(5), so on the INPUT side of the
+        // schema (what a caller may legitimately omit) it is not required —
+        // z.toJSONSchema's default 'output' mode would put it in `required`
+        // instead, describing what's always present after parsing, not what
+        // a caller must send.
+        inputSchema: { type: 'object', properties: expect.objectContaining({ limit: expect.any(Object) }), required: [] },
       },
     ]);
   });

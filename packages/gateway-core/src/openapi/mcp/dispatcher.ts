@@ -93,8 +93,17 @@ async function guardPasses(
   return outcome === undefined;
 }
 
-function toolToMcpTool(tool: McpToolDefinition): Tool {
-  const schema = z.toJSONSchema(tool.zodInputSchema, { target: 'draft-7' }) as Record<string, unknown>;
+/** Exported so tools-conformance.test.ts can assert, for the REAL tool
+ * registry, that no defaulted/optional field is ever advertised as
+ * `required` — the class of bug that slips past a schema-shaped-like-this
+ * unit test but not a loop over the live table. */
+export function toolToMcpTool(tool: McpToolDefinition): Tool {
+  // z.toJSONSchema defaults to 'output' mode, which reflects what the schema
+  // PRODUCES after parsing — a field with `.default(...)` is always present
+  // on output, so it lands in `required`. Callers send INPUT, where a
+  // defaulted/optional field is legitimately absent; `io: 'input'` reports
+  // the schema from that side instead.
+  const schema = z.toJSONSchema(tool.zodInputSchema, { target: 'draft-7', io: 'input' }) as Record<string, unknown>;
   return {
     name: tool.name,
     description: tool.description,

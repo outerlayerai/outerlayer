@@ -25,7 +25,9 @@ import {
   PrOutcomesSchema,
 } from '@repo/api-schemas';
 import { GATEWAY_PERMISSIONS } from '../../../lib/permissions';
+import type { ZodObject, ZodRawShape } from 'zod';
 import { MCP_TOOLS } from '../tools';
+import { toolToMcpTool } from '../dispatcher';
 import { GUIDE_RESOURCE_URI } from '../resources';
 
 const toolNames = MCP_TOOLS.map((t) => t.name);
@@ -39,6 +41,24 @@ describe('MCP_TOOLS registry invariants', () => {
 
   it('tool names are unique', () => {
     expect(new Set(toolNames).size).toBe(toolNames.length);
+  });
+
+  it('never advertises a field a caller may omit (Zod default or optional) as required, for every registered tool', () => {
+    for (const tool of MCP_TOOLS) {
+      const mcpTool = toolToMcpTool(tool);
+      const required = new Set(mcpTool.inputSchema.required ?? []);
+      const shape = (tool.zodInputSchema as ZodObject<ZodRawShape>).shape;
+      for (const [field, fieldSchema] of Object.entries(shape)) {
+        // A field a caller may validly omit parses undefined successfully —
+        // true for both `.optional()` and `.default(...)` regardless of the
+        // underlying type, so this needs no per-tool knowledge of which
+        // fields are defaulted.
+        const callerMayOmit = fieldSchema.safeParse(undefined).success;
+        if (callerMayOmit) {
+          expect(required, `${tool.name}.${field} is caller-omittable but listed in required`).not.toContain(field);
+        }
+      }
+    }
   });
 });
 
