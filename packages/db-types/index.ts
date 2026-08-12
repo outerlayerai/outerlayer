@@ -2964,7 +2964,7 @@ export type Database = {
       }
       is_claims_admin: { Args: never; Returns: boolean }
       list_current_user_oauth_grants: {
-        Args: never
+        Args: { p_user_id: string }
         Returns: {
           client_id: string
           client_name: string
@@ -2991,7 +2991,7 @@ export type Database = {
         Returns: Json
       }
       revoke_current_user_oauth_grant: {
-        Args: { target_session_id: string }
+        Args: { p_user_id: string; target_session_id: string }
         Returns: boolean
       }
       set_api_key_secret: {

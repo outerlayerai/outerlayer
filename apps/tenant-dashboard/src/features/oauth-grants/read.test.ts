@@ -2,12 +2,13 @@
  * `loadOAuthGrants` — the read behind the Grants settings tab. Fails closed
  * (`unresolved`) rather than an empty list when there's no session to scope
  * to, since an empty list reads as "no connectors" — a different claim from
- * "couldn't check".
+ * "couldn't check". Reads the actor's `userId` (never a caller-supplied
+ * one) — the RPC behind `oauthGrantsService.list` takes it as a parameter.
  */
-const mockLoadPreTenantDb = vi.hoisted(() => vi.fn());
+const mockLoadPreTenantActor = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adapters", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/adapters")>()),
-  loadPreTenantDb: mockLoadPreTenantDb,
+  loadPreTenantActor: mockLoadPreTenantActor,
 }));
 
 const mockList = vi.hoisted(() => vi.fn());
@@ -17,7 +18,7 @@ vi.mock("./service", () => ({
 
 import { loadOAuthGrants } from "./read";
 
-const FAKE_DB = { marker: "db" };
+const ACTOR = { userId: "user-1", email: "user@example.com", raw: { id: "user-1" } };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -25,7 +26,7 @@ beforeEach(() => {
 
 describe("loadOAuthGrants", () => {
   it("returns unresolved, not an empty list, and never calls list when there is no session", async () => {
-    mockLoadPreTenantDb.mockResolvedValue(null);
+    mockLoadPreTenantActor.mockResolvedValue(null);
 
     const result = await loadOAuthGrants();
 
@@ -33,8 +34,8 @@ describe("loadOAuthGrants", () => {
     expect(mockList).not.toHaveBeenCalled();
   });
 
-  it("returns the grants list from the resolved db", async () => {
-    mockLoadPreTenantDb.mockResolvedValue(FAKE_DB);
+  it("returns the grants list for the resolved actor's own userId", async () => {
+    mockLoadPreTenantActor.mockResolvedValue(ACTOR);
     const grants = [
       {
         sessionId: "session-1",
@@ -49,12 +50,12 @@ describe("loadOAuthGrants", () => {
 
     const result = await loadOAuthGrants();
 
-    expect(mockList).toHaveBeenCalledWith(FAKE_DB);
+    expect(mockList).toHaveBeenCalledWith("user-1");
     expect(result).toEqual({ grants });
   });
 
   it("returns an empty grants array (not unresolved) when the caller genuinely has none", async () => {
-    mockLoadPreTenantDb.mockResolvedValue(FAKE_DB);
+    mockLoadPreTenantActor.mockResolvedValue(ACTOR);
     mockList.mockResolvedValue([]);
 
     const result = await loadOAuthGrants();

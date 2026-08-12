@@ -24,7 +24,6 @@ import {
   loadRequestServiceContext,
   loadPreTenantActor,
   loadPreTenantActorSession,
-  loadPreTenantDb,
   checkRequestPermission,
 } from '../request-service-context';
 import {
@@ -132,27 +131,6 @@ describe('loadPreTenantActorSession', () => {
     cookieStore.delete('sb-localhost-auth-token');
 
     await expect(loadPreTenantActorSession()).resolves.toBeNull();
-  });
-});
-
-describe('loadPreTenantDb', () => {
-  beforeEach(() => {
-    headersGet.mockReset();
-    seedSupabaseAuth({ user: mockUser });
-  });
-
-  it('resolves a usable Supabase client for an authenticated caller', async () => {
-    const db = await loadPreTenantDb();
-
-    expect(db).not.toBeNull();
-    expect(typeof db!.rpc).toBe('function');
-  });
-
-  it('returns null, not a thrown error, when the request is unauthenticated', async () => {
-    const cookieStore = getSupabaseTestCookieStore();
-    cookieStore.delete('sb-localhost-auth-token');
-
-    await expect(loadPreTenantDb()).resolves.toBeNull();
   });
 });
 

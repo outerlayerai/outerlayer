@@ -1,6 +1,6 @@
 import "server-only";
 
-import { loadPreTenantDb } from "@/lib/adapters";
+import { loadPreTenantActor } from "@/lib/adapters";
 
 import { oauthGrantsService } from "./service";
 import type { OAuthGrant } from "./types";
@@ -12,10 +12,10 @@ type LoadOAuthGrantsResult = { grants: OAuthGrant[] } | { unresolved: true };
  * empty list would read as "no connectors", which is a different claim
  * than "couldn't check". */
 export async function loadOAuthGrants(): Promise<LoadOAuthGrantsResult> {
-  const db = await loadPreTenantDb();
-  if (!db) {
+  const actor = await loadPreTenantActor();
+  if (!actor) {
     return { unresolved: true };
   }
-  const grants = await oauthGrantsService.list(db);
+  const grants = await oauthGrantsService.list(actor.userId);
   return { grants };
 }

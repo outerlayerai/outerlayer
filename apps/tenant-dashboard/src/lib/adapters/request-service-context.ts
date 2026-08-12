@@ -94,25 +94,6 @@ export async function loadPreTenantActorSession(): Promise<
 }
 
 /**
- * A no-tenant Supabase client for `preTenantAction` handlers that need to
- * run an RPC as the caller (e.g. `features/oauth-grants`'s list/revoke over
- * `auth.sessions`, which is user-scoped, not tenant-scoped). Returns `null`
- * when there's no authenticated session, same fail-closed shape as
- * `loadPreTenantActor`.
- */
-export async function loadPreTenantDb(): Promise<Awaited<ReturnType<typeof createSupabaseServerClient>> | null> {
-  const db = await createSupabaseServerClient();
-  const {
-    data: { user },
-    error,
-  } = await db.auth.getUser();
-  if (error || !user) {
-    return null;
-  }
-  return db;
-}
-
-/**
  * The caller's own membership id for the request tenant, or null if they have
  * none (fail-closed for callers that pin a scope to it). RLS lets a user read
  * their own membership row, so the header-scoped client is enough here — no

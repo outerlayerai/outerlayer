@@ -3,17 +3,17 @@
  * pre-tenant action. `user-scoped`: a connector grant belongs to the signed-in
  * user, not any one tenant.
  *
- * Seams: `preTenantAction` resolves the outer actor via `loadPreTenantActor`
- * (mocked so the wrapper's own auth gate always passes); the handler itself
- * separately resolves `loadPreTenantDb`, the no-tenant client the revoke RPC
- * runs through.
+ * Seam: `preTenantAction` resolves the actor via `loadPreTenantActor`
+ * (mocked so the wrapper's own auth gate always passes); the handler calls
+ * `oauthGrantsService.revoke` with that actor's `userId` — the RPC behind
+ * it now takes the target user id as a parameter rather than reading
+ * `auth.uid()` internally, so the id MUST come from the resolved session
+ * actor, never from the action's own input.
  */
 const mockLoadPreTenantActor = vi.hoisted(() => vi.fn());
-const mockLoadPreTenantDb = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adapters", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/adapters")>()),
   loadPreTenantActor: mockLoadPreTenantActor,
-  loadPreTenantDb: mockLoadPreTenantDb,
 }));
 
 const mockRevoke = vi.hoisted(() => vi.fn());
@@ -42,7 +42,6 @@ const declaredReasons = preTenantActionSpy.mock.calls.map((call) => call[0].reas
 const authorizedActionLoadCalls = authorizedActionSpy.mock.calls.length;
 
 const ACTOR = { userId: "user-1", email: "user@example.com", raw: { id: "user-1" } };
-const FAKE_DB = { marker: "db" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -64,7 +63,7 @@ describe("module boundary", () => {
 });
 
 describe("revokeOAuthGrantAction", () => {
-  it("fails unauthenticated and never calls revoke when the outer actor cannot be resolved", async () => {
+  it("fails unauthenticated and never calls revoke when the actor cannot be resolved", async () => {
     mockLoadPreTenantActor.mockResolvedValue(null);
 
     const result = await revokeOAuthGrantAction({ sessionId: "session-1" });
@@ -76,32 +75,25 @@ describe("revokeOAuthGrantAction", () => {
     expect(mockRevoke).not.toHaveBeenCalled();
   });
 
-  it("fails with the internal error 'Not authenticated' when the handler's own db lookup returns null, even though the outer actor resolved", async () => {
-    mockLoadPreTenantDb.mockResolvedValue(null);
-
-    const result = await revokeOAuthGrantAction({ sessionId: "session-1" });
-
-    expect(result).toEqual({
-      ok: false,
-      error: { code: ActionErrorCodes.INTERNAL, message: "Not authenticated" },
-    });
-    expect(mockRevoke).not.toHaveBeenCalled();
-    expect(mockRevalidatePath).not.toHaveBeenCalled();
-  });
-
-  it("revokes with the resolved db and the given sessionId, then revalidates the settings layout", async () => {
-    mockLoadPreTenantDb.mockResolvedValue(FAKE_DB);
+  it("revokes with the resolved actor's userId and the given sessionId, then revalidates the settings layout", async () => {
     mockRevoke.mockResolvedValue(true);
 
     const result = await revokeOAuthGrantAction({ sessionId: "session-1" });
 
-    expect(mockRevoke).toHaveBeenCalledWith(FAKE_DB, "session-1");
+    expect(mockRevoke).toHaveBeenCalledWith("user-1", "session-1");
     expect(mockRevalidatePath).toHaveBeenCalledWith("/", "layout");
     expect(result).toEqual({ ok: true, data: { revoked: true } });
   });
 
+  it("ignores a userId on the action's own input — the id always comes from the resolved session actor", async () => {
+    mockRevoke.mockResolvedValue(true);
+
+    await revokeOAuthGrantAction({ sessionId: "session-1", userId: "attacker-supplied-id" } as never);
+
+    expect(mockRevoke).toHaveBeenCalledWith("user-1", "session-1");
+  });
+
   it("reports revoked:false unchanged when the grant wasn't the caller's own — but still revalidates", async () => {
-    mockLoadPreTenantDb.mockResolvedValue(FAKE_DB);
     mockRevoke.mockResolvedValue(false);
 
     const result = await revokeOAuthGrantAction({ sessionId: "session-1" });
