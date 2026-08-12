@@ -71,6 +71,15 @@ describe('updateSession (unauthenticated)', () => {
     expect(new URL(response.headers.get('location')!).pathname).toBe('/auth/login');
   });
 
+  it('redirects a logged-out OAuth consent visit to login with a return_to that round-trips back to the exact original URL', async () => {
+    const response = await updateSession(makeRequest('/oauth/consent?authorization_id=abc'));
+
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get('location')!);
+    expect(location.pathname).toBe('/auth/login');
+    expect(location.searchParams.get('return_to')).toBe('/oauth/consent?authorization_id=abc');
+  });
+
   it('does not redirect /auth pages', async () => {
     const response = await updateSession(makeRequest('/auth/login'));
 
