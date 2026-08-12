@@ -38,6 +38,11 @@ export interface McpInstallCommandOptions {
   url?: string;
   /** `mcpServers` key to write under (default: `"outerlayer"`). */
   name?: string;
+  /** Self-host app id — emitted as `X-Outerlayer-App-Id`. Self-host's
+   * `SelfHostAuthResolver` has no key service to resolve a caller from the
+   * bearer token alone, so it fails closed without this header; hosted
+   * deployments don't need it (omit for hosted). */
+  appId?: string;
   quiet?: boolean;
   json?: boolean;
 }
@@ -53,12 +58,10 @@ export interface McpInstallCommandResult {
   exitCode: 0 | 1;
 }
 
-function buildServerEntry(url: string): Record<string, unknown> {
-  return {
-    type: "http",
-    url,
-    headers: { Authorization: `Bearer ${API_KEY_ENV_PLACEHOLDER}` },
-  };
+function buildServerEntry(url: string, appId: string | undefined): Record<string, unknown> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${API_KEY_ENV_PLACEHOLDER}` };
+  if (appId) headers["X-Outerlayer-App-Id"] = appId;
+  return { type: "http", url, headers };
 }
 
 export function runMcpInstall(opts: McpInstallCommandOptions = {}): McpInstallCommandResult {
@@ -87,7 +90,7 @@ export function runMcpInstall(opts: McpInstallCommandOptions = {}): McpInstallCo
       ? (doc.mcpServers as Record<string, unknown>)
       : {};
 
-  const entry = buildServerEntry(url);
+  const entry = buildServerEntry(url, opts.appId);
   const changed = JSON.stringify(existingServers[name] ?? null) !== JSON.stringify(entry);
 
   const next = { ...doc, mcpServers: { ...existingServers, [name]: entry } };

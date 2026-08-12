@@ -35,8 +35,27 @@ describe("mcp install argv surface", () => {
     const written = JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"));
     expect(Object.keys(written.mcpServers)).toEqual(["custom-name"]);
     expect(written.mcpServers["custom-name"].url).toBe("http://localhost:9001/v1/mcp");
+    expect(written.mcpServers["custom-name"].headers).toEqual({ Authorization: "Bearer ${OUTERLAYER_API_KEY}" });
     const stdoutJson = JSON.parse(out.mock.calls[0]![0] as string);
     expect(stdoutJson).toEqual({ path: ".mcp.json", server: "custom-name", url: "http://localhost:9001/v1/mcp", changed: true });
+  });
+
+  it("passes --app-id through to the emitted X-Outerlayer-App-Id header — self-host's SelfHostAuthResolver needs it", async () => {
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runCli([
+      "node", "outerlayer", "mcp", "install",
+      "--dir", root,
+      "--url", "http://localhost:9101/v1/mcp",
+      "--app-id", "3e9f9c2a-3b1b-4a3a-9c1e-5f6a7b8c9d0e",
+    ]);
+
+    expect(process.exitCode).toBe(0);
+    const written = JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"));
+    expect(written.mcpServers.outerlayer.headers).toEqual({
+      Authorization: "Bearer ${OUTERLAYER_API_KEY}",
+      "X-Outerlayer-App-Id": "3e9f9c2a-3b1b-4a3a-9c1e-5f6a7b8c9d0e",
+    });
   });
 
   it("sets exitCode 1 and writes the error to stderr when the target directory does not exist", async () => {

@@ -75,6 +75,36 @@ describe("runMcpInstall", () => {
     expect(Object.keys(written.mcpServers)).toEqual(["outerlayer-self-host"]);
   });
 
+  it("omits X-Outerlayer-App-Id when appId isn't given — hosted deployments don't need it", () => {
+    runMcpInstall({ cwd: root, quiet: true });
+    const written = JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"));
+    expect(written.mcpServers.outerlayer.headers).toEqual({ Authorization: "Bearer ${OUTERLAYER_API_KEY}" });
+  });
+
+  it("--app-id emits X-Outerlayer-App-Id alongside the bearer placeholder — self-host's SelfHostAuthResolver requires it", () => {
+    const result = runMcpInstall({
+      cwd: root,
+      url: "http://localhost:9101/v1/mcp",
+      appId: "3e9f9c2a-3b1b-4a3a-9c1e-5f6a7b8c9d0e",
+      quiet: true,
+    });
+
+    expect(result.changed).toBe(true);
+    const written = JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"));
+    expect(written).toEqual({
+      mcpServers: {
+        outerlayer: {
+          type: "http",
+          url: "http://localhost:9101/v1/mcp",
+          headers: {
+            Authorization: "Bearer ${OUTERLAYER_API_KEY}",
+            "X-Outerlayer-App-Id": "3e9f9c2a-3b1b-4a3a-9c1e-5f6a7b8c9d0e",
+          },
+        },
+      },
+    });
+  });
+
   it("refuses to overwrite a .mcp.json that isn't valid JSON", () => {
     writeFileSync(join(root, ".mcp.json"), "{ not valid json");
     expect(() => runMcpInstall({ cwd: root, quiet: true })).toThrow(McpInstallError);
