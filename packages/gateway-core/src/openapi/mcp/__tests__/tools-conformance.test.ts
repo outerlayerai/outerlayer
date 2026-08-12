@@ -18,6 +18,11 @@ import {
   ContextChangesSchema,
   CompareWindowsQuerySchema,
   CompareWindowsSchema,
+  MetricsBreakdownQuerySchema,
+  MetricsBreakdownSchema,
+  MetricsTrendsQuerySchema,
+  MetricsTrendsSchema,
+  PrOutcomesSchema,
 } from '@repo/api-schemas';
 import { GATEWAY_PERMISSIONS } from '../../../lib/permissions';
 import { MCP_TOOLS } from '../tools';
@@ -39,13 +44,16 @@ describe('MCP_TOOLS registry invariants', () => {
 
 // proves AC-052-06
 describe('tool schemas match their REST counterparts exactly', () => {
-  it('advertises exactly seven tools plus the guide resource', () => {
+  it('advertises exactly ten tools plus the guide resource', () => {
     expect(toolNames.sort()).toEqual(
       [
         'compare_windows',
+        'get_breakdown',
         'get_fleet_overview',
         'get_model_costs',
+        'get_pr_outcomes',
         'get_session',
+        'get_trends',
         'list_context_changes',
         'list_sessions',
         'list_topics',
@@ -92,6 +100,23 @@ describe('tool schemas match their REST counterparts exactly', () => {
     const tool = MCP_TOOLS.find((t) => t.name === 'compare_windows')!;
     expect(tool.zodInputSchema).toBe(CompareWindowsQuerySchema);
     expect(tool.zodOutputSchema).toBe(CompareWindowsSchema);
+  });
+
+  it('get_breakdown validates against the same Zod objects GET /v1/metrics/breakdown uses', () => {
+    const tool = MCP_TOOLS.find((t) => t.name === 'get_breakdown')!;
+    expect(tool.zodInputSchema).toBe(MetricsBreakdownQuerySchema);
+    expect(tool.zodOutputSchema).toBe(MetricsBreakdownSchema);
+  });
+
+  it('get_trends validates against the same Zod objects GET /v1/metrics/trends uses', () => {
+    const tool = MCP_TOOLS.find((t) => t.name === 'get_trends')!;
+    expect(tool.zodInputSchema).toBe(MetricsTrendsQuerySchema);
+    expect(tool.zodOutputSchema).toBe(MetricsTrendsSchema);
+  });
+
+  it('get_pr_outcomes validates its output against the same schema GET /v1/prs/outcomes uses', () => {
+    const tool = MCP_TOOLS.find((t) => t.name === 'get_pr_outcomes')!;
+    expect(tool.zodOutputSchema).toBe(PrOutcomesSchema);
   });
 
   // Every tool that returns topic-map data carries the same plan gate as

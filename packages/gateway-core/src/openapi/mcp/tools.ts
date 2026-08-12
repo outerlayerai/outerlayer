@@ -29,12 +29,18 @@ import {
   ContextChangesSchema,
   CompareWindowsQuerySchema,
   CompareWindowsSchema,
+  MetricsBreakdownQuerySchema,
+  MetricsBreakdownSchema,
+  MetricsTrendsQuerySchema,
+  MetricsTrendsSchema,
+  PrOutcomesSchema,
 } from '@repo/api-schemas';
 import { ServiceUnavailableError } from '@repo/observability-service';
 import type { AppContext } from '../routes/_shared';
 import { getService, buildTenantContext, resolveEnvScope, structuredError } from '../routes/_shared';
 import { resolveTopicsScope } from '../routes/topics';
-import { daysAgo, today, compareWindows } from '../routes/metrics';
+import { daysAgo, today, compareWindows, metricsBreakdown, metricsTrends } from '../routes/metrics';
+import { prOutcomes } from '../routes/prs';
 import { sessionPolicy, buildPorts } from '../routes/sessions';
 import { listContextChanges } from '../routes/context';
 import { getGatewayTopicsService, getGatewaySessionsService } from '../analytics-factory';
@@ -166,6 +172,25 @@ async function compareWindowsExecute(c: AppContext, input: z.infer<typeof Compar
   return { data: result };
 }
 
+async function metricsBreakdownExecute(c: AppContext, input: z.infer<typeof MetricsBreakdownQuerySchema>) {
+  const result = await metricsBreakdown(c, input);
+  return { data: result };
+}
+
+async function metricsTrendsExecute(c: AppContext, input: z.infer<typeof MetricsTrendsQuerySchema>) {
+  const result = await metricsTrends(c, input);
+  return { data: result };
+}
+
+/** `get_pr_outcomes` takes no parameters — an empty object schema, matching
+ * `GET /v1/prs/outcomes`'s parameterless request. */
+const PrOutcomesInputSchema = z.object({});
+
+async function prOutcomesExecute(c: AppContext) {
+  const result = await prOutcomes(c);
+  return { data: result };
+}
+
 export const MCP_TOOLS: readonly McpToolDefinition[] = [
   {
     name: 'list_topics',
@@ -248,6 +273,43 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     entitlement: 'topics_enabled',
     rateLimit: RATE_LIMITS.observabilityRead,
     execute: compareWindowsExecute,
+  },
+  {
+    name: 'get_breakdown',
+    description:
+      'Which repo/branch/developer-shaped dimension consumes the most cost or fails the most: ranks branch, agent_type, worker_kind, model, ' +
+      'or tool by spend/volume for from..to (UTC calendar dates, default trailing 30 days). Use dimension: "tool" to find the tool with the ' +
+      'highest error rate; use "branch"/"model" to find where spend concentrates. branch/agent_type/worker_kind/model items carry sessions + ' +
+      'costUsd + toolErrorRate; tool items carry requests + toolErrorRate instead. Never breaks down by individual actor/developer.',
+    zodInputSchema: MetricsBreakdownQuerySchema,
+    zodOutputSchema: MetricsBreakdownSchema,
+    requiredPermission: 'metrics.read',
+    rateLimit: RATE_LIMITS.observabilityRead,
+    execute: metricsBreakdownExecute,
+  },
+  {
+    name: 'get_trends',
+    description:
+      'Is spend/quality trending up or down day by day? Daily sessions, spend, tool-error rate, and clean-session rate for from..to (UTC ' +
+      'calendar dates, default trailing 30 days), one point per day. Use to spot a spike or a slow drift that a single current/prior tile ' +
+      '(get_fleet_overview) would blend away.',
+    zodInputSchema: MetricsTrendsQuerySchema,
+    zodOutputSchema: MetricsTrendsSchema,
+    requiredPermission: 'metrics.read',
+    rateLimit: RATE_LIMITS.observabilityRead,
+    execute: metricsTrendsExecute,
+  },
+  {
+    name: 'get_pr_outcomes',
+    description:
+      'How many agent sessions produced PRs, which branches/PR numbers they attribute to, which needed mid-session human steering, and what ' +
+      'each attributed PR cost — for the app\'s dominant repo. No parameters; not date-windowed (a PR\'s session set and cost include work ' +
+      'that predates its merge). Does not report merged/reverted/CI-green rates.',
+    zodInputSchema: PrOutcomesInputSchema,
+    zodOutputSchema: PrOutcomesSchema,
+    requiredPermission: 'metrics.read',
+    rateLimit: RATE_LIMITS.observabilityRead,
+    execute: prOutcomesExecute,
   },
 ];
 

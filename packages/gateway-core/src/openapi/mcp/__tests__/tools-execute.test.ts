@@ -5,7 +5,8 @@
  * pins: the `!service` ClickHouse-host-unconfigured guard shared by every
  * ClickHouse-backed tool, get_session's output-size truncation boundary,
  * and the from/to default-window wiring for get_model_costs /
- * get_fleet_overview / list_context_changes / compare_windows.
+ * get_fleet_overview / list_context_changes / compare_windows /
+ * get_breakdown / get_trends, plus get_pr_outcomes' cost-merge behavior.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,7 +25,18 @@ vi.mock('../../analytics-factory', () => ({
 
 const getModelStats = vi.fn();
 const getAgentFleetOverview = vi.fn();
-const getService = vi.fn(() => ({ getModelStats, getAgentFleetOverview }));
+const getAgentFleetMetricsBreakdown = vi.fn();
+const getAgentFleetDailyTrend = vi.fn();
+const getAgentPrAttribution = vi.fn();
+const getAgentPrCostAttribution = vi.fn();
+const getService = vi.fn(() => ({
+  getModelStats,
+  getAgentFleetOverview,
+  getAgentFleetMetricsBreakdown,
+  getAgentFleetDailyTrend,
+  getAgentPrAttribution,
+  getAgentPrCostAttribution,
+}));
 const buildTenantContext = vi.fn(() => ({ tenantId: 'tenant-1', appId: 'app-1' }));
 const resolveEnvScope = vi.fn(async () => undefined);
 const getScopedSupabase = vi.fn(async () => ({
@@ -75,7 +87,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   getGatewayTopicsService.mockReturnValue({ listTopics });
   getGatewaySessionsService.mockReturnValue({ listSessions, getSessionDetail });
-  getService.mockReturnValue({ getModelStats, getAgentFleetOverview });
+  getService.mockReturnValue({
+    getModelStats,
+    getAgentFleetOverview,
+    getAgentFleetMetricsBreakdown,
+    getAgentFleetDailyTrend,
+    getAgentPrAttribution,
+    getAgentPrCostAttribution,
+  });
   resolveEnvScope.mockResolvedValue(undefined);
 });
 
@@ -234,5 +253,73 @@ describe('compare_windows tool', () => {
 
     expect(compareWindows).toHaveBeenCalledWith(c, input);
     expect(result).toEqual({ data: { deltas: [] } });
+  });
+});
+
+describe('get_breakdown tool — default window', () => {
+  it('defaults both from and to (trailing 30 days) and passes dimension/limit through', async () => {
+    getAgentFleetMetricsBreakdown.mockResolvedValue({ dimension: 'branch', items: [] });
+    const tool = findTool('get_breakdown')!;
+
+    await tool.execute(buildContext(), { dimension: 'branch', limit: 10 } as never);
+
+    expect(getAgentFleetMetricsBreakdown).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', appId: 'app-1' },
+      { start: daysAgo(30), end: today() },
+      'branch',
+      10,
+    );
+  });
+
+  it('uses the caller-supplied from/to instead of the defaults when both are provided', async () => {
+    getAgentFleetMetricsBreakdown.mockResolvedValue({ dimension: 'tool', items: [] });
+    const tool = findTool('get_breakdown')!;
+
+    await tool.execute(buildContext(), { dimension: 'tool', from: '2020-02-01', to: '2020-02-28', limit: 5 } as never);
+
+    expect(getAgentFleetMetricsBreakdown).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', appId: 'app-1' },
+      { start: '2020-02-01', end: '2020-02-28' },
+      'tool',
+      5,
+    );
+  });
+});
+
+describe('get_trends tool — default window', () => {
+  it('defaults both from and to (trailing 30 days) when neither is provided', async () => {
+    getAgentFleetDailyTrend.mockResolvedValue({ points: [] });
+    const tool = findTool('get_trends')!;
+
+    await tool.execute(buildContext(), {} as never);
+
+    expect(getAgentFleetDailyTrend).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', appId: 'app-1' },
+      { start: daysAgo(30), end: today() },
+    );
+  });
+});
+
+describe('get_pr_outcomes tool', () => {
+  it('merges attribution with cost by (repo, branch, prNumber) and wraps the result in { data }', async () => {
+    getAgentPrAttribution.mockResolvedValue({
+      branches: ['main'],
+      prNumbers: [7],
+      steeredPrNumbers: [],
+      items: [{ repo: 'org/app', branch: 'main', prNumber: 7, steered: false }],
+    });
+    getAgentPrCostAttribution.mockResolvedValue({ items: [{ repo: 'org/app', branch: 'main', prNumber: 7, costUsd: 3 }] });
+    const tool = findTool('get_pr_outcomes')!;
+
+    const result = await tool.execute(buildContext(), {} as never);
+
+    expect(result).toEqual({
+      data: {
+        branches: ['main'],
+        prNumbers: [7],
+        steeredPrNumbers: [],
+        items: [{ repo: 'org/app', branch: 'main', prNumber: 7, steered: false, costUsd: 3 }],
+      },
+    });
   });
 });
