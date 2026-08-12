@@ -311,14 +311,14 @@ export class TopicsService {
   }
 
   /**
-   * `limit` truncates the ranked topic list to the caller's page size. It is
+   * limit truncates the ranked topic list to the caller's page size. It is
    * OPT-IN, not defaulted here: the gateway REST route and MCP tool schemas
-   * (`ListTopicsQuerySchema`) carry their own explicit `.default(20)`, so
+   * (ListTopicsQuerySchema) carry their own explicit default of 20, so
    * those callers always pass a number. The dashboard adapter passes none —
    * clustering already caps a facet at roughly 50 topics
    * (resolve_min_cluster_size in apps/topics-clustering/app/clustering.py),
    * and the dashboard's list view and trend chart are built to show every
-   * topic in that range, not a paginated slice — so an absent `limit`
+   * topic in that range, not a paginated slice — so an absent limit
    * returns the full ranked set rather than silently truncating it.
    */
   async listTopics(scope: TopicsScope, facet: TopicFacet, limit?: number): Promise<TopicsList> {
