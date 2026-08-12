@@ -90,6 +90,35 @@ describe('TopicsService.listTopics', () => {
     expect(list.topics.map((t) => t.sessionCount)).toEqual([100, 2]);
   });
 
+  test('an absent limit returns every topic in the map, fully ranked, never truncating to a default page size', async () => {
+    const TOPIC_COUNT = 30;
+    const topicIds = Array.from({ length: TOPIC_COUNT }, (_, i) => `v1-${String(i).padStart(2, '0')}`);
+    const mapRows = topicIds.map((topicId) => ({
+      TopicId: topicId,
+      Name: topicId,
+      Description: '',
+      MapVersion: 1,
+      GeneratedAt: '2026-07-01 12:00:00.000',
+      AvgLatencyMs: 0,
+      AvgCostUsd: 0,
+      ErrorRate: 0,
+    }));
+    // Session counts run opposite to the map's TopicId order (topic 0 is
+    // lowest-traffic, topic 29 highest) — a correct "rank first, then return
+    // everything" pass comes back in the REVERSE of mapRows order; a bug
+    // that returned mapRows unsorted (or truncated to a default page size)
+    // would fail either the length or the ordering assertion below.
+    const countRows = topicIds.map((topicId, i) => ({ TopicId: topicId, c: String(i + 1) }));
+    const { client } = capturingClient([mapRows, countRows, [{ c: '465' }], [], [{ c: '0' }]]);
+
+    const list = await new TopicsService(client, { modelEnv: {} }).listTopics(SCOPE, 'task');
+
+    expect(list.topics).toHaveLength(TOPIC_COUNT);
+    expect(list.topics.map((t) => t.topicId)).toEqual([...topicIds].reverse());
+    expect(list.topics[0]!.sessionCount).toBe(TOPIC_COUNT);
+    expect(list.topics[TOPIC_COUNT - 1]!.sessionCount).toBe(1);
+  });
+
   test('every emitted query carries the ClickHouse resource caps', async () => {
     const { client, calls } = capturingClient([[], [{ c: '0' }]]);
     await buildTopicsService(client, { modelEnv: {} }).listTopics(SCOPE, 'task');

@@ -43,9 +43,6 @@ import type { IClickHouseQuery } from '../client';
 import { QUERY_TIMEOUT_SETTINGS } from '../shared';
 import { generationFloorForFacet } from '@repo/api-schemas';
 
-/** Default rows returned per {@link TopicsService.listTopics} call. */
-const DEFAULT_TOPICS_LIMIT = 20;
-
 /** Safety cap on map rows fetched per generation, not a real limit — a map
  * targets tens of topics by design (resolve_min_cluster_size in
  * apps/topics-clustering/app/clustering.py keeps clusters at ~<=50-topic
@@ -313,11 +310,18 @@ export class TopicsService {
     return result.json<T>();
   }
 
-  async listTopics(
-    scope: TopicsScope,
-    facet: TopicFacet,
-    limit = DEFAULT_TOPICS_LIMIT,
-  ): Promise<TopicsList> {
+  /**
+   * `limit` truncates the ranked topic list to the caller's page size. It is
+   * OPT-IN, not defaulted here: the gateway REST route and MCP tool schemas
+   * (`ListTopicsQuerySchema`) carry their own explicit `.default(20)`, so
+   * those callers always pass a number. The dashboard adapter passes none —
+   * clustering already caps a facet at roughly 50 topics
+   * (resolve_min_cluster_size in apps/topics-clustering/app/clustering.py),
+   * and the dashboard's list view and trend chart are built to show every
+   * topic in that range, not a paginated slice — so an absent `limit`
+   * returns the full ranked set rather than silently truncating it.
+   */
+  async listTopics(scope: TopicsScope, facet: TopicFacet, limit?: number): Promise<TopicsList> {
     const mapRows = await this.query<{
       TopicId: string;
       Name: string;
@@ -430,7 +434,7 @@ export class TopicsService {
     const totalClassified = Number(denominatorRows[0]?.c ?? 0);
     const { trendDays, trendByTopic, noMatchTrend, trendBucket } = buildTopicTrend(trendRows);
 
-    const topics = mapRows
+    const sortedTopics = mapRows
       .map((row) => {
         const sessionCount = countByTopic.get(row.TopicId) ?? 0;
         return {
@@ -445,8 +449,8 @@ export class TopicsService {
           trend: trendByTopic.get(row.TopicId) ?? new Array(trendDays.length).fill(0),
         };
       })
-      .sort((a, b) => b.sessionCount - a.sessionCount || a.topicId.localeCompare(b.topicId))
-      .slice(0, limit);
+      .sort((a, b) => b.sessionCount - a.sessionCount || a.topicId.localeCompare(b.topicId));
+    const topics = limit === undefined ? sortedTopics : sortedTopics.slice(0, limit);
 
     return {
       facet,
