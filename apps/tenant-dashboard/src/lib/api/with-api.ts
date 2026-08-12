@@ -35,6 +35,9 @@ import {
   type TenantContext,
 } from '@/lib/analytics/tenant-context';
 import { EntitlementService } from '@/lib/system/entitlement-service';
+import { resolveAdminApiKeyContext } from '@/lib/system/admin-api-key-service';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/db';
 import { analyticsLogger } from '@/lib/analytics/logger';
 import { dashboardApiRegistry } from './registry';
 import { toNextResponse } from './error-envelope';
@@ -185,6 +188,42 @@ export function withApi<
 async function authenticateRequest(
   request: Request,
 ): Promise<TenantContext> {
+  // A bearer admin-API key, when presented, is the whole auth decision — a
+  // key that fails to verify (expired/revoked/malformed/wrong prefix) must
+  // not silently retry as an anonymous session, so `resolveAdminApiKeyContext`
+  // either succeeds below or this throws; only its `absent` status (no bearer
+  // scheme on the request at all) falls through to session auth.
+  const bearerAuth = await resolveAdminApiKeyContext(request);
+  if (bearerAuth.status === 'invalid' || bearerAuth.status === 'forbidden') {
+    throw new AnalyticsError('Not authenticated', 'unauthorized', 401);
+  }
+  if (bearerAuth.status === 'ok') {
+    const url = new URL(request.url);
+    const appId = url.searchParams.get('appId');
+    if (!appId) {
+      throw new ValidationError('appId query parameter is required');
+    }
+
+    // No session, so app ownership is checked over the admin client
+    // (`bearerAuth.context.db`) rather than a user-JWT-scoped one; the check
+    // itself (tenant_id equality) is the same ownership predicate
+    // `verifyAppAccess` runs for a session.
+    const adminDb = bearerAuth.context.db as SupabaseClient<Database>;
+    const entitlementService = new EntitlementService({ db: adminDb });
+    const dataRetentionDays = await entitlementService.getLimit(
+      bearerAuth.context.tenantId,
+      'data_retention_days',
+    );
+
+    return verifyAppAccess(
+      adminDb,
+      bearerAuth.context.actor.userId,
+      bearerAuth.context.tenantId,
+      appId,
+      dataRetentionDays,
+    );
+  }
+
   // The client is scoped to the URL-derived request tenant.
   const requestTenantId = await getRequestTenantId();
   const supabase = await createSupabaseServerClient(requestTenantId);

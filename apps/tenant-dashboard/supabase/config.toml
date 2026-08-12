@@ -54,6 +54,11 @@ schema_paths = [
     # billing/git_branch which load later — safe, plpgsql defers body resolution
     # to runtime.
     "./schemas/23a-api-key-secret.sql",
+    # Org-scoped admin-API bearer credentials. Same dependency shape as
+    # 23-api-key.sql/23a-api-key-secret.sql (tenant/profile + private authz),
+    # loaded right after them since it mirrors that split.
+    "./schemas/24-admin-api-key.sql",
+    "./schemas/24a-admin-api-key-secret.sql",
     "./schemas/27-env-var.sql",
     "./schemas/27-notification.sql",
     "./schemas/28-dashboard.sql",

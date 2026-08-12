@@ -20,11 +20,22 @@ export const resendInviteInputSchema = z.object({
   email: z.string().min(1).email(),
 });
 
-export const changeMemberRoleInputSchema = z.object({
-  userId: z.string().min(1),
+/** Role-change fields shared by the server action (which carries the target
+ *  `userId` in the same object) and the `PATCH /members/{userId}` route
+ *  (which takes `userId` from the URL path instead). */
+const changeRoleFieldsSchema = z.object({
   role: userRoleSchema,
   customRoleId: z.string().min(1).nullable().optional(),
 });
+
+export const changeMemberRoleInputSchema = changeRoleFieldsSchema.extend({
+  userId: z.string().min(1),
+});
+
+/** `PATCH /members/{userId}` body — same fields as
+ *  `changeMemberRoleInputSchema`, minus `userId`, which the route reads from
+ *  the URL path. */
+export const changeMemberRoleBodySchema = changeRoleFieldsSchema;
 
 export const removeMemberInputSchema = z.object({
   userId: z.string().min(1),

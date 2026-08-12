@@ -39,6 +39,14 @@ export const env = createEnv({
     // verifies against.
     API_KEY_PEPPER: z.string().min(1),
 
+    // Admin-API-key store pepper: HMAC secret for minting/hashing admin
+    // (bearer) API key digests. Separate from API_KEY_PEPPER — the two key
+    // stores are unrelated (org-scoped admin keys vs app-scoped gateway
+    // keys), and a rotation of one must not invalidate the other. Optional:
+    // unset disables minting and verifying admin API keys (fails closed);
+    // nothing else on the deployment degrades.
+    ADMIN_API_KEY_PEPPER: z.string().min(1).optional(),
+
     // Stripe
     // Stripe — required for the hosted product; optional when BILLING_ENABLED=false
     // (self-hosting). See stripeVar() above.
@@ -238,6 +246,7 @@ export const env = createEnv({
       process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
     UNKEY_API_KEY: process.env.UNKEY_API_KEY,
     API_KEY_PEPPER: process.env.API_KEY_PEPPER,
+    ADMIN_API_KEY_PEPPER: process.env.ADMIN_API_KEY_PEPPER,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_SECRET_WEBHOOK_KEY: process.env.STRIPE_SECRET_WEBHOOK_KEY,
     STRIPE_GROWTH_FLAT_PRICE_ID: process.env.STRIPE_GROWTH_FLAT_PRICE_ID,

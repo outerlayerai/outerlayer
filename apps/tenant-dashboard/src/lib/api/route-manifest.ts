@@ -29,3 +29,17 @@ import '@/app/api/orgs/[orgName]/apps/[appId]/onboarding/checklist/route';
 // saved views are Server Actions (lib/analytics/saved-filters) — neither
 // has a route here.
 import '@/app/api/orgs/[orgName]/apps/[appId]/agents/blob/[sha256]/route';
+
+// Admin API — org member management (session or admin-API-key bearer auth)
+import '@/app/api/orgs/[orgName]/members/route';
+import '@/app/api/orgs/[orgName]/members/invites/route';
+import '@/app/api/orgs/[orgName]/members/invites/[inviteId]/resend/route';
+import '@/app/api/orgs/[orgName]/members/[userId]/route';
+import '@/app/api/orgs/[orgName]/roles/route';
+
+// Admin API — custom roles + app-level role assignment (enterprise-licensed;
+// route shims validate shape, `ee/` adapters own auth + entitlement gating)
+import '@/app/api/orgs/[orgName]/custom-roles/route';
+import '@/app/api/orgs/[orgName]/custom-roles/[roleId]/route';
+import '@/app/api/orgs/[orgName]/apps/[appId]/member-roles/route';
+import '@/app/api/orgs/[orgName]/apps/[appId]/member-roles/[appMemberRoleId]/route';

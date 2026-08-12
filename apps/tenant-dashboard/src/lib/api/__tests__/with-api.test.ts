@@ -36,6 +36,8 @@ import { z } from 'zod';
 import { getSupabaseTestCookieStore } from '@/test-helpers/supabase-session';
 import { mockUser } from '@/test-helpers/fixtures/auth.fixtures';
 import { seedSupabaseAuth, seedSupabaseMswState } from '@/test-helpers/msw-handlers';
+import { createMswRestClient } from '@/test-helpers/rest-client';
+import { mintAdminApiKeySystem } from '@/lib/system/admin-api-key-service';
 import { withApi, type ApiRouteSchema } from '../with-api';
 
 const validUser = {
@@ -53,11 +55,11 @@ const SCHEMA: ApiRouteSchema = {
   responses: { 200: { description: 'ok' } },
 };
 
-function createRequest(appId?: string) {
+function createRequest(appId?: string, headers?: Record<string, string>) {
   const url = appId
     ? `http://localhost/api/with-api-test?appId=${appId}`
     : 'http://localhost/api/with-api-test';
-  return new Request(url);
+  return new Request(url, headers ? { headers } : undefined);
 }
 
 beforeEach(() => {
@@ -122,6 +124,112 @@ describe('withApi auth (authenticateRequest → verifyAppAccess over the real Su
 
     expect(response.status).toBe(200);
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ context: null }));
+  });
+});
+
+describe('withApi auth (admin API key bearer branch)', () => {
+  it('reaches the handler with a verified TenantContext on a valid, unrevoked bearer key + owned app', async () => {
+    const db = createMswRestClient();
+    const { plaintext, row } = await mintAdminApiKeySystem({
+      rowClient: db,
+      tenantId: 'tenant-456',
+      name: 'automation key',
+      permissions: ['membership.read'],
+      expiresAt: null,
+      createdBy: 'user-1',
+    });
+    seedSupabaseMswState({
+      apps: [{ id: 'app-789', tenant_id: 'tenant-456' }],
+      tenantEntitlementOverrides: [
+        {
+          id: 'override-1',
+          tenant_id: 'tenant-456',
+          entitlement_key: 'data_retention_days',
+          value: { v: 30 },
+        },
+      ],
+    });
+
+    const handler = vi.fn().mockResolvedValue({ ok: true });
+    const route = withApi(SCHEMA, handler);
+
+    const response = await route(
+      createRequest('app-789', { authorization: `Bearer ${plaintext}` }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          userId: `admin_api_key:${row.id}`,
+          tenantId: 'tenant-456',
+          appId: 'app-789',
+          dataRetentionDays: 30,
+        }),
+      }),
+    );
+  });
+
+  it('returns 401 without calling the handler for an unknown/malformed bearer key, never falling through to session auth', async () => {
+    // A valid SESSION is seeded too — if the bearer branch silently fell
+    // through on failure, this would incorrectly succeed as a session-authed
+    // request instead of failing closed on the bad bearer token.
+    headersGet.mockReturnValue('tenant-456');
+    seedSupabaseAuth({ user: validUser });
+    seedSupabaseMswState({ apps: [{ id: 'app-789', tenant_id: 'tenant-456' }] });
+
+    const handler = vi.fn();
+    const route = withApi(SCHEMA, handler);
+
+    const response = await route(
+      createRequest('app-789', { authorization: 'Bearer olk_doesnotexist' }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 without calling the handler when the bearer key\'s app belongs to a different tenant', async () => {
+    const db = createMswRestClient();
+    const { plaintext } = await mintAdminApiKeySystem({
+      rowClient: db,
+      tenantId: 'tenant-456',
+      name: 'automation key',
+      permissions: [],
+      expiresAt: null,
+      createdBy: 'user-1',
+    });
+    seedSupabaseMswState({ apps: [{ id: 'app-789', tenant_id: 'other-tenant' }] });
+
+    const handler = vi.fn();
+    const route = withApi(SCHEMA, handler);
+
+    const response = await route(
+      createRequest('app-789', { authorization: `Bearer ${plaintext}` }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 without calling the handler when a valid bearer key omits the appId query param', async () => {
+    const db = createMswRestClient();
+    const { plaintext } = await mintAdminApiKeySystem({
+      rowClient: db,
+      tenantId: 'tenant-456',
+      name: 'automation key',
+      permissions: [],
+      expiresAt: null,
+      createdBy: 'user-1',
+    });
+
+    const handler = vi.fn();
+    const route = withApi(SCHEMA, handler);
+
+    const response = await route(createRequest(undefined, { authorization: `Bearer ${plaintext}` }));
+
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
   });
 });
 

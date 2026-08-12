@@ -28,7 +28,7 @@
     },
     {
       "key": "ai_cost_config",
-      "rationale": "Org-wide seat-cost configuration (Settings -> AI costs): owner/admin only, like billing \u2014 it is org-level financial config. The dashboard widget that consumes the derived total reads via service_role, so members still see Total Cost of AI without these grants.",
+      "rationale": "Org-wide seat-cost configuration (Settings -> AI costs): owner/admin only, like billing — it is org-level financial config. The dashboard widget that consumes the derived total reads via service_role, so members still see Total Cost of AI without these grants.",
       "grants": {
         "ai_cost_config.delete": [
           "owner",
@@ -43,6 +43,28 @@
           "admin"
         ],
         "ai_cost_config.update": [
+          "owner",
+          "admin"
+        ]
+      }
+    },
+    {
+      "key": "admin_api_key",
+      "rationale": "Org-scoped bearer credentials for the admin REST API (member/role management, SCIM-layerable later). More privileged than a gateway api_key by design — a key carries org-wide member/role permissions — so creating and reading are owner/admin only, unlike api_key.insert/read which also grant write.",
+      "grants": {
+        "admin_api_key.delete": [
+          "owner",
+          "admin"
+        ],
+        "admin_api_key.insert": [
+          "owner",
+          "admin"
+        ],
+        "admin_api_key.read": [
+          "owner",
+          "admin"
+        ],
+        "admin_api_key.update": [
           "owner",
           "admin"
         ]
@@ -122,7 +144,7 @@
     },
     {
       "key": "app_policy",
-      "rationale": "Governs the app-level publish policy (require_pull_request). Owner/admin only: it is a governance control, and a member who can publish must not be able to remove the review gate. Owner is seeded explicitly because the owner bypass in private.effective_app_permissions (01a-private-authz.sql) returns the owner's org role_permissions set \u2014 an owner not seeded this permission would be denied here.",
+      "rationale": "Governs the app-level publish policy (require_pull_request). Owner/admin only: it is a governance control, and a member who can publish must not be able to remove the review gate. Owner is seeded explicitly because the owner bypass in private.effective_app_permissions (01a-private-authz.sql) returns the owner's org role_permissions set — an owner not seeded this permission would be denied here.",
       "grants": {
         "app_policy.update": [
           "owner",
@@ -294,7 +316,7 @@
     },
     {
       "key": "experiment",
-      "rationale": "Experiments: every role views. experiment.run is deliberately ungranted \u2014 its only enforcement was the pending_experiment RLS policies, dropped along with that table.",
+      "rationale": "Experiments: every role views. experiment.run is deliberately ungranted — its only enforcement was the pending_experiment RLS policies, dropped along with that table.",
       "grants": {
         "experiment.read": [
           "owner",
@@ -486,7 +508,7 @@
     },
     {
       "key": "tenant",
-      "rationale": "Organization record: every role reads; write roles edit organization settings. tenant.delete and tenant.insert are deliberately ungranted \u2014 no RLS policy references them, so they conferred nothing. Orgs are created by create_organization_transaction and deleted only by platform admins, both SECURITY DEFINER paths that bypass RLS.",
+      "rationale": "Organization record: every role reads; write roles edit organization settings. tenant.delete and tenant.insert are deliberately ungranted — no RLS policy references them, so they conferred nothing. Orgs are created by create_organization_transaction and deleted only by platform admins, both SECURITY DEFINER paths that bypass RLS.",
       "grants": {
         "tenant.read": [
           "owner",
