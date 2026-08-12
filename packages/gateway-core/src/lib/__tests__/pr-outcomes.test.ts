@@ -4,18 +4,26 @@ import type { ChQueryFn } from '../../openapi/analytics-factory';
 
 /** Chainable Supabase-select stand-in: every `.eq`/`.in`/`.select` returns
  * itself, and `await`-ing it resolves via `.then` — the same shape the real
- * client's builder has. `fromSpy`/`inCalls` let tests assert whether a table
- * was ever queried and with what `.in(...)` filter values. */
+ * client's builder has. `fromSpy`/`inCalls`/`eqCalls` let tests assert
+ * whether a table was ever queried and with what `.in(...)`/`.eq(...)`
+ * filter values. */
 function fakeSupabase(
   byTable: Record<string, { data: unknown; error: { message: string } | null }>,
-  opts: { fromSpy?: ReturnType<typeof vi.fn>; inCalls?: { table: string; column: string; values: unknown[] }[] } = {},
+  opts: {
+    fromSpy?: ReturnType<typeof vi.fn>;
+    inCalls?: { table: string; column: string; values: unknown[] }[];
+    eqCalls?: { table: string; column: string; value: unknown }[];
+  } = {},
 ) {
   return {
     from: (table: string) => {
       opts.fromSpy?.(table);
       const chain: any = {
         select: () => chain,
-        eq: () => chain,
+        eq: (column: string, value: unknown) => {
+          opts.eqCalls?.push({ table, column, value });
+          return chain;
+        },
         in: (column: string, values: unknown[]) => {
           opts.inCalls?.push({ table, column, values });
           return chain;
@@ -212,5 +220,38 @@ describe('buildPrOutcomeReader', () => {
     const prUrlsCall = inCalls.find((c) => c.table === 'pull_request')!;
     expect(prUrlsCall.column).toBe('pr_number');
     expect(prUrlsCall.values).toEqual([3, 9]);
+  });
+
+  it('scopes both Postgres reads to tenant_id/app_id, and the confirmed-links read to verification="confirmed"', async () => {
+    const eqCalls: { table: string; column: string; value: unknown }[] = [];
+    const supabase = fakeSupabase(
+      {
+        pull_request_session: { data: [{ trace_id: 'trace-a', pr_number: 7 }], error: null },
+        pull_request: { data: [{ pr_number: 7, url: 'https://github.com/acme/app/pull/7' }], error: null },
+      },
+      { eqCalls },
+    );
+    const chQuery: ChQueryFn = vi.fn(async () => []);
+    const scope = { tenantId: 'tenant-scoped', appId: 'app-scoped' };
+
+    const reader = buildPrOutcomeReader(supabase as any, chQuery, scope);
+    await reader.forSessions(['trace-a']);
+
+    const linksFilters = eqCalls.filter((c) => c.table === 'pull_request_session');
+    expect(linksFilters).toEqual(
+      expect.arrayContaining([
+        { table: 'pull_request_session', column: 'tenant_id', value: scope.tenantId },
+        { table: 'pull_request_session', column: 'app_id', value: scope.appId },
+        { table: 'pull_request_session', column: 'verification', value: 'confirmed' },
+      ]),
+    );
+
+    const urlFilters = eqCalls.filter((c) => c.table === 'pull_request');
+    expect(urlFilters).toEqual(
+      expect.arrayContaining([
+        { table: 'pull_request', column: 'tenant_id', value: scope.tenantId },
+        { table: 'pull_request', column: 'app_id', value: scope.appId },
+      ]),
+    );
   });
 });
