@@ -209,7 +209,7 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     name: 'list_sessions',
     description:
       'Filtered, paginated list of agent-coding sessions. Drill into a topic\'s sessions with topicId + topicFacet (topicId comes from list_topics). ' +
-      'Without the agents.sessions.team.read permission, actor identities are anonymized and an actorId filter is rejected. ' +
+      'Without the agents.sessions.team.read permission, actor identities are anonymized and an actor filter is rejected. ' +
       "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass repo to target another repo.",
     zodInputSchema: ListSessionsQuerySchema,
     zodOutputSchema: SessionsPageSchema,
@@ -221,8 +221,8 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
     name: 'get_session',
     description:
       'Full transcript (span tree) for one session, by trace id (from list_sessions or list_topics-driven list_sessions). ' +
-      'A missing or cross-app trace id returns the same not-found error. Output is capped — truncated: true means only the FIRST spans are included; ' +
-      'fetch the rest via GET /v1/sessions/{traceId} over REST.',
+      'A missing or cross-app trace id returns the same not-found error. Output is capped at 2000 spans (same cap on REST) — truncated: true means only the FIRST spans are included, and there is no pagination past the cap; ' +
+      'the session-level aggregate fields (turnCount, toolCallCount, errorCount, costUsd, models) cover the full session regardless.',
     zodInputSchema: GetSessionInputSchema,
     zodOutputSchema: AgentSessionDetailSchema,
     requiredPermission: 'session.read',

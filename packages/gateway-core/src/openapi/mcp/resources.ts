@@ -47,7 +47,7 @@ any other app's spend. \`get_model_costs\` windows are UTC calendar dates.
 
 \`list_sessions\` and \`get_session\` run under the calling key's privacy
 scope: without \`agents.sessions.team.read\`, actor identities are
-anonymized (a fixed placeholder name) and an \`actorId\` filter is rejected.
+anonymized (a fixed placeholder name) and an \`actor\` filter is rejected.
 A key with that permission sees real actor names.
 
 ## Comparing before/after a change
@@ -71,9 +71,14 @@ other factors may have moved between the windows too).
 
 ## Truncation
 
-\`get_session\` caps its span list (the SQL layer keeps at most 2000 spans)
-and additionally caps its own serialized output size. Either cap sets
-\`truncated: true\` on the response; when truncated you have the session's
-FIRST spans, not necessarily its last — call \`GET /v1/sessions/{traceId}\`
-over REST with pagination if you need spans past the cap.
+Every surface that reads a session transcript — \`get_session\` and
+\`GET /v1/sessions/{traceId}\` over REST alike — caps its span list at the
+same 2000 spans; \`get_session\` additionally caps its own serialized output
+size. Either cap sets \`truncated: true\` on the response; when truncated you
+have the session's FIRST spans, not necessarily its last, and there is no
+pagination past the cap on either surface. The session-level aggregate
+fields (\`turnCount\`, \`toolCallCount\`, \`errorCount\`, \`costUsd\`, \`models\`,
+…) are computed over the FULL session regardless of truncation — rely on
+those for anything that needs whole-session totals rather than trying to
+page through spans.
 `;
