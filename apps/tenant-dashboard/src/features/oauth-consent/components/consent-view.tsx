@@ -11,9 +11,10 @@ type Props = {
   authorizationId: string;
   clientName: string;
   resource: string | null;
+  redirectHost: string | null;
 };
 
-export const OAuthConsentView = ({ authorizationId, clientName, resource }: Props) => {
+export const OAuthConsentView = ({ authorizationId, clientName, resource, redirectHost }: Props) => {
   const { t } = useTranslate();
   const [pending, setPending] = useState<ConsentDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +45,14 @@ export const OAuthConsentView = ({ authorizationId, clientName, resource }: Prop
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {t("auth.oauthConsent.description", { clientName })}
           </Typography>
+          {/* A client can set its display name to anything, so the name
+              alone lets a lookalike connector impersonate a trusted one —
+              the actual redirect host is the part a spoofed name can't fake. */}
+          {redirectHost && (
+            <Typography variant="body2" sx={{ color: "text.secondary", wordBreak: "break-all" }}>
+              {t("auth.oauthConsent.redirectsTo", { host: redirectHost })}
+            </Typography>
+          )}
         </Stack>
 
         {resource && (

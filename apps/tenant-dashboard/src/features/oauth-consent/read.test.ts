@@ -38,6 +38,7 @@ describe("loadOAuthConsent", () => {
       authorizationId: "auth-1",
       clientName: "Claude",
       resource: null,
+      redirectHost: "claude.ai",
     };
     mockBindAuthorization.mockResolvedValue(authorization);
 

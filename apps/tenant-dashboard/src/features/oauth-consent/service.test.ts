@@ -55,6 +55,7 @@ describe("OAuthConsentService.bindAuthorization", () => {
       authorizationId: "auth-1",
       clientName: "Claude",
       resource: null,
+      redirectHost: "claude.ai",
     });
   });
 
@@ -79,6 +80,7 @@ describe("OAuthConsentService.bindAuthorization", () => {
       authorizationId: "auth-1",
       clientName: "Unnamed connector",
       resource: null,
+      redirectHost: null,
     });
   });
 
@@ -136,6 +138,51 @@ describe("OAuthConsentService.bindAuthorization", () => {
     expect(result.status === "pending" && result.clientName).toBe("Unnamed connector");
   });
 
+  // A client can name itself anything ("Claude"), so the display name alone
+  // lets a lookalike impersonate a trusted connector — redirectHost is the
+  // part a spoofed name can't fake, so these pin its extraction directly.
+  describe("redirectHost extraction", () => {
+    it("extracts the bare hostname from a standard https redirect_uri", async () => {
+      stubFetchOnce({ status: 200, body: { redirect_uri: "https://evil.example/callback", scope: "" } });
+
+      const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+      expect(result.status === "pending" && result.redirectHost).toBe("evil.example");
+    });
+
+    it("keeps a non-default port in the displayed host", async () => {
+      stubFetchOnce({ status: 200, body: { redirect_uri: "http://localhost:4173/callback", scope: "" } });
+
+      const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+      expect(result.status === "pending" && result.redirectHost).toBe("localhost:4173");
+    });
+
+    it("keeps an IP-literal host as-is, without resolving or rewriting it", async () => {
+      stubFetchOnce({ status: 200, body: { redirect_uri: "http://203.0.113.5:8080/callback", scope: "" } });
+
+      const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+      expect(result.status === "pending" && result.redirectHost).toBe("203.0.113.5:8080");
+    });
+
+    it("omits the host for a redirect_uri that doesn't parse as a URL, rather than crashing", async () => {
+      stubFetchOnce({ status: 200, body: { redirect_uri: "not-a-url", scope: "" } });
+
+      const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+      expect(result.status).toBe("pending");
+      expect(result.status === "pending" && result.redirectHost).toBeNull();
+    });
+
+    it("returns a null host when the server doesn't echo redirect_uri at all", async () => {
+      stubFetchOnce({ status: 200, body: { scope: "" } });
+
+      const result = await oauthConsentService.bindAuthorization(SUPABASE_URL, "token-1", "auth-1");
+
+      expect(result.status === "pending" && result.redirectHost).toBeNull();
+    });
+  });
 });
 
 describe("OAuthConsentService.submitConsent", () => {

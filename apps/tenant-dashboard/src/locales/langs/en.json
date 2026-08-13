@@ -940,6 +940,7 @@
     "oauthConsent": {
       "title": "Connect to OuterLayer",
       "description": "{{clientName}} wants to access your OuterLayer data.",
+      "redirectsTo": "Redirects to {{host}}",
       "resourceLabel": "Requested access",
       "grantLabel": "What this connects",
       "grantDescription": "This connector gets read access to your organization's OuterLayer analytics via MCP — agent sessions, topics, metrics, and context changes — acting as you.",

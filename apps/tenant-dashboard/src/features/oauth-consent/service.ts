@@ -31,6 +31,20 @@ function authorizationUrl(supabaseApiBaseUrl: string, authorizationId: string): 
   return `${supabaseApiBaseUrl}/auth/v1/oauth/authorizations/${encodeURIComponent(authorizationId)}`;
 }
 
+/** `host` (hostname, plus `:port` for a non-default one) of a redirect_uri
+ * the server echoed back — an IP-literal host is kept as-is (URL.host does
+ * not resolve or rewrite it). Returns null for a missing or unparseable
+ * value rather than throwing; the consent view treats null the same as
+ * "not shown". */
+function extractRedirectHost(redirectUri: string | null): string | null {
+  if (!redirectUri) return null;
+  try {
+    return new URL(redirectUri).host || null;
+  } catch {
+    return null;
+  }
+}
+
 class OAuthConsentService {
   /**
    * Binds the pending authorization to the signed-in user. On a repeat
@@ -64,12 +78,14 @@ class OAuthConsentService {
       (typeof body.client_name === "string" && body.client_name) ||
       "Unnamed connector";
     const resource = typeof body.resource === "string" ? body.resource : null;
+    const redirectUri = typeof body.redirect_uri === "string" ? body.redirect_uri : null;
 
     return {
       status: "pending",
       authorizationId,
       clientName,
       resource,
+      redirectHost: extractRedirectHost(redirectUri),
     };
   }
 

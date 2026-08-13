@@ -48,6 +48,7 @@ export default async function OAuthConsentPage({
       authorizationId={result.authorization.authorizationId}
       clientName={result.authorization.clientName}
       resource={result.authorization.resource}
+      redirectHost={result.authorization.redirectHost}
     />
   );
 }
