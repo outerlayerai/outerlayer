@@ -104,6 +104,7 @@ describe('workers request-tenant visibility and role scoping', () => {
     expect((data ?? []).map((r) => r.id).sort()).toEqual([runA1, runA2].sort());
   });
 
+  // proves AC-061-12
   it('operating under an org the user does not belong to yields no runs, even probed by id', async () => {
     // orgA's owner is not a member of orgB — the fail-closed spoof the // live:
     // poll must survive: the resolver returns NULL, so no rows are visible.
