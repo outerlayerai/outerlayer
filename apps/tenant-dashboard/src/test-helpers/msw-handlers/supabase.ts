@@ -291,9 +291,17 @@ export function seedSupabaseMswState(nextState: Partial<SupabaseMswState>) {
       nextState.deletedEntitlementOverrides ?? state.deletedEntitlementOverrides,
     updatedBilling: nextState.updatedBilling ?? state.updatedBilling,
     tableErrors: nextState.tableErrors ?? state.tableErrors,
-    generatedAuthLinkUser: nextState.generatedAuthLinkUser ?? state.generatedAuthLinkUser,
-    forceGenerateLinkError: nextState.forceGenerateLinkError ?? state.forceGenerateLinkError,
-    forceDeleteUserError: nextState.forceDeleteUserError ?? state.forceDeleteUserError,
+    // For these three, null IS the meaningful "off" value, so presence of the
+    // key wins — the ?? pattern above would silently refuse to clear them.
+    generatedAuthLinkUser: Object.hasOwn(nextState, "generatedAuthLinkUser")
+      ? (nextState.generatedAuthLinkUser ?? null)
+      : state.generatedAuthLinkUser,
+    forceGenerateLinkError: Object.hasOwn(nextState, "forceGenerateLinkError")
+      ? (nextState.forceGenerateLinkError ?? null)
+      : state.forceGenerateLinkError,
+    forceDeleteUserError: Object.hasOwn(nextState, "forceDeleteUserError")
+      ? (nextState.forceDeleteUserError ?? null)
+      : state.forceDeleteUserError,
     deletedAuthUserIds: nextState.deletedAuthUserIds ?? state.deletedAuthUserIds,
   };
 }

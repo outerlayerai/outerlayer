@@ -152,6 +152,9 @@ describe("temp access notification email", () => {
 
     expect(html).toContain("Acme Inc");
     expect(html).toContain("admin@agentmark.co");
+    // The exact UTC-pinned rendering: host-timezone formatting or a dropped
+    // zone label would misstate the access window to the recipient.
+    expect(html).toContain("Aug 20, 2026, 3:30 PM UTC");
     expect(html).not.toContain(expiresAt);
   });
 

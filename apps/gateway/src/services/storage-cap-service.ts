@@ -24,6 +24,7 @@ import type { GatewayCache, StorageCapCheckResult } from '@repo/gateway-core/typ
 import type { Database } from '@repo/gateway-core/db';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveTierWithOverride } from '@repo/gateway-core/services/tier-resolution';
+import { isSyntheticStripeCustomerId } from '../billing/synthetic-customer';
 import { getNumericLimit, UNLIMITED } from '@repo/tier-config';
 import Stripe from 'stripe';
 
@@ -51,6 +52,14 @@ export class StorageCapService implements IStorageCapService {
   ) {}
 
   async checkStorageCap(tenantId: string, stripeCustomerId: string): Promise<StorageCapCheckResult> {
+    // Fixture tenants carry synthetic customer ids with no Stripe customer
+    // behind them — the meter call can only fail, so they are skipped at
+    // every metering boundary (see billing/synthetic-customer.ts), this
+    // enforcement boundary included.
+    if (!stripeCustomerId || isSyntheticStripeCustomerId(stripeCustomerId)) {
+      return { allowed: true, currentBytes: 0, limitBytes: 0, capReached: false };
+    }
+
     const capCacheKey = `cap:${tenantId}`;
     const cached = await this.cache.storageCap.get(capCacheKey);
     if (cached.val) return cached.val;

@@ -5,6 +5,7 @@
   "devDependencies": {
     "@react-email/ui": "6.9.1",
     "@repo/typescript-config": "*",
+    "react": "^19.2.1",
     "typescript": "^5.5.3",
     "vitest": "^4.1.8"
   },

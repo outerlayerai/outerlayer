@@ -349,6 +349,10 @@ export class SyncAgentSessions extends BaseRoute {
     const env = c.env;
     const adminSupabase = asServiceClient(createSystemAdminClient(env));
 
+    // One request-scoped cache serves both quota gates below.
+    const gtx = c.get('gtx');
+    const gatewayCache = initCache(gtx.cacheL2Store, gtx.execCtx, memory);
+
     // Billing integrity: agent spans are units like any other ingested span.
     // Mirror the OTLP ingest's monthly-limit gate; fail OPEN on check errors
     // (a metering blip must not lose telemetry), fail CLOSED on a real limit.
@@ -356,7 +360,7 @@ export class SyncAgentSessions extends BaseRoute {
       const limitService = createSpanLimitService(
         createClickHouseService({ host: env.CLICKHOUSE_HOST, ...clickHouseWriteAuth(env) }),
         adminSupabase,
-        initCache(c.get('gtx').cacheL2Store, c.get('gtx').execCtx, memory),
+        gatewayCache,
         { selfHost: isSelfHostGateway(env) },
       );
       const limitResult = await limitService.checkSpanLimit(user.tenantId);
@@ -385,25 +389,29 @@ export class SyncAgentSessions extends BaseRoute {
     // never turn into a dropped sync. `checkStorageCap` caches its verdict for
     // 5 minutes (see `GatewayContext.billing`'s doc), so this stays off the
     // per-request Stripe round trip on repeat syncs within the window.
-    try {
-      const gtx = c.get('gtx');
-      const capResult = await gtx.billing.checkStorageCap(
-        adminSupabase,
-        user.tenantId,
-        user.stripeCustomerId,
-        initCache(gtx.cacheL2Store, gtx.execCtx, memory),
-      );
-      if (!capResult.allowed) {
-        return c.json(
-          structuredError('storage_cap_exceeded', 'Monthly storage cap exceeded. Upgrade your plan for more storage.', {
-            currentBytes: capResult.currentBytes,
-            limitBytes: capResult.limitBytes,
-          }),
-          429,
+    // An empty customer id carries nothing to meter against — bearer-session
+    // callers and tenants without a billing row — so the gate is skipped
+    // outright rather than paying a guaranteed-failing Stripe call per sync.
+    if (user.stripeCustomerId) {
+      try {
+        const capResult = await gtx.billing.checkStorageCap(
+          adminSupabase,
+          user.tenantId,
+          user.stripeCustomerId,
+          gatewayCache,
         );
+        if (!capResult.allowed) {
+          return c.json(
+            structuredError('storage_cap_exceeded', 'Monthly storage cap exceeded. Upgrade your plan for more storage.', {
+              currentBytes: capResult.currentBytes,
+              limitBytes: capResult.limitBytes,
+            }),
+            429,
+          );
+        }
+      } catch (e) {
+        console.warn('[agents/sync] storage-cap check failed, continuing:', e);
       }
-    } catch (e) {
-      console.warn('[agents/sync] storage-cap check failed, continuing:', e);
     }
 
     const tenantTier = await resolveTenantCaptureTier(adminSupabase, user.tenantId);

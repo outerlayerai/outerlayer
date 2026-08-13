@@ -93,9 +93,11 @@ export type GatewayEntitlement =
  * the trace ingestion path — it caches in-memory and queries ClickHouse
  * rather than Supabase, so it can't share the resolver here.
  *
- * Other numeric keys (max_users, max_cdn_requests, data_retention_days,
- * rate_limit_rpm, max_storage_gb_per_month) have no gateway-side
- * enforcement today; they're checked by the dashboard or other paths.
+ * `max_storage_gb_per_month` is enforced by `StorageCapService` on the
+ * session-sync ingest path (Stripe usage meter, hobby tier only). The
+ * remaining numeric keys (max_users, max_cdn_requests, data_retention_days,
+ * rate_limit_rpm) have no gateway-side enforcement; they're checked by the
+ * dashboard or other paths.
  */
 export type GatewayNumericEntitlement =
   | 'max_api_keys'
