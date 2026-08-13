@@ -69,6 +69,7 @@ export type ActionType =
   | 'member_invited'
   | 'invite_resent'
   | 'invite_accepted'
+  | 'invite_declined'
   | 'member_role_changed'
   | 'member_removed'
   | 'custom_role_created'

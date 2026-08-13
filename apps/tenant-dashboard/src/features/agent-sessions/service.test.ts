@@ -7,6 +7,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { BATCHED_EXTRACTOR_VERSION, STEERING_EXTRACTOR_VERSION } from "@repo/trace-topics";
 import { createMswRestClient } from "@/test-helpers/rest-client";
 import { seedSupabaseMswState, seedPullRequestSessionMswState } from "@/test-helpers/msw-handlers";
 
@@ -29,6 +30,11 @@ let summaryRowsOverride: Record<string, unknown>[] | null = null;
 // The trace-range lookup (`otel_traces_trace_id_ts`) returning no rows is the
 // "lookup knows nothing" case the bounded-scan fallback test exercises.
 let rangeLookupEmpty = false;
+// The facet-summaries read (`trace_facets`) defaults to no rows — most
+// fixtures predate Topics or belong to an app that never enabled it — so
+// tests exercising it opt in explicitly rather than inheriting FAT_ROW's
+// unrelated fields as bogus facet/summary values.
+let facetRowsOverride: Record<string, unknown>[] = [];
 // query() must be a Promise: the service uses both `await ch.query()` AND
 // `ch.query().then(r => r.json())` — a plain object breaks the latter. One
 // stable implementation, branching on the two flags above (reset every
@@ -41,6 +47,10 @@ const mockQuery = vi.fn(
     const q = args?.query ?? "";
     if (rangeLookupEmpty && q.includes("otel_traces_trace_id_ts")) {
       return Promise.resolve({ json: async () => [] });
+    }
+    if (q.includes("trace_facets")) {
+      const rows = facetRowsOverride;
+      return Promise.resolve({ json: async () => rows });
     }
     if (summaryRowsOverride !== null && q.includes("LIMIT 1")) {
       const rows = summaryRowsOverride;
@@ -128,6 +138,7 @@ beforeEach(() => {
   mockJson.mockResolvedValue([FAT_ROW]);
   summaryRowsOverride = null;
   rangeLookupEmpty = false;
+  facetRowsOverride = [];
   mockScope.value = { kind: "team" };
   seedSupabaseMswState({ tableErrors: {} });
 });
@@ -465,6 +476,68 @@ describe("AgentSessionsService.getSessionDetail", () => {
     mockJson.mockResolvedValue([]);
     const data = await agentSessionsService.getSessionDetail(ctx(), "nonexistent");
     expect(data).toBeNull();
+  });
+
+  describe("facet summaries", () => {
+    it("returns no facet summaries when the trace carries none", async () => {
+      const data = await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
+      expect(data?.facetSummaries).toEqual([]);
+    });
+
+    // proves AC-056-01
+    it("returns the trace's facet summaries in canonical facet order, regardless of row order", async () => {
+      facetRowsOverride = [
+        { facet: "issues", summary: "Build kept failing on a stale lockfile." },
+        { facet: "task", summary: "Wire the widget into the settings page." },
+        { facet: "steering", summary: "Prefer named exports over default exports." },
+        { facet: "sentiment", summary: "Frustrated after three failed retries." },
+      ];
+      const data = await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
+      expect(data?.facetSummaries).toEqual([
+        { facet: "task", summary: "Wire the widget into the settings page." },
+        { facet: "sentiment", summary: "Frustrated after three failed retries." },
+        { facet: "issues", summary: "Build kept failing on a stale lockfile." },
+        { facet: "steering", summary: "Prefer named exports over default exports." },
+      ]);
+    });
+
+    it("sorts a custom facet (not in the canonical order) after every built-in facet", async () => {
+      facetRowsOverride = [
+        { facet: "churn_risk", summary: "Customer threatened to cancel." },
+        { facet: "task", summary: "Wire the widget into the settings page." },
+      ];
+      const data = await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
+      expect(data?.facetSummaries).toEqual([
+        { facet: "task", summary: "Wire the widget into the settings page." },
+        { facet: "churn_risk", summary: "Customer threatened to cancel." },
+      ]);
+    });
+
+    it("scopes the facet read by exact trace id, current-status only, and version-pins each facet the way generation does", async () => {
+      await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
+      const facetCall = (mockQuery.mock.calls as unknown as [{ query: string; query_params: Record<string, unknown> }][])
+        .map((c) => c[0])
+        .find((c) => c.query.includes("trace_facets"));
+      expect(facetCall!.query).toContain(
+        "PREWHERE TenantId = {tenantId:String} AND AppId = {appId:String} AND TraceId = {traceId:String}",
+      );
+      expect(facetCall!.query).toContain("Status = 'ok'");
+      expect(facetCall!.query).toContain("IsDeleted = 0");
+      // Empty-summary rows are the pipeline's nothing-to-report sentinels.
+      expect(facetCall!.query).toContain("Summary != ''");
+      // Writers order multi-item facets most-significant-first, so the
+      // collapse must take the LOWEST ItemIndex.
+      expect(facetCall!.query).toContain("argMin(Summary, ItemIndex)");
+      // Version floors pin the built-ins only; a custom facet (independent
+      // versioning, absent spec version stamps 0) must pass through.
+      expect(facetCall!.query).toContain("Facet = 'steering', {steeringExtractorVersion:UInt32}");
+      expect(facetCall!.query).toContain(
+        "Facet IN ('task', 'sentiment', 'issues'), {batchedExtractorVersion:UInt32}",
+      );
+      expect(facetCall!.query_params.traceId).toBe(FAT_ROW.traceId);
+      expect(facetCall!.query_params.steeringExtractorVersion).toBe(STEERING_EXTRACTOR_VERSION);
+      expect(facetCall!.query_params.batchedExtractorVersion).toBe(BATCHED_EXTRACTOR_VERSION);
+    });
   });
 });
 
