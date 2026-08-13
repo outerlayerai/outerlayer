@@ -36,6 +36,14 @@ export function extractOrgName(pathname: string): string | null {
 }
 
 /**
+ * Escapes LIKE metacharacters so an `ilike` match on an org slug is literal
+ * (case-only insensitivity), never a wildcard pattern.
+ */
+function escapeOrgNameForIlike(orgName: string): string {
+  return orgName.replace(/[\\%_]/g, '\\$&');
+}
+
+/**
  * Resolves an org slug to its tenant id through the authed user's own active
  * membership. The match is case-insensitive: `organization_name` carries a
  * unique index on `lower(organization_name)`, so `/orgs/Acme` and `/orgs/acme`
@@ -51,9 +59,7 @@ export async function resolveRequestTenantId(
   userId: string,
   orgName: string,
 ): Promise<string | null> {
-  // Escape LIKE metacharacters so ilike matches the slug literally (case-only
-  // insensitivity), never as a wildcard pattern.
-  const literal = orgName.replace(/[\\%_]/g, '\\$&');
+  const literal = escapeOrgNameForIlike(orgName);
   const { data } = await supabase
     .from('membership')
     .select('tenant_id, tenant!inner(organization_name)')

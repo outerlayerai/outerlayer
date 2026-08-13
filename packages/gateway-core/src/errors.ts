@@ -45,6 +45,14 @@ export type GatewayErrorCode =
   | 'alert_not_found'
   | 'duplicate_alert_name'
   | 'slack_api_error'
+  // Org management (/v1/orgs/{orgName}/...)
+  | 'entitlement_denied'
+  | 'invite_failed'
+  | 'invite_not_found'
+  | 'resend_failed'
+  | 'member_not_found'
+  | 'role_change_failed'
+  | 'remove_failed'
   // Apps
   | 'app_not_found'
   | 'duplicate_app_name'

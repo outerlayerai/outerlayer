@@ -43,6 +43,12 @@ const gatewayOptions = {
   // ">=22") so the self-host bundle isn't emitted with syntax a supported Node
   // 22 runtime can't parse.
   target: "node22",
+  // @repo/gateway-core's management-email adapter bundles @repo/transactional's
+  // email templates straight from .tsx source (no dist, no `import React` —
+  // automatic-runtime source). esbuild's own default is the classic transform
+  // (`React.createElement`, expects React in scope), which throws
+  // `ReferenceError: React is not defined` the first time a template renders.
+  jsx: "automatic",
   outdir: "dist",
   outExtension: { ".js": ".mjs" },
   logLevel: "warning",

@@ -426,6 +426,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/orgs/{orgName}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List org members and pending invites
+         * @description Returns active memberships and pending invites for the org. Requires the `membership.read` management-API-key permission.
+         */
+        get: operations["list-org-members"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{orgName}/members/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite an org member
+         * @description Sends an org invite. Requires the `membership.insert` management-API-key permission. `appRoles` is accepted but not yet honored on this endpoint — see the response for details when supplied.
+         */
+        post: operations["invite-org-member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{orgName}/members/invites/{inviteId}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend a pending invite
+         * @description Resends the invite email for a pending membership. Requires 'membership.insert'.
+         */
+        post: operations["resend-org-member-invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/orgs/{orgName}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from the org
+         * @description Removes a member from the org. Requires 'membership.delete'.
+         */
+        delete: operations["remove-org-member"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a member's role
+         * @description Changes a member's built-in or custom role. Requires 'membership.update'.
+         */
+        patch: operations["change-org-member-role"];
+        trace?: never;
+    };
+    "/v1/orgs/{orgName}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List built-in org roles
+         * @description Returns the built-in role catalog. Requires 'membership.read'.
+         */
+        get: operations["list-org-roles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/pricing": {
         parameters: {
             query?: never;
@@ -3027,6 +3131,496 @@ export interface operations {
                         status: "healthy" | "degraded" | "unhealthy";
                         /** Format: date-time */
                         timestamp: string;
+                    };
+                };
+            };
+        };
+    };
+    "list-org-members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orgName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active memberships and pending invites. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            customRoleId?: string;
+                            customRoleName?: string;
+                            email: string;
+                            id: string;
+                            isConfirmed: boolean;
+                            membershipId: string;
+                            /** @enum {string} */
+                            membershipStatus: "active" | "pending";
+                            name: string | null;
+                            /** @enum {string} */
+                            role: "owner" | "admin" | "write" | "read" | "disabled";
+                        }[];
+                    };
+                };
+            };
+            /** @description Invalid request parameters (validation failed). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Missing or invalid management API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Key does not belong to this org, or lacks 'membership.read'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "invite-org-member": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orgName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    appRoles?: {
+                        appId: string;
+                        /** @enum {string} */
+                        role: "read" | "write" | "admin";
+                    }[];
+                    /** Format: email */
+                    email: string;
+                    name: string;
+                    /** @enum {string} */
+                    role: "owner" | "admin" | "write" | "read" | "disabled";
+                };
+            };
+        };
+        responses: {
+            /** @description Invite created. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            membershipId: string;
+                        };
+                    };
+                };
+            };
+            /** @description Invalid input, or a business-rule denial (e.g. only owners can invite owners). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Missing or invalid management API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Key does not belong to this org, or lacks 'membership.insert'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "resend-org-member-invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orgName: string;
+                inviteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resend accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {boolean} */
+                            success: true;
+                        };
+                    };
+                };
+            };
+            /** @description Invalid request parameters (validation failed). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Missing or invalid management API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Key does not belong to this org, or lacks 'membership.insert'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description No pending invite with that id in this org. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "remove-org-member": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orgName: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member removed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {boolean} */
+                            success: true;
+                        };
+                    };
+                };
+            };
+            /** @description Business-rule denial (e.g. last-owner protection). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Missing or invalid management API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Key does not belong to this org, or lacks 'membership.delete'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description No member with that id in this org. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "change-org-member-role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orgName: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    customRoleId?: string | null;
+                    /** @enum {string} */
+                    role: "owner" | "admin" | "write" | "read" | "disabled";
+                };
+            };
+        };
+        responses: {
+            /** @description Role changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @enum {boolean} */
+                            success: true;
+                        };
+                    };
+                };
+            };
+            /** @description Business-rule denial (e.g. last-owner protection). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Missing or invalid management API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Key does not belong to this org, or lacks 'membership.update'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description No member with that id in this org. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    "list-org-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orgName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The built-in role catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            label: string;
+                            value: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description Invalid request parameters (validation failed). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Missing or invalid management API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
+                    };
+                };
+            };
+            /** @description Key does not belong to this org, or lacks 'membership.read'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                        };
                     };
                 };
             };

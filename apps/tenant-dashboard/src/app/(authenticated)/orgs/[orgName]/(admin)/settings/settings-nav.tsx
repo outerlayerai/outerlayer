@@ -55,6 +55,12 @@ const LICENSE_NAV_ITEM: NavItem = {
   icon: "solar:key-bold-duotone",
 };
 
+const MANAGEMENT_API_KEYS_NAV_ITEM: NavItem = {
+  label: "Management API keys",
+  path: "management-api-keys",
+  icon: "solar:key-minimalistic-square-bold-duotone",
+};
+
 type Props = {
   orgName: string;
   showRolesTab: boolean;
@@ -63,6 +69,7 @@ type Props = {
   showAuditLogTab: boolean;
   showLicenseTab: boolean;
   showAiCostsTab: boolean;
+  showManagementApiKeysTab: boolean;
 };
 
 export function SettingsNav({
@@ -73,6 +80,7 @@ export function SettingsNav({
   showAuditLogTab,
   showLicenseTab,
   showAiCostsTab,
+  showManagementApiKeysTab,
 }: Props) {
   const pathname = usePathname();
   const navItems = [
@@ -85,6 +93,7 @@ export function SettingsNav({
     ...(showRolesTab ? [ROLES_NAV_ITEM] : []),
     ...(showSsoTab ? [SSO_NAV_ITEM] : []),
     ...(showAuditLogTab ? [AUDIT_LOG_NAV_ITEM] : []),
+    ...(showManagementApiKeysTab ? [MANAGEMENT_API_KEYS_NAV_ITEM] : []),
     // Self-host only — the licensed-org surface. Cloud never sets the flag.
     ...(showLicenseTab ? [LICENSE_NAV_ITEM] : []),
   ];

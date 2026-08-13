@@ -5,7 +5,6 @@
     "apps/tenant-dashboard/src/components/common/notifications-popover/__tests__/xss-prevention.test.tsx",
     "apps/tenant-dashboard/src/features/dashboards/service.test.ts",
     "apps/tenant-dashboard/src/lib/apps/__tests__/server-client.test.ts",
-    "apps/tenant-dashboard/src/lib/system/membership-service.test.ts",
     "apps/tenant-dashboard/src/lib/system/registration/email-registration.test.ts",
     "apps/tenant-dashboard/src/lib/system/registration/oauth-registration.test.ts",
     "apps/tenant-dashboard/src/lib/system/terms-agreement.test.ts",

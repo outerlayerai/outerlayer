@@ -2,10 +2,24 @@ import type { Context, Next } from 'hono';
 import type { Env, UserMeta } from '../types';
 import type { GatewayContext } from '../runtime';
 import { createVerifiedAppId, type VerifiedAppId } from '@repo/observability-service';
+import type { ManagementApiKeyServiceContext } from '@repo/org-management-service';
 import { buildUserMetaCacheKey } from '../lib/verify-key';
 import { extractBearerToken, resolveBearerUser } from '../lib/verify-bearer';
 import { initCache } from '../utils';
 import { memory } from '../cache-store';
+
+/**
+ * The resolved management-API-key auth for one `/v1/orgs/*` request, set by
+ * `managementAuthGuard` (`../lib/management-auth.ts`) before the route
+ * handler runs. Declared here (not in `lib/management-auth.ts`) so
+ * `OpenAPIVariables` can reference it without an import cycle back through
+ * this file.
+ */
+export interface ManagementAuthContext {
+  ctx: ManagementApiKeyServiceContext;
+  /** The creator's live permission set, already intersected with the key's own grant. */
+  permissions: readonly string[];
+}
 
 /** How the caller authenticated. Used by downstream helpers that pick the
  * right Supabase client (gateway-role for api-key, authenticated-role for
@@ -36,6 +50,8 @@ export type OpenAPIVariables = {
   /** The injected runtime adapters (connections, ingest, cache, billing, logging).
    * Set by the gtx middleware before auth; read via `c.get('gtx')`. */
   gtx: GatewayContext;
+  /** Set only on `/v1/orgs/*` routes by `managementAuthGuard`; absent everywhere else. */
+  managementAuth: ManagementAuthContext;
 };
 
 /**

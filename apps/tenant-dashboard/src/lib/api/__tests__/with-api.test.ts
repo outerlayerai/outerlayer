@@ -53,11 +53,11 @@ const SCHEMA: ApiRouteSchema = {
   responses: { 200: { description: 'ok' } },
 };
 
-function createRequest(appId?: string) {
+function createRequest(appId?: string, headers?: Record<string, string>) {
   const url = appId
     ? `http://localhost/api/with-api-test?appId=${appId}`
     : 'http://localhost/api/with-api-test';
-  return new Request(url);
+  return new Request(url, headers ? { headers } : undefined);
 }
 
 beforeEach(() => {

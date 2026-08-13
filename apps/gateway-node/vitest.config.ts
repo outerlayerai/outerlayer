@@ -4,6 +4,12 @@ import { defineConfig } from 'vitest/config';
 // chain so Vitest's transformer owns the graph (Node's native ESM loader rejects
 // its JSON-main packages). See packages/gateway-core/vitest.config.ts.
 export default defineConfig({
+  // @repo/gateway-core imports @repo/transactional's email templates, which use
+  // the automatic JSX runtime (no `import React`). See
+  // packages/gateway-core/vitest.config.ts for the same fix.
+  esbuild: {
+    jsx: 'automatic',
+  },
   test: {
     name: 'gateway-node',
     globals: true,

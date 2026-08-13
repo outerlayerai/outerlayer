@@ -262,6 +262,22 @@ INSERT INTO public.role_permissions (role, permission) VALUES
     ('admin', 'ai_cost_config.update')
 ON CONFLICT (role, permission) DO NOTHING;
 
+-- Org-scoped bearer credentials for the management REST API (member/role
+-- management, SCIM-layerable later). More privileged than a gateway api_key
+-- by design — a key carries org-wide member/role permissions — so creating
+-- and reading are owner/admin only, unlike api_key.insert/read which also
+-- grant write.
+INSERT INTO public.role_permissions (role, permission) VALUES
+    ('owner', 'management_api_key.delete'),
+    ('admin', 'management_api_key.delete'),
+    ('owner', 'management_api_key.insert'),
+    ('admin', 'management_api_key.insert'),
+    ('owner', 'management_api_key.read'),
+    ('admin', 'management_api_key.read'),
+    ('owner', 'management_api_key.update'),
+    ('admin', 'management_api_key.update')
+ON CONFLICT (role, permission) DO NOTHING;
+
 -- API keys: owner/admin/write view and create keys; rotating (update) and
 -- revoking (delete) a key is owner/admin only.
 INSERT INTO public.role_permissions (role, permission) VALUES

@@ -12,6 +12,7 @@
 import type { Env } from "@repo/gateway-core/types";
 import type { ExecutionCtx } from "@repo/gateway-core/runtime/execution";
 import type { GatewayContext } from "@repo/gateway-core/runtime/gateway-context";
+import { NotSupportedSmtpEmailSender } from "@repo/gateway-core/runtime/adapters/not-supported-smtp-sender";
 import { createCloudflareCacheStore } from "./adapters/cloudflare-cache-store";
 import { StripeBillingService } from "./adapters/stripe-billing-service";
 import { WorkerLogger } from "./adapters/worker-logger";
@@ -29,5 +30,8 @@ export function buildGatewayContext(env: Env, execCtx: ExecutionCtx): GatewayCon
     logger: new WorkerLogger(env, execCtx),
     auth: new CloudflareAuthResolver(),
     rateLimiter: new CloudflareRateLimiter(env),
+    // Workers cannot open raw SMTP sockets — management-API EMAIL_PROVIDER=smtp
+    // fails closed at config-validation time (see NotSupportedSmtpEmailSender).
+    smtpEmailSender: new NotSupportedSmtpEmailSender(),
   };
 }

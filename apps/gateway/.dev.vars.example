@@ -107,6 +107,17 @@ UNKEY_API_KEY=dev-placeholder-unkey-key
 API_KEY_PEPPER=dev-api-key-pepper-change-me
 
 # ---------------------------------------------------------------------------
+# Management API key pepper — OPTIONAL
+# ---------------------------------------------------------------------------
+# HMAC-SHA256 secret for `olk_*` org-management bearer keys (the
+# `/v1/orgs/{orgName}/...` routes). Unset means those routes are
+# unconfigured on this deployment and fail closed (every bearer 401s before
+# any DB round-trip) — boot never requires this. MUST match the dashboard's
+# MANAGEMENT_API_KEY_PEPPER for a key minted there to verify here. Never
+# reuse API_KEY_PEPPER's value — the two key families must not share a pepper.
+MANAGEMENT_API_KEY_PEPPER=dev-management-api-key-pepper-change-me
+
+# ---------------------------------------------------------------------------
 # Stripe (metering + storage cap) — REQUIRED (hosted)
 # ---------------------------------------------------------------------------
 # Optional in the shared schema — the Node self-host entrypoint wires a no-op
@@ -117,6 +128,36 @@ STRIPE_SECRET_KEY=sk_test_dev_placeholder
 STRIPE_SPAN_METER_KEY=span_meter
 STRIPE_STORAGE_METER_KEY=storage_gb
 STRIPE_STORAGE_METER_ID=mtr_dev_placeholder
+
+# ---------------------------------------------------------------------------
+# Management-API-key invite/role-changed/removed-from-org emails — OPTIONAL
+# ---------------------------------------------------------------------------
+# Every name here mirrors the dashboard's own env (apps/tenant-dashboard/src/env.ts)
+# — a deployment can point both at the same Resend account / SMTP relay with
+# identical values. Nothing set here + NODE_ENV=development (this file's
+# default) already gets you a working local loop for free: management-API
+# sends log the rendered invite link to the console instead of delivering —
+# see buildManagementEmailService's decision table in management-adapters.ts.
+# Leave everything below commented to keep that log-mode default; uncomment
+# ONE block to exercise real delivery.
+#
+# EMAIL_ENABLED=true
+# EMAIL_PROVIDER=resend
+# RESEND_API_KEY=re_dev_placeholder
+# FROM_EMAIL=dev@example.com
+# REPLY_TO_EMAIL=dev@example.com
+#
+# SMTP is NOT deliverable on this Worker entrypoint — Cloudflare Workers
+# cannot open raw SMTP sockets (EMAIL_PROVIDER=smtp fails closed here with a
+# clear message regardless of the SMTP_* vars below). Run apps/gateway-node
+# instead to point EMAIL_PROVIDER=smtp at the local Supabase stack's Inbucket
+# catcher (enable [inbucket] + its smtp_port in supabase/config.toml) or any
+# other local SMTP server:
+# EMAIL_ENABLED=true
+# EMAIL_PROVIDER=smtp
+# SMTP_HOST=localhost
+# SMTP_PORT=1025
+# SMTP_SECURE=false
 
 # ---------------------------------------------------------------------------
 # Fly Machines (environment provisioning + promote) — REQUIRED (hosted)

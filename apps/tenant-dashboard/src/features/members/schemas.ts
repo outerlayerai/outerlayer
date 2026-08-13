@@ -21,9 +21,9 @@ export const resendInviteInputSchema = z.object({
 });
 
 export const changeMemberRoleInputSchema = z.object({
-  userId: z.string().min(1),
   role: userRoleSchema,
   customRoleId: z.string().min(1).nullable().optional(),
+  userId: z.string().min(1),
 });
 
 export const removeMemberInputSchema = z.object({

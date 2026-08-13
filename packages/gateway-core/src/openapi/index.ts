@@ -56,6 +56,15 @@ import {
   type QuotaUser,
   type SystemSupabase,
 } from '../lib/entitlements';
+import { isManagementApiPath, managementAuthGuard } from '../lib/management-auth';
+import {
+  ListOrgMembers,
+  InviteOrgMember,
+  ResendOrgMemberInvite,
+  ChangeOrgMemberRole,
+  RemoveOrgMember,
+  ListOrgRoles,
+} from './routes/management';
 
 /**
  * Cast route subclasses to chanfana's expected type.
@@ -177,6 +186,18 @@ app.use('/v1/openapi.json', async (c, next) => {
       in: 'header',
       name: 'X-Outerlayer-App-Id',
       description: 'Application ID for tenant scoping.',
+    },
+    // Org-management routes (`/v1/orgs/{orgName}/...`) accept ONLY a
+    // management API key (`olk_...`), never an `sk_outerlayer_*` key or a
+    // Supabase session JWT — a distinct scheme from `BearerAuth` so
+    // Schemathesis' `ignored_auth` check (and any SDK/doc tooling) sees the
+    // real, narrower contract instead of the default one these routes
+    // deliberately don't honor. Declared per-route (`security:
+    // [{ ManagementApiKeyAuth: [] }]`), overriding the global requirement.
+    ManagementApiKeyAuth: {
+      type: 'http',
+      scheme: 'bearer',
+      description: 'Management API key (olk_*), scoped to one org.',
     },
   };
 
@@ -448,15 +469,19 @@ app.use('/v1/*', async (c, next) => {
   return next();
 });
 
-// Apply auth middleware to all /v1/* routes, skipping unauthenticated endpoints
+// Apply auth middleware to all /v1/* routes, skipping unauthenticated
+// endpoints AND the org-management API (`/v1/orgs/*`), which runs its own
+// `managementAuthGuard` per route (see `registerManagementRoute` below) —
+// an `sk_`/JWT-shaped Authorization header must 401 there exactly like a
+// missing one, which `authMiddleware`'s own schemes don't produce.
 app.use('/v1/*', async (c, next) => {
-  if (isUnauthenticatedV1Path(c.req.url)) return next();
+  if (isUnauthenticatedV1Path(c.req.url) || isManagementApiPath(new URL(c.req.url).pathname)) return next();
   return authMiddleware(c, next);
 });
 
 // Permission enforcement — checks user.permissions against route requirements
 app.use('/v1/*', async (c, next) => {
-  if (isUnauthenticatedV1Path(c.req.url)) return next();
+  if (isUnauthenticatedV1Path(c.req.url) || isManagementApiPath(new URL(c.req.url).pathname)) return next();
   return permissionMiddleware(c, next);
 });
 
@@ -532,6 +557,7 @@ export const openApiApp = fromHono(app, {
       { name: 'Apps', description: 'App CRUD — the top-level tenant entity every other resource hangs off. Lets a headless agent provision an app without the dashboard.' },
       { name: 'Workers', description: 'Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app\'s connected repo; every response carries the dashboard deep link to the live thread.' },
       { name: 'Health', description: 'Service health checks.' },
+      { name: 'Org Management', description: 'Org member and role administration, authenticated with an org-scoped management API key (`olk_…`) minted in the dashboard\'s settings.' },
     ],
   },
 });
@@ -678,6 +704,24 @@ function registerPublicRoute(
   _publicPaths.add(path);
 }
 
+/**
+ * Register an org-management route (`/v1/orgs/:orgName/...`). Distinct from
+ * `registerAuthenticatedRoute`: these routes are excluded from the shared
+ * `authMiddleware`/`permissionMiddleware` wildcard chain (see the `/v1/*`
+ * `app.use` blocks above) and instead run `managementAuthGuard(required)` —
+ * a management-API-key (`olk_...`) verify + org-tenant-binding +
+ * permission-intersection check, installed directly on the route.
+ */
+function registerManagementRoute(
+  method: AuthenticatedRouteMethod,
+  path: string,
+  RouteClass: typeof OpenAPIRoute,
+  requiredPermission: string,
+): void {
+  openApiApp[method](path, managementAuthGuard(requiredPermission));
+  openApiApp[method](path, R(RouteClass));
+}
+
 // ============================================================================
 // Health / capabilities routes (no auth required — skipped by middleware)
 // ============================================================================
@@ -803,3 +847,19 @@ registerAuthenticatedRoute('delete', '/v1/apps/:appId/git/link', UnlinkAppReposi
 registerAuthenticatedRoute('get', '/v1/apps/:appId', GetApp);
 registerAuthenticatedRoute('patch', '/v1/apps/:appId', UpdateApp);
 registerAuthenticatedRoute('delete', '/v1/apps/:appId', DeleteApp);
+
+// ============================================================================
+// Org-management routes — management-API-key (`olk_*`) auth only, see
+// `registerManagementRoute` above.
+// ============================================================================
+registerManagementRoute('get', '/v1/orgs/:orgName/members', ListOrgMembers, 'membership.read');
+registerManagementRoute('post', '/v1/orgs/:orgName/members/invites', InviteOrgMember, 'membership.insert');
+registerManagementRoute(
+  'post',
+  '/v1/orgs/:orgName/members/invites/:inviteId/resend',
+  ResendOrgMemberInvite,
+  'membership.insert',
+);
+registerManagementRoute('patch', '/v1/orgs/:orgName/members/:userId', ChangeOrgMemberRole, 'membership.update');
+registerManagementRoute('delete', '/v1/orgs/:orgName/members/:userId', RemoveOrgMember, 'membership.delete');
+registerManagementRoute('get', '/v1/orgs/:orgName/roles', ListOrgRoles, 'membership.read');

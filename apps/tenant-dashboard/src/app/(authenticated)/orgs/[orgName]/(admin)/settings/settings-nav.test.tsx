@@ -14,6 +14,7 @@ const baseProps = {
   showBillingTab: false,
   showAuditLogTab: false,
   showAiCostsTab: false,
+  showManagementApiKeysTab: false,
 };
 
 describe("SettingsNav — License tab (self-host gate)", () => {
@@ -39,5 +40,18 @@ describe("SettingsNav — AI costs tab (permission gate)", () => {
   it("hides the AI costs tab when showAiCostsTab is false (member without ai_cost_config.read)", () => {
     render(<SettingsNav {...baseProps} showLicenseTab={false} showAiCostsTab={false} />);
     expect(screen.queryByRole("link", { name: /ai costs/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("SettingsNav — Management API keys tab (permission gate)", () => {
+  it("shows the Management API keys tab, linked to the management-api-keys route, when showManagementApiKeysTab is true", () => {
+    render(<SettingsNav {...baseProps} showLicenseTab={false} showManagementApiKeysTab={true} />);
+    const link = screen.getByRole("link", { name: /management api keys/i });
+    expect(link).toHaveAttribute("href", "/orgs/acme/settings/management-api-keys");
+  });
+
+  it("hides the Management API keys tab when showManagementApiKeysTab is false (member without management_api_key.read)", () => {
+    render(<SettingsNav {...baseProps} showLicenseTab={false} showManagementApiKeysTab={false} />);
+    expect(screen.queryByRole("link", { name: /management api keys/i })).not.toBeInTheDocument();
   });
 });

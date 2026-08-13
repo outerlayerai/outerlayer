@@ -202,6 +202,41 @@ describe('updateSession (strip-only api prefixes)', () => {
   );
 });
 
+describe('updateSession (/api/orgs/** gets no bearer-auth carve-out)', () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
+  });
+
+  it('401s an unauthenticated request bearing an Authorization header on /api/orgs/**, same as any other unauthenticated request', async () => {
+    // No cookie-session logic ever inspects this header — the dashboard has
+    // no bearer-auth path at all, so any Authorization value is irrelevant
+    // to the outcome; the header content is incidental here.
+    const request = new NextRequest('http://localhost:4000/api/orgs/acme/apps', {
+      headers: { authorization: 'Bearer some-token', 'x-tenant-id': 'spoofed-tenant' },
+    });
+
+    const response = await updateSession(request);
+
+    expect(response.status).toBe(401);
+  });
+
+  it('leaves a session request to /api/orgs/** unchanged — tenant still threaded from the URL org', async () => {
+    seedMembershipMswState({
+      memberships: [
+        { id: 'm1', user_id: 'user-1', tenant_id: 'tenant-A', role: 'admin', status: 'active' },
+      ],
+      tenants: [{ tenant_id: 'tenant-A', organization_name: 'org-a' }],
+    });
+
+    const response = await updateSession(
+      makeAuthedRequest('/api/orgs/org-a/apps', 'user-1'),
+    );
+
+    expect(response.status).toBe(200);
+    expect(forwardedTenant(response)).toBe('tenant-A');
+  });
+});
+
 describe('updateSession (CLI api path — the one header-strip exception)', () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';

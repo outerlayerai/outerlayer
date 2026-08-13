@@ -108,6 +108,25 @@ export type DashboardErrorCode =
   | 'trace_not_found'
   | 'span_not_found'
   // -----------------------------------------------------------------------
+  // Members.
+  //
+  // `member_not_found` fires on `PATCH`/`DELETE /members/{userId}` when the
+  // target user has no membership in the org. `invite_not_found` fires on
+  // `POST /members/invites/{inviteId}/resend` when the id doesn't resolve to
+  // a pending invite. Both 404 — the client shouldn't retry.
+  //
+  // `entitlement_denied` fires on `POST /members/invites` when
+  // `MembershipService.sendInvite` denies the invite on a plan-tier limit
+  // (org member cap or the `app_level_roles` feature gate) rather than a
+  // business rule. 403 — the actor is authenticated and permitted to invite,
+  // but the org's plan doesn't allow it. Extras carry
+  // `{ entitlement: EntitlementDeniedInfo }` (`@/config/entitlements`) so the
+  // client can render an upgrade prompt without parsing the message.
+  // -----------------------------------------------------------------------
+  | 'member_not_found'
+  | 'invite_not_found'
+  | 'entitlement_denied'
+  // -----------------------------------------------------------------------
   // Context layer (OuterLayer read-only UI).
   //
   // `context_file_not_found` fires when a requested file isn't part of the

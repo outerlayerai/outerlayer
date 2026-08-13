@@ -116,6 +116,46 @@ export interface RateLimiter {
 }
 
 /**
+ * The SMTP connection + message a `send()` call needs, all in one shot — the
+ * sender is a stateless strategy (no per-runtime config threaded through the
+ * composition root), so a fresh transporter is fine to build per call given
+ * how infrequently management-API invite/role/remove mail goes out.
+ */
+export interface SmtpSendParams {
+  host: string;
+  port: number;
+  secure: boolean;
+  user?: string;
+  pass?: string;
+  to: string;
+  from: string;
+  replyTo?: string;
+  subject: string;
+  html: string;
+}
+
+/**
+ * SMTP delivery capability — the ONE field on this container that a runtime
+ * can genuinely lack, not just configure differently. Cloudflare Workers
+ * cannot open raw TCP sockets the way Nodemailer needs, so the CF composition
+ * root injects `NotSupportedSmtpEmailSender` (`supported: false`, every send
+ * fails with a clear message) instead of a working sender — same "explicit
+ * no-op, never null" rule as every other field here. The Node self-host root
+ * injects `NodemailerSmtpEmailSender` (`apps/gateway-node`; never imported
+ * from core — `nodemailer` pulls in `node:net`/`node:tls`, which the
+ * gateway-core import guard would reject and which cannot bundle for
+ * Workers).
+ *
+ * Callers MUST check `supported` before calling `send()` — that is the
+ * "fail closed at config validation, not silently at send time" contract
+ * `management-adapters.ts`'s email provider selection relies on.
+ */
+export interface SmtpEmailSender {
+  readonly supported: boolean;
+  send(params: SmtpSendParams): Promise<{ error: Error | null }>;
+}
+
+/**
  * The injected container. Every field is non-nullable — see the module doc.
  */
 export interface GatewayContext {
@@ -136,6 +176,7 @@ export interface GatewayContext {
   logger: LoggerFactory;
   auth: AuthResolver;
   rateLimiter: RateLimiter;
+  smtpEmailSender: SmtpEmailSender;
 }
 
 /**

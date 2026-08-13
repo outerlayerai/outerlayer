@@ -45,7 +45,16 @@ echo "Building email templates..."
 # refuse the CJS sibling (`require is not defined in ES module scope`). The
 # dual-extension naming is tsup's own disambiguation; the package's `type`
 # field only affects bare `.js` files we did NOT generate.
-npx tsup "$SCRIPT_DIR/index.ts" --outDir "$SCRIPT_DIR/dist" --format esm,cjs --external react
+#
+# --tsconfig scripts/tsconfig.json: the app's own tsconfig.json sets
+# "jsx": "preserve" (Next.js transforms JSX itself via SWC), which esbuild
+# can't bundle to runnable output — tsup falls back to its classic-transform
+# default (`React.createElement`, no import in scope) and the templates
+# (automatic-runtime source, no `import React`) throw `ReferenceError: React
+# is not defined` at the `node` step below. scripts/tsconfig.json overrides
+# just "jsx" to "react-jsx" so esbuild emits the automatic runtime's own
+# import instead.
+npx tsup "$SCRIPT_DIR/index.ts" --outDir "$SCRIPT_DIR/dist" --format esm,cjs --external react --tsconfig "$SCRIPT_DIR/tsconfig.json"
 node "$SCRIPT_DIR/dist/index.mjs"
 
 # Store hash for next run

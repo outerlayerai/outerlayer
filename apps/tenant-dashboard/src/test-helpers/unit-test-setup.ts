@@ -345,6 +345,7 @@ const mockEnvValues = {
   // Server - Required
   SUPABASE_SECRET_KEY: 'test-service-role-key',
   UNKEY_API_KEY: 'test-unkey-api-key',
+  MANAGEMENT_API_KEY_PEPPER: 'test-management-api-key-pepper',
   STRIPE_SECRET_KEY: 'sk_test_stripe_secret_key',
   STRIPE_SECRET_WEBHOOK_KEY: 'whsec_test_webhook_key',
   STRIPE_GROWTH_FLAT_PRICE_ID: 'price_test_growth_flat',
