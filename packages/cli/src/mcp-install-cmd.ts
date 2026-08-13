@@ -20,6 +20,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
@@ -55,7 +56,6 @@ export interface McpInstallCommandResult {
   /** False when the exact same entry was already present (idempotent no-op). */
   changed: boolean;
   output: string;
-  exitCode: 0 | 1;
 }
 
 /** Exported so a test can assert `X-Outerlayer-App-Id` is genuinely ABSENT
@@ -111,5 +111,26 @@ export function runMcpInstall(opts: McpInstallCommandOptions = {}): McpInstallCo
 
   if (!opts.quiet) process.stdout.write(output + "\n");
 
-  return { path: relPath, server: name, url, changed, output, exitCode: 0 };
+  return { path: relPath, server: name, url, changed, output };
+}
+
+/**
+ * Handles an error thrown out of `runMcpInstall`: an `McpInstallError` is a
+ * reported, expected failure (bad target dir, unparsable existing
+ * `.mcp.json`) — printed to stderr with `exitCode` set to 1. Anything else
+ * is unexpected and is rethrown unchanged, exactly as the caller's own
+ * catch block would have done.
+ *
+ * Exported and statically imported by `cli.ts` rather than living inline in
+ * its `mcp install` action: that action body sits behind a dynamic
+ * `import("./mcp-install-cmd.js")` for lazy loading, and branches inside a
+ * dynamic-import closure are a known blind spot for per-test mutation
+ * coverage attribution. Keeping the branch here, in a statically-imported
+ * and directly unit-tested function, means cli.ts's own catch block is a
+ * single unconditional call with no branch of its own to leave uncovered.
+ */
+export function handleMcpInstallError(err: unknown): void {
+  if (!(err instanceof McpInstallError)) throw err;
+  process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
+  process.exitCode = 1;
 }

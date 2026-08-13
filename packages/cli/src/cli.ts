@@ -431,17 +431,11 @@ function registerMcpCommands(program: Command): void {
         "from the bearer token alone, so SelfHostAuthResolver 401s without X-Outerlayer-App-Id.\n",
     )
     .action(async (opts) => {
-      const { runMcpInstall, McpInstallError } = await import("./mcp-install-cmd.js");
+      const { runMcpInstall, handleMcpInstallError } = await import("./mcp-install-cmd.js");
       try {
-        const result = runMcpInstall({ cwd: opts.dir, url: opts.url, name: opts.name, appId: opts.appId, json: opts.json });
-        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+        runMcpInstall({ cwd: opts.dir, url: opts.url, name: opts.name, appId: opts.appId, json: opts.json });
       } catch (err) {
-        if (err instanceof McpInstallError) {
-          process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
-          process.exitCode = 1;
-          return;
-        }
-        throw err;
+        handleMcpInstallError(err);
       }
     });
 }

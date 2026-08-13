@@ -5,7 +5,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runMcpInstall, McpInstallError, DEFAULT_MCP_URL, buildServerEntry } from "../mcp-install-cmd.js";
+import { runMcpInstall, McpInstallError, DEFAULT_MCP_URL, buildServerEntry, handleMcpInstallError } from "../mcp-install-cmd.js";
 
 let root: string;
 
@@ -40,7 +40,7 @@ describe("runMcpInstall", () => {
     const result = runMcpInstall({ cwd: root, quiet: true });
 
     expect(result).toEqual(
-      expect.objectContaining({ path: ".mcp.json", server: "outerlayer", url: DEFAULT_MCP_URL, changed: true, exitCode: 0 }),
+      expect.objectContaining({ path: ".mcp.json", server: "outerlayer", url: DEFAULT_MCP_URL, changed: true }),
     );
     const written = JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"));
     expect(written).toEqual({
@@ -192,6 +192,38 @@ describe("runMcpInstall", () => {
       expect(writeSpy).not.toHaveBeenCalled();
     } finally {
       writeSpy.mockRestore();
+    }
+  });
+});
+
+describe("handleMcpInstallError", () => {
+  it("reports an McpInstallError to stderr with the exact message and sets exitCode 1, without rethrowing", () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    process.exitCode = 0;
+    try {
+      // A throw here would propagate out of this test and fail it — the
+      // assertions below are the "didn't throw, and here's the observable
+      // effect" check, stronger than an isolated `.not.toThrow()`.
+      handleMcpInstallError(new McpInstallError("no such directory: /nope"));
+      expect(errSpy).toHaveBeenCalledWith("\x1b[31m✗\x1b[0m no such directory: /nope\n");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      errSpy.mockRestore();
+      process.exitCode = 0;
+    }
+  });
+
+  it("rethrows anything that isn't an McpInstallError unchanged, without touching stderr or exitCode", () => {
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    process.exitCode = 0;
+    const original = new Error("ENOENT: some filesystem error");
+    try {
+      expect(() => handleMcpInstallError(original)).toThrow(original);
+      expect(errSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(0);
+    } finally {
+      errSpy.mockRestore();
+      process.exitCode = 0;
     }
   });
 });
