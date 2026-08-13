@@ -1240,7 +1240,11 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 20
     needs: [detect-changes, prepare]
-    if: needs.detect-changes.outputs.gateway == 'true'
+    # `gateway-http` also carries api-keys/score-configs/alerts/self-host
+    # suites that import shared apps/integration-tests helpers directly, so a
+    # PR touching only those helpers (no apps/gateway change) must still run
+    # this job — the `integration-deps` filter is what covers that path.
+    if: needs.detect-changes.outputs.gateway == 'true' || needs.detect-changes.outputs.integration-deps == 'true'
 
     steps:
       - uses: actions/checkout@v7
