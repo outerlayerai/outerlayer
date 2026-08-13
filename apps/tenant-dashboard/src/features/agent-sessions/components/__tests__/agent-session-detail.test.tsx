@@ -88,6 +88,7 @@ const DATA: AgentSessionDetailData = {
     span({ spanId: 'b1', name: 'agent.tool.Bash', parentSpanId: 'a2', statusCode: '2', statusMessage: 'command failed', output: 'boom' }),
   ],
   prOutcomes: [],
+  facetSummaries: [],
 };
 
 describe('AgentSessionDetail', () => {
@@ -372,6 +373,46 @@ describe('AgentSessionDetail', () => {
     const { getByTestId } = render(<AgentSessionDetail appId="app-1" data={data} />);
     expect(getByTestId('hook-rollup')).toHaveTextContent('hooks: 3 runs · no timing reported');
     expect(getByTestId('hook-rollup')).not.toHaveTextContent('0ms');
+  });
+
+  it('hides the facet-summaries block entirely when the trace carries no facet summaries', () => {
+    const { queryByTestId, container } = render(<AgentSessionDetail appId="app-1" data={{ ...DATA, facetSummaries: [] }} />);
+    expect(queryByTestId('facet-summaries')).toBeNull();
+    expect(container.textContent ?? '').not.toContain('facet summaries');
+  });
+
+  // proves AC-056-01
+  it('renders one row per facet, in the order the service returned them', () => {
+    const data: AgentSessionDetailData = {
+      ...DATA,
+      facetSummaries: [
+        { facet: 'task', summary: 'Wire the widget into the settings page.' },
+        { facet: 'sentiment', summary: 'Frustrated after three failed retries.' },
+        { facet: 'issues', summary: 'Build kept failing on a stale lockfile.' },
+        { facet: 'churn_risk', summary: 'Customer threatened to cancel.' },
+      ],
+    };
+    const { getByTestId } = render(<AgentSessionDetail appId="app-1" data={data} />);
+    const block = getByTestId('facet-summaries');
+    const rowText = block.textContent ?? '';
+    // Every facet's label and summary render...
+    expect(rowText).toContain('Task');
+    expect(rowText).toContain('Wire the widget into the settings page.');
+    expect(rowText).toContain('Sentiment');
+    expect(rowText).toContain('Frustrated after three failed retries.');
+    expect(rowText).toContain('Issues');
+    expect(rowText).toContain('Build kept failing on a stale lockfile.');
+    // ...and an unrecognized (custom) facet key still renders, title-cased.
+    expect(rowText).toContain('Churn_risk');
+    expect(rowText).toContain('Customer threatened to cancel.');
+    // ...in the exact order given, not alphabetized or reshuffled by the UI.
+    const taskIndex = rowText.indexOf('Task');
+    const sentimentIndex = rowText.indexOf('Sentiment');
+    const issuesIndex = rowText.indexOf('Issues');
+    const churnIndex = rowText.indexOf('Churn_risk');
+    expect(taskIndex).toBeLessThan(sentimentIndex);
+    expect(sentimentIndex).toBeLessThan(issuesIndex);
+    expect(issuesIndex).toBeLessThan(churnIndex);
   });
 
   it('never drops a real slowest duration just because the slowest command string is empty', () => {

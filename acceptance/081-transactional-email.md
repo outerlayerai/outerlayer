@@ -7,6 +7,11 @@ access. These are the emails the dashboard's email service (`src/lib/
 external-services/`) renders and sends via Resend or SMTP, gated by
 `resolveEmailConfig`.
 
+Two templates — signup confirmation and password reset — are part of the
+package's contract but not yet dispatched by the app: Supabase Auth's own
+mailer currently sends those two flows. Their criteria pin the rendered
+contract so the templates stay correct for the wiring that adopts them.
+
 Each criterion below carries a stable id. The test that proves a criterion
 cites its id in a comment above the test, and
 `scripts/ci/check-acceptance-coverage.mjs` enforces the join in both

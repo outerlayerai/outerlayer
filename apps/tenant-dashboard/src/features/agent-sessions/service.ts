@@ -12,6 +12,7 @@ import "server-only";
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ForbiddenError } from "@repo/observability-service";
+import { BATCHED_EXTRACTOR_VERSION, STEERING_EXTRACTOR_VERSION } from "@repo/trace-topics";
 import { createTenantReadClient } from "@/lib/analytics/client";
 import { checkAppPermission } from "@/utils/permission-check";
 import { Permissions } from "@/utils/permissions";
@@ -38,6 +39,13 @@ export interface AgentSessionsContext extends TenantContext {
 // display slice so nothing visible is lost.
 const IO_CAP = 4096;
 const REASONING_CAP = 1024;
+/**
+ * Facet display order — mirrors the write order the gateway's batched call
+ * uses (task, sentiment, issues) with steering, a separate own-pass facet,
+ * appended after. A custom facet (no fixed position here) sorts after the
+ * built-ins in whatever order ClickHouse returns it.
+ */
+const FACET_ORDER = ["task", "sentiment", "issues", "steering"] as const;
 /** UTF8-safe char cap, so the wire payload of one span is bounded. */
 const capText = (s: string | null, max: number): string | null =>
   s && s.length > max ? [...s].slice(0, max).join("") : s;
@@ -186,7 +194,7 @@ class AgentSessionsService {
       // unbounded fallback — never turn a lookup failure into a 500
     }
 
-    const [rows, summaryRows] = await Promise.all([
+    const [rows, summaryRows, facetRows] = await Promise.all([
       ch
         .query({
           query: `
@@ -244,6 +252,30 @@ class AgentSessionsService {
           format: "JSONEachRow",
         })
         .then((r) => r.json<Record<string, unknown>>()),
+      // Facet summaries for this one trace — bounded by exact TraceId, no
+      // otel_traces scan. FINAL + argMax(Summary, ItemIndex) collapses a
+      // facet that wrote multiple items (steering emits one row per
+      // correction) to its latest; Status='ok' drops rows the model refused;
+      // the ExtractorVersion floor excludes mid-re-extraction leftovers
+      // written under a retired prompt (see topics/service.ts's
+      // minExtractorVersionForFacet, which this mirrors).
+      ch
+        .query({
+          query: `
+          SELECT Facet AS facet, argMax(Summary, ItemIndex) AS summary
+          FROM trace_facets FINAL
+          WHERE TenantId = {tenantId:String} AND AppId = {appId:String} AND TraceId = {traceId:String}
+            AND Status = 'ok' AND IsDeleted = 0
+            AND ExtractorVersion >= if(Facet = 'steering', {steeringExtractorVersion:UInt32}, {batchedExtractorVersion:UInt32})
+          GROUP BY Facet`,
+          query_params: {
+            ...params,
+            steeringExtractorVersion: STEERING_EXTRACTOR_VERSION,
+            batchedExtractorVersion: BATCHED_EXTRACTOR_VERSION,
+          },
+          format: "JSONEachRow",
+        })
+        .then((r) => r.json<{ facet: string; summary: string }>()),
     ]);
 
     if (rows.length === 0) return null;
@@ -337,8 +369,17 @@ class AgentSessionsService {
         }).catch(() => [])
       : [];
 
+    const facetSummaries = facetRows
+      .map((r) => ({ facet: r.facet, summary: r.summary }))
+      .sort((a, b) => {
+        const ai = FACET_ORDER.indexOf(a.facet as (typeof FACET_ORDER)[number]);
+        const bi = FACET_ORDER.indexOf(b.facet as (typeof FACET_ORDER)[number]);
+        return (ai === -1 ? FACET_ORDER.length : ai) - (bi === -1 ? FACET_ORDER.length : bi);
+      });
+
     return {
       prOutcomes,
+      facetSummaries,
       session: {
         traceId,
         sessionId: (summary?.sessionId as string) || traceId,
