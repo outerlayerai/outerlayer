@@ -130,14 +130,34 @@ STRIPE_STORAGE_METER_KEY=storage_gb
 STRIPE_STORAGE_METER_ID=mtr_dev_placeholder
 
 # ---------------------------------------------------------------------------
-# Resend (management-API-key invite/role-changed/removed-from-org emails) — OPTIONAL
+# Management-API-key invite/role-changed/removed-from-org emails — OPTIONAL
 # ---------------------------------------------------------------------------
-# Unset locally by default: management-API sends fail closed with a clear
-# error (the membership/invite row still commits). Set both to exercise real
-# delivery; names mirror the dashboard's own env (apps/tenant-dashboard/src/env.ts).
+# Every name here mirrors the dashboard's own env (apps/tenant-dashboard/src/env.ts)
+# — a deployment can point both at the same Resend account / SMTP relay with
+# identical values. Nothing set here + NODE_ENV=development (this file's
+# default) already gets you a working local loop for free: management-API
+# sends log the rendered invite link to the console instead of delivering —
+# see buildManagementEmailService's decision table in management-adapters.ts.
+# Leave everything below commented to keep that log-mode default; uncomment
+# ONE block to exercise real delivery.
+#
+# EMAIL_ENABLED=true
+# EMAIL_PROVIDER=resend
 # RESEND_API_KEY=re_dev_placeholder
 # FROM_EMAIL=dev@example.com
 # REPLY_TO_EMAIL=dev@example.com
+#
+# SMTP is NOT deliverable on this Worker entrypoint — Cloudflare Workers
+# cannot open raw SMTP sockets (EMAIL_PROVIDER=smtp fails closed here with a
+# clear message regardless of the SMTP_* vars below). Run apps/gateway-node
+# instead to point EMAIL_PROVIDER=smtp at the local Supabase stack's Inbucket
+# catcher (enable [inbucket] + its smtp_port in supabase/config.toml) or any
+# other local SMTP server:
+# EMAIL_ENABLED=true
+# EMAIL_PROVIDER=smtp
+# SMTP_HOST=localhost
+# SMTP_PORT=1025
+# SMTP_SECURE=false
 
 # ---------------------------------------------------------------------------
 # Fly Machines (environment provisioning + promote) — REQUIRED (hosted)

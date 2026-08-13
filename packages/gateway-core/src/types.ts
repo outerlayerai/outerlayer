@@ -131,15 +131,33 @@ export const EnvSchema = z.object({
   STRIPE_STORAGE_METER_ID: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
 
-  // Resend — management-API-key invite/role-changed/removed-from-org emails
-  // (lib/management-email.ts). Optional: unset on a deployment that hasn't
-  // provisioned Resend, in which case management-API sends fail closed with a
-  // clear error (the membership/invite row still commits). Names mirror the
-  // dashboard's own env (apps/tenant-dashboard/src/env.ts) so a shared Resend
-  // account can be wired into both with the same values.
+  // Management-API-key invite/role-changed/removed-from-org emails
+  // (lib/management-adapters.ts / lib/management-email.ts). Every name below
+  // mirrors the dashboard's own env (apps/tenant-dashboard/src/env.ts) exactly
+  // — same toggle semantics (EMAIL_ENABLED/EMAIL_PROVIDER via
+  // @repo/adapter-config's resolveToggle), so a deployment can point both at
+  // the same Resend account / SMTP relay with the same values. All optional:
+  // EMAIL_ENABLED unset/false + NODE_ENV=development logs the rendered
+  // template's action links instead of sending (see buildManagementEmailService's
+  // decision table); unset in staging/production fails closed with a clear
+  // error (the membership/invite row still commits either way).
+  EMAIL_ENABLED: z.string().optional(),
+  // 'resend' (default) | 'smtp' | 'log' — 'log' is gateway-only (no dashboard
+  // equivalent): forces the dev log-mode adapter even with EMAIL_ENABLED=true,
+  // refused when NODE_ENV=production.
+  EMAIL_PROVIDER: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   FROM_EMAIL: z.string().optional(),
   REPLY_TO_EMAIL: z.string().optional(),
+  // SMTP (Nodemailer) — only ever deliverable on the Node self-host entrypoint
+  // (see `GatewayContext.smtpEmailSender`); EMAIL_PROVIDER=smtp on the
+  // Cloudflare Worker fails closed regardless of these. SMTP_USER/PASS are
+  // optional (open relays / IP-allowlisted senders need no auth).
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z.string().optional(),
 
   // Cloudflare
   CLOUDFLARE_ZONE_ID: z.string().min(1, "Cloudflare zone ID is required"),

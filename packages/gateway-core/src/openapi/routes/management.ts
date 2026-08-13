@@ -87,7 +87,7 @@ function buildMembershipService(c: AppContext): MembershipService {
     // any read failure — safe to reuse the admin client here.
     supabaseAdmin: admin,
     supabaseServer: admin,
-    emailService: buildManagementEmailService(c.env),
+    emailService: buildManagementEmailService(c.env, c.get('gtx').smtpEmailSender),
     rateLimitService: buildManagementRateLimitService(c),
     stripeService: buildManagementStripeService(),
     entitlements: buildManagementEntitlementGate(admin, c.env),

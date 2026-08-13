@@ -6,18 +6,14 @@
  * is also the honest record of what a management-API-key invite/role/remove
  * call can and cannot do until those facilities land on the gateway:
  *
- *   - EmailService: Resend-backed (`management-email.ts`), rendering the
- *     same `@repo/transactional` React Email templates the dashboard uses,
- *     when `RESEND_API_KEY` + `FROM_EMAIL` are configured on the
- *     deployment. Sends via a raw `fetch` to Resend's REST API rather than
- *     the `resend` npm SDK, keeping the Workers bundle to just the
- *     templates + `@react-email/render`. Unset env (the default on a fresh
- *     self-host deploy) keeps the old fail-closed behavior: every send
- *     returns a clear error and `MembershipService` degrades gracefully
- *     (the membership/invite row still commits; the caller is told to
- *     resend) — a resend against an unconfigured adapter hits the same
- *     error, so the dashboard's own "Resend invite" is the only delivery
- *     path until Resend is wired.
+ *   - EmailService: three providers (Resend / SMTP / dev log), selected by
+ *     `buildManagementEmailService` below — see its doc comment for the full
+ *     decision table. Mirrors the dashboard's `EMAIL_ENABLED`/`EMAIL_PROVIDER`
+ *     toggle semantics (`@repo/adapter-config`'s `resolveToggle`) so the same
+ *     env values configure both. Unconfigured in production/staging keeps the
+ *     original fail-closed behavior: every send returns a clear error and
+ *     `MembershipService` degrades gracefully (the membership/invite row
+ *     still commits; the caller is told to resend).
  *   - RateLimitService: reuses the injected `gtx.rateLimiter` (the same
  *     Unkey-backed, fail-open limiter every other /v1/* write route uses),
  *     keyed by the caller-supplied identifier directly.
@@ -74,34 +70,131 @@ import type { OpenAPIVariables } from '../openapi/middleware';
 import type { Json } from '@repo/db-types';
 import type { SystemAdminClient } from './system-client';
 import { isSelfHostGateway } from './entitlements';
-import { buildResendManagementEmailService } from './management-email';
+import {
+  buildResendManagementEmailService,
+  buildSmtpManagementEmailService,
+  buildLogManagementEmailService,
+} from './management-email';
+import { resolveToggle } from '@repo/adapter-config';
+import type { SmtpEmailSender } from '../runtime/gateway-context';
 
 type ManagementAppContext = Context<{ Bindings: Env; Variables: OpenAPIVariables }>;
 
+const MANAGEMENT_EMAIL_BACKENDS = ['resend', 'smtp', 'log'] as const;
+type ManagementEmailBackend = (typeof MANAGEMENT_EMAIL_BACKENDS)[number];
+
+function unconfiguredEmailService(message: string): EmailService {
+  return {
+    async sendEmail() {
+      return { error: new Error(message) };
+    },
+  };
+}
+
+const NO_PROVIDER_MESSAGE =
+  'No email provider is configured on this gateway deployment — the membership/invite record was written, but no email was sent';
+
 /**
- * Resend-backed when `RESEND_API_KEY` + `FROM_EMAIL` are configured (see
- * `management-email.ts`); otherwise every send fails with a stable,
- * non-throwing error so `MembershipService`'s existing "membership created
- * but email failed, please resend" handling takes over — the caller sees an
- * honest signal rather than a silent no-op or a fabricated success.
+ * Selects which of the three `management-email.ts` providers backs a given
+ * deployment. Mirrors the dashboard's `resolveEmailConfig`
+ * (`apps/tenant-dashboard/src/lib/external-services/email-config.ts`) byte
+ * for byte on the shared primitive (`@repo/adapter-config`'s `resolveToggle`,
+ * same `EMAIL_ENABLED`/`EMAIL_PROVIDER` env names, same `defaultEnabled:
+ * false`) — a deployment can point the dashboard and the gateway at the same
+ * Resend account or SMTP relay with identical env values. `'log'` is the one
+ * addition: a gateway-only backend with no dashboard equivalent, since the
+ * dashboard's "disabled" path already logs via `LoggingEmailService` — the
+ * gateway's management API has no such built-in fallback, so `'log'` gives it
+ * one, explicitly opt-in or automatic in development.
+ *
+ * DECISION TABLE (env → behavior), independent per entrypoint where noted:
+ *
+ * | EMAIL_ENABLED | EMAIL_PROVIDER | NODE_ENV                | CF Worker                                   | Node (gateway-node)                          |
+ * |---------------|-----------------|--------------------------|----------------------------------------------|-----------------------------------------------|
+ * | unset/false   | (any)           | development              | log mode                                     | log mode                                       |
+ * | unset/false   | (any)           | staging / production     | fail closed (`NO_PROVIDER_MESSAGE`)          | fail closed (`NO_PROVIDER_MESSAGE`)            |
+ * | true          | resend (default)| any                      | Resend if `RESEND_API_KEY`+`FROM_EMAIL` set, else fail closed | same                         |
+ * | true          | smtp            | any                      | fail closed (`smtpEmailSender.supported === false`) | SMTP via Nodemailer if `SMTP_HOST` set, else fail closed |
+ * | true          | log             | development              | log mode                                     | log mode                                       |
+ * | true          | log             | staging / production     | fail closed ("log not permitted...")         | fail closed ("log not permitted...")           |
+ *
+ * The CF-vs-Node split for `smtp` comes entirely from the injected
+ * `gtx.smtpEmailSender` (`SmtpEmailSender.supported`) — Workers cannot open
+ * raw SMTP sockets (see `runtime/gateway-context.ts`), so that row fails at
+ * this function's return, before `MembershipService` ever calls
+ * `sendEmail()`: "fail closed at config validation, not silently at send
+ * time."
  */
-export function buildManagementEmailService(env: Env): EmailService {
-  if (!env.RESEND_API_KEY || !env.FROM_EMAIL) {
-    return {
-      async sendEmail() {
-        return {
-          error: new Error(
-            'No email provider is configured on this gateway deployment — the membership/invite record was written, but no email was sent',
-          ),
-        };
+export function buildManagementEmailService(env: Env, smtpSender: SmtpEmailSender): EmailService {
+  const { enabled, backend } = resolveToggle<ManagementEmailBackend>({
+    enabledOverride: env.EMAIL_ENABLED,
+    backendValue: env.EMAIL_PROVIDER,
+    backends: MANAGEMENT_EMAIL_BACKENDS,
+    defaultEnabled: false,
+  });
+
+  const isDevelopment = env.NODE_ENV === 'development';
+  const resolvedBackend: ManagementEmailBackend = enabled ? backend : 'log';
+
+  if (resolvedBackend === 'log') {
+    if (!enabled && !isDevelopment) {
+      // "Nothing configured" — the original, unconditional fail-closed path.
+      return unconfiguredEmailService(NO_PROVIDER_MESSAGE);
+    }
+    if (!isDevelopment) {
+      // Explicit EMAIL_PROVIDER=log outside development — refuse rather than
+      // silently print recipient addresses/links to staging or production logs.
+      return unconfiguredEmailService(
+        'EMAIL_PROVIDER=log is not permitted when NODE_ENV is not "development" — set EMAIL_PROVIDER=resend or smtp.',
+      );
+    }
+    return buildLogManagementEmailService();
+  }
+
+  if (resolvedBackend === 'smtp') {
+    if (!smtpSender.supported) {
+      return unconfiguredEmailService(
+        'EMAIL_PROVIDER=smtp is not supported on this gateway runtime — Cloudflare Workers cannot open raw SMTP sockets. Set EMAIL_PROVIDER=resend, or run the Node self-host entrypoint for SMTP.',
+      );
+    }
+    if (!env.SMTP_HOST) {
+      return unconfiguredEmailService(
+        'EMAIL_PROVIDER=smtp but SMTP_HOST is not configured on this gateway deployment.',
+      );
+    }
+    if (!env.FROM_EMAIL) {
+      return unconfiguredEmailService(
+        'EMAIL_PROVIDER=smtp but FROM_EMAIL is not configured on this gateway deployment.',
+      );
+    }
+    return buildSmtpManagementEmailService(
+      {
+        host: env.SMTP_HOST,
+        port: env.SMTP_PORT ?? 587,
+        secure: isTruthyEnv(env.SMTP_SECURE),
+        user: env.SMTP_USER,
+        pass: env.SMTP_PASS,
+        fromEmail: env.FROM_EMAIL,
+        replyToEmail: env.REPLY_TO_EMAIL,
       },
-    };
+      smtpSender,
+    );
+  }
+
+  // resolvedBackend === 'resend'
+  if (!env.RESEND_API_KEY || !env.FROM_EMAIL) {
+    return unconfiguredEmailService(NO_PROVIDER_MESSAGE);
   }
   return buildResendManagementEmailService({
     resendApiKey: env.RESEND_API_KEY,
     fromEmail: env.FROM_EMAIL,
     replyToEmail: env.REPLY_TO_EMAIL,
   });
+}
+
+/** Matches the dashboard's own `isTruthyEnv` (`lib/external-services/index.ts`) — the common truthy spellings, case-insensitive. */
+function isTruthyEnv(value: string | undefined): boolean {
+  return value !== undefined && ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
 /**

@@ -15,6 +15,7 @@ import { UNLIMITED } from '@repo/tier-config';
 import { buildManagementEntitlementGate, buildManagementEmailService } from './management-adapters';
 import type { Env } from '../types';
 import type { SystemAdminClient } from './system-client';
+import type { SmtpEmailSender, SmtpSendParams } from '../runtime/gateway-context';
 
 // ---------------------------------------------------------------------------
 // Minimal fake of the two postgrest queries the shared resolver issues
@@ -62,6 +63,34 @@ function throwingAdminClient(): SystemAdminClient {
 
 const CLOUD_ENV = { OUTERLAYER_SELF_HOSTED: undefined } as unknown as Env;
 const SELF_HOST_ENV = { OUTERLAYER_SELF_HOSTED: 'true' } as unknown as Env;
+
+// ---------------------------------------------------------------------------
+// SmtpEmailSender stubs — the interface is two fields (`supported`, `send`),
+// so a hand-rolled stub is simpler and more honest than importing a concrete
+// runtime adapter (neither `NotSupportedSmtpEmailSender` nor gateway-node's
+// Nodemailer-backed one belongs in a gateway-core-only test).
+// ---------------------------------------------------------------------------
+
+function unsupportedSmtpSender(): SmtpEmailSender {
+  return {
+    supported: false,
+    async send() {
+      throw new Error('unsupportedSmtpSender.send must never be called — supported is false');
+    },
+  };
+}
+
+function fakeSupportedSmtpSender(): SmtpEmailSender & { calls: SmtpSendParams[] } {
+  const calls: SmtpSendParams[] = [];
+  return {
+    supported: true,
+    calls,
+    async send(params) {
+      calls.push(params);
+      return { error: null };
+    },
+  };
+}
 
 describe('buildManagementEntitlementGate — max_users (checkLimit)', () => {
   it('denies at the tier cap with the same deny-info fields the dashboard produces', async () => {
@@ -160,28 +189,61 @@ describe('buildManagementEntitlementGate — app_level_roles (canAccess)', () =>
   });
 });
 
-describe('buildManagementEmailService', () => {
-  it('fails closed with the unconfigured-provider error when RESEND_API_KEY/FROM_EMAIL are unset', async () => {
-    const service = buildManagementEmailService({ ...CLOUD_ENV } as Env);
-    const result = await service.sendEmail({
-      to: 'a@example.com',
-      subject: 'hi',
-      emailType: 'invite',
-      templateParams: {},
-    });
+describe('buildManagementEmailService — provider selection matrix', () => {
+  it('EMAIL_ENABLED unset + NODE_ENV=production: fails closed with the original unconfigured-provider message', async () => {
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'production' } as Env,
+      unsupportedSmtpSender(),
+    );
+    const result = await service.sendEmail({ to: 'a@example.com', subject: 'hi', emailType: 'invite', templateParams: {} });
     expect(result.error?.message).toMatch(/No email provider is configured/);
   });
 
-  it('sends through Resend when both env vars are configured', async () => {
+  it('EMAIL_ENABLED unset + NODE_ENV=staging: fails closed the same as production (no dev fallback outside development)', async () => {
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'staging' } as Env,
+      unsupportedSmtpSender(),
+    );
+    const result = await service.sendEmail({ to: 'a@example.com', subject: 'hi', emailType: 'invite', templateParams: {} });
+    expect(result.error?.message).toMatch(/No email provider is configured/);
+  });
+
+  it('EMAIL_ENABLED unset + NODE_ENV=development: falls back to log mode, not resend/smtp', async () => {
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'development' } as Env,
+      unsupportedSmtpSender(),
+    );
+    const result = await service.sendEmail({
+      to: 'dev@example.com',
+      subject: "You've been invited",
+      emailType: 'invite',
+      templateParams: { inviteLink: 'https://app.example.com/invite/abc', appUrl: 'https://app.example.com', companyName: 'Acme' },
+    });
+    expect(result.error).toBeNull();
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[management-email:log-mode]',
+      expect.stringContaining('"to":"dev@example.com"'),
+    );
+    consoleInfo.mockRestore();
+  });
+
+  it('EMAIL_ENABLED=true + EMAIL_PROVIDER=resend with keys set: sends through Resend', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const service = buildManagementEmailService({
-      ...CLOUD_ENV,
-      RESEND_API_KEY: 're_test_key',
-      FROM_EMAIL: 'noreply@example.com',
-      REPLY_TO_EMAIL: 'support@example.com',
-    } as Env);
+    const service = buildManagementEmailService(
+      {
+        ...CLOUD_ENV,
+        NODE_ENV: 'production',
+        EMAIL_ENABLED: 'true',
+        EMAIL_PROVIDER: 'resend',
+        RESEND_API_KEY: 're_test_key',
+        FROM_EMAIL: 'noreply@example.com',
+        REPLY_TO_EMAIL: 'support@example.com',
+      } as Env,
+      unsupportedSmtpSender(),
+    );
 
     const result = await service.sendEmail({
       to: 'invitee@example.com',
@@ -209,14 +271,29 @@ describe('buildManagementEmailService', () => {
     vi.unstubAllGlobals();
   });
 
+  it('EMAIL_ENABLED=true + resend but RESEND_API_KEY unset: fails closed rather than falling back to log/smtp', async () => {
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'production', EMAIL_ENABLED: 'true', EMAIL_PROVIDER: 'resend', FROM_EMAIL: 'noreply@example.com' } as Env,
+      unsupportedSmtpSender(),
+    );
+    const result = await service.sendEmail({ to: 'a@example.com', subject: 'hi', emailType: 'invite', templateParams: {} });
+    expect(result.error?.message).toMatch(/No email provider is configured/);
+  });
+
   it('surfaces a non-2xx Resend response as an error rather than a fabricated success', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('invalid to address', { status: 422 })));
 
-    const service = buildManagementEmailService({
-      ...CLOUD_ENV,
-      RESEND_API_KEY: 're_test_key',
-      FROM_EMAIL: 'noreply@example.com',
-    } as Env);
+    const service = buildManagementEmailService(
+      {
+        ...CLOUD_ENV,
+        NODE_ENV: 'production',
+        EMAIL_ENABLED: 'true',
+        EMAIL_PROVIDER: 'resend',
+        RESEND_API_KEY: 're_test_key',
+        FROM_EMAIL: 'noreply@example.com',
+      } as Env,
+      unsupportedSmtpSender(),
+    );
 
     const result = await service.sendEmail({
       to: 'bad@',
@@ -227,5 +304,111 @@ describe('buildManagementEmailService', () => {
 
     expect(result.error?.message).toContain('422');
     vi.unstubAllGlobals();
+  });
+
+  it('EMAIL_ENABLED=true + EMAIL_PROVIDER=smtp on a runtime without SMTP support (CF Worker): fails closed at config validation, never calls send()', async () => {
+    const sender = unsupportedSmtpSender();
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'production', EMAIL_ENABLED: 'true', EMAIL_PROVIDER: 'smtp', SMTP_HOST: 'localhost', FROM_EMAIL: 'noreply@example.com' } as Env,
+      sender,
+    );
+    const result = await service.sendEmail({ to: 'a@example.com', subject: 'hi', emailType: 'invite', templateParams: {} });
+    expect(result.error?.message).toMatch(/Cloudflare Workers cannot open raw SMTP sockets/);
+  });
+
+  it('EMAIL_ENABLED=true + EMAIL_PROVIDER=smtp on a runtime WITH SMTP support: delivers via the injected sender', async () => {
+    const sender = fakeSupportedSmtpSender();
+    const service = buildManagementEmailService(
+      {
+        ...CLOUD_ENV,
+        NODE_ENV: 'production',
+        EMAIL_ENABLED: 'true',
+        EMAIL_PROVIDER: 'smtp',
+        SMTP_HOST: 'localhost',
+        SMTP_PORT: 1025,
+        SMTP_SECURE: 'false',
+        FROM_EMAIL: 'noreply@example.com',
+      } as Env,
+      sender,
+    );
+
+    const result = await service.sendEmail({
+      to: 'invitee@example.com',
+      subject: "You've been invited to join Acme",
+      emailType: 'invite',
+      templateParams: { inviteLink: 'https://app.example.com/invite/abc', appUrl: 'https://app.example.com', companyName: 'Acme' },
+    });
+
+    expect(result.error).toBeNull();
+    expect(sender.calls).toHaveLength(1);
+    expect(sender.calls[0]).toMatchObject({
+      host: 'localhost',
+      port: 1025,
+      secure: false,
+      to: 'invitee@example.com',
+      from: 'AgentMark <noreply@example.com>',
+      subject: "You've been invited to join Acme",
+    });
+    expect(sender.calls[0].html).toContain('Acme');
+  });
+
+  it('EMAIL_ENABLED=true + smtp supported but SMTP_HOST unset: fails closed rather than attempting a connection', async () => {
+    const sender = fakeSupportedSmtpSender();
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'production', EMAIL_ENABLED: 'true', EMAIL_PROVIDER: 'smtp', FROM_EMAIL: 'noreply@example.com' } as Env,
+      sender,
+    );
+    const result = await service.sendEmail({ to: 'a@example.com', subject: 'hi', emailType: 'invite', templateParams: {} });
+    expect(result.error?.message).toMatch(/SMTP_HOST is not configured/);
+    expect(sender.calls).toHaveLength(0);
+  });
+
+  it('EMAIL_ENABLED=true + EMAIL_PROVIDER=log in production: refuses rather than logging recipient data', async () => {
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'production', EMAIL_ENABLED: 'true', EMAIL_PROVIDER: 'log' } as Env,
+      unsupportedSmtpSender(),
+    );
+    const result = await service.sendEmail({ to: 'a@example.com', subject: 'hi', emailType: 'invite', templateParams: {} });
+    expect(result.error?.message).toMatch(/EMAIL_PROVIDER=log is not permitted/);
+  });
+
+  it('EMAIL_ENABLED=true + EMAIL_PROVIDER=log in development: logs the structured line with a directly usable (entity-decoded) invite link, never the full HTML', async () => {
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const service = buildManagementEmailService(
+      { ...CLOUD_ENV, NODE_ENV: 'development', EMAIL_ENABLED: 'true', EMAIL_PROVIDER: 'log' } as Env,
+      unsupportedSmtpSender(),
+    );
+
+    // A real invite URL has multiple query params — the renderer HTML-escapes
+    // the joining `&` to `&amp;` in the attribute value. Logging that literally
+    // would hand a developer a broken URL to curl/paste.
+    const inviteLink =
+      'https://app.example.com/auth/confirm?token_hash=abc123&type=invite&next=/auth/new-password';
+    const result = await service.sendEmail({
+      to: 'dev@example.com',
+      subject: "You've been invited to join Acme",
+      emailType: 'invite',
+      templateParams: { inviteLink, appUrl: 'https://app.example.com', companyName: 'Acme' },
+    });
+
+    expect(result.error).toBeNull();
+    expect(consoleInfo).toHaveBeenCalledOnce();
+    const [tag, line] = consoleInfo.mock.calls[0] as [string, string];
+    expect(tag).toBe('[management-email:log-mode]');
+    const parsed = JSON.parse(line);
+    expect(parsed).toEqual({
+      to: 'dev@example.com',
+      subject: "You've been invited to join Acme",
+      emailType: 'invite',
+      links: [inviteLink],
+    });
+    // The logged link is the raw, directly usable URL — a literal `&` between
+    // query params, never the HTML-escaped `&amp;` the renderer produces.
+    expect(parsed.links[0]).toContain('type=invite&next=');
+    expect(parsed.links[0]).not.toContain('&amp;');
+    // The whole point of log mode: no HTML blob in the log line.
+    expect(line).not.toContain('<html');
+
+    consoleInfo.mockRestore();
   });
 });

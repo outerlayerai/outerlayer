@@ -15,6 +15,7 @@
 import { Ok } from '@unkey/error';
 import { verifyKey } from '../lib/verify-key';
 import { NoopRateLimiter } from '../runtime/adapters/noop-rate-limiter';
+import { NotSupportedSmtpEmailSender } from '../runtime/adapters/not-supported-smtp-sender';
 import type { Env } from '../types';
 import type { ExecutionCtx } from '../runtime/execution';
 import type {
@@ -80,5 +81,9 @@ export function fakeBuildGatewayContext(_env: Env, execCtx: ExecutionCtx): Gatew
     // No-op limiter — rate limiting fails open by default, so unit tests never
     // see 429s unless explicitly configured. Tests needing 429s override this field.
     rateLimiter: new NoopRateLimiter(),
+    // "Unsupported" by default, matching the CF composition root's real
+    // behavior for the common case. Tests exercising SMTP delivery override
+    // this field with a stub `SmtpEmailSender`.
+    smtpEmailSender: new NotSupportedSmtpEmailSender(),
   };
 }
