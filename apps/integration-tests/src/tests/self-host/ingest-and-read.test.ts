@@ -41,6 +41,7 @@ import { SelfHostBillingService } from '@repo/gateway-core/runtime/adapters/self
 import { NodeLogger } from '@repo/gateway-core/runtime/adapters/node-logger';
 import { SelfHostAuthResolver } from '@repo/gateway-core/runtime/adapters/self-host-auth-resolver';
 import { NoopRateLimiter } from '@repo/gateway-core/runtime/adapters/noop-rate-limiter';
+import { NotSupportedSmtpEmailSender } from '@repo/gateway-core/runtime/adapters/not-supported-smtp-sender';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..', '..');
 
@@ -95,6 +96,7 @@ function buildSelfHostGtx(_e: Env, ctx: ExecutionCtx): GatewayContext {
     logger: new NodeLogger(),
     auth: new SelfHostAuthResolver(),
     rateLimiter: new NoopRateLimiter(),
+    smtpEmailSender: new NotSupportedSmtpEmailSender(),
   };
 }
 

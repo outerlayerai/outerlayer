@@ -840,3 +840,1647 @@ describe('MembershipService atomic audit RPCs', () => {
     expect(auditLog.create).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// sendInvite: tenant lookup + rate-limit guard edge cases
+// ---------------------------------------------------------------------------
+
+describe('MembershipService.sendInvite() tenant lookup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const baseParams = {
+    adminUser: makeAdminUser(),
+    tenantId: 'tenant-123',
+    name: 'Jane Doe',
+    email: 'jane@example.com',
+    role: MembershipRoleEnum.WRITE,
+    origin: 'https://app.example.com',
+  };
+
+  it('surfaces the tenant lookup error message when present', async () => {
+    const supabaseAdmin = {
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === 'membership') {
+          return {
+            select: () => ({
+              eq: () => ({ in: () => ({ neq: () => Promise.resolve({ count: 0, data: null, error: null }) }) }),
+            }),
+          };
+        }
+        if (table === 'tenant') {
+          return {
+            select: () => ({
+              eq: () => ({
+                single: () => Promise.resolve({ data: null, error: { message: 'tenant lookup failed' } }),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    } as unknown as MembershipServiceConfig['supabaseAdmin'];
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({ success: false, error: 'tenant lookup failed' });
+  });
+
+  it('falls back to "Tenant not found" when the tenant lookup has no error but no data', async () => {
+    const supabaseAdmin = {
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === 'membership') {
+          return {
+            select: () => ({
+              eq: () => ({ in: () => ({ neq: () => Promise.resolve({ count: 0, data: null, error: null }) }) }),
+            }),
+          };
+        }
+        if (table === 'tenant') {
+          return {
+            select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+          };
+        }
+        return {};
+      }),
+    } as unknown as MembershipServiceConfig['supabaseAdmin'];
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({ success: false, error: 'Tenant not found' });
+  });
+});
+
+describe('MembershipService.resendInviteLink() rate limiting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('rejects rate-limited resend requests with the exact throttling message', async () => {
+    const svc = buildService({ rateLimitService: stubRateLimitService(false) });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: 'tenant-123',
+      email: 'jane@example.com',
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'An email was just recently sent. Please wait longer before trying to send another email',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendInvite: per-app role assignment (the post-invite `appRoles` branch)
+// ---------------------------------------------------------------------------
+
+describe('MembershipService.sendInvite() app-level role assignment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const paramsWithAppRoles = {
+    adminUser: makeAdminUser(),
+    tenantId: 'tenant-123',
+    name: 'Jane Doe',
+    email: 'jane@example.com',
+    role: MembershipRoleEnum.WRITE,
+    origin: 'https://app.example.com',
+    appRoles: [{ appId: 'app-1', role: 'write' as const }],
+  };
+
+  function buildInvitedService(overrides: Partial<MembershipServiceConfig> = {}) {
+    const supabaseAdmin = stubSupabaseAdmin(3);
+    wireNewUserInviteFlow(supabaseAdmin, 'membership-id-1', 'abc123');
+    return buildService({
+      supabaseAdmin,
+      supabaseServer: stubSupabaseServerWithNoProfile(),
+      emailService: stubEmailService(),
+      ...overrides,
+    });
+  }
+
+  it('denies app-level role assignment when the tenant lacks the entitlement', async () => {
+    const canAccess = vi.fn().mockResolvedValue(false);
+    const svc = buildInvitedService({ entitlements: stubEntitlements({ canAccess }) });
+
+    const result = await svc.sendInvite(paramsWithAppRoles);
+
+    expect(canAccess).toHaveBeenCalledWith('tenant-123', 'app_level_roles');
+    expect(result).toEqual({
+      success: false,
+      error: 'entitlement_denied',
+      entitlement: expect.objectContaining({ featureKey: 'app_level_roles' }),
+    });
+  });
+
+  it('builds the app_level_roles denial payload with the fixed team-tier shape', async () => {
+    const canAccess = vi.fn().mockResolvedValue(false);
+    const buildDeniedInfo = vi.fn().mockReturnValue({ featureKey: 'app_level_roles' });
+    const svc = buildInvitedService({ entitlements: stubEntitlements({ canAccess, buildDeniedInfo }) });
+
+    await svc.sendInvite(paramsWithAppRoles);
+
+    expect(buildDeniedInfo).toHaveBeenCalledWith('app_level_roles', {
+      allowed: false,
+      limit: 0,
+      currentCount: 0,
+      requiredTier: 'team',
+    });
+  });
+
+  it('reports failure and logs when bulkAssign itself fails', async () => {
+    const bulkAssign = vi.fn().mockResolvedValue({ success: false, error: 'assigner offline' });
+    const logger = stubLogger();
+    const svc = buildInvitedService({
+      appRoleAssigner: { bulkAssign } as unknown as MembershipServiceConfig['appRoleAssigner'],
+      logger,
+    });
+
+    const result = await svc.sendInvite(paramsWithAppRoles);
+
+    expect(bulkAssign).toHaveBeenCalledWith('tenant-123', 'admin-user-id', {
+      membershipId: 'membership-id-1',
+      assignments: [{ appId: 'app-1', role: 'write' }],
+    });
+    expect(result).toEqual({
+      success: false,
+      error:
+        'User was invited but app-level role assignments failed. Please assign app roles manually in Settings > App Access.',
+      membershipId: 'membership-id-1',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Failed to assign app-level roles during invite' }),
+      {
+        tenantId: 'tenant-123',
+        membershipId: 'membership-id-1',
+        appRoles: paramsWithAppRoles.appRoles,
+        error: 'assigner offline',
+      },
+    );
+  });
+
+  it('reports partial failure with the failing app ids when some assignments error', async () => {
+    const bulkAssign = vi.fn().mockResolvedValue({
+      success: true,
+      data: { errors: [{ appId: 'app-1' }, { appId: 'app-2' }] },
+    });
+    const logger = stubLogger();
+    const svc = buildInvitedService({
+      appRoleAssigner: { bulkAssign } as unknown as MembershipServiceConfig['appRoleAssigner'],
+      logger,
+    });
+
+    const result = await svc.sendInvite(paramsWithAppRoles);
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        'User was invited but some app role assignments failed (app-1, app-2). Please review in Settings > App Access.',
+      membershipId: 'membership-id-1',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Partial failure assigning app-level roles during invite' }),
+      {
+        tenantId: 'tenant-123',
+        membershipId: 'membership-id-1',
+        errors: [{ appId: 'app-1' }, { appId: 'app-2' }],
+      },
+    );
+  });
+
+  it('succeeds cleanly when bulkAssign reports no per-app errors', async () => {
+    const bulkAssign = vi.fn().mockResolvedValue({ success: true, data: { errors: [] } });
+    const svc = buildInvitedService({
+      appRoleAssigner: { bulkAssign } as unknown as MembershipServiceConfig['appRoleAssigner'],
+    });
+
+    const result = await svc.sendInvite(paramsWithAppRoles);
+
+    expect(result).toEqual({ success: true, membershipId: 'membership-id-1' });
+  });
+
+  it('catches a thrown bulkAssign error and returns the generic manual-assignment message', async () => {
+    const bulkAssign = vi.fn().mockRejectedValue(new Error('network down'));
+    const logger = stubLogger();
+    const svc = buildInvitedService({
+      appRoleAssigner: { bulkAssign } as unknown as MembershipServiceConfig['appRoleAssigner'],
+      logger,
+    });
+
+    const result = await svc.sendInvite(paramsWithAppRoles);
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        'User was invited but app-level role assignments failed. Please assign app roles manually in Settings > App Access.',
+      membershipId: 'membership-id-1',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Failed to assign app-level roles during invite' }),
+      expect.objectContaining({ tenantId: 'tenant-123', membershipId: 'membership-id-1', error: expect.any(Error) }),
+    );
+  });
+
+  it('skips app-role assignment entirely when appRoles is empty', async () => {
+    const bulkAssign = vi.fn();
+    const svc = buildInvitedService({
+      appRoleAssigner: { bulkAssign } as unknown as MembershipServiceConfig['appRoleAssigner'],
+    });
+
+    const result = await svc.sendInvite({ ...paramsWithAppRoles, appRoles: [] });
+
+    expect(bulkAssign).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: true, membershipId: 'membership-id-1' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inviteExistingUser branches (driven through sendInvite, which routes here
+// when a profile row already exists for the invited email)
+// ---------------------------------------------------------------------------
+
+describe('MembershipService inviteExistingUser branches', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const EXISTING_USER_ID = 'existing-user-id';
+
+  function stubExistingUserAdmin(opts: {
+    existingMembership?: { id: string; role: string } | null;
+    userOrgCount?: number;
+    txError?: string;
+    txMembershipId?: string;
+    tenantCompanyName?: string;
+  }) {
+    const rpc = vi.fn().mockImplementation(() =>
+      opts.txError
+        ? Promise.resolve({ data: null, error: { message: opts.txError } })
+        : Promise.resolve({ data: opts.txMembershipId ?? 'new-membership-id', error: null }),
+    );
+
+    // `membership` is queried up to 3 times in strict sequence across
+    // sendInvite → inviteExistingUser: (1) the tenant-wide max_users
+    // entitlement count (`.eq().in().neq()`), (2) the existing-membership
+    // check (`.eq().eq().single()`), (3) — only when (2) is empty — the
+    // per-user org-count query (`.eq()`, awaited directly). Track call order
+    // rather than the `.eq()` column (shared across stages) or `.from()`
+    // call count (a fresh `.select()` chain is built on every `.from()` call).
+    let selectCallCount = 0;
+
+    const from = vi.fn().mockImplementation((table: string) => {
+      if (table === 'profile') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: { id: EXISTING_USER_ID }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'membership') {
+        return {
+          select: () => {
+            selectCallCount += 1;
+            if (selectCallCount === 1) {
+              return {
+                eq: () => ({
+                  in: () => ({
+                    neq: () => Promise.resolve({ count: 3, data: null, error: null }),
+                  }),
+                }),
+              };
+            }
+            if (selectCallCount === 2) {
+              return {
+                eq: () => ({
+                  eq: () => ({
+                    single: () =>
+                      Promise.resolve(
+                        opts.existingMembership
+                          ? { data: opts.existingMembership, error: null }
+                          : { data: null, error: { message: 'not found' } },
+                      ),
+                  }),
+                }),
+              };
+            }
+            return {
+              eq: () => Promise.resolve({ count: opts.userOrgCount ?? 0, data: null, error: null }),
+            };
+          },
+        };
+      }
+      if (table === 'tenant') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({
+                data: { company_name: opts.tenantCompanyName ?? 'Acme Corp' },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    return { from, rpc } as unknown as MembershipServiceConfig['supabaseAdmin'];
+  }
+
+  const baseParams = {
+    adminUser: makeAdminUser(),
+    tenantId: 'tenant-123',
+    name: 'Existing User',
+    email: 'existing@example.com',
+    role: MembershipRoleEnum.WRITE,
+    origin: 'https://app.example.com',
+  };
+
+  it('rejects a previously-disabled member with a distinct message', async () => {
+    const supabaseAdmin = stubExistingUserAdmin({
+      existingMembership: { id: 'm-1', role: MembershipRoleEnum.DISABLED },
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'This user was previously disabled in this organization',
+    });
+  });
+
+  it('rejects a user who already has an active membership', async () => {
+    const supabaseAdmin = stubExistingUserAdmin({
+      existingMembership: { id: 'm-1', role: MembershipRoleEnum.WRITE },
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'User is already a member of this organization',
+    });
+  });
+
+  it('blocks inviting a user already in 10 organizations', async () => {
+    const supabaseAdmin = stubExistingUserAdmin({ existingMembership: null, userOrgCount: 10 });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'User has reached the maximum of 10 organizations',
+    });
+  });
+
+  it('allows inviting a user in exactly 9 organizations (one below the cap)', async () => {
+    const supabaseAdmin = stubExistingUserAdmin({ existingMembership: null, userOrgCount: 9 });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result.success).toBe(true);
+  });
+
+  it('surfaces the transaction error message on RPC failure', async () => {
+    const supabaseAdmin = stubExistingUserAdmin({ existingMembership: null, txError: 'db exploded' });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({ success: false, error: 'db exploded' });
+  });
+
+  it('reports the created membership but a failed email with an actionable message', async () => {
+    const supabaseAdmin = stubExistingUserAdmin({
+      existingMembership: null,
+      txMembershipId: 'new-membership-99',
+    });
+    const emailError = new Error('smtp down');
+    const emailService = {
+      sendEmail: vi.fn().mockResolvedValue({ error: emailError }),
+    } as unknown as MembershipServiceConfig['emailService'];
+    const logger = stubLogger();
+    const svc = buildService({ supabaseAdmin, emailService, logger });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Invitation created but failed to send email. Please resend the invite.',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Failed to send invitation email' }),
+      { email: 'existing@example.com', companyName: 'Acme Corp', emailError },
+    );
+  });
+
+  it('sends the accept-invite link (not the confirm/new-password link) to existing users', async () => {
+    const supabaseAdmin = stubExistingUserAdmin({
+      existingMembership: null,
+      txMembershipId: 'new-membership-99',
+    });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    await svc.sendInvite(baseParams);
+
+    expect(emailService.sendEmail).toHaveBeenCalledWith({
+      emailType: 'invite',
+      templateParams: {
+        inviteLink: 'https://app.example.com/auth/accept-invite?id=new-membership-99',
+        appUrl: 'https://app.example.com',
+        companyName: 'Acme Corp',
+      },
+      to: 'existing@example.com',
+      subject: "You've been invited to join Acme Corp",
+    });
+  });
+
+  it('stamps the RPC with an invited_at/expires_at pair exactly 7 days apart', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-01T00:00:00.000Z'));
+    const supabaseAdmin = stubExistingUserAdmin({
+      existingMembership: null,
+      txMembershipId: 'new-membership-99',
+    });
+    const svc = buildService({ supabaseAdmin, emailService: stubEmailService() });
+
+    await svc.sendInvite(baseParams);
+
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith('invite_existing_user_transaction', expect.objectContaining({
+      p_invited_at: '2026-03-01T00:00:00.000Z',
+      p_expires_at: '2026-03-08T00:00:00.000Z',
+    }));
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inviteNewUser branches (sendInvite when no profile exists for the email)
+// ---------------------------------------------------------------------------
+
+describe('MembershipService inviteNewUser branches', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const baseParams = {
+    adminUser: makeAdminUser(),
+    tenantId: 'tenant-123',
+    name: 'New User',
+    email: 'new@example.com',
+    role: MembershipRoleEnum.WRITE,
+    origin: 'https://app.example.com',
+  };
+
+  it('surfaces the generateLink error message', async () => {
+    const supabaseAdmin = stubSupabaseAdmin(1);
+    const client = supabaseAdmin as unknown as {
+      auth: { admin: { generateLink: ReturnType<typeof vi.fn> } };
+    };
+    client.auth = {
+      admin: {
+        generateLink: vi.fn().mockResolvedValue({ data: null, error: { message: 'auth service down' } }),
+      },
+    };
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubSupabaseServerWithNoProfile() });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({ success: false, error: 'auth service down' });
+  });
+
+  it('falls back to a generic message when generateLink has no error but no user', async () => {
+    const supabaseAdmin = stubSupabaseAdmin(1);
+    const client = supabaseAdmin as unknown as {
+      auth: { admin: { generateLink: ReturnType<typeof vi.fn> } };
+    };
+    client.auth = {
+      admin: {
+        generateLink: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      },
+    };
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubSupabaseServerWithNoProfile() });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({ success: false, error: 'Failed to invite user' });
+  });
+
+  it('cleans up the orphaned auth user and surfaces the transaction error on txError', async () => {
+    const supabaseAdmin = stubSupabaseAdmin(1);
+    const deleteUser = vi.fn().mockResolvedValue(undefined);
+    const client = supabaseAdmin as unknown as {
+      auth: { admin: { generateLink: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> } };
+      rpc: ReturnType<typeof vi.fn>;
+    };
+    client.auth = {
+      admin: {
+        generateLink: vi.fn().mockResolvedValue({
+          data: { user: { id: 'orphan-user-id' }, properties: { hashed_token: 'tok' } },
+          error: null,
+        }),
+        deleteUser,
+      },
+    };
+    client.rpc = vi.fn().mockResolvedValue({ data: null, error: { message: 'txn rolled back' } });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubSupabaseServerWithNoProfile() });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({ success: false, error: 'txn rolled back' });
+    expect(deleteUser).toHaveBeenCalledWith('orphan-user-id');
+    expect(deleteUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries cleanup on transient deleteUser failures and eventually succeeds', async () => {
+    vi.useFakeTimers();
+    const supabaseAdmin = stubSupabaseAdmin(1);
+    const deleteUser = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValueOnce(undefined);
+    const client = supabaseAdmin as unknown as {
+      auth: { admin: { generateLink: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> } };
+      rpc: ReturnType<typeof vi.fn>;
+    };
+    client.auth = {
+      admin: {
+        generateLink: vi.fn().mockResolvedValue({
+          data: { user: { id: 'orphan-user-id' }, properties: { hashed_token: 'tok' } },
+          error: null,
+        }),
+        deleteUser,
+      },
+    };
+    client.rpc = vi.fn().mockResolvedValue({ data: null, error: { message: 'txn rolled back' } });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubSupabaseServerWithNoProfile() });
+
+    const promise = svc.sendInvite(baseParams);
+    // First attempt fails synchronously; the retry backs off exactly
+    // 100ms (`100 * 2^(attempt-1)` at attempt=1) before attempt 2. Stepping
+    // just short of that boundary first pins the exact delay — not merely
+    // "eventually retries".
+    await vi.advanceTimersByTimeAsync(99);
+    expect(deleteUser).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(deleteUser).toHaveBeenCalledTimes(2);
+    const result = await promise;
+
+    expect(result).toEqual({ success: false, error: 'txn rolled back' });
+    vi.useRealTimers();
+  });
+
+  it('exhausts all 3 cleanup retries and logs the failure without throwing', async () => {
+    vi.useFakeTimers();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const supabaseAdmin = stubSupabaseAdmin(1);
+    const deleteUser = vi.fn().mockRejectedValue(new Error('permanently broken'));
+    const client = supabaseAdmin as unknown as {
+      auth: { admin: { generateLink: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> } };
+      rpc: ReturnType<typeof vi.fn>;
+    };
+    client.auth = {
+      admin: {
+        generateLink: vi.fn().mockResolvedValue({
+          data: { user: { id: 'orphan-user-id' }, properties: { hashed_token: 'tok' } },
+          error: null,
+        }),
+        deleteUser,
+      },
+    };
+    client.rpc = vi.fn().mockResolvedValue({ data: null, error: { message: 'txn rolled back' } });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubSupabaseServerWithNoProfile() });
+
+    const promise = svc.sendInvite(baseParams);
+    // Backoff is `100 * 2^(attempt-1)`: 100ms before attempt 2, then 200ms
+    // before attempt 3. Attempt 1's 100ms delay is the same under an
+    // accidental `100 / 2^(attempt-1)` swap (both give 100 at attempt=1),
+    // so pinning the SECOND gap (200ms, vs. the divide-mutant's 50ms) is
+    // what actually distinguishes the two operators.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(deleteUser).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(199);
+    expect(deleteUser).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(deleteUser).toHaveBeenCalledTimes(3);
+    const result = await promise;
+
+    expect(result).toEqual({ success: false, error: 'txn rolled back' });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Failed to cleanup orphaned auth user after 3 attempts:',
+      { userId: 'orphan-user-id', error: expect.any(Error) },
+    );
+
+    consoleErrorSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('reports the created membership but a failed email for new users too', async () => {
+    const supabaseAdmin = stubSupabaseAdmin(1);
+    wireNewUserInviteFlow(supabaseAdmin, 'new-membership-1', 'tok-abc');
+    const emailError = new Error('smtp down');
+    const emailService = {
+      sendEmail: vi.fn().mockResolvedValue({ error: emailError }),
+    } as unknown as MembershipServiceConfig['emailService'];
+    const logger = stubLogger();
+    const svc = buildService({
+      supabaseAdmin,
+      supabaseServer: stubSupabaseServerWithNoProfile(),
+      emailService,
+      logger,
+    });
+
+    const result = await svc.sendInvite(baseParams);
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Invitation created but failed to send email. Please resend the invite.',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Failed to send invitation email' }),
+      { email: 'new@example.com', companyName: 'Acme Corp', emailError },
+    );
+  });
+
+  it('stamps the RPC with an invited_at/expires_at pair exactly 7 days apart', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-01T00:00:00.000Z'));
+    const supabaseAdmin = stubSupabaseAdmin(1);
+    wireNewUserInviteFlow(supabaseAdmin, 'new-membership-1', 'tok-abc');
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubSupabaseServerWithNoProfile() });
+
+    await svc.sendInvite(baseParams);
+
+    expect(supabaseAdmin.rpc).toHaveBeenCalledWith('invite_new_user_transaction', expect.objectContaining({
+      p_invited_at: '2026-03-01T00:00:00.000Z',
+      p_expires_at: '2026-03-08T00:00:00.000Z',
+    }));
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// changeUserRole guard branches
+// ---------------------------------------------------------------------------
+
+describe('MembershipService.changeUserRole() guards', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const TENANT_ID = 'tenant-guard';
+  const TARGET_USER_ID = 'target-guard';
+
+  function stubGuardAdmin(opts: {
+    actorRole?: string | null;
+    prevMembership?: { id: string; role: string; custom_role_id: string | null } | null;
+    ownerCount?: number;
+  }) {
+    const from = vi.fn().mockImplementation((table: string) => {
+      if (table === 'membership') {
+        return {
+          select: vi.fn().mockImplementation((sel: string) => {
+            // actorOrgRole: .select('role').eq(...).eq(...).eq(...).maybeSingle()
+            if (sel === 'role') {
+              return {
+                eq: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      maybeSingle: () =>
+                        Promise.resolve({ data: opts.actorRole ? { role: opts.actorRole } : null, error: null }),
+                    }),
+                  }),
+                }),
+              };
+            }
+            // prevMembership lookup: .select('id, role, custom_role_id').eq().eq().in().single()
+            if (sel === 'id, role, custom_role_id') {
+              return {
+                eq: () => ({
+                  eq: () => ({
+                    in: () => ({
+                      single: () =>
+                        Promise.resolve(
+                          opts.prevMembership
+                            ? { data: opts.prevMembership, error: null }
+                            : { data: null, error: { message: 'not found' } },
+                        ),
+                    }),
+                  }),
+                }),
+              };
+            }
+            // owner-count query: .select('*', {count}).eq().eq().eq()
+            return {
+              eq: () => ({
+                eq: () => ({
+                  eq: () => Promise.resolve({ count: opts.ownerCount ?? 5, data: null, error: null }),
+                }),
+              }),
+            };
+          }),
+        };
+      }
+      return {};
+    });
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    return { from, rpc } as unknown as MembershipServiceConfig['supabaseAdmin'];
+  }
+
+  it('rejects when the target has no membership in the org', async () => {
+    const supabaseAdmin = stubGuardAdmin({ actorRole: 'owner', prevMembership: null });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({ success: false, error: 'User not found in organization' });
+  });
+
+  it('rejects promotion to owner by a non-owner actor', async () => {
+    const supabaseAdmin = stubGuardAdmin({
+      actorRole: 'admin',
+      prevMembership: { id: 'm-1', role: 'write', custom_role_id: null },
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.OWNER,
+    });
+
+    expect(result).toEqual({ success: false, error: 'Only owners can promote users to owner role' });
+  });
+
+  it('blocks demoting the last owner regardless of actor role', async () => {
+    const supabaseAdmin = stubGuardAdmin({
+      actorRole: 'owner',
+      prevMembership: { id: 'm-1', role: 'owner', custom_role_id: null },
+      ownerCount: 1,
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Cannot demote the last owner. Transfer ownership first.',
+    });
+  });
+
+  it('rejects a non-owner actor demoting another owner even when more than one owner exists', async () => {
+    const supabaseAdmin = stubGuardAdmin({
+      actorRole: 'admin',
+      prevMembership: { id: 'm-1', role: 'owner', custom_role_id: null },
+      ownerCount: 3,
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({ success: false, error: "Only owners can change another owner's role" });
+  });
+
+  it('allows an owner actor to demote a co-owner when more than one owner exists', async () => {
+    const supabaseAdmin = stubGuardAdmin({
+      actorRole: 'owner',
+      prevMembership: { id: 'm-1', role: 'owner', custom_role_id: null },
+      ownerCount: 3,
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({ success: true });
+  });
+
+  it('does not apply the last-owner guard when the new role is also owner', async () => {
+    const supabaseAdmin = stubGuardAdmin({
+      actorRole: 'admin',
+      prevMembership: { id: 'm-1', role: 'owner', custom_role_id: null },
+      ownerCount: 1,
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    // newRole === OWNER means the `newRole !== OWNER` guard condition is false,
+    // so the last-owner protection is skipped entirely — but the earlier
+    // promote-to-owner guard still fires for a non-owner actor.
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.OWNER,
+    });
+
+    expect(result).toEqual({ success: false, error: 'Only owners can promote users to owner role' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// removeUserFromOrg guard branches + notification email edge cases
+// ---------------------------------------------------------------------------
+
+describe('MembershipService.removeUserFromOrg() guards and notification', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const TENANT_ID = 'tenant-remove';
+  const TARGET_USER_ID = 'target-remove';
+
+  function stubRemoveAdmin(opts: {
+    membership?: { id: string; role: string; status: string } | null;
+    ownerCount?: number;
+    actorRole?: string | null;
+    profileEmail?: string | null;
+    orgName?: string | null;
+    deleteError?: string;
+  }) {
+    const from = vi.fn().mockImplementation((table: string) => {
+      if (table === 'membership') {
+        return {
+          select: vi.fn().mockImplementation((sel: string) => {
+            if (sel === 'role') {
+              // actorOrgRole
+              return {
+                eq: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      maybeSingle: () =>
+                        Promise.resolve({ data: opts.actorRole ? { role: opts.actorRole } : null, error: null }),
+                    }),
+                  }),
+                }),
+              };
+            }
+            if (sel === 'id, role, status') {
+              return {
+                eq: () => ({
+                  eq: () => ({
+                    in: () => ({
+                      single: () =>
+                        Promise.resolve(
+                          opts.membership
+                            ? { data: opts.membership, error: null }
+                            : { data: null, error: { message: 'not found' } },
+                        ),
+                    }),
+                  }),
+                }),
+              };
+            }
+            return {
+              eq: () => ({
+                eq: () => ({ eq: () => Promise.resolve({ count: opts.ownerCount ?? 5, data: null, error: null }) }),
+              }),
+            };
+          }),
+        };
+      }
+      if (table === 'profile') {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: opts.profileEmail !== null ? { email: opts.profileEmail ?? 'target@example.com' } : null,
+                  error: null,
+                }),
+            }),
+          }),
+        };
+      }
+      if (table === 'tenant') {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: opts.orgName !== null ? { organization_name: opts.orgName ?? 'Acme Org' } : null,
+                  error: null,
+                }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const rpc = vi.fn().mockImplementation(() =>
+      opts.deleteError
+        ? Promise.resolve({ data: null, error: { message: opts.deleteError } })
+        : Promise.resolve({ data: { membership_id: 'm-1' }, error: null }),
+    );
+    return { from, rpc } as unknown as MembershipServiceConfig['supabaseAdmin'];
+  }
+
+  it('rejects when the target has no membership in the org', async () => {
+    const supabaseAdmin = stubRemoveAdmin({ membership: null });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: false, error: 'User not found in organization' });
+  });
+
+  it('blocks removing the last owner', async () => {
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'owner', status: 'active' },
+      ownerCount: 1,
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: false, error: 'Cannot remove the last owner from the organization' });
+  });
+
+  it('rejects a non-owner actor removing another owner when more than one owner exists', async () => {
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'owner', status: 'active' },
+      ownerCount: 3,
+      actorRole: 'admin',
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: false, error: 'Only owners can remove other owners' });
+  });
+
+  it('allows an owner actor to remove a co-owner when more than one owner exists', async () => {
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'owner', status: 'active' },
+      ownerCount: 3,
+      actorRole: 'owner',
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: true });
+  });
+
+  it('surfaces the delete-transaction error message', async () => {
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'write', status: 'active' },
+      deleteError: 'fk violation',
+    });
+    const svc = buildService({ supabaseAdmin });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: false, error: 'fk violation' });
+  });
+
+  it('sends the removal notification with exact template params when both profile and tenant resolve', async () => {
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'write', status: 'active' },
+      profileEmail: 'gone@example.com',
+      orgName: 'Wonderland',
+    });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService, appUrl: 'https://app.example.com' });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(emailService.sendEmail).toHaveBeenCalledWith({
+      emailType: 'removed_from_org',
+      templateParams: { appUrl: 'https://app.example.com', orgName: 'Wonderland' },
+      to: 'gone@example.com',
+      subject: 'You have been removed from Wonderland',
+    });
+  });
+
+  it('skips the removal email when the profile has no email on record', async () => {
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'write', status: 'active' },
+      profileEmail: null,
+      orgName: 'Wonderland',
+    });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('skips the removal email when the tenant has no organization name on record', async () => {
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'write', status: 'active' },
+      profileEmail: 'gone@example.com',
+      orgName: null,
+    });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('swallows a removal-email send failure and still reports success', async () => {
+    const emailService = {
+      sendEmail: vi.fn().mockRejectedValue(new Error('smtp down')),
+    } as unknown as MembershipServiceConfig['emailService'];
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const supabaseAdmin = stubRemoveAdmin({
+      membership: { id: 'm-1', role: 'write', status: 'active' },
+      profileEmail: 'gone@example.com',
+      orgName: 'Wonderland',
+    });
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    const result = await svc.removeUserFromOrg({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to send removal email:', expect.any(Error));
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// changeUserRole notification email edge cases (sendRoleChangedEmail)
+// ---------------------------------------------------------------------------
+
+describe('MembershipService.changeUserRole() notification email', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const TENANT_ID = 'tenant-notify';
+  const TARGET_USER_ID = 'target-notify';
+
+  function stubRoleChangeAdmin(opts: { profileEmail?: string | null; orgName?: string | null }) {
+    const from = vi.fn().mockImplementation((table: string) => {
+      if (table === 'membership') {
+        return {
+          select: vi.fn().mockImplementation((sel: string) => {
+            if (sel === 'role') {
+              return {
+                eq: () => ({
+                  eq: () => ({
+                    eq: () => ({ maybeSingle: () => Promise.resolve({ data: { role: 'owner' }, error: null }) }),
+                  }),
+                }),
+              };
+            }
+            return {
+              eq: () => ({
+                eq: () => ({
+                  in: () => ({
+                    single: () =>
+                      Promise.resolve({ data: { id: 'm-1', role: 'read', custom_role_id: null }, error: null }),
+                  }),
+                }),
+              }),
+            };
+          }),
+        };
+      }
+      if (table === 'profile') {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: opts.profileEmail !== null ? { email: opts.profileEmail ?? 'target@example.com' } : null,
+                  error: null,
+                }),
+            }),
+          }),
+        };
+      }
+      if (table === 'tenant') {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: opts.orgName !== null ? { organization_name: opts.orgName ?? 'Acme Org' } : null,
+                  error: null,
+                }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    return { from, rpc } as unknown as MembershipServiceConfig['supabaseAdmin'];
+  }
+
+  it('sends the role-changed notification with exact template params on success', async () => {
+    const supabaseAdmin = stubRoleChangeAdmin({ profileEmail: 'changed@example.com', orgName: 'Acme Org' });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService, appUrl: 'https://app.example.com' });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(emailService.sendEmail).toHaveBeenCalledWith({
+      emailType: 'role_changed',
+      templateParams: {
+        appUrl: 'https://app.example.com',
+        orgName: 'Acme Org',
+        oldRole: 'read',
+        newRole: 'write',
+      },
+      to: 'changed@example.com',
+      subject: 'Your role has been updated in Acme Org',
+    });
+  });
+
+  it('logs and skips the email when the target profile has no email', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const supabaseAdmin = stubRoleChangeAdmin({ profileEmail: null, orgName: 'Acme Org' });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to get user email for role change notification');
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('logs and skips the email when the tenant has no organization name', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const supabaseAdmin = stubRoleChangeAdmin({ profileEmail: 'changed@example.com', orgName: null });
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to get org name for role change notification');
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('swallows a role-changed email send failure and still reports success', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const emailService = {
+      sendEmail: vi.fn().mockRejectedValue(new Error('smtp down')),
+    } as unknown as MembershipServiceConfig['emailService'];
+    const supabaseAdmin = stubRoleChangeAdmin({ profileEmail: 'changed@example.com', orgName: 'Acme Org' });
+    const svc = buildService({ supabaseAdmin, emailService });
+
+    const result = await svc.changeUserRole({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      targetUserId: TARGET_USER_ID,
+      newRole: MembershipRoleEnum.WRITE,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to send role change email:', expect.any(Error));
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resendInviteLink branches
+// ---------------------------------------------------------------------------
+
+describe('MembershipService.resendInviteLink()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const TENANT_ID = 'tenant-resend';
+  const EMAIL = 'resend@example.com';
+
+  function stubResendAdmin(opts: {
+    profile?: { id: string } | null;
+    membership?: { id: string; status: string } | null;
+    authUser?: { confirmed_at: string | null } | null;
+    generateLinkError?: string;
+    hashedToken?: string;
+  }) {
+    const from = vi.fn().mockImplementation((table: string) => {
+      if (table === 'profile') {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve(opts.profile ? { data: opts.profile, error: null } : { data: null, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'membership') {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                single: () =>
+                  Promise.resolve(
+                    opts.membership ? { data: opts.membership, error: null } : { data: null, error: null },
+                  ),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const update = vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ data: null, error: null }) });
+    (from as unknown as { mockImplementation: (fn: (table: string) => unknown) => void }).mockImplementation(
+      (table: string) => {
+        if (table === 'membership') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  single: () =>
+                    Promise.resolve(
+                      opts.membership ? { data: opts.membership, error: null } : { data: null, error: null },
+                    ),
+                }),
+              }),
+            }),
+            update,
+          };
+        }
+        if (table === 'profile') {
+          return {
+            select: () => ({
+              eq: () => ({
+                single: () =>
+                  Promise.resolve(opts.profile ? { data: opts.profile, error: null } : { data: null, error: null }),
+              }),
+            }),
+          };
+        }
+        return {};
+      },
+    );
+
+    const auth = {
+      admin: {
+        getUserById: vi.fn().mockResolvedValue({ data: { user: opts.authUser ?? null } }),
+        generateLink: vi.fn().mockResolvedValue(
+          opts.generateLinkError
+            ? { data: null, error: { message: opts.generateLinkError } }
+            : {
+                data: { properties: { hashed_token: opts.hashedToken ?? 'tok-xyz' } },
+                error: null,
+              },
+        ),
+      },
+    };
+
+    return { from, auth, update } as unknown as MembershipServiceConfig['supabaseAdmin'] & { update: typeof update };
+  }
+
+  function stubResendServer(companyName = 'Acme Corp') {
+    return {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({ data: { company_name: companyName }, error: null }),
+        }),
+      }),
+    } as unknown as MembershipServiceConfig['supabaseServer'];
+  }
+
+  it('returns "User not found" when no profile exists for the email', async () => {
+    const supabaseAdmin = stubResendAdmin({ profile: null });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer() });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: false, error: 'User not found' });
+  });
+
+  it('returns a not-a-member error when the profile has no membership in this tenant', async () => {
+    const supabaseAdmin = stubResendAdmin({ profile: { id: 'p-1' }, membership: null });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer() });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: false, error: 'User is not a member of this organization' });
+  });
+
+  it('returns "User not found" when the auth user lookup comes back empty', async () => {
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'pending' },
+      authUser: null,
+    });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer() });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: false, error: 'User not found' });
+  });
+
+  it('rejects a confirmed user whose membership is not pending', async () => {
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'active' },
+      authUser: { confirmed_at: '2026-01-01T00:00:00Z' },
+    });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer() });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: false, error: 'No pending invitation found for this user' });
+  });
+
+  it('extends the invite, emails the accept-invite link, and writes the audit row for a confirmed pending user', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-01T00:00:00.000Z'));
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'pending' },
+      authUser: { confirmed_at: '2026-01-01T00:00:00Z' },
+    }) as unknown as MembershipServiceConfig['supabaseAdmin'] & { update: ReturnType<typeof vi.fn> };
+    const emailService = stubEmailService();
+    const auditLog = stubAuditLog();
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer('Acme Corp'), emailService, auditLog });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser({ id: 'admin-x' }),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(supabaseAdmin.update).toHaveBeenCalledWith({ expires_at: '2026-03-08T00:00:00.000Z' });
+    vi.useRealTimers();
+    expect(emailService.sendEmail).toHaveBeenCalledWith({
+      emailType: 'invite',
+      templateParams: {
+        inviteLink: 'https://app.example.com/auth/accept-invite?id=m-1',
+        appUrl: 'https://app.example.com',
+        companyName: 'Acme Corp',
+      },
+      to: EMAIL,
+      subject: "You've been invited to join Acme Corp",
+    });
+    expect(auditLog.create).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      actorId: 'admin-x',
+      actionType: 'invite_resent',
+      targetType: 'membership',
+      targetId: 'm-1',
+      targetIdentifier: EMAIL,
+      details: { expires_at: '2026-03-08T00:00:00.000Z' },
+    });
+  });
+
+  it('reports an email failure for a confirmed pending user without writing an audit row', async () => {
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'pending' },
+      authUser: { confirmed_at: '2026-01-01T00:00:00Z' },
+    });
+    const emailService = {
+      sendEmail: vi.fn().mockResolvedValue({ error: new Error('smtp down') }),
+    } as unknown as MembershipServiceConfig['emailService'];
+    const auditLog = stubAuditLog();
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer(), emailService, auditLog });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: false, error: 'Failed to send email' });
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the generateLink error for an unconfirmed user', async () => {
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'pending' },
+      authUser: { confirmed_at: null },
+      generateLinkError: 'auth down',
+    });
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer() });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: false, error: 'auth down' });
+  });
+
+  it('reports an email failure for an unconfirmed user without writing an audit row', async () => {
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'pending' },
+      authUser: { confirmed_at: null },
+      hashedToken: 'fresh-tok',
+    });
+    const emailService = {
+      sendEmail: vi.fn().mockResolvedValue({ error: new Error('smtp down') }),
+    } as unknown as MembershipServiceConfig['emailService'];
+    const auditLog = stubAuditLog();
+    const svc = buildService({ supabaseAdmin, supabaseServer: stubResendServer(), emailService, auditLog });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: false, error: 'Failed to send email' });
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('emails the confirm/new-password link and writes the audit row (no details) for an unconfirmed user', async () => {
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'pending' },
+      authUser: { confirmed_at: null },
+      hashedToken: 'fresh-tok',
+    });
+    const emailService = stubEmailService();
+    const auditLog = stubAuditLog();
+    const svc = buildService({
+      supabaseAdmin,
+      supabaseServer: stubResendServer('Acme Corp'),
+      emailService,
+      auditLog,
+    });
+
+    const result = await svc.resendInviteLink({
+      adminUser: makeAdminUser({ id: 'admin-y' }),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(emailService.sendEmail).toHaveBeenCalledWith({
+      emailType: 'invite',
+      templateParams: {
+        inviteLink:
+          'https://app.example.com/auth/confirm?token_hash=fresh-tok&type=invite&next=%2Fauth%2Fnew-password%3Fflow%3Dinvite',
+        appUrl: 'https://app.example.com',
+        companyName: 'Acme Corp',
+      },
+      to: EMAIL,
+      subject: "You've been invited",
+    });
+    expect(auditLog.create).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      actorId: 'admin-y',
+      actionType: 'invite_resent',
+      targetType: 'membership',
+      targetId: 'm-1',
+      targetIdentifier: EMAIL,
+    });
+  });
+
+  it('falls back to "an organization" as the company name when the tenant lookup returns none', async () => {
+    const supabaseAdmin = stubResendAdmin({
+      profile: { id: 'p-1' },
+      membership: { id: 'm-1', status: 'pending' },
+      authUser: { confirmed_at: null },
+    });
+    const supabaseServer = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({ data: null, error: null }),
+        }),
+      }),
+    } as unknown as MembershipServiceConfig['supabaseServer'];
+    const emailService = stubEmailService();
+    const svc = buildService({ supabaseAdmin, supabaseServer, emailService });
+
+    await svc.resendInviteLink({
+      adminUser: makeAdminUser(),
+      tenantId: TENANT_ID,
+      email: EMAIL,
+      origin: 'https://app.example.com',
+    });
+
+    expect(emailService.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateParams: expect.objectContaining({ companyName: 'an organization' }),
+      }),
+    );
+  });
+});

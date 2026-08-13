@@ -34,76 +34,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      management_api_key: {
-        Row: {
-          management_api_key_id: string
-          created_at: string
-          created_by: string | null
-          expires_at: string | null
-          id: string
-          key_prefix: string | null
-          last_used_at: string | null
-          name: string
-          permissions: Database["public"]["Enums"]["app_permission"][]
-          revoked_at: string | null
-          tenant_id: string
-          updated_at: string | null
-          updated_by: string | null
-        }
-        Insert: {
-          management_api_key_id: string
-          created_at?: string
-          created_by?: string | null
-          expires_at?: string | null
-          id?: string
-          key_prefix?: string | null
-          last_used_at?: string | null
-          name: string
-          permissions?: Database["public"]["Enums"]["app_permission"][]
-          revoked_at?: string | null
-          tenant_id: string
-          updated_at?: string | null
-          updated_by?: string | null
-        }
-        Update: {
-          management_api_key_id?: string
-          created_at?: string
-          created_by?: string | null
-          expires_at?: string | null
-          id?: string
-          key_prefix?: string | null
-          last_used_at?: string | null
-          name?: string
-          permissions?: Database["public"]["Enums"]["app_permission"][]
-          revoked_at?: string | null
-          tenant_id?: string
-          updated_at?: string | null
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "management_api_key_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profile"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "management_api_key_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenant"
-            referencedColumns: ["tenant_id"]
-          },
-          {
-            foreignKeyName: "management_api_key_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profile"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       ai_cost_config: {
         Row: {
           cost_per_seat_usd: number
@@ -1561,6 +1491,76 @@ export type Database = {
           },
           {
             foreignKeyName: "git_connection_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profile"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      management_api_key: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          key_prefix: string | null
+          last_used_at: string | null
+          management_api_key_id: string
+          name: string
+          permissions: Database["public"]["Enums"]["app_permission"][]
+          revoked_at: string | null
+          tenant_id: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          key_prefix?: string | null
+          last_used_at?: string | null
+          management_api_key_id: string
+          name: string
+          permissions?: Database["public"]["Enums"]["app_permission"][]
+          revoked_at?: string | null
+          tenant_id: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          key_prefix?: string | null
+          last_used_at?: string | null
+          management_api_key_id?: string
+          name?: string
+          permissions?: Database["public"]["Enums"]["app_permission"][]
+          revoked_at?: string | null
+          tenant_id?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "management_api_key_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "management_api_key_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["tenant_id"]
+          },
+          {
+            foreignKeyName: "management_api_key_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profile"
@@ -3049,14 +3049,6 @@ export type Database = {
         }
         Returns: Json
       }
-      set_management_api_key_secret: {
-        Args: {
-          p_management_api_key_id: string
-          p_key_digest: string
-          p_pepper_version: number
-        }
-        Returns: undefined
-      }
       set_api_key_secret: {
         Args: {
           p_api_key_id: string
@@ -3069,6 +3061,14 @@ export type Database = {
         Args: { claim: string; uid: string; value: Json }
         Returns: string
       }
+      set_management_api_key_secret: {
+        Args: {
+          p_key_digest: string
+          p_management_api_key_id: string
+          p_pepper_version: number
+        }
+        Returns: undefined
+      }
       tenant_id: { Args: never; Returns: string }
       touch_management_api_key_last_used: {
         Args: { p_management_api_key_id: string }
@@ -3078,7 +3078,6 @@ export type Database = {
         Args: { secret: string; secret_name: string }
         Returns: boolean
       }
-      verify_management_api_key: { Args: { p_key_digest: string }; Returns: Json }
       verify_api_key: { Args: { p_key_digest: string }; Returns: Json }
       verify_audit_log_chain: {
         Args: never
@@ -3086,6 +3085,10 @@ export type Database = {
           bad_seq: number
           reason: string
         }[]
+      }
+      verify_management_api_key: {
+        Args: { p_key_digest: string }
+        Returns: Json
       }
     }
     Enums: {
