@@ -70,6 +70,7 @@ describe('app policy pilot — X-Tenant-Id → RLS', () => {
     await cleanupTenantAndUsers(outsider.tenantId, [outsider]);
   });
 
+  // proves AC-075-01
   it('a member of the URL org toggles the policy on its own app', async () => {
     await resetPolicy(false);
     const client = await createTenantScopedClient(owner, owner.tenantId);
@@ -97,6 +98,7 @@ describe('app policy pilot — X-Tenant-Id → RLS', () => {
     expect(await readPolicy()).toBe(false);
   });
 
+  // proves AC-075-01
   it('a member without app_policy.update cannot toggle the policy', async () => {
     await resetPolicy(false);
     const client = await createTenantScopedClient(reader, owner.tenantId);

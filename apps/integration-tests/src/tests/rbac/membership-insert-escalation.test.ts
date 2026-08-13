@@ -21,6 +21,7 @@ describe('membership INSERT escalation', () => {
   });
 
   for (const attackerRole of ['read', 'write'] as const) {
+    // proves AC-075-11
     it(`a ${attackerRole}-role member cannot POST a membership granting owner`, async () => {
       const attacker = await createTestUser(attackerRole);
       const accomplice = await createTestUser('read');
