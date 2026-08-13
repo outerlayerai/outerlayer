@@ -8,6 +8,7 @@ import { TermsAgreementService } from "./terms-agreement";
 import {
   OrganizationService,
   type AcceptInviteResult,
+  type DeclineInviteResult,
   type InvitationDetails,
 } from "./organization-service";
 
@@ -77,6 +78,19 @@ export async function acceptInvitationForUser(
   const service = organizationServiceForInvite();
   const user = { id: subject.userId, email: subject.email } as User;
   return service.acceptInvitation({ user, membershipId });
+}
+
+/**
+ * Declines a pending invitation on behalf of an explicitly verified subject.
+ * Same rationale as `acceptInvitationForUser`.
+ */
+export async function declineInvitationForUser(
+  subject: { userId: string; email: string | null },
+  membershipId: string,
+): Promise<DeclineInviteResult> {
+  const service = organizationServiceForInvite();
+  const user = { id: subject.userId, email: subject.email } as User;
+  return service.declineInvitation({ user, membershipId });
 }
 
 /**

@@ -11,11 +11,13 @@
  */
 const mockCheckTermsAgreement = vi.hoisted(() => vi.fn());
 const mockAcceptInvitation = vi.hoisted(() => vi.fn());
+const mockDeclineInvitation = vi.hoisted(() => vi.fn());
 const mockCheckTermsForInvitation = vi.hoisted(() => vi.fn());
 const mockGetInvitationDetails = vi.hoisted(() => vi.fn());
 vi.mock("./actions", () => ({
   checkTermsAgreement: mockCheckTermsAgreement,
   acceptInvitation: mockAcceptInvitation,
+  declineInvitation: mockDeclineInvitation,
   checkTermsForInvitation: mockCheckTermsForInvitation,
   getInvitationDetails: mockGetInvitationDetails,
 }));
@@ -24,6 +26,7 @@ import { ActionErrorCodes } from "@/lib/action-kit/result";
 import {
   checkTermsAgreementAction,
   acceptInvitationAction,
+  declineInvitationAction,
   checkTermsForInvitationAction,
   getInvitationDetailsAction,
 } from "./action-adapters";
@@ -80,6 +83,62 @@ it("acceptInvitationAction maps UNAUTHENTICATED to 'Not authenticated', distinct
     membershipId: "membership-1",
     agreedToTerms: true,
   });
+});
+
+it("declineInvitationAction maps UNAUTHENTICATED to 'Not authenticated'", async () => {
+  mockDeclineInvitation.mockResolvedValue({
+    ok: false,
+    error: { code: ActionErrorCodes.UNAUTHENTICATED, message: "Not authenticated" },
+  });
+
+  const result = await declineInvitationAction("membership-1");
+
+  expect(result).toEqual({ error: "Not authenticated" });
+  expect(mockDeclineInvitation).toHaveBeenCalledWith({ membershipId: "membership-1" });
+});
+
+it("declineInvitationAction forwards the wrapped success data unchanged", async () => {
+  mockDeclineInvitation.mockResolvedValue({ ok: true, data: { data: { success: true } } });
+
+  const result = await declineInvitationAction("membership-1");
+
+  expect(result).toEqual({ data: { success: true } });
+});
+
+it("declineInvitationAction redacts a thrown Postgres-shaped error surfaced via the INTERNAL code", async () => {
+  mockDeclineInvitation.mockResolvedValue({
+    ok: false,
+    error: {
+      code: ActionErrorCodes.INTERNAL,
+      message: 'update or delete on table "membership" violates foreign key constraint',
+    },
+  });
+
+  const result = await declineInvitationAction("membership-1");
+
+  expect(result).toEqual({ error: "Something went wrong. Please try again." });
+});
+
+it.each(["Invitation not found", "This invitation has already been accepted"])(
+  "declineInvitationAction forwards the deliberate domain outcome %j unchanged",
+  async (domainError) => {
+    mockDeclineInvitation.mockResolvedValue({ ok: true, data: { error: domainError } });
+
+    const result = await declineInvitationAction("membership-1");
+
+    expect(result).toEqual({ error: domainError });
+  },
+);
+
+it("declineInvitationAction redacts an unrecognized error string returned inside the envelope's success data", async () => {
+  mockDeclineInvitation.mockResolvedValue({
+    ok: true,
+    data: { error: 'column "tenant_id" does not exist' },
+  });
+
+  const result = await declineInvitationAction("membership-1");
+
+  expect(result).toEqual({ error: "Something went wrong. Please try again." });
 });
 
 it("checkTermsForInvitationAction maps UNAUTHENTICATED to 'Not authenticated'", async () => {

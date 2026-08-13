@@ -44,6 +44,10 @@ not requirements to skip.
 12. `AC-077-12` **Given** an invitation past its expiry, **When** the invitee tries to accept it, **Then** the attempt is refused as expired.
 13. `AC-077-13` **Given** an invitee who already belongs to 10 organizations, **When** they try to accept a new invitation, **Then** the acceptance is refused until they leave one.
 
+## Declining an invitation
+
+15. `AC-077-15` **Given** a pending invitation, **When** the invited user declines it, **Then** the pending membership is removed and the invite can no longer be accepted; only the invitee may decline it.
+
 ## Members list
 
 14. `AC-077-14` **Given** a tenant's members list is read, **When** a membership has been disabled, **Then** that member does not appear in the list — only active and pending memberships are shown.
