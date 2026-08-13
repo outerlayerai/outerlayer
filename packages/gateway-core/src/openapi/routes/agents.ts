@@ -287,7 +287,7 @@ export class SyncAgentSessions extends BaseRoute {
       400: errorResponse('Malformed request body.'),
       401: errorResponse('Missing or invalid API key.'),
       413: errorResponse('Batch exceeds the per-request byte ceiling — split it into smaller requests.'),
-      429: errorResponse('Monthly unit limit exceeded.'),
+      429: errorResponse('Monthly unit limit or storage cap exceeded.'),
       503: {
         // Load-triggered: a ClickHouse insert failed (downstream saturated).
         // Structured envelope + Retry-After so a client's backoff can tell
@@ -378,6 +378,32 @@ export class SyncAgentSessions extends BaseRoute {
       }
     } catch (e) {
       console.warn('[agents/sync] span-limit check failed, continuing:', e);
+    }
+
+    // Storage-cap gate: hobby-tier monthly storage ceiling (Stripe usage meter).
+    // Fails OPEN like the span-limit gate above — a Stripe/cache hiccup must
+    // never turn into a dropped sync. `checkStorageCap` caches its verdict for
+    // 5 minutes (see `GatewayContext.billing`'s doc), so this stays off the
+    // per-request Stripe round trip on repeat syncs within the window.
+    try {
+      const gtx = c.get('gtx');
+      const capResult = await gtx.billing.checkStorageCap(
+        adminSupabase,
+        user.tenantId,
+        user.stripeCustomerId,
+        initCache(gtx.cacheL2Store, gtx.execCtx, memory),
+      );
+      if (!capResult.allowed) {
+        return c.json(
+          structuredError('storage_cap_exceeded', 'Monthly storage cap exceeded. Upgrade your plan for more storage.', {
+            currentBytes: capResult.currentBytes,
+            limitBytes: capResult.limitBytes,
+          }),
+          429,
+        );
+      }
+    } catch (e) {
+      console.warn('[agents/sync] storage-cap check failed, continuing:', e);
     }
 
     const tenantTier = await resolveTenantCaptureTier(adminSupabase, user.tenantId);

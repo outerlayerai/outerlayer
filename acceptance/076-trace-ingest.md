@@ -45,3 +45,8 @@ not requirements to skip.
 ## Idempotent re-sync
 
 10. `AC-076-10` **Given** the same session is converted twice (e.g. a client re-syncs after a dropped ack), **When** the rows are compared, **Then** they are byte-identical — ids are deterministic, so a re-sync re-inserts the same rows rather than duplicating or diverging.
+
+## Storage cap
+
+11. `AC-076-11` **Given** a hobby-tier tenant has exceeded its monthly storage cap, or an admin override sets a lower effective cap that is reached, **When** it syncs another session, **Then** the gateway refuses the sync with `storage_cap_exceeded` and writes nothing.
+12. `AC-076-12` **Given** the storage-cap check itself fails (e.g. the Stripe usage-meter call errors), **When** a session is synced, **Then** ingest proceeds — the cap fails open and never becomes an ingest outage.

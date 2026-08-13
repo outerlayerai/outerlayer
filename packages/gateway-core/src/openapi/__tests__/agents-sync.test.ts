@@ -90,6 +90,19 @@ vi.mock('../../services', () => ({
   })),
 }));
 
+// Storage cap — mutated per test. `null` means "check throws", modeling a
+// Stripe/cache failure so tests can pin the fail-open contract.
+let storageCapResult: { allowed: boolean; currentBytes: number; limitBytes: number; capReached: boolean } | null = {
+  allowed: true,
+  currentBytes: 0,
+  limitBytes: -1,
+  capReached: false,
+};
+const checkStorageCap = vi.fn(async () => {
+  if (storageCapResult === null) throw new Error('storage-cap check boom');
+  return storageCapResult;
+});
+
 const claimFirstTrace = vi.fn(async () => true);
 vi.mock('../../lib/first-trace', () => ({
   claimFirstTrace: (...args: unknown[]) => claimFirstTrace(...(args as [])),
@@ -190,13 +203,14 @@ function ctxFor(
   const ctx = {
     get: (k: string) => {
       if (k === 'user') {
-        return { appId: 'app-1', tenantId: 'tenant-1', apiKeyId: 'key_abc', ...userOver };
+        return { appId: 'app-1', tenantId: 'tenant-1', apiKeyId: 'key_abc', stripeCustomerId: 'cus_1', ...userOver };
       }
-      // The quota gate builds its cache from gtx.
+      // The quota gates build their cache from gtx.
       if (k === 'gtx') {
         return {
           cacheL2Store: new NoopCacheStore(),
           execCtx: { waitUntil: () => {}, passThroughOnException: () => {} },
+          billing: { checkStorageCap },
         };
       }
       return undefined;
@@ -241,6 +255,8 @@ beforeEach(() => {
   blobStorageAvailable = true;
   tenantTierRow = { agent_capture_tier: 'redacted' };
   limitResult = { allowed: true, currentCount: 5, limit: 100 };
+  storageCapResult = { allowed: true, currentBytes: 0, limitBytes: -1, capReached: false };
+  checkStorageCap.mockClear();
   claimFirstTrace.mockClear();
 });
 
@@ -562,6 +578,44 @@ describe('SyncAgentSessions', () => {
     expect(status()).toBe(429);
     expect((json() as { error: { code: string } }).error.code).toBe('span_limit_exceeded');
     expect(insertsByTable['otel_traces']).toBeUndefined();
+  });
+
+  // proves AC-076-11
+  it('returns 429 storage_cap_exceeded when the storage cap is reached, writing nothing', async () => {
+    storageCapResult = { allowed: false, currentBytes: 5_000_000_000, limitBytes: 5_000_000_000, capReached: true };
+    const { ctx, status, json } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(429);
+    const body = json() as { error: { code: string } };
+    expect(body.error.code).toBe('storage_cap_exceeded');
+    expect(insertsByTable['otel_traces']).toBeUndefined();
+    expect(insertsByTable['agent_session_summary']).toBeUndefined();
+    expect(createdClients).toHaveLength(0);
+  });
+
+  it('ingests normally when the storage cap is not reached', async () => {
+    storageCapResult = { allowed: true, currentBytes: 1_000, limitBytes: 5_000_000_000, capReached: false };
+    const { ctx, status } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(insertsByTable['otel_traces']?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  // proves AC-076-12
+  it('proceeds with ingest when the storage-cap check throws (fails open)', async () => {
+    storageCapResult = null;
+    const { ctx, status } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(insertsByTable['otel_traces']?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('never blocks ingest under the self-host/unlimited storage verdict, and passes tenant + stripe identity through', async () => {
+    storageCapResult = { allowed: true, currentBytes: 0, limitBytes: -1, capReached: false };
+    const { ctx, status } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
+    await new SyncAgentSessions({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(checkStorageCap).toHaveBeenCalledWith(expect.anything(), 'tenant-1', 'cus_1', expect.anything());
   });
 
   it('routes blob + trace + summary through ONE client, built with the CH config, and closes it', async () => {
