@@ -67,6 +67,21 @@ describe("mcp install argv surface", () => {
     expect(err).toHaveBeenCalledWith(expect.stringContaining("no such directory"));
   });
 
+  it("never touches a pre-existing exitCode on success — runMcpInstall's result always carries exitCode 0", async () => {
+    // `result.exitCode` is unconditionally 0 for every non-throwing
+    // runMcpInstall return (failures throw McpInstallError instead), so
+    // `if (result.exitCode !== 0) process.exitCode = result.exitCode` never
+    // fires on success. Pinning that: preset a sentinel exitCode a caller
+    // (or an earlier command in the same process) may have left behind and
+    // assert this handler leaves it alone, rather than stomping it to 0.
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    process.exitCode = 7;
+
+    await runCli(["node", "outerlayer", "mcp", "install", "--dir", root]);
+
+    expect(process.exitCode).toBe(7);
+  });
+
   it("propagates a non-McpInstallError instead of swallowing it as a directory error", async () => {
     // --dir points at a plain file, not a directory: existsSync(cwd) passes,
     // but writing .mcp.json under it fails with a filesystem error that is

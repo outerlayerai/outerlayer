@@ -5,7 +5,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runMcpInstall, McpInstallError, DEFAULT_MCP_URL } from "../mcp-install-cmd.js";
+import { runMcpInstall, McpInstallError, DEFAULT_MCP_URL, buildServerEntry } from "../mcp-install-cmd.js";
 
 let root: string;
 
@@ -14,6 +14,25 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
+});
+
+describe("buildServerEntry", () => {
+  // A round trip through JSON.stringify/JSON.parse (what runMcpInstall
+  // actually writes and reads back) drops an `undefined`-valued key exactly
+  // like a genuinely absent one — so a test that only inspects the written
+  // FILE can't tell "appId omitted" from "appId set to undefined". These
+  // inspect the built object directly, before serialization.
+  it("sets X-Outerlayer-App-Id as an own key when appId is given", () => {
+    const entry = buildServerEntry("http://localhost:9001/v1/mcp", "app-123") as { headers: Record<string, string> };
+    expect(Object.hasOwn(entry.headers, "X-Outerlayer-App-Id")).toBe(true);
+    expect(entry.headers["X-Outerlayer-App-Id"]).toBe("app-123");
+  });
+
+  it("never adds X-Outerlayer-App-Id as a key at all when appId is omitted", () => {
+    const entry = buildServerEntry("http://localhost:9001/v1/mcp", undefined) as { headers: Record<string, string> };
+    expect(Object.hasOwn(entry.headers, "X-Outerlayer-App-Id")).toBe(false);
+    expect(Object.keys(entry.headers)).toEqual(["Authorization"]);
+  });
 });
 
 describe("runMcpInstall", () => {

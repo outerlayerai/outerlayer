@@ -58,7 +58,13 @@ export interface McpInstallCommandResult {
   exitCode: 0 | 1;
 }
 
-function buildServerEntry(url: string, appId: string | undefined): Record<string, unknown> {
+/** Exported so a test can assert `X-Outerlayer-App-Id` is genuinely ABSENT
+ * as an object key when `appId` is omitted, not merely `undefined` — after
+ * a `JSON.stringify`/`JSON.parse` round trip (what `runMcpInstall` writes
+ * and every other test reads back) an explicit `undefined` value and a
+ * missing key are indistinguishable, since `JSON.stringify` drops
+ * `undefined`-valued keys either way. */
+export function buildServerEntry(url: string, appId: string | undefined): Record<string, unknown> {
   const headers: Record<string, string> = { Authorization: `Bearer ${API_KEY_ENV_PLACEHOLDER}` };
   if (appId) headers["X-Outerlayer-App-Id"] = appId;
   return { type: "http", url, headers };
