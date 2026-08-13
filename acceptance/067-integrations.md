@@ -35,7 +35,7 @@ not requirements to skip.
 ## Validation
 
 9. `AC-067-09` **Given** a key name that does not match the required uppercase-letters/digits/underscores format, **When** a user attempts to save it, **Then** the save is blocked before any value reaches the server.
-10. **Given** a key name reserved for the platform's own runtime injection, **When** a user attempts to set it, **Then** the write is refused with a message explaining it is platform-managed.
+10. `AC-067-10` **Given** a key name reserved for the platform's own runtime injection, **When** a user attempts to set it, **Then** the write is refused with a message explaining it is platform-managed.
 
 ## Access control
 

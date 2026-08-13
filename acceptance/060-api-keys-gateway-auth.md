@@ -27,7 +27,7 @@ not requirements to skip.
 ## Revoking and updating keys
 
 1. `AC-060-05` **Given** a caller lacks permission to delete a key on its app, **When** they attempt to delete it, **Then** the key is left untouched, the request is denied, and the denial is audited.
-2. **Given** an API key is deleted, **When** the deletion completes, **Then** the key stops authenticating immediately and cannot be restored or un-revoked.
+2. `AC-060-14` **Given** an API key is deleted, **When** the deletion completes, **Then** the key stops authenticating immediately and cannot be restored or un-revoked.
 3. `AC-060-06` **Given** a key holder attempts to grant an existing key permissions beyond what they themselves hold, **When** they update the key's permissions, **Then** the update is rejected and the key's permissions are unchanged.
 
 ## CLI developer-key issuance
@@ -42,4 +42,4 @@ not requirements to skip.
 1. `AC-060-11` **Given** a bearer-authenticated request supplies an explicit tenant header, **When** the request is scoped, **Then** the header's tenant governs the request even when it differs from the session's own tenant claim.
 2. `AC-060-12` **Given** a bearer-authenticated request supplies a tenant header naming a tenant the caller does not belong to, **When** the request is authenticated, **Then** it is denied outright, with no fallback to the caller's own tenant claim.
 3. `AC-060-13` **Given** a request targets another tenant's API key by guessing its identifiers, **When** the request is scoped to the caller's own tenant, **Then** it matches no rows and the other tenant's key is left intact.
-4. **Given** an unknown, a revoked, and an expired API key, **When** each is presented to the gateway, **Then** all three are rejected with the same authentication failure, disclosing no signal about which condition applies.
+4. `AC-060-15` **Given** an unknown, a revoked, and an expired API key, **When** each is presented to the gateway, **Then** all three are rejected with the same authentication failure, disclosing no signal about which condition applies.

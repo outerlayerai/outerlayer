@@ -280,6 +280,39 @@ describe("EnvVarService — environment-scoped writes", () => {
     expect(rpcCalls.find((c) => c.name === "insert_secret")).toBeUndefined();
   });
 
+  // proves AC-067-10
+  it("set rejects a reserved platform-managed key before the environment-ownership check or any vault write", async () => {
+    // No environment seeded on the admin client — if the reserved check ran
+    // after (or not at all), the ownership lookup below would be the thing
+    // that fails, masking this rejection behind the wrong error message.
+    const { client, rpcCalls } = fakeSupabase({});
+    await expect(
+      svc(client).set(APP_ID, { environmentId: ENV_ID }, "tenant-1", "OUTERLAYER_API_KEY", "v"),
+    ).rejects.toThrow(
+      "This environment variable is managed by the platform and cannot be overridden",
+    );
+    expect(rpcCalls.find((c) => c.name === "insert_secret")).toBeUndefined();
+  });
+
+  // proves AC-067-10
+  it("set accepts a normal key that is not on the reserved list", async () => {
+    seedManagedDeploymentTablesState({
+      environments: [{ id: ENV_ID, app_id: APP_ID }],
+      envVars: [],
+    });
+    seedVaultMswState({ secrets: {} });
+
+    const result = await createService().set(
+      APP_ID,
+      { environmentId: ENV_ID },
+      "tenant-1",
+      "DATABASE_URL",
+      "v",
+    );
+
+    expect(result.key).toBe("DATABASE_URL");
+  });
+
   it("set throws (fail-closed) when the env-ownership lookup itself errors, distinct from a genuine miss", async () => {
     // A DB error during the ownership check must abort with a lookup-failure
     // error, not the "does not belong to app" message a real miss produces —

@@ -39,4 +39,4 @@ not requirements to skip.
 1. `AC-065-09` **Given** an organization with apps and their dependent records (git connections, context data, notifications, and the rest), **When** the organization is deleted, **Then** every one of its dependent records is removed along with it.
 2. `AC-065-10` **Given** two unrelated organizations, **When** one is deleted, **Then** the other's data is left completely untouched.
 3. `AC-065-11` **Given** an organization with an active temporary-access grant, **When** the organization is deleted, **Then** its temporary-access grant is deleted along with it.
-4. **Given** a platform admin is deleting an organization, **When** they confirm the deletion, **Then** they must first confirm the organization's exact name before the deletion proceeds.
+4. `AC-065-12` **Given** a platform admin is deleting an organization, **When** they confirm the deletion, **Then** they must first type the organization's name to confirm before the deletion proceeds.

@@ -27,7 +27,7 @@ not requirements to skip.
 ## Persistent worker workspaces and follow-up turns
 
 3. `AC-061-03` **Given** an operator starts a persistent worker environment, **When** the workspace is created, **Then** it is re-readable in a `creating` state, scoped to the app it was created under.
-4. **Given** an active workspace, **When** an operator sends a follow-up task against it, **Then** the turn is recorded against that same workspace rather than starting a new one.
+4. `AC-061-04` **Given** an active workspace, **When** an operator sends a follow-up task against it, **Then** the turn is recorded against that same workspace rather than starting a new one.
 5. `AC-061-05` **Given** a follow-up turn names an environment id that does not exist, **When** it is submitted, **Then** no run is dispatched and the operator sees an "environment not found" message.
 
 ## Run outcome and landed changes

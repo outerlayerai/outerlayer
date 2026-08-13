@@ -42,4 +42,4 @@ not requirements to skip.
 
 ## Repo access revocation
 
-12. **Given** the GitHub App's access to a repository is revoked, **When** the installation webhook reports the repository removed, **Then** the app's git connection to that repo is deleted, disconnecting it.
+12. `AC-068-12` **Given** the GitHub App's access to a repository is revoked, **When** the installation webhook reports the repository removed, **Then** the app's git connection to that repo is deleted, disconnecting it.

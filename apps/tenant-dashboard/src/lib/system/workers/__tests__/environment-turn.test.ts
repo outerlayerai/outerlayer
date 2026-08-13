@@ -152,7 +152,8 @@ describe("dispatchEnvironmentTurn — attachments", () => {
 });
 
 describe("dispatchEnvironmentTurn — subsequent turn", () => {
-  it("indexes past prior turns and resumes the environment session", async () => {
+  // proves AC-061-04
+  it("records the follow-up turn against the same workspace instead of starting a new one", async () => {
     const env = seedEnv({ work_branch: "keep/branch", session_ref: "sess-1" });
     seedWorkerRunMswState({
       rows: [
@@ -180,6 +181,12 @@ describe("dispatchEnvironmentTurn — subsequent turn", () => {
     );
     expect(created?.task_prompt).toBe("add a feature");
     expect(result).toEqual({ runId: created!.id, turnIndex: 1 });
+
+    // The new turn is a second worker_run row on the SAME workspace — no
+    // second workspace row is created for the follow-up turn.
+    expect(getWorkerRunMswState().filter((r) => r.workspace_id === env.id)).toHaveLength(2);
+    expect(getWorkerEnvironmentMswState()).toHaveLength(1);
+    expect(getWorkerEnvironmentMswState()[0]?.id).toBe(env.id);
 
     expect(mockDispatch).toHaveBeenCalledWith(
       expect.objectContaining({
