@@ -57,7 +57,6 @@ describe('ProfileSettings', () => {
   });
 
   it('falls back to the unknown message for an unrecognised email_error value', () => {
-    // proves AC-10
     render(<ProfileSettings emailChangeStatus="error" emailChangeError="something-else" />);
     expect(enqueueSnackbar).toHaveBeenCalledWith(
       'dashboard.profileSettings.emailChangeErrors.unknown',

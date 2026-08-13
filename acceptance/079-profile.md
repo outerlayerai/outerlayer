@@ -19,8 +19,8 @@ not requirements to skip.
 
 ## Editing profile fields
 
-1. **Given** a user changes their display name or avatar on the profile form, **When** they save, **Then** the profile updates immediately with no confirmation step required.
-2. **Given** a user submits a new email address on their profile form, **When** the change is submitted, **Then** it does not take effect immediately — a confirmation flow is triggered and the displayed email reverts to the current address until confirmed.
+1. `AC-079-01` **Given** a user changes their display name or avatar on the profile form, **When** they save, **Then** the profile updates immediately with no confirmation step required.
+2. `AC-079-02` **Given** a user submits a new email address on their profile form, **When** the change is submitted, **Then** it does not take effect immediately — a confirmation flow is triggered and the displayed email reverts to the current address until confirmed.
 
 ## Email-change confirmation
 
