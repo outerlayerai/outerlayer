@@ -41,6 +41,7 @@ schema_paths = [
     "./schemas/11-profile.sql",
     "./schemas/12-rbac.sql",
     "./schemas/13-terms-agreement.sql",
+    "./schemas/14-signup-allowlist.sql",
     "./schemas/20-app.sql",
     # Environment is declared here — after app/tenant/profile and before
     # 23-api-key.sql, which carries an FK reference to it
@@ -251,3 +252,12 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [auth.hook.custom_access_token]
 enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+# Signup domain gate (see schemas/14-signup-allowlist.sql). Enabled locally so
+# the hook path is exercised in dev/tests; with an empty
+# signup_domain_allowlist table it allows every signup, so local behavior is
+# unchanged until rows are inserted. Hosted projects activate it per-project
+# via Dashboard → Authentication → Hooks.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/before_user_created_hook"

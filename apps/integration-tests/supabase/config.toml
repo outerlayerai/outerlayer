@@ -153,4 +153,12 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 
 [auth.hook.custom_access_token]
 enabled = true
-uri = "pg-functions://postgres/public/custom_access_token_hook" 
+uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+# Signup domain gate — mirrors apps/tenant-dashboard/supabase/config.toml so
+# the integration stack runs the same auth hooks as the app stack. Inert while
+# signup_domain_allowlist is empty; the signup-domain-allowlist test seeds and
+# clears it.
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/before_user_created_hook" 

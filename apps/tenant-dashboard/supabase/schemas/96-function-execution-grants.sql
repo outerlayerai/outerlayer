@@ -89,6 +89,10 @@ GRANT EXECUTE ON FUNCTION public.cleanup_expired_temp_access() TO service_role;
 -- the PUBLIC/role leak.
 REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) FROM PUBLIC, anon, authenticated;
 
+-- Same treatment for the signup-gate hook; keeps the supabase_auth_admin
+-- grant from 14-signup-allowlist.sql.
+REVOKE EXECUTE ON FUNCTION public.before_user_created_hook(jsonb) FROM PUBLIC, anon, authenticated;
+
 -- -----------------------------------------------------------------------------
 -- Trigger functions — fired by the trigger machinery regardless of EXECUTE
 -- privilege, so no role needs it. Strip the API surface entirely.

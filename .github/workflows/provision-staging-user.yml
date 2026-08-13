@@ -1,0 +1,56 @@
+# Invites a user to the STAGING dashboard through the GoTrue admin API —
+# works while public signups are disabled. The signup domain gate still
+# applies to invites, so the address must be on an allowlisted domain when
+# the gate is active. Creates the profile row registration would have
+# created, and can grant platform_admin. Idempotent: re-running on an
+# existing account just fills in whatever is missing.
+#
+# This repo is public, so run logs are public: the provisioning script prints
+# no credentials or auth links (the invite link goes straight from Supabase
+# to the invitee's mailbox).
+name: Provision Staging User
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: 'Email address to invite'
+        required: true
+        type: string
+      full_name:
+        description: 'Full name for the profile'
+        required: true
+        type: string
+      platform_admin:
+        description: 'Also grant the platform_admin role'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Invite user on staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Provision user
+        env:
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          EMAIL: ${{ inputs.email }}
+          FULL_NAME: ${{ inputs.full_name }}
+          PLATFORM_ADMIN: ${{ inputs.platform_admin }}
+        run: |
+          ARGS=(--email "$EMAIL" --name "$FULL_NAME")
+          if [ "$PLATFORM_ADMIN" = "true" ]; then
+            ARGS+=(--platform-admin)
+          fi
+          node scripts/ops/provision-staging-user.mjs "${ARGS[@]}"
