@@ -88,10 +88,26 @@ describe('tool schemas match their REST counterparts exactly', () => {
     expect(tool.zodOutputSchema).toBe(TopicsListSchema);
   });
 
-  it('list_sessions validates against the same Zod objects GET /v1/sessions uses', () => {
+  it('list_sessions validates output against the same Zod object GET /v1/sessions uses', () => {
     const tool = MCP_TOOLS.find((t) => t.name === 'list_sessions')!;
-    expect(tool.zodInputSchema).toBe(ListSessionsQuerySchema);
     expect(tool.zodOutputSchema).toBe(SessionsPageSchema);
+  });
+
+  // Deliberately NOT the same instance as REST's ListSessionsQuerySchema:
+  // `pr` filtering needs a Postgres reader no MCP host has wired for list
+  // reads, so this surface must not advertise a parameter it always
+  // rejects (see rejectPrFilter). Every OTHER field must still match
+  // exactly, so this pins the divergence to precisely `pr` and nothing else.
+  it("list_sessions' input is REST's ListSessionsQuerySchema minus pr, and nothing else", () => {
+    const tool = MCP_TOOLS.find((t) => t.name === 'list_sessions')!;
+    expect(tool.zodInputSchema).not.toBe(ListSessionsQuerySchema);
+
+    const restShape = (ListSessionsQuerySchema as unknown as ZodObject<ZodRawShape>).shape;
+    const mcpShape = (tool.zodInputSchema as ZodObject<ZodRawShape>).shape;
+    expect(Object.keys(mcpShape).sort()).toEqual(Object.keys(restShape).filter((f) => f !== 'pr').sort());
+
+    const mcpTool = toolToMcpTool(tool);
+    expect(mcpTool.inputSchema.properties).not.toHaveProperty('pr');
   });
 
   it('get_session validates its output against the same schema GET /v1/sessions/{traceId} uses', () => {

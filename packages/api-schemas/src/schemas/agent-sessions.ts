@@ -30,7 +30,15 @@ export const SESSIONS_PAGE_SIZE = 25;
  */
 export const MAX_SESSIONS_OFFSET = 10_000;
 
-export const ListSessionsQuerySchema = z.object({
+/**
+ * The pre-refine base object, exported so a host that needs a STRUCTURAL
+ * variant (e.g. the MCP tool table omitting `pr` from what it advertises —
+ * `pr` is dashboard-only, see the field's own doc comment below) can
+ * `.omit(...)` it and reapply the topicId/topicFacet refine itself.
+ * `ListSessionsQuerySchema.omit(...)` doesn't work directly: zod rejects
+ * `.omit()` on a schema that already carries a `.refine()`.
+ */
+export const ListSessionsQueryBaseSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(SESSIONS_PAGE_SIZE),
   offset: z.coerce.number().int().min(0).max(MAX_SESSIONS_OFFSET).default(0),
   repo: z.string().refine(...noLoneSurrogates).optional(),
@@ -79,10 +87,21 @@ export const ListSessionsQuerySchema = z.object({
    * wired for list reads, so those surfaces reject a `pr` value rather than
    * silently ignoring it. */
   pr: z.coerce.number().int().positive().optional(),
-}).refine((v) => (v.topicId === undefined) === (v.topicFacet === undefined), {
-  message: 'topicId and topicFacet must be set together',
-  path: ['topicFacet'],
 });
+
+/** topicId/topicFacet must be set together — shared by
+ * {@link ListSessionsQuerySchema} and any `.omit(...)` variant built off
+ * {@link ListSessionsQueryBaseSchema}, so the two can never drift on this
+ * rule. */
+export function requireTopicPairTogether<T extends { topicId?: string; topicFacet?: string }>(v: T): boolean {
+  return (v.topicId === undefined) === (v.topicFacet === undefined);
+}
+const TOPIC_PAIR_REFINE_OPTS = {
+  message: 'topicId and topicFacet must be set together',
+  path: ['topicFacet'] as PropertyKey[],
+};
+
+export const ListSessionsQuerySchema = ListSessionsQueryBaseSchema.refine(requireTopicPairTogether, TOPIC_PAIR_REFINE_OPTS);
 
 export type ListSessionsQuery = z.infer<typeof ListSessionsQuerySchema>;
 export type SessionsSort = ListSessionsQuery['sort'];

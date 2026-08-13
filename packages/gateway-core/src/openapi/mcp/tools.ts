@@ -19,6 +19,8 @@ import {
   TopicsQuerySchema,
   TopicsListSchema,
   ListSessionsQuerySchema,
+  ListSessionsQueryBaseSchema,
+  requireTopicPairTogether,
   SessionsPageSchema,
   AgentSessionDetailSchema,
   ModelStatsQuerySchema,
@@ -54,6 +56,21 @@ import type { GatewayEntitlement } from '../../lib/entitlements';
  * on REST and has no natural home in the shared schema package. */
 const GetSessionInputSchema = z.object({
   traceId: z.string().min(1).describe('The session trace id, from a list_sessions or list_topics result.'),
+});
+
+/**
+ * `list_sessions`'s advertised input — `ListSessionsQuerySchema` minus `pr`.
+ * `pr` filtering needs a Postgres `pull_request_session` read no MCP host
+ * has wired for list reads (see `rejectPrFilter`), so this surface doesn't
+ * advertise a parameter it always rejects. Built from the pre-refine base
+ * (`ListSessionsQuerySchema.omit(...)` itself doesn't work — zod rejects
+ * `.omit()` once a `.refine()` has been applied) and reapplies the same
+ * topicId/topicFacet pairing rule via the shared predicate, so the two
+ * schemas can't drift on it.
+ */
+const McpListSessionsQuerySchema = ListSessionsQueryBaseSchema.omit({ pr: true }).refine(requireTopicPairTogether, {
+  message: 'topicId and topicFacet must be set together',
+  path: ['topicFacet'],
 });
 
 /**
@@ -213,8 +230,8 @@ export const MCP_TOOLS: readonly McpToolDefinition[] = [
       'Filtered, paginated list of agent-coding sessions. Drill into a topic\'s sessions with topicId + topicFacet (topicId comes from list_topics). ' +
       'Without the agents.sessions.team.read permission, actor identities are anonymized and an actor filter is rejected. ' +
       "When no repo or topic filter is given, results are scoped to the app's dominant repo (the repo with the highest total spend); pass repo to target another repo. " +
-      'pr is dashboard-only for now and is rejected here — this surface has no reader wired to resolve a PR/MR number to its confirmed-linked sessions.',
-    zodInputSchema: ListSessionsQuerySchema,
+      'This surface has no reader wired to resolve a PR/MR number to its confirmed-linked sessions, so it has no pr parameter — that filter is dashboard-only for now.',
+    zodInputSchema: McpListSessionsQuerySchema,
     zodOutputSchema: SessionsPageSchema,
     requiredPermission: 'session.read',
     rateLimit: RATE_LIMITS.observabilityRead,
