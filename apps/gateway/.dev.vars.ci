@@ -54,6 +54,12 @@ UNKEY_API_KEY=ci-bypass
 # drift. Real deploys inject a random per-env secret via `wrangler secret put`.
 API_KEY_PEPPER=am-ci-pepper-not-a-secret
 
+# --- Management API key pepper (olk_* org-management routes) ---
+# Optional in the schema; set here so the schemathesis fuzz job exercises the
+# real /v1/orgs/* handlers instead of their unconfigured-pepper 401 branch,
+# matching every other DB-backed v1 route under fuzz.
+MANAGEMENT_API_KEY_PEPPER=am-ci-management-pepper-not-a-secret
+
 # --- Stripe (placeholder; billing endpoints not fuzzed) ---
 STRIPE_SECRET_KEY=sk_test_ci_placeholder
 STRIPE_SPAN_METER_KEY=span_meter

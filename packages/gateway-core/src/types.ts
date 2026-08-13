@@ -234,6 +234,16 @@ export const EnvSchema = z.object({
   // the logs var.
   API_KEY_PEPPER: z.string().optional(),
 
+  // Management-API-key store pepper (HMAC-SHA256 secret for the `olk_*`
+  // org-management bearer keys — see `@repo/org-management-service`).
+  // Optional in the shared schema: unset means the `/v1/orgs/*` management
+  // routes are unconfigured on this deployment and fail closed (every
+  // bearer is rejected before any DB round-trip — see
+  // `verifyManagementApiKeyBearer`), never that boot fails. Distinct from
+  // `API_KEY_PEPPER` (the `sk_outerlayer_*` gateway key pepper) — the two
+  // key families are never interchangeable and must not share a pepper.
+  MANAGEMENT_API_KEY_PEPPER: z.string().optional(),
+
   // Cloud workers — Fly Machines API credentials.
   /**
    * Fly API token for launching worker machines. Optional, and only read when

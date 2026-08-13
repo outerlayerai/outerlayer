@@ -37,6 +37,7 @@
     "@repo/git-providers": "workspace:*",
     "@repo/llm-costs": "*",
     "@repo/observability-service": "*",
+    "@repo/org-management-service": "*",
     "@repo/shared-utils": "workspace:*",
     "@repo/tier-config": "workspace:*",
     "@supabase/supabase-js": "2.112.0",

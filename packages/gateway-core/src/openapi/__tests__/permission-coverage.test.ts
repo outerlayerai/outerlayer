@@ -24,6 +24,7 @@ vi.mock('@clickhouse/client-web', () => ({
 
 import { openApiApp, UNAUTHENTICATED_V1_PATHS } from '../index';
 import { getRoutePermission } from '../../lib/permissions';
+import { isManagementApiPath } from '../../lib/management-auth';
 
 const legacyKeys = new Set<string>();
 
@@ -37,6 +38,11 @@ describe('permission coverage', () => {
     if (!r.path.startsWith('/v1/')) return false;
     if (UNAUTHENTICATED_V1_PATHS.has(r.path)) return false;
     if (legacyKeys.has(`${r.method} ${r.path}`)) return false;
+    // Org-management routes (/v1/orgs/*) are protected by their own
+    // `managementAuthGuard(requiredPermission)` — a management-API-key
+    // (`olk_*`) permission check entirely separate from the `GatewayPermission`
+    // registry this test polices (see `registerManagementRoute` in ../index.ts).
+    if (isManagementApiPath(r.path)) return false;
     return true;
   });
 

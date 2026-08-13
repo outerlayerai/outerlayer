@@ -107,6 +107,17 @@ UNKEY_API_KEY=dev-placeholder-unkey-key
 API_KEY_PEPPER=dev-api-key-pepper-change-me
 
 # ---------------------------------------------------------------------------
+# Management API key pepper — OPTIONAL
+# ---------------------------------------------------------------------------
+# HMAC-SHA256 secret for `olk_*` org-management bearer keys (the
+# `/v1/orgs/{orgName}/...` routes). Unset means those routes are
+# unconfigured on this deployment and fail closed (every bearer 401s before
+# any DB round-trip) — boot never requires this. MUST match the dashboard's
+# MANAGEMENT_API_KEY_PEPPER for a key minted there to verify here. Never
+# reuse API_KEY_PEPPER's value — the two key families must not share a pepper.
+MANAGEMENT_API_KEY_PEPPER=dev-management-api-key-pepper-change-me
+
+# ---------------------------------------------------------------------------
 # Stripe (metering + storage cap) — REQUIRED (hosted)
 # ---------------------------------------------------------------------------
 # Optional in the shared schema — the Node self-host entrypoint wires a no-op
