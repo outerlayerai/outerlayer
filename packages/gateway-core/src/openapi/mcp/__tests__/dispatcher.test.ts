@@ -46,7 +46,7 @@ vi.mock('../../../lib/rate-limit', async (importOriginal) => {
   return { ...actual, enforceRateLimit: (...args: unknown[]) => enforceRateLimit(...args) };
 });
 
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js';
 import { handleMcpRequest, mcpMethodNotAllowed } from '../dispatcher';
 import { MCP_TOOLS } from '../tools';
 
@@ -117,6 +117,37 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(result.body.id).toBe(1);
     expect(result.body.result.capabilities).toEqual({ tools: {}, resources: {} });
     expect(typeof result.body.result.protocolVersion).toBe('string');
+  });
+
+  it('echoes back a client-requested protocolVersion this server supports', async () => {
+    // A version older than LATEST but still in SUPPORTED_PROTOCOL_VERSIONS —
+    // any entry other than the first proves this isn't just always returning
+    // the latest.
+    const requested = SUPPORTED_PROTOCOL_VERSIONS[1]!;
+    expect(requested).not.toBe(LATEST_PROTOCOL_VERSION);
+    const c = buildContext({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: requested } });
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { protocolVersion: string } } };
+
+    expect(result.body.result.protocolVersion).toBe(requested);
+  });
+
+  it('falls back to the latest supported protocolVersion for a version this server does not support', async () => {
+    const c = buildContext({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '1999-01-01' },
+    });
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { protocolVersion: string } } };
+
+    expect(result.body.result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+  });
+
+  it('falls back to the latest supported protocolVersion when the client omits it', async () => {
+    const c = buildContext({ jsonrpc: '2.0', id: 1, method: 'initialize' });
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: { protocolVersion: string } } };
+
+    expect(result.body.result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
   });
 
   it('answers initialize with the exact server name and version', async () => {

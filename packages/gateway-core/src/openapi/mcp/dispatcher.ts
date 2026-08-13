@@ -18,7 +18,7 @@
  * automatic; every guard below is an explicit call.
  */
 
-import { ErrorCode, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js';
 import type {
   CallToolResult,
   InitializeResult,
@@ -115,9 +115,28 @@ export function toolToMcpTool(tool: McpToolDefinition): Tool {
   };
 }
 
-async function handleInitialize(): Promise<InitializeResult> {
+/**
+ * Per the MCP spec, `initialize` must echo the client's requested
+ * `protocolVersion` when this server supports it, and fall back to its own
+ * latest supported version otherwise (including when the client omits the
+ * field, or sends something that isn't a string) — never blindly echo an
+ * unsupported version, which would claim compatibility this server doesn't
+ * have.
+ */
+function negotiateProtocolVersion(params: unknown): string {
+  const requested =
+    params && typeof params === 'object' && 'protocolVersion' in params
+      ? (params as { protocolVersion: unknown }).protocolVersion
+      : undefined;
+  if (typeof requested === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)) {
+    return requested;
+  }
+  return LATEST_PROTOCOL_VERSION;
+}
+
+async function handleInitialize(params: unknown): Promise<InitializeResult> {
   return {
-    protocolVersion: LATEST_PROTOCOL_VERSION,
+    protocolVersion: negotiateProtocolVersion(params),
     capabilities: { tools: {}, resources: {} },
     serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
   };
@@ -220,7 +239,7 @@ async function dispatchOne(c: AppContext, request: JsonRpcRequest) {
   try {
     switch (request.method) {
       case 'initialize':
-        return jsonRpcResult(request.id, await handleInitialize());
+        return jsonRpcResult(request.id, await handleInitialize(request.params));
       case 'ping':
         return jsonRpcResult(request.id, {});
       case 'tools/list':
