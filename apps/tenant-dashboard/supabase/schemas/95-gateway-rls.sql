@@ -338,6 +338,20 @@ CREATE POLICY "gateway_tenant_read_pull_request_session" ON public.pull_request_
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());
 
+-- The pre-existing "Users can read memberships" / "Users can read profiles"
+-- policies (12-rbac.sql) carry no TO clause, so PUBLIC, so the gateway role
+-- inherits their OR-arm that calls private.authorize('membership.read'/...).
+-- Without EXECUTE on that function, every gateway-role SELECT against
+-- membership/profile fails with 42501 ("permission denied for function
+-- authorize") rather than falling through to the tenant-scoped policies
+-- above — Postgres evaluates all permissive policies' quals regardless of
+-- which one ultimately grants access. Granting EXECUTE is safe: authorize()
+-- keys off auth.uid(), which for gateway JWTs is the tenant id and matches
+-- no membership.user_id row, so the legacy policies' OR-arm always
+-- evaluates to false for this role — the grant only prevents the error,
+-- it does not widen what the role can read.
+GRANT EXECUTE ON FUNCTION private.authorize(public.app_permission) TO gateway;
+
 -- -----------------------------------------------------------------------------
 -- Storage policy for gateway: intentionally omitted
 -- -----------------------------------------------------------------------------
