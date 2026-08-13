@@ -45,6 +45,7 @@ beforeEach(() => {
 });
 
 describe("actions — permission gate + service delegation", () => {
+  // proves AC-073-04
   it("listAuditLogAction gates on audit_log.read and forwards params + tenantId", async () => {
     listAuditLogFn.mockResolvedValue({ data: { items: [], total: 0, page: 1, pageSize: 25, totalPages: 0 } });
 

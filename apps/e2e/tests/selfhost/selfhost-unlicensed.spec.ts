@@ -48,6 +48,7 @@ test.describe('Self-host unlicensed — EE features fail closed @selfhost', () =
     org = null;
   });
 
+  // proves AC-071-04
   test('login works; EE surfaces are denied; billing tier cannot unlock them', async ({
     page,
   }) => {

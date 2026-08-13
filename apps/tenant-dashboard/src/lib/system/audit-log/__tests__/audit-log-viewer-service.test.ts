@@ -193,6 +193,7 @@ describe('AuditLogViewerService', () => {
     expect(error).toBe('Audit log entry not found');
   });
 
+  // proves AC-073-05
   it('list() with tenantId returns ONLY that tenant, never other tenants or platform rows', async () => {
     seedAuditLogMswState({
       rows: [

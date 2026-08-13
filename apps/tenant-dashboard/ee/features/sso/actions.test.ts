@@ -114,6 +114,7 @@ describe("SSO read actions require sso_config.read", () => {
 describe("SSO write actions require sso_config.update and never write when denied", () => {
   const saveInput = { metadataUrl: "https://idp.example.com/saml/metadata", allowedDomains: ["example.com"] };
 
+  // proves AC-072-03
   it("saveSSOConfigAction", async () => {
     mockCheckPerm.mockResolvedValue(false);
 
@@ -186,6 +187,7 @@ describe("SSO write actions require sso_config.update and never write when denie
 });
 
 describe("deleteSSOConfigAction requires the owner-only sso_config.delete", () => {
+  // proves AC-072-03
   it("denies and never deletes when the caller lacks sso_config.delete", async () => {
     mockCheckPerm.mockResolvedValue(false);
 

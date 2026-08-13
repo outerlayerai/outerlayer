@@ -45,6 +45,7 @@ describe("entitlement gate", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
+  // proves AC-073-03
   it("checks the audit_log entitlement key for the given tenant", async () => {
     listEntriesFn.mockResolvedValue({ data: { items: [], total: 0, page: 1, pageSize: 25, totalPages: 0 } });
 

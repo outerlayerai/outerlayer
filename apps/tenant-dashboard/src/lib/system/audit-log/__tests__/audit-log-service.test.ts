@@ -22,6 +22,7 @@ import {
 const db = () => createClient('http://localhost:54321', 'test-service-role-key');
 
 describe('AuditLogService', () => {
+  // proves AC-073-01
   it('inserts a tenant-scoped human row exactly as given', async () => {
     const service = new AuditLogService({ db: db() });
 
