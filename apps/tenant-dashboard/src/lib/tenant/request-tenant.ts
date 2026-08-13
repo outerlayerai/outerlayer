@@ -39,7 +39,7 @@ export function extractOrgName(pathname: string): string | null {
  * Escapes LIKE metacharacters so an `ilike` match on an org slug is literal
  * (case-only insensitivity), never a wildcard pattern.
  */
-export function escapeOrgNameForIlike(orgName: string): string {
+function escapeOrgNameForIlike(orgName: string): string {
   return orgName.replace(/[\\%_]/g, '\\$&');
 }
 

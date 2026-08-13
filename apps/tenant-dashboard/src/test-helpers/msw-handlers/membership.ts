@@ -54,8 +54,6 @@ type TenantMswRow = {
   agent_capture_tier?: string;
 };
 
-type RpcCall = { fn: string; params: Record<string, unknown> };
-
 type MembershipMswState = {
   memberships: MembershipMswRow[];
   tenants: TenantMswRow[];
@@ -84,11 +82,9 @@ const defaultState = (): MembershipMswState => ({
 });
 
 let state = defaultState();
-let rpcCalls: RpcCall[] = [];
 
 export function resetMembershipMswState() {
   state = defaultState();
-  rpcCalls = [];
 }
 
 export function seedMembershipMswState(nextState: Partial<MembershipMswState>) {
@@ -101,11 +97,6 @@ export function seedMembershipMswState(nextState: Partial<MembershipMswState>) {
     customRoles: nextState.customRoles ?? state.customRoles,
     rpcResults: nextState.rpcResults ?? state.rpcResults,
   };
-}
-
-/** Every membership transaction RPC call, in order, for assertions. */
-export function getMembershipRpcCalls(): readonly RpcCall[] {
-  return [...rpcCalls];
 }
 
 function eqParam(url: URL, key: string): string | null {
@@ -347,9 +338,7 @@ export const membershipHandlers = [
   }),
 
   ...MEMBERSHIP_RPCS.map((fn) =>
-    http.post(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, async ({ request }) => {
-      const params = (await request.json()) as Record<string, unknown>;
-      rpcCalls.push({ fn, params });
+    http.post(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, () => {
       if (state.forceRpcError?.fn === fn) {
         return HttpResponse.json({ message: state.forceRpcError.message }, { status: 500 });
       }

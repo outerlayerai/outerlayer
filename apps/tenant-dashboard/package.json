@@ -79,6 +79,7 @@
     "@repo/error-reporting-core": "*",
     "@repo/gateway-core": "workspace:*",
     "@repo/observability-service": "*",
+    "@repo/org-management-service": "*",
     "@repo/shared-utils": "workspace:*",
     "@repo/tier-config": "workspace:*",
     "@repo/trace-topics": "*",

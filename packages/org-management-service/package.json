@@ -1,0 +1,30 @@
+{
+  "name": "@repo/org-management-service",
+  "private": true,
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "description": "Framework-free membership lifecycle and admin-API-key bearer-authority primitives for org management. Used by the tenant dashboard (Next.js) and the gateway (Cloudflare Worker, Node). Consumers supply their own Supabase clients and app-specific dependencies (email, rate limiting, entitlements, audit logging).",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:mutate": "stryker run"
+  },
+  "dependencies": {
+    "@repo/api-key-service": "*",
+    "@repo/db-types": "*",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@supabase/supabase-js": "^2.50.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "@supabase/supabase-js": "2.112.0",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
+  }
+}

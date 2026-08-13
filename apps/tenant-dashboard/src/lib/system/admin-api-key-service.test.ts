@@ -1,22 +1,39 @@
 /**
- * Unit tests for admin-api-key-service: minting (row + digest write) and
- * bearer verification (digest lookup, expiry/revocation fail-closed,
- * best-effort last-used bookkeeping). Supabase is faked at the HTTP layer
- * via MSW (`test-helpers/msw-handlers/admin-api-keys.ts`) — no hand-rolled
- * query-builder stubs.
+ * Wrapper-wiring tests for the admin-API-key module. Mint/verify/resolve
+ * behavior itself (digest hashing, revoked/expired filtering, tenant
+ * binding, creator-membership resolution, permission intersection) lives in
+ * `@repo/org-management-service` and is covered by its own suite — this
+ * file pins that the dashboard wrapper reads `next/headers` and threads
+ * `ADMIN_API_KEY_PEPPER` + the service-role client into the package calls
+ * correctly.
  */
-
 const requestHeaders = vi.hoisted(() => new Map<string, string>());
 vi.mock("next/headers", () => ({
   headers: () => ({ get: (name: string) => requestHeaders.get(name.toLowerCase()) ?? null }),
 }));
 
+const { mintAdminApiKeyFn, verifyAdminApiKeyBearerFn, resolveAdminApiKeyContextFn, resolveBearerServiceContextFn } =
+  vi.hoisted(() => ({
+    mintAdminApiKeyFn: vi.fn(),
+    verifyAdminApiKeyBearerFn: vi.fn(),
+    resolveAdminApiKeyContextFn: vi.fn(),
+    resolveBearerServiceContextFn: vi.fn(),
+  }));
+
+vi.mock("@repo/org-management-service", () => ({
+  ADMIN_API_KEY_PREFIX: "olk_",
+  mintAdminApiKey: mintAdminApiKeyFn,
+  verifyAdminApiKeyBearer: verifyAdminApiKeyBearerFn,
+  resolveAdminApiKeyContext: resolveAdminApiKeyContextFn,
+  resolveBearerServiceContext: resolveBearerServiceContextFn,
+}));
+
+vi.mock("@/config-global.server", () => ({
+  ADMIN_API_KEY_PEPPER: "test-pepper",
+  SUPABASE_SECRET_KEY: "test-service-role-key",
+}));
+
 import { getAdminDataClient } from "./admin-client";
-import {
-  seedAdminApiKeysMswState,
-  getTouchedAdminApiKeyIds,
-  seedMembershipMswState,
-} from "@/test-helpers/msw-handlers";
 import {
   mintAdminApiKeySystem,
   verifyAdminApiKeyBearer,
@@ -25,553 +42,79 @@ import {
   ADMIN_API_KEY_PREFIX,
 } from "./admin-api-key-service";
 
-function requestWithAuth(authorization?: string): Request {
-  return new Request("http://localhost/api/orgs/acme/members", {
-    headers: authorization ? { authorization } : undefined,
-  });
-}
-
 function setRequestHeaders(next: { authorization?: string }): void {
   requestHeaders.clear();
   if (next.authorization) requestHeaders.set("authorization", next.authorization);
 }
 
-describe("mintAdminApiKeySystem", () => {
-  it("writes the row and a digest that verifies back to the same tenant and permissions", async () => {
-    const db = getAdminDataClient();
-
-    const { plaintext, row } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "CI automation",
-      permissions: ["membership.read", "membership.insert"],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-
-    expect(plaintext.startsWith(ADMIN_API_KEY_PREFIX)).toBe(true);
-    expect(row.admin_api_key_id).toEqual(expect.stringMatching(/^key_/));
-
-    const auth = await verifyAdminApiKeyBearer(`Bearer ${plaintext}`, db);
-    expect(auth).toEqual({
-      adminApiKeyId: row.id,
-      tenantId: "tenant-1",
-      permissions: ["membership.read", "membership.insert"],
-      createdBy: "user-1",
-    });
-  });
-
-  it("never returns the same plaintext twice across two mints", async () => {
-    const db = getAdminDataClient();
-    const first = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "key-a",
-      permissions: [],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-    const second = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "key-b",
-      permissions: [],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-    expect(first.plaintext).not.toEqual(second.plaintext);
-  });
-});
-
-describe("verifyAdminApiKeyBearer", () => {
-  it("returns null when the Authorization header is missing", async () => {
-    const auth = await verifyAdminApiKeyBearer(null, getAdminDataClient());
-    expect(auth).toBeNull();
-  });
-
-  it("returns null for a non-Bearer scheme", async () => {
-    const auth = await verifyAdminApiKeyBearer("Basic dXNlcjpwYXNz", getAdminDataClient());
-    expect(auth).toBeNull();
-  });
-
-  it("returns null for a Bearer token that isn't an admin API key (wrong prefix)", async () => {
-    const auth = await verifyAdminApiKeyBearer("Bearer sk_outerlayer_notanadminkey", getAdminDataClient());
-    expect(auth).toBeNull();
-  });
-
-  it("returns null for a well-formed but unknown key", async () => {
-    const auth = await verifyAdminApiKeyBearer(`Bearer ${ADMIN_API_KEY_PREFIX}doesnotexist`, getAdminDataClient());
-    expect(auth).toBeNull();
-  });
-
-  it("returns null for a revoked key, even with a correct digest on file", async () => {
-    const db = getAdminDataClient();
-    const { plaintext, row } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "revoked-key",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-    seedAdminApiKeysMswState({
-      adminApiKeys: [
-        {
-          id: row.id,
-          tenant_id: "tenant-1",
-          name: "revoked-key",
-          admin_api_key_id: row.admin_api_key_id,
-          permissions: ["membership.read"],
-          revoked_at: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-    });
-
-    const auth = await verifyAdminApiKeyBearer(`Bearer ${plaintext}`, db);
-    expect(auth).toBeNull();
-  });
-
-  it("returns null for an expired key", async () => {
-    const db = getAdminDataClient();
-    const { plaintext, row } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "expired-key",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-    seedAdminApiKeysMswState({
-      adminApiKeys: [
-        {
-          id: row.id,
-          tenant_id: "tenant-1",
-          name: "expired-key",
-          admin_api_key_id: row.admin_api_key_id,
-          permissions: ["membership.read"],
-          expires_at: "2020-01-01T00:00:00.000Z",
-        },
-      ],
-    });
-
-    const auth = await verifyAdminApiKeyBearer(`Bearer ${plaintext}`, db);
-    expect(auth).toBeNull();
-  });
-
-  it("touches last_used_at on a successful verify", async () => {
-    const db = getAdminDataClient();
-    const { plaintext, row } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "active-key",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-
-    await verifyAdminApiKeyBearer(`Bearer ${plaintext}`, db);
-
-    expect(getTouchedAdminApiKeyIds()).toEqual([row.id]);
-  });
-});
-
-describe("resolveAdminApiKeyContext", () => {
-  it("returns 'absent' when the request carries no Authorization header — the caller should try session auth", async () => {
-    const result = await resolveAdminApiKeyContext(requestWithAuth(), undefined, getAdminDataClient());
-    expect(result).toEqual({ status: "absent" });
-  });
-
-  it("returns 'absent' for a Bearer token that isn't an admin API key — a gateway sk_ key, say", async () => {
-    const result = await resolveAdminApiKeyContext(
-      requestWithAuth("Bearer sk_outerlayer_notanadminkey"),
-      undefined,
-      getAdminDataClient(),
-    );
-    expect(result).toEqual({ status: "absent" });
-  });
-
-  it("returns 'invalid' — never 'absent' — for a well-formed but unknown/expired/revoked admin key, so callers fail closed instead of falling through to session auth", async () => {
-    const result = await resolveAdminApiKeyContext(
-      requestWithAuth(`Bearer ${ADMIN_API_KEY_PREFIX}doesnotexist`),
-      undefined,
-      getAdminDataClient(),
-    );
-    expect(result).toEqual({ status: "invalid" });
-  });
-
-  it("returns 'ok' with a ServiceContext-shaped context carrying the key's tenant and a synthetic actor id, for a live key", async () => {
-    const db = getAdminDataClient();
-    const { plaintext, row } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "automation",
-      permissions: ["membership.read", "membership.insert"],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-
-    const result = await resolveAdminApiKeyContext(requestWithAuth(`Bearer ${plaintext}`), undefined, db);
-
-    expect(result).toEqual({
-      status: "ok",
-      permissions: ["membership.read", "membership.insert"],
-      context: {
-        db,
-        tenantId: "tenant-1",
-        actor: { userId: `admin_api_key:${row.id}`, role: "" },
-      },
-    });
-  });
-
-  it("returns 'forbidden' when a live key doesn't hold the required permission", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "read-only",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-
-    const result = await resolveAdminApiKeyContext(
-      requestWithAuth(`Bearer ${plaintext}`),
-      "membership.delete",
-      db,
-    );
-
-    expect(result).toEqual({ status: "forbidden", permissions: ["membership.read"] });
-  });
-
-  it("returns 'ok' when the live key holds the required permission", async () => {
-    const db = getAdminDataClient();
-    const { plaintext, row } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "deleter",
-      permissions: ["membership.delete"],
-      expiresAt: null,
-      createdBy: "user-1",
-    });
-
-    const result = await resolveAdminApiKeyContext(
-      requestWithAuth(`Bearer ${plaintext}`),
-      "membership.delete",
-      db,
-    );
-
-    expect(result).toEqual({
-      status: "ok",
-      permissions: ["membership.delete"],
-      context: {
-        db,
-        tenantId: "tenant-1",
-        actor: { userId: `admin_api_key:${row.id}`, role: "" },
-      },
-    });
-  });
-});
-
-describe("loadBearerServiceContext", () => {
+describe("admin-api-key-service wrapper", () => {
   beforeEach(() => {
-    // The middleware threads no x-tenant-id for a bearer call — every case
-    // below resolves its tenant from `orgName` against this seeded row
-    // unless a test overrides it.
-    seedMembershipMswState({ tenants: [{ tenant_id: "tenant-1", organization_name: "acme" }] });
+    vi.clearAllMocks();
   });
 
-  it("returns 401 for an invalid/unknown bearer token", async () => {
-    setRequestHeaders({ authorization: `Bearer ${ADMIN_API_KEY_PREFIX}doesnotexist` });
+  it("re-exports the package's ADMIN_API_KEY_PREFIX", () => {
+    expect(ADMIN_API_KEY_PREFIX).toBe("olk_");
+  });
 
-    const result = await loadBearerServiceContext("acme", getAdminDataClient());
+  it("mintAdminApiKeySystem injects the pepper and a service-role admin client", async () => {
+    mintAdminApiKeyFn.mockResolvedValue({ plaintext: "olk_x", row: { id: "1", admin_api_key_id: "key_1" } });
+    const rowClient = getAdminDataClient();
 
+    await mintAdminApiKeySystem({
+      rowClient,
+      tenantId: "tenant-1",
+      name: "key",
+      permissions: ["membership.read"],
+      expiresAt: null,
+      createdBy: "user-1",
+    });
+
+    expect(mintAdminApiKeyFn).toHaveBeenCalledWith({
+      rowClient,
+      tenantId: "tenant-1",
+      name: "key",
+      permissions: ["membership.read"],
+      expiresAt: null,
+      createdBy: "user-1",
+      pepper: "test-pepper",
+      adminClient: expect.anything(),
+    });
+  });
+
+  it("verifyAdminApiKeyBearer threads the pepper alongside the header and client", async () => {
+    verifyAdminApiKeyBearerFn.mockResolvedValue(null);
+    const adminClient = getAdminDataClient();
+
+    await verifyAdminApiKeyBearer("Bearer olk_x", adminClient);
+
+    expect(verifyAdminApiKeyBearerFn).toHaveBeenCalledWith("Bearer olk_x", adminClient, "test-pepper");
+  });
+
+  it("resolveAdminApiKeyContext extracts the Authorization header off the Request and threads the pepper", async () => {
+    resolveAdminApiKeyContextFn.mockResolvedValue({ status: "absent" });
+    const adminClient = getAdminDataClient();
+    const request = new Request("http://localhost/api/orgs/acme/members", {
+      headers: { authorization: "Bearer olk_x" },
+    });
+
+    await resolveAdminApiKeyContext(request, "membership.read", adminClient);
+
+    expect(resolveAdminApiKeyContextFn).toHaveBeenCalledWith("Bearer olk_x", adminClient, "test-pepper", "membership.read");
+  });
+
+  it("loadBearerServiceContext reads the Authorization header via next/headers and threads orgName + pepper", async () => {
+    resolveBearerServiceContextFn.mockResolvedValue({ ok: false, status: 401, message: "Not authenticated" });
+    setRequestHeaders({ authorization: "Bearer olk_x" });
+    const adminClient = getAdminDataClient();
+
+    const result = await loadBearerServiceContext("acme", adminClient);
+
+    expect(resolveBearerServiceContextFn).toHaveBeenCalledWith({
+      authorizationHeader: "Bearer olk_x",
+      orgName: "acme",
+      adminClient,
+      pepper: "test-pepper",
+    });
     expect(result).toEqual({ ok: false, status: 401, message: "Not authenticated" });
-  });
-
-  // proves AC-059-17
-  it("returns 403 when the key's tenant does not match the tenant the URL org resolves to", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "cross-org key",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    seedMembershipMswState({
-      tenants: [
-        { tenant_id: "tenant-1", organization_name: "acme" },
-        { tenant_id: "tenant-2", organization_name: "other-org" },
-      ],
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-
-    const result = await loadBearerServiceContext("other-org", db);
-
-    expect(result).toEqual({
-      ok: false,
-      status: 403,
-      message: "This key does not belong to this organization",
-    });
-  });
-
-  it("returns 403 when the URL org names no tenant at all", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "key",
-      permissions: [],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-
-    const result = await loadBearerServiceContext("no-such-org", db);
-
-    expect(result).toEqual({
-      ok: false,
-      status: 403,
-      message: "This key does not belong to this organization",
-    });
-  });
-
-  it("resolves the org name case-insensitively, same as the session path", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "key",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    seedMembershipMswState({
-      memberships: [
-        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "active" },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("ACME", db);
-
-    expect(result.ok).toBe(true);
-  });
-
-  // proves AC-059-19
-  it("returns 403 when the key's creator is no longer an active member of the tenant", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "orphaned key",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    // No membership seeded for creator-1 in tenant-1 at all — never joined,
-    // or already removed.
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result).toEqual({
-      ok: false,
-      status: 403,
-      message: "This key's creator is no longer an active member",
-    });
-  });
-
-  it("returns 403 when the key's creator's membership in the tenant is pending, not active", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "key",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    seedMembershipMswState({
-      memberships: [
-        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "pending" },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result.ok).toBe(false);
-  });
-
-  it("returns an ok ServiceContext attributed to the key's creator, at the creator's CURRENT role, when everything checks out", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "automation",
-      permissions: ["membership.read", "membership.insert"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    seedMembershipMswState({
-      memberships: [
-        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "active" },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result).toEqual({
-      ok: true,
-      keyPermissions: ["membership.read", "membership.insert"],
-      ctx: {
-        db,
-        tenantId: "tenant-1",
-        actor: { userId: "creator-1", role: "owner" },
-      },
-    });
-  });
-
-  it("resolves the creator's role, not any mint-time-cached value — a role change after minting is reflected immediately", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "automation",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    // The creator was an owner at mint time but has since been demoted.
-    seedMembershipMswState({
-      memberships: [
-        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "write", status: "active" },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.ctx.actor).toEqual({ userId: "creator-1", role: "write" });
-    }
-  });
-
-  // proves AC-059-20
-  it("drops a permission the creator's CURRENT role no longer holds (demotion after mint), while keeping one it still holds — proves an intersection, not a blanket deny", async () => {
-    const db = getAdminDataClient();
-    // Minted while the creator was 'owner' — a role that holds both grants —
-    // so the key itself carries both.
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "automation",
-      permissions: ["membership.read", "membership.insert"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    // The creator has since been demoted to 'read', which (per the seeded
-    // built-in catalog) holds membership.read but NOT membership.insert.
-    seedMembershipMswState({
-      memberships: [
-        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "read", status: "active" },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.keyPermissions).toEqual(["membership.read"]);
-    }
-  });
-
-  it("grants nothing when the creator's CURRENT role holds none of the key's granted permissions", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "automation",
-      permissions: ["membership.delete"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    // 'read' holds no membership.* write verbs.
-    seedMembershipMswState({
-      memberships: [
-        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "read", status: "active" },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.keyPermissions).toEqual([]);
-    }
-  });
-
-  it("leaves the key's effective permissions unchanged when the creator's role is unchanged from mint time (regression baseline)", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "automation",
-      permissions: ["membership.read", "membership.insert", "membership.update"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    seedMembershipMswState({
-      memberships: [
-        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "active" },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.keyPermissions).toEqual(["membership.read", "membership.insert", "membership.update"]);
-    }
-  });
-
-  it("fails closed with 403 when the creator holds a custom role, rather than guessing at its grants", async () => {
-    const db = getAdminDataClient();
-    const { plaintext } = await mintAdminApiKeySystem({
-      rowClient: db,
-      tenantId: "tenant-1",
-      name: "automation",
-      permissions: ["membership.read"],
-      expiresAt: null,
-      createdBy: "creator-1",
-    });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
-    seedMembershipMswState({
-      memberships: [
-        {
-          id: "m-1",
-          user_id: "creator-1",
-          tenant_id: "tenant-1",
-          role: "read",
-          status: "active",
-          custom_role_id: "custom-role-1",
-        },
-      ],
-    });
-
-    const result = await loadBearerServiceContext("acme", db);
-
-    expect(result).toEqual({
-      ok: false,
-      status: 403,
-      message: "This key's creator holds a custom role, which bearer auth does not support yet",
-    });
   });
 });

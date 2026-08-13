@@ -38,15 +38,12 @@ type SecretIndex = Record<string, string>;
 type AdminApiKeysMswState = {
   adminApiKeys: AdminApiKeyRow[];
   secretsByDigest: SecretIndex;
-  /** Digests touched via `touch_admin_api_key_last_used`, for call assertions. */
-  touchedIds: string[];
   rolePermissions: RolePermissionRow[];
 };
 
 const defaultState = (): AdminApiKeysMswState => ({
   adminApiKeys: [],
   secretsByDigest: {},
-  touchedIds: [],
   rolePermissions: defaultRolePermissions(),
 });
 
@@ -64,10 +61,6 @@ export function seedAdminApiKeysMswState(next: Partial<AdminApiKeysMswState>): v
     secretsByDigest: next.secretsByDigest ?? state.secretsByDigest,
     rolePermissions: next.rolePermissions ?? state.rolePermissions,
   };
-}
-
-export function getTouchedAdminApiKeyIds(): readonly string[] {
-  return state.touchedIds;
 }
 
 export const adminApiKeysHandlers = [
@@ -94,14 +87,9 @@ export const adminApiKeysHandlers = [
     });
   }),
 
-  http.post(
-    `${SUPABASE_URL}/rest/v1/rpc/touch_admin_api_key_last_used`,
-    async ({ request }) => {
-      const body = (await request.json()) as { p_admin_api_key_id?: string };
-      if (body.p_admin_api_key_id) state.touchedIds.push(body.p_admin_api_key_id);
-      return HttpResponse.json(null);
-    },
-  ),
+  http.post(`${SUPABASE_URL}/rest/v1/rpc/touch_admin_api_key_last_used`, () => {
+    return HttpResponse.json(null);
+  }),
 
   http.post(`${SUPABASE_URL}/rest/v1/rpc/set_admin_api_key_secret`, async ({ request }) => {
     const body = (await request.json()) as {

@@ -1,684 +1,155 @@
 /**
- * Unit tests for MembershipService.sendInvite() — entitlement enforcement.
- *
- * The EntitlementService is constructed inline inside sendInvite(), so we
- * mock the module rather than injecting it. All other dependencies use
- * constructor DI and are stubbed directly.
+ * Wrapper-wiring tests for `MembershipService`. The business logic itself
+ * (invite/role-change/removal rules, entitlement gating, atomic audit RPCs)
+ * lives in `@repo/org-management-service` and is covered by its own suite —
+ * this file only pins that the dashboard's app-specific dependencies
+ * (billing-tier entitlements, audit log, EE app-role assignment,
+ * observability, request-context capture) are wired into the package's
+ * injected seams correctly.
  */
-
-import type { Mock } from 'vitest';
-import { User } from '@supabase/supabase-js';
-import { MembershipService, type MembershipServiceConfig } from './membership-service';
-import { UserRoleEnum } from '@/lib/adapters/user-role';
-import { UNLIMITED } from '@/config/entitlements';
-
-// ---------------------------------------------------------------------------
-// Mock EntitlementService module
-// ---------------------------------------------------------------------------
-
-const mockCheckLimit = vi.fn();
-
-vi.mock('@/lib/system/entitlement-service', () => ({
-  EntitlementService: vi.fn().mockImplementation(function () {
-    return {
-      checkLimit: mockCheckLimit,
-    };
-  }),
-  buildDeniedInfo: vi.fn().mockImplementation((key: string, result: unknown) => ({
-    featureKey: key,
-    featureDisplayName: 'Team Members',
-    requiredTier: 'growth',
-    requiredTierDisplayName: 'Growth',
-    isSelfServe: true,
-    pricing: '$24/user/month',
-    upgradeUrl: '/settings/billing',
-    currentLimit: (result as { limit?: number })?.limit ?? null,
-    requiredTierLimit: 25,
-  })),
+const {
+  packageCtor,
+  checkLimitFn,
+  canAccessFn,
+  buildDeniedInfoFn,
+  auditCreateFn,
+  bulkAssignFn,
+  serverLoggerErrorFn,
+  appMemberRoleServiceCtor,
+} = vi.hoisted(() => ({
+  packageCtor: vi.fn(),
+  checkLimitFn: vi.fn(),
+  canAccessFn: vi.fn(),
+  buildDeniedInfoFn: vi.fn(),
+  auditCreateFn: vi.fn(),
+  bulkAssignFn: vi.fn(),
+  serverLoggerErrorFn: vi.fn(),
+  appMemberRoleServiceCtor: vi.fn(),
 }));
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeAdminUser(overrides: Partial<User> = {}): User {
-  return {
-    id: 'admin-user-id',
-    app_metadata: {
-      tenant_id: 'tenant-123',
-      role: UserRoleEnum.ADMIN,
-    },
-    user_metadata: {},
-    aud: 'authenticated',
-    created_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  } as User;
-}
-
-/** Builds a minimal Supabase stub for the membership count query */
-function stubSupabaseAdmin(activeUserCount: number) {
-  const selectChain = {
-    eq: vi.fn().mockReturnThis(),
-    in: vi.fn().mockReturnThis(),
-    neq: vi.fn().mockResolvedValue({
-      count: activeUserCount,
-      data: null,
-      error: null,
-    }),
-    // The table-driven owner gate reads the actor's role from their membership;
-    // a non-owner keeps the "only owners can invite as owners" rejection.
-    maybeSingle: vi.fn().mockResolvedValue({
-      data: { role: UserRoleEnum.ADMIN },
-      error: null,
-    }),
-  };
-
-  const from = vi.fn().mockImplementation((table: string) => {
-    if (table === 'membership') {
-      return { select: vi.fn().mockReturnValue(selectChain) };
-    }
-    if (table === 'tenant') {
-      return {
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({
-              data: { company_name: 'Acme Corp' },
-              error: null,
-            }),
-          }),
-        }),
-      };
-    }
-    if (table === 'profile') {
-      return {
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            single: vi.fn().mockResolvedValue({ data: null, error: null }),
-          }),
-        }),
-      };
-    }
+vi.mock("@repo/org-management-service", () => ({
+  MembershipService: vi.fn().mockImplementation(function (this: unknown, config: unknown) {
+    packageCtor(config);
     return {};
-  });
+  }),
+}));
 
-  return { from } as unknown as MembershipServiceConfig['supabaseAdmin'];
-}
+vi.mock("@/lib/system/entitlement-service", () => ({
+  EntitlementService: vi.fn().mockImplementation(function () {
+    return { checkLimit: checkLimitFn, canAccess: canAccessFn };
+  }),
+  buildDeniedInfo: buildDeniedInfoFn,
+}));
 
-function stubSupabaseServer() {
-  return {} as unknown as MembershipServiceConfig['supabaseServer'];
-}
+vi.mock("@/lib/system/audit-log", () => ({
+  AuditLogService: vi.fn().mockImplementation(function () {
+    return { create: auditCreateFn };
+  }),
+  captureRequestContext: vi.fn().mockResolvedValue({ ipAddress: null, userAgent: null, requestId: null }),
+}));
 
-function stubEmailService() {
-  return {
-    sendEmail: vi.fn().mockResolvedValue({ error: null }),
-  } as unknown as MembershipServiceConfig['emailService'];
-}
+vi.mock("@/lib/observability/server-logger", () => ({
+  serverLogger: { error: serverLoggerErrorFn },
+}));
 
-function stubRateLimitService(allowed = true) {
-  return {
-    limit: vi.fn().mockResolvedValue({ success: allowed }),
-  } as unknown as MembershipServiceConfig['rateLimitService'];
-}
+// This wrapper test can't import `@ee/features/app-access/app-member-role-service`
+// itself — the feature-leaf boundary exempts only `membership-service.ts`, not
+// its test — so the constructor call is observed through a hoisted spy inside
+// the mock factory instead of a `vi.mocked(AppMemberRoleService)` import.
+vi.mock("@ee/features/app-access/app-member-role-service", () => ({
+  AppMemberRoleService: vi.fn().mockImplementation(function (config: unknown) {
+    appMemberRoleServiceCtor(config);
+    return { bulkAssign: bulkAssignFn };
+  }),
+}));
 
-function stubStripeService() {
-  return {} as unknown as MembershipServiceConfig['stripeService'];
-}
+import { MembershipService, type MembershipServiceConfig } from "./membership-service";
 
-function buildService(overrides: Partial<MembershipServiceConfig> = {}) {
-  return new MembershipService({
-    supabaseAdmin: stubSupabaseAdmin(0),
-    supabaseServer: stubSupabaseServer(),
-    emailService: stubEmailService(),
-    rateLimitService: stubRateLimitService(),
-    stripeService: stubStripeService(),
-    ...overrides,
-  });
-}
-
-type AdminInviteStub = MembershipServiceConfig['supabaseAdmin'] & {
-  auth: {
-    admin: {
-      generateLink: ReturnType<typeof vi.fn>;
-    };
-  };
-  rpc: ReturnType<typeof vi.fn>;
-  from: ReturnType<typeof vi.fn>;
-};
-
-function stubSupabaseServerWithNoProfile(): MembershipServiceConfig['supabaseServer'] {
-  return {
-    from: vi.fn().mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        single: vi.fn().mockResolvedValue({ data: null, error: null }),
-      }),
-    }),
-  } as unknown as MembershipServiceConfig['supabaseServer'];
-}
-
-function wireNewUserInviteFlow(
-  supabaseAdmin: MembershipServiceConfig['supabaseAdmin'],
-  membershipId: string,
-  hashedToken: string,
-) {
-  const client = supabaseAdmin as unknown as AdminInviteStub;
-
-  client.auth = {
-    admin: {
-      generateLink: vi.fn().mockResolvedValue({
-        data: {
-          user: { id: 'new-user-id' },
-          properties: { hashed_token: hashedToken },
-        },
-        error: null,
-      }),
-    },
-  } as AdminInviteStub['auth'];
-
-  client.rpc = vi.fn().mockResolvedValue({
-    data: membershipId,
-    error: null,
-  });
-
-  const originalFrom = client.from;
-  client.from = vi.fn().mockImplementation((table: string) => {
-    if (table === 'billing') {
-      return {
-        select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: null,
-            error: null,
-          }),
-        }),
-      };
-    }
-    return originalFrom(table);
-  });
-
-  return client;
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('MembershipService.sendInvite()', () => {
+describe("MembershipService wrapper", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  const baseParams = {
-    adminUser: makeAdminUser(),
-    tenantId: 'tenant-123',
-    name: 'Jane Doe',
-    email: 'jane@example.com',
-    role: UserRoleEnum.WRITE,
-    origin: 'https://app.example.com',
-  };
-
-  // ── Entitlement: allowed ────────────────────────────────────────────
-
-  describe('when entitlement check allows the invite', () => {
-    it('should proceed past the entitlement gate (new user flow)', async () => {
-      const supabaseAdmin = stubSupabaseAdmin(3);
-      wireNewUserInviteFlow(supabaseAdmin, 'membership-id-1', 'abc123');
-
-      mockCheckLimit.mockResolvedValue({
-        allowed: true,
-        limit: 25,
-        currentCount: 3,
-      });
-
-      const emailService = stubEmailService();
-      const svc = buildService({
-        supabaseAdmin,
-        supabaseServer: stubSupabaseServerWithNoProfile(),
-        emailService,
-      });
-
-      const result = await svc.sendInvite(baseParams);
-
-      expect(result.success).toBe(true);
-      expect(result.error).toBeUndefined();
-      expect(result.membershipId).toBe('membership-id-1');
-      expect(mockCheckLimit).toHaveBeenCalledWith('tenant-123', 'max_users', 3);
+  function buildWrapper() {
+    return new MembershipService({
+      supabaseAdmin: { from: vi.fn() } as unknown as MembershipServiceConfig["supabaseAdmin"],
+      supabaseServer: { from: vi.fn() } as unknown as MembershipServiceConfig["supabaseServer"],
+      emailService: { sendEmail: vi.fn() } as unknown as MembershipServiceConfig["emailService"],
+      rateLimitService: { limit: vi.fn() } as unknown as MembershipServiceConfig["rateLimitService"],
+      stripeService: {} as unknown as MembershipServiceConfig["stripeService"],
     });
+  }
 
-    it('should allow when limit is unlimited', async () => {
-      const supabaseAdmin = stubSupabaseAdmin(999);
-      wireNewUserInviteFlow(supabaseAdmin, 'membership-id-2', 'abc123');
+  it("constructs the inner package service with an entitlement gate backed by EntitlementService + buildDeniedInfo", async () => {
+    buildWrapper();
 
-      mockCheckLimit.mockResolvedValue({
-        allowed: true,
-        limit: UNLIMITED,
-        currentCount: 999,
-      });
+    const config = packageCtor.mock.calls[0]![0] as {
+      entitlements: {
+        checkLimit: (t: string, k: string, c: number) => unknown;
+        canAccess: (t: string, k: string) => unknown;
+        buildDeniedInfo: (k: string, r?: unknown) => unknown;
+      };
+    };
 
-      const emailService = stubEmailService();
-      const svc = buildService({
-        supabaseAdmin,
-        supabaseServer: stubSupabaseServerWithNoProfile(),
-        emailService,
-      });
+    checkLimitFn.mockResolvedValue({ allowed: true, limit: 5, currentCount: 1 });
+    await config.entitlements.checkLimit("tenant-1", "max_users", 1);
+    expect(checkLimitFn).toHaveBeenCalledWith("tenant-1", "max_users", 1);
 
-      const result = await svc.sendInvite(baseParams);
+    canAccessFn.mockResolvedValue(true);
+    await config.entitlements.canAccess("tenant-1", "app_level_roles");
+    expect(canAccessFn).toHaveBeenCalledWith("tenant-1", "app_level_roles");
 
-      expect(result.success).toBe(true);
-      expect(mockCheckLimit).toHaveBeenCalledWith('tenant-123', 'max_users', 999);
-    });
-
-    it('should email new users an invite link that flags the invite flow for the password page', async () => {
-      const supabaseAdmin = stubSupabaseAdmin(3);
-      wireNewUserInviteFlow(supabaseAdmin, 'membership-id-1', 'abc123');
-
-      mockCheckLimit.mockResolvedValue({
-        allowed: true,
-        limit: 25,
-        currentCount: 3,
-      });
-
-      const emailService = stubEmailService();
-      const svc = buildService({
-        supabaseAdmin,
-        supabaseServer: stubSupabaseServerWithNoProfile(),
-        emailService,
-      });
-
-      await svc.sendInvite(baseParams);
-
-      // `?flow=invite` must ride INSIDE the encoded `next` value — unencoded
-      // it would parse as a param of /auth/confirm and the password page
-      // would fall back to the confusing reset copy.
-      expect(emailService.sendEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: 'jane@example.com',
-          templateParams: expect.objectContaining({
-            inviteLink:
-              'https://app.example.com/auth/confirm?token_hash=abc123&type=invite&next=%2Fauth%2Fnew-password%3Fflow%3Dinvite',
-          }),
-        })
-      );
-    });
-
-    it('should resend an unconfirmed user a fresh link with the same invite flow flag', async () => {
-      const supabaseAdmin = {
-        from: vi.fn().mockImplementation((table: string) => {
-          if (table === 'profile') {
-            return {
-              select: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  single: vi
-                    .fn()
-                    .mockResolvedValue({ data: { id: 'invited-user-id' }, error: null }),
-                }),
-              }),
-            };
-          }
-          if (table === 'membership') {
-            return {
-              select: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  eq: vi.fn().mockReturnValue({
-                    single: vi.fn().mockResolvedValue({
-                      data: { id: 'membership-id-1', status: 'pending' },
-                      error: null,
-                    }),
-                  }),
-                }),
-              }),
-            };
-          }
-          return {};
-        }),
-        auth: {
-          admin: {
-            getUserById: vi
-              .fn()
-              .mockResolvedValue({ data: { user: { confirmed_at: null } } }),
-            generateLink: vi.fn().mockResolvedValue({
-              data: {
-                user: { id: 'invited-user-id' },
-                properties: { hashed_token: 'resend456' },
-              },
-              error: null,
-            }),
-          },
-        },
-      } as unknown as MembershipServiceConfig['supabaseAdmin'];
-
-      const supabaseServer = {
-        from: vi.fn().mockReturnValue({
-          select: vi.fn().mockReturnValue({
-            single: vi
-              .fn()
-              .mockResolvedValue({ data: { company_name: 'Acme Corp' }, error: null }),
-          }),
-        }),
-      } as unknown as MembershipServiceConfig['supabaseServer'];
-
-      const emailService = stubEmailService();
-      const svc = buildService({ supabaseAdmin, supabaseServer, emailService });
-
-      const result = await svc.resendInviteLink({
-        adminUser: makeAdminUser(),
-        tenantId: 'tenant-123',
-        email: 'jane@example.com',
-        origin: 'https://app.example.com',
-      });
-
-      expect(result).toEqual({ success: true });
-      expect(emailService.sendEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: 'jane@example.com',
-          templateParams: expect.objectContaining({
-            inviteLink:
-              'https://app.example.com/auth/confirm?token_hash=resend456&type=invite&next=%2Fauth%2Fnew-password%3Fflow%3Dinvite',
-          }),
-        })
-      );
-    });
+    buildDeniedInfoFn.mockReturnValue({ featureKey: "max_users" });
+    config.entitlements.buildDeniedInfo("max_users", { allowed: false, limit: 5, currentCount: 5 });
+    expect(buildDeniedInfoFn).toHaveBeenCalledWith("max_users", { allowed: false, limit: 5, currentCount: 5 });
   });
 
-  // ── Entitlement: denied ─────────────────────────────────────────────
-
-  describe('when entitlement check denies the invite', () => {
-    it('should return entitlement_denied with denied info', async () => {
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 1,
-        currentCount: 1,
-        requiredTier: 'growth',
-        upgradeUrl: '/settings/billing',
-      });
-
-      const svc = buildService({ supabaseAdmin: stubSupabaseAdmin(1) });
-      const result = await svc.sendInvite(baseParams);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('entitlement_denied');
-      expect(result.entitlement!.featureKey).toBe('max_users');
-      expect(result.entitlement!.requiredTier).toBe('growth');
-      expect(result.entitlement!.upgradeUrl).toBe('/settings/billing');
+  it("wires the audit log to a service-role AuditLogService over the admin client", async () => {
+    const supabaseAdmin = { from: vi.fn() } as unknown as MembershipServiceConfig["supabaseAdmin"];
+    new MembershipService({
+      supabaseAdmin,
+      supabaseServer: { from: vi.fn() } as unknown as MembershipServiceConfig["supabaseServer"],
+      emailService: { sendEmail: vi.fn() } as unknown as MembershipServiceConfig["emailService"],
+      rateLimitService: { limit: vi.fn() } as unknown as MembershipServiceConfig["rateLimitService"],
+      stripeService: {} as unknown as MembershipServiceConfig["stripeService"],
     });
 
-    it('should not proceed to tenant lookup when denied', async () => {
-      const supabaseAdmin = stubSupabaseAdmin(5);
-      const fromSpy = supabaseAdmin.from as Mock;
-
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 5,
-        currentCount: 5,
-        requiredTier: 'growth',
-        upgradeUrl: '/settings/billing',
-      });
-
-      const svc = buildService({ supabaseAdmin });
-      await svc.sendInvite(baseParams);
-
-      // membership table is queried for the count, but tenant should NOT be queried
-      const tableCalls = fromSpy.mock.calls.map((c: string[]) => c[0]);
-      expect(tableCalls).toContain('membership');
-      expect(tableCalls).not.toContain('tenant');
-      expect(tableCalls).not.toContain('profile');
-    });
-
-    it('should not send any emails when denied', async () => {
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 1,
-        currentCount: 1,
-        requiredTier: 'growth',
-      });
-
-      const emailService = stubEmailService();
-      const svc = buildService({
-        supabaseAdmin: stubSupabaseAdmin(1),
-        emailService,
-      });
-
-      await svc.sendInvite(baseParams);
-
-      expect(emailService.sendEmail).not.toHaveBeenCalled();
-    });
-
-    it('should pass the current active user count to checkLimit', async () => {
-      const activeCount = 7;
-
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 5,
-        currentCount: activeCount,
-        requiredTier: 'growth',
-      });
-
-      const svc = buildService({ supabaseAdmin: stubSupabaseAdmin(activeCount) });
-      await svc.sendInvite(baseParams);
-
-      expect(mockCheckLimit).toHaveBeenCalledWith('tenant-123', 'max_users', activeCount);
-    });
+    const config = packageCtor.mock.calls[0]![0] as { auditLog: { create: (e: unknown) => unknown } };
+    await config.auditLog.create({ tenantId: "t", actorId: "a", actionType: "x", targetType: "y", targetId: "z" });
+    expect(auditCreateFn).toHaveBeenCalledWith({ tenantId: "t", actorId: "a", actionType: "x", targetType: "y", targetId: "z" });
   });
 
-  // ── Entitlement gate vs earlier validations ─────────────────────────
+  it("routes app-role assignment through a fresh EE AppMemberRoleService per call, actor-scoped", async () => {
+    buildWrapper();
 
-  describe('validation ordering', () => {
-    it('should reject invalid email before checking entitlements', async () => {
-      const svc = buildService();
-      const result = await svc.sendInvite({
-        ...baseParams,
-        email: 'not-an-email',
-      });
+    const config = packageCtor.mock.calls[0]![0] as {
+      appRoleAssigner: { bulkAssign: (t: string, a: string, i: unknown) => unknown };
+    };
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Invalid email format');
-      expect(mockCheckLimit).not.toHaveBeenCalled();
+    bulkAssignFn.mockResolvedValue({ success: true, data: { errors: [] } });
+    await config.appRoleAssigner.bulkAssign("tenant-1", "actor-1", {
+      membershipId: "m-1",
+      assignments: [{ appId: "app-1", role: "read" }],
     });
 
-    it('should reject owner-invite-by-non-owner before checking entitlements', async () => {
-      const svc = buildService();
-      const result = await svc.sendInvite({
-        ...baseParams,
-        role: UserRoleEnum.OWNER,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Only owners can invite users as owners');
-      expect(mockCheckLimit).not.toHaveBeenCalled();
-    });
-
-    it('should reject rate-limited requests before checking entitlements', async () => {
-      const svc = buildService({
-        rateLimitService: stubRateLimitService(false),
-      });
-
-      const result = await svc.sendInvite(baseParams);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('recently sent');
-      expect(mockCheckLimit).not.toHaveBeenCalled();
-    });
+    expect(appMemberRoleServiceCtor).toHaveBeenCalledWith({ db: expect.anything(), actorId: "actor-1" });
+    expect(bulkAssignFn).toHaveBeenCalledWith("tenant-1", { membershipId: "m-1", assignments: [{ appId: "app-1", role: "read" }] });
   });
 
-  // ── EntitlementService construction ─────────────────────────────────
+  it("routes logger.error through serverLogger", async () => {
+    buildWrapper();
 
-  describe('EntitlementService construction', () => {
-    it('should construct EntitlementService with supabaseAdmin as db', async () => {
-      const { EntitlementService: MockedEntitlementService } =
-        await import('@/lib/system/entitlement-service');
+    const config = packageCtor.mock.calls[0]![0] as { logger: { error: (e: Error, m?: unknown) => unknown } };
+    const err = new Error("boom");
+    await config.logger.error(err, { key: "value" });
 
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 1,
-        currentCount: 1,
-      });
-
-      const supabaseAdmin = stubSupabaseAdmin(1);
-      const svc = buildService({ supabaseAdmin });
-      await svc.sendInvite(baseParams);
-
-      expect(MockedEntitlementService).toHaveBeenCalledWith({ db: supabaseAdmin });
-    });
+    expect(serverLoggerErrorFn).toHaveBeenCalledWith(err, { key: "value" });
   });
 
-  // ── Tier-based max_users enforcement ─────────────────────────────────
+  it("resolves appUrl to the production or local dashboard origin based on NODE_ENV", () => {
+    buildWrapper();
 
-  describe('max_users tier enforcement', () => {
-    /**
-     * Hobby tier: limit=2. When userCount=2 the tenant is AT the limit.
-     * checkLimit uses `currentCount < limit`, so count=2 with limit=2 is NOT allowed.
-     */
-    it('should block invite when hobby tier is at the 2-user limit', async () => {
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 2,
-        currentCount: 2,
-        requiredTier: 'growth',
-        upgradeUrl: '/settings/billing',
-      });
-
-      const svc = buildService({ supabaseAdmin: stubSupabaseAdmin(2) });
-      const result = await svc.sendInvite(baseParams);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('entitlement_denied');
-      expect(result.entitlement!.featureKey).toBe('max_users');
-      expect(mockCheckLimit).toHaveBeenCalledWith('tenant-123', 'max_users', 2);
-    });
-
-    /**
-     * Hobby tier: limit=2. When userCount=1 the tenant is below the limit.
-     * The invite should proceed (past the entitlement gate).
-     */
-    it('should allow invite when hobby tier has one slot remaining (userCount=1, limit=2)', async () => {
-      mockCheckLimit.mockResolvedValue({
-        allowed: true,
-        limit: 2,
-        currentCount: 1,
-      });
-
-      // Wire up the full new-user invite flow so the service can complete
-      const supabaseAdmin = stubSupabaseAdmin(1);
-      wireNewUserInviteFlow(supabaseAdmin, 'membership-id-hobby', 'tok-abc');
-
-      const svc = buildService({
-        supabaseAdmin,
-        supabaseServer: stubSupabaseServerWithNoProfile(),
-        emailService: stubEmailService(),
-      });
-
-      const result = await svc.sendInvite(baseParams);
-
-      expect(result.success).toBe(true);
-      expect(result.error).toBeUndefined();
-      expect(mockCheckLimit).toHaveBeenCalledWith('tenant-123', 'max_users', 1);
-    });
-
-    /**
-     * Growth tier: limit=-1 (UNLIMITED). Even with 999 active users, invite is allowed.
-     */
-    it('should always allow invite when growth tier has unlimited users (limit=-1)', async () => {
-      mockCheckLimit.mockResolvedValue({
-        allowed: true,
-        limit: UNLIMITED,
-        currentCount: 999,
-      });
-
-      const supabaseAdmin = stubSupabaseAdmin(999);
-      wireNewUserInviteFlow(supabaseAdmin, 'membership-id-growth', 'tok-growth');
-
-      const svc = buildService({
-        supabaseAdmin,
-        supabaseServer: stubSupabaseServerWithNoProfile(),
-        emailService: stubEmailService(),
-      });
-
-      const result = await svc.sendInvite(baseParams);
-
-      expect(result.success).toBe(true);
-      expect(mockCheckLimit).toHaveBeenCalledWith('tenant-123', 'max_users', 999);
-    });
-
-    /**
-     * Exactly at the limit (count === limit): must be blocked, not one-over.
-     * This verifies the `currentCount < limit` semantics (strict less-than).
-     */
-    it('should block at exactly the limit and allow at one below', async () => {
-      // At limit: blocked
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 5,
-        currentCount: 5,
-        requiredTier: 'growth',
-      });
-
-      const blocked = await buildService({ supabaseAdmin: stubSupabaseAdmin(5) })
-        .sendInvite(baseParams);
-
-      expect(blocked.success).toBe(false);
-      expect(blocked.error).toBe('entitlement_denied');
-
-      // One below limit: allowed (requires full invite flow wiring)
-      mockCheckLimit.mockResolvedValue({
-        allowed: true,
-        limit: 5,
-        currentCount: 4,
-      });
-
-      const supabaseAdmin = stubSupabaseAdmin(4);
-      wireNewUserInviteFlow(supabaseAdmin, 'mid', 'tok');
-
-      const allowed = await buildService({
-        supabaseAdmin,
-        supabaseServer: stubSupabaseServerWithNoProfile(),
-        emailService: stubEmailService(),
-      }).sendInvite(baseParams);
-
-      expect(allowed.success).toBe(true);
-    });
-
-    /**
-     * When the membership count query returns null (DB error or empty), the service
-     * uses `userCount ?? 0` as a fallback. The entitlement check is still called with 0.
-     */
-    it('should use 0 as fallback userCount when membership query returns null count', async () => {
-      // Stub the admin so the membership count returns null
-      const supabaseAdmin = (() => {
-        const selectChain = {
-          eq: vi.fn().mockReturnThis(),
-          in: vi.fn().mockReturnThis(),
-          neq: vi.fn().mockResolvedValue({
-            count: null, // <-- simulate null count
-            data: null,
-            error: null,
-          }),
-        };
-        const from = vi.fn().mockImplementation((table: string) => {
-          if (table === 'membership') {
-            return { select: vi.fn().mockReturnValue(selectChain) };
-          }
-          if (table === 'tenant') {
-            return { select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: { company_name: 'Acme' }, error: null }) }) }) };
-          }
-          if (table === 'profile') {
-            return { select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: null, error: null }) }) }) };
-          }
-          return {};
-        });
-        return { from } as unknown as MembershipServiceConfig['supabaseAdmin'];
-      })();
-
-      mockCheckLimit.mockResolvedValue({
-        allowed: false,
-        limit: 2,
-        currentCount: 0,
-        requiredTier: 'growth',
-      });
-
-      const svc = buildService({ supabaseAdmin });
-      await svc.sendInvite(baseParams);
-
-      // Verify the service falls back to 0 (not null) when count is null
-      expect(mockCheckLimit).toHaveBeenCalledWith('tenant-123', 'max_users', 0);
-    });
+    const config = packageCtor.mock.calls[0]![0] as { appUrl: string };
+    expect(config.appUrl).toBe(process.env.NODE_ENV === "production" ? "https://app.agentmark.co" : "http://localhost:3002");
   });
-
 });
