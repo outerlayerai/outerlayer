@@ -13,6 +13,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   AgentSessionsService as ObservabilityAgentSessionsService,
   ForbiddenError,
+  maskActorIds,
+  type ActorIdMasker,
   type ActorNameResolver,
   type AgentSessionsPorts,
   type ImageRefSigner,
@@ -88,11 +90,21 @@ function imageRefSigner(ctx: AgentSessionsContext): ImageRefSigner {
   return { sign: (images) => signImageRefs(OAUTH_STATE_SECRET, images, binding) };
 }
 
+// Every dashboard caller is `dashboard-member`, whose reads never mask
+// (`mustMaskActors` gates on `machine-key` only) — this port is never
+// actually invoked from here, but `AgentSessionsPorts` is one contract
+// shared with the gateway's machine-key surface, so it's implemented for
+// real rather than stubbed.
+function actorIdMasker(): ActorIdMasker {
+  return { mask: (actorIds) => maskActorIds(OAUTH_STATE_SECRET, actorIds) };
+}
+
 function ports(ctx: AgentSessionsContext): AgentSessionsPorts {
   return {
     actorNames: actorNameResolver(ctx.tenantId),
     prOutcomes: prOutcomeReader(ctx),
     images: imageRefSigner(ctx),
+    actorIdMasker: actorIdMasker(),
   };
 }
 

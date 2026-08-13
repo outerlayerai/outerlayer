@@ -19,8 +19,9 @@ import {
   getErrorStatusCode,
   ServiceUnavailableError,
   ValidationError,
+  maskActorIds,
 } from '@repo/observability-service';
-import type { ActorNameResolver, ImageRefSigner, SessionAccessPolicy } from '@repo/observability-service';
+import type { ActorIdMasker, ActorNameResolver, ImageRefSigner, SessionAccessPolicy } from '@repo/observability-service';
 import {
   ListSessionsQuerySchema,
   SessionsListResponseSchema,
@@ -168,6 +169,14 @@ function buildImageRefSigner(c: AppContext, policy: SessionAccessPolicy): ImageR
   };
 }
 
+/** Only invoked on a masked (`agents.sessions.team.read`-less machine-key)
+ * read — reuses the OAuth-state HMAC secret every other signed envelope on
+ * this route already keys off, under a distinct domain separator (see
+ * `actor-id-mask.ts`). */
+function buildActorIdMasker(c: AppContext): ActorIdMasker {
+  return { mask: (actorIds) => maskActorIds(c.env.OAUTH_STATE_SECRET, actorIds) };
+}
+
 /** Exported for the `list_sessions` / `get_session` MCP tools — same port
  * wiring the REST handlers use, so behavior can't diverge between surfaces.
  * Takes the caller's already-resolved `policy` (every call site resolves it
@@ -182,6 +191,7 @@ export async function buildPorts(c: AppContext, policy: SessionAccessPolicy) {
     actorNames: buildActorNameResolver(c),
     prOutcomes: buildPrOutcomeReader(supabase, chQuery, { tenantId: user.tenantId, appId: user.appId }),
     images: buildImageRefSigner(c, policy),
+    actorIdMasker: buildActorIdMasker(c),
   };
 }
 

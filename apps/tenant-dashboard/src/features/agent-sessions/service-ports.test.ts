@@ -216,3 +216,20 @@ describe("PrOutcomeReader.forSessions (multiple traces — the list-page path)",
     expect(mockTenantChQuery).not.toHaveBeenCalled();
   });
 });
+
+describe("ActorIdMasker port", () => {
+  // Every dashboard caller resolves to a `dashboard-member` policy, which
+  // `mustMaskActors` (in the package) never masks — so this port is wired
+  // but not exercised on any real dashboard request. Still pinned here: a
+  // future `machine-key` policy on this surface must not find the port
+  // missing or a no-op that would pass the raw actorId through.
+  it("is wired on every ports() build and never echoes the raw actorId back", async () => {
+    await agentSessionsService.getSessionDetail(ctx(), "trace-1");
+    const ports = lastPorts(mockGetSessionDetail);
+
+    const masked = await ports.actorIdMasker.mask(["membership-secret"]);
+
+    expect(masked["membership-secret"]).toMatch(/^anon-[0-9a-f]{16}$/);
+    expect(masked["membership-secret"]!.includes("membership-secret")).toBe(false);
+  });
+});

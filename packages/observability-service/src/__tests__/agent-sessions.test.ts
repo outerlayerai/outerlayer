@@ -41,6 +41,7 @@ function noopPorts(): AgentSessionsPorts {
     actorNames: { resolve: async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, `Name(${id})`])) },
     prOutcomes: { forSessions: async () => () => [] },
     images: { sign: async () => [] },
+    actorIdMasker: { mask: async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, `anon-${id}`])) },
   };
 }
 
@@ -117,7 +118,8 @@ describe('AgentSessionsService.getSessionDetail', () => {
     const service = new AgentSessionsService(client);
     const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
     const result = await service.getSessionDetail(SCOPE, 'trace-1', policy, noopPorts());
-    expect(result?.session.actorId).toBe('membership-a'); // row visible
+    expect(result?.session.actorId).toBe('anon-membership-a'); // row visible, id pseudonymized
+    expect(result?.session.actorId).not.toBe('membership-a'); // raw membership id never leaves a masked read
     expect(result?.session.actorName).toBe(ANONYMOUS_ACTOR_LABEL); // identity masked
   });
 
@@ -913,7 +915,72 @@ describe('AgentSessionsService.listSessions', () => {
     const service = new AgentSessionsService(client);
     const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
     const page = await service.listSessions(SCOPE, BASE_QUERY, policy, noopPorts());
-    expect(page.actorNames['a1']).toBe(ANONYMOUS_ACTOR_LABEL);
+    expect(page.actorNames['anon-a1']).toBe(ANONYMOUS_ACTOR_LABEL);
+  });
+
+  // proves AC-052-05: a masked list read pseudonymizes actorId everywhere it
+  // appears (the vocabulary AND every row), not just the resolved name — the
+  // raw membership UUID must never leave the response, recursively, in any
+  // field.
+  test('a masked list read never leaks the raw actorId anywhere in the response', async () => {
+    const RAW_ACTOR_ID = 'membership-secret';
+    const { client } = fakeClient({
+      byNeedle: [
+        { needle: 'GROUP BY GitRepo', rows: [{ repo: 'acme/app' }] },
+        {
+          needle: 'TraceId AS traceId',
+          rows: [
+            {
+              traceId: 't1',
+              sessionId: 't1',
+              actorId: RAW_ACTOR_ID,
+              startedAt: '2026-01-01 00:00:00',
+              durationMs: 0,
+              turnCount: 0,
+              toolCallCount: 0,
+              errorCount: 0,
+              userTurnCount: 0,
+              rejectedToolCallCount: 0,
+              costUsd: 0,
+              models: [],
+            },
+          ],
+        },
+        { needle: 'GROUP BY ActorId', rows: [{ actor: RAW_ACTOR_ID }] },
+        { needle: 'SELECT count() AS total', rows: [{ total: '1' }] },
+        { needle: 'countIf(Origin', rows: [{ interactive: '1', agent: '0', worker: '0' }] },
+      ],
+    });
+    const service = new AgentSessionsService(client);
+    const policy: SessionAccessPolicy = { kind: 'machine-key', canSeeTeamActors: false };
+    // A masker that echoed the raw id back inside its pseudonym (as
+    // noopPorts()'s `anon-${id}` stub does) would defeat this test's whole
+    // purpose, so this scenario supplies one whose output shares no
+    // substring with its input.
+    const PSEUDONYM = 'anon-opaque-token';
+    const ports = {
+      ...noopPorts(),
+      actorIdMasker: { mask: async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, PSEUDONYM])) },
+    };
+    const page = await service.listSessions(SCOPE, BASE_QUERY, policy, ports);
+
+    function assertNoRawIdSubstring(value: unknown, path: string): void {
+      if (typeof value === 'string') {
+        expect(value.includes(RAW_ACTOR_ID), `${path} leaked the raw actorId: ${value}`).toBe(false);
+      } else if (Array.isArray(value)) {
+        value.forEach((v, i) => assertNoRawIdSubstring(v, `${path}[${i}]`));
+      } else if (value && typeof value === 'object') {
+        for (const [key, v] of Object.entries(value)) {
+          assertNoRawIdSubstring(key, `${path}.<key>`);
+          assertNoRawIdSubstring(v, `${path}.${key}`);
+        }
+      }
+    }
+    assertNoRawIdSubstring(page, 'page');
+
+    expect(page.actors).toEqual([PSEUDONYM]);
+    expect(page.sessions[0]!.actorId).toBe(PSEUDONYM);
+    expect(page.actorNames[PSEUDONYM]).toBe(ANONYMOUS_ACTOR_LABEL);
   });
 
   test('a topic drill-down never resolves a dominant repo — it spans repos', async () => {

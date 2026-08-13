@@ -45,6 +45,13 @@ export interface ActorNameResolver {
   resolve(actorIds: string[]): Promise<Record<string, string>>;
 }
 
+/** Membership-UUID ActorId → opaque per-tenant pseudonym, for a masked
+ * (mustMaskActors) read — see actor-id-mask.ts. Only invoked when masking
+ * applies; a dashboard-member read never masks. */
+export interface ActorIdMasker {
+  mask(actorIds: string[]): Promise<Record<string, string>>;
+}
+
 /**
  * PR-outcome scores for a page of sessions (or a single one, called with a
  * one-element array) — Postgres-backed on every known host (`ctx.db` on the
@@ -75,6 +82,7 @@ export interface AgentSessionsPorts {
   actorNames: ActorNameResolver;
   prOutcomes: PrOutcomeReader;
   images: ImageRefSigner;
+  actorIdMasker: ActorIdMasker;
 }
 
 /**
@@ -408,8 +416,9 @@ export class AgentSessionsService {
     const rootDuration = Number(root.durationMs) || 0;
 
     const actorId = root.actorId as string;
+    const publicActorId = masked ? ((await ports.actorIdMasker.mask([actorId]))[actorId] ?? actorId) : actorId;
     const actorNames = masked
-      ? { [actorId]: ANONYMOUS_ACTOR_LABEL }
+      ? { [publicActorId]: ANONYMOUS_ACTOR_LABEL }
       : await ports.actorNames.resolve([actorId]);
 
     const num = (v: unknown) => Number(v) || 0;
@@ -443,8 +452,8 @@ export class AgentSessionsService {
         sessionId: (summary?.sessionId as string) || traceId,
         title: meta.title || null,
         agentType: root.agentType as string,
-        actorId,
-        actorName: actorNames[actorId] ?? actorId,
+        actorId: publicActorId,
+        actorName: actorNames[publicActorId] ?? publicActorId,
         workerKind: (summary?.workerKind as string) || meta.workerKind || null,
         project: projectFrom(meta, masked),
         startedAt: iso(root.startTime),
@@ -683,8 +692,14 @@ export class AgentSessionsService {
     const originCountRow = originCountRows[0];
 
     const actorIds = [...new Set([...vocab.actors, ...list.map((r) => r.actorId as string)])];
-    const actorNames = mustMaskActors(policy)
-      ? Object.fromEntries(actorIds.map((id) => [id, ANONYMOUS_ACTOR_LABEL]))
+    const masked = mustMaskActors(policy);
+    // The mapping from raw ActorId to what actually leaves this response —
+    // the public id itself on an unmasked read, an opaque per-tenant
+    // pseudonym (never the raw membership UUID) on a masked one.
+    const idPseudonyms = masked ? await ports.actorIdMasker.mask(actorIds) : null;
+    const publicId = (id: string): string => idPseudonyms?.[id] ?? id;
+    const actorNames = masked
+      ? Object.fromEntries(actorIds.map((id) => [publicId(id), ANONYMOUS_ACTOR_LABEL]))
       : await ports.actorNames.resolve(actorIds);
 
     const outcomeOf = await ports.prOutcomes.forSessions(list.map((r) => r.traceId as string));
@@ -703,7 +718,7 @@ export class AgentSessionsService {
           }
         : {}),
       branches: vocab.branches,
-      actors: vocab.actors,
+      actors: masked ? vocab.actors.map(publicId) : vocab.actors,
       actorNames,
       agentTypes: vocab.agentTypes,
       models: vocab.models,
@@ -713,7 +728,7 @@ export class AgentSessionsService {
         sessionId: (r.sessionId as string) || (r.traceId as string),
         title: (r.title as string) || null,
         agentType: r.agentType as string,
-        actorId: r.actorId as string,
+        actorId: publicId(r.actorId as string),
         workerKind: (r.workerKind as string) || null,
         project: (r.project as string) || null,
         branch: (r.branch as string) || null,

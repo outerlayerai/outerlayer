@@ -676,6 +676,42 @@ describe('buildActorNameResolver (via buildPorts)', () => {
   });
 });
 
+describe('buildActorIdMasker (via buildPorts)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('never echoes the raw actorId back as, or inside, its pseudonym', async () => {
+    const c = buildContext();
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: false });
+
+    const masked = await ports.actorIdMasker.mask(['membership-secret']);
+
+    expect(masked['membership-secret']).toMatch(/^anon-[0-9a-f]{16}$/);
+    expect(masked['membership-secret']!.includes('membership-secret')).toBe(false);
+  });
+
+  it('is deterministic for a given OAUTH_STATE_SECRET: the same actorId always masks to the same pseudonym', async () => {
+    const c = buildContext();
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: false });
+
+    const first = await ports.actorIdMasker.mask(['membership-a']);
+    const second = await ports.actorIdMasker.mask(['membership-a']);
+
+    expect(first['membership-a']).toBe(second['membership-a']);
+  });
+
+  it('masks every id it is given, distinctly', async () => {
+    const c = buildContext();
+    const ports = await buildPorts(c, { kind: 'machine-key', canSeeTeamActors: false });
+
+    const masked = await ports.actorIdMasker.mask(['membership-a', 'membership-b']);
+
+    expect(Object.keys(masked).sort()).toEqual(['membership-a', 'membership-b']);
+    expect(masked['membership-a']).not.toBe(masked['membership-b']);
+  });
+});
+
 describe('blobTokenKeyId — image blob-token binding', () => {
   beforeEach(() => {
     vi.clearAllMocks();

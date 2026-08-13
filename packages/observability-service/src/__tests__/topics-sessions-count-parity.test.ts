@@ -101,6 +101,7 @@ describe('topics/agent-sessions count parity', () => {
         actorNames: { resolve: async () => ({}) },
         prOutcomes: { forSessions: async () => () => [] },
         images: { sign: async () => [] },
+        actorIdMasker: { mask: async () => ({}) },
       },
     );
 
