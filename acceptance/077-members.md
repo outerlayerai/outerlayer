@@ -27,7 +27,7 @@ not requirements to skip.
 1. `AC-077-01` **Given** a caller who does not hold the owner role, **When** they invite a new member with the owner role, **Then** the invite is rejected — only owners may invite another member as an owner.
 2. `AC-077-02` **Given** an invite names a specific built-in role, **When** the invite is created, **Then** that role is the one recorded on the resulting membership.
 3. `AC-077-03` **Given** a tenant's active-plus-pending member count is already at its plan's seat entitlement, **When** a new invite is attempted, **Then** it is denied as an entitlement limit, naming the feature and the tier required to raise it.
-4. **Given** an email address that already has an active membership in the tenant, **When** an invite is sent to that address, **Then** the invite is rejected as already a member.
+4. `AC-077-04` **Given** an email address that already has an active membership in the tenant, **When** an invite is sent to that address, **Then** the invite is rejected as already a member.
 5. `AC-077-05` **Given** an invite also specifies a custom role, **When** the invite succeeds, **Then** the custom role is assigned to the new membership only after verifying it belongs to the inviting tenant.
 
 ## Pending invitations
@@ -35,7 +35,7 @@ not requirements to skip.
 6. `AC-077-06` **Given** a pending invitation, **When** an owner resends it, **Then** a fresh invite email goes out and the invitation's expiry is extended.
 7. `AC-077-07` **Given** a member who has been invited but has not yet accepted, **When** an owner changes their role, **Then** the change applies to the pending membership the same way it would to an active one.
 8. `AC-077-08` **Given** a member who has been invited but has not yet accepted, **When** an owner removes them, **Then** the pending membership is deleted.
-9. **Given** creating a brand-new invited user's membership fails after their auth account was already provisioned, **When** the failure occurs, **Then** the orphaned auth account is cleaned up rather than left stranded.
+9. `AC-077-09` **Given** creating a brand-new invited user's membership fails after their auth account was already provisioned, **When** the failure occurs, **Then** the orphaned auth account is cleaned up rather than left stranded.
 
 ## Accepting an invitation
 

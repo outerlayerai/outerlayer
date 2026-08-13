@@ -156,6 +156,15 @@ type TableErrorMap = {
   terms_agreement_select?: { message: string };
 };
 
+/** The auth user `auth.admin.generateLink({ type: 'invite', ... })` hands
+ *  back for the next call — the invite flow's new-user branch reads
+ *  `data.user.id` to create the membership and `properties.hashed_token`
+ *  to build the confirm link. */
+type GeneratedAuthLinkUser = {
+  id: string;
+  hashedToken: string;
+};
+
 type SupabaseMswState = {
   sessions: SupabaseAuthSessionRow[];
   otpVerifications: SupabaseOtpVerificationRow[];
@@ -177,6 +186,14 @@ type SupabaseMswState = {
   updatedBilling: BillingUpdateCapture[];
   updatedProfiles: ProfileUpdateCapture[];
   tableErrors: TableErrorMap;
+  /** Queued response for the next `auth.admin.generateLink` call. */
+  generatedAuthLinkUser: GeneratedAuthLinkUser | null;
+  /** Force `auth.admin.generateLink` to fail with this message. */
+  forceGenerateLinkError: string | null;
+  /** Force `auth.admin.deleteUser` to fail with this message. */
+  forceDeleteUserError: string | null;
+  /** Every user id `auth.admin.deleteUser` was called with, in order. */
+  deletedAuthUserIds: string[];
 };
 
 type SeedSupabaseAuthOptions = {
@@ -214,6 +231,10 @@ const defaultState = (): SupabaseMswState => ({
   updatedBilling: [],
   updatedProfiles: [],
   tableErrors: {},
+  generatedAuthLinkUser: null,
+  forceGenerateLinkError: null,
+  forceDeleteUserError: null,
+  deletedAuthUserIds: [],
 });
 
 let state = defaultState();
@@ -270,6 +291,10 @@ export function seedSupabaseMswState(nextState: Partial<SupabaseMswState>) {
       nextState.deletedEntitlementOverrides ?? state.deletedEntitlementOverrides,
     updatedBilling: nextState.updatedBilling ?? state.updatedBilling,
     tableErrors: nextState.tableErrors ?? state.tableErrors,
+    generatedAuthLinkUser: nextState.generatedAuthLinkUser ?? state.generatedAuthLinkUser,
+    forceGenerateLinkError: nextState.forceGenerateLinkError ?? state.forceGenerateLinkError,
+    forceDeleteUserError: nextState.forceDeleteUserError ?? state.forceDeleteUserError,
+    deletedAuthUserIds: nextState.deletedAuthUserIds ?? state.deletedAuthUserIds,
   };
 }
 
@@ -290,6 +315,11 @@ export function getDeletedEntitlementOverrides(): readonly EntitlementOverrideDe
 /** Inspect what `EntitlementService.setTenantTier` patched on `billing`. */
 export function getUpdatedBilling(): readonly BillingUpdateCapture[] {
   return state.updatedBilling;
+}
+
+/** Every user id `auth.admin.deleteUser` was called with, in order. */
+export function getDeletedAuthUserIds(): readonly string[] {
+  return state.deletedAuthUserIds;
 }
 
 export function seedSupabaseAuth({
@@ -440,6 +470,34 @@ export const supabaseHandlers = [
       return HttpResponse.json({ message: 'User not found' }, { status: 404 });
     }
     return HttpResponse.json({ user: session.user });
+  }),
+
+  // `auth.admin.generateLink({ type: 'invite', ... })` — the new-user invite
+  // branch provisions the auth account here before the membership transaction
+  // runs. The response shape mirrors GoTrue's `_generateLinkResponse` xform:
+  // user fields at the top level, link metadata under separate keys.
+  http.post(`${SUPABASE_URL}/auth/v1/admin/generate_link`, () => {
+    if (state.forceGenerateLinkError) {
+      return HttpResponse.json({ message: state.forceGenerateLinkError }, { status: 500 });
+    }
+    const queued = state.generatedAuthLinkUser ?? { id: '00000000-0000-4000-a000-000000000001', hashedToken: 'generated-token' };
+    return HttpResponse.json({
+      id: queued.id,
+      hashed_token: queued.hashedToken,
+      action_link: `${SUPABASE_URL}/auth/v1/verify?token=${queued.hashedToken}`,
+      verification_type: 'invite',
+    });
+  }),
+
+  // `auth.admin.deleteUser(id)` — the new-user invite branch calls this to
+  // clean up the just-provisioned auth account when the membership
+  // transaction fails, so the account is never left orphaned.
+  http.delete(`${SUPABASE_URL}/auth/v1/admin/users/:id`, ({ params }) => {
+    if (state.forceDeleteUserError) {
+      return HttpResponse.json({ message: state.forceDeleteUserError }, { status: 500 });
+    }
+    state.deletedAuthUserIds.push(String(params.id));
+    return HttpResponse.json({});
   }),
 
   http.get(`${SUPABASE_URL}/rest/v1/app`, ({ request }) => {

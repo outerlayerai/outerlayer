@@ -7,6 +7,7 @@ import {
   getMembershipRpcCalls,
   seedSupabaseMswState,
   getInsertedAuditLogRows,
+  getDeletedAuthUserIds,
 } from '../../../test-helpers/msw-handlers';
 
 // True seams (per testing rules): entitlement gating and the injected
@@ -186,5 +187,92 @@ describe('MembershipService atomic audit RPCs', () => {
       },
     ]);
     expect(getInsertedAuditLogRows()).toEqual([]);
+  });
+
+  // proves AC-077-04
+  it('sendInvite rejects an email that already has an active membership', async () => {
+    seedMembershipMswState({
+      memberships: [
+        { id: MEMBERSHIP_ID, user_id: TARGET_USER_ID, tenant_id: TENANT_ID, role: 'write', status: 'active', custom_role_id: null },
+      ],
+    });
+    const service = buildService();
+
+    const result = await service.sendInvite({
+      adminUser,
+      tenantId: TENANT_ID,
+      name: 'Target',
+      email: 'target@example.com',
+      role: 'read',
+      origin: 'http://localhost:3000',
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'User is already a member of this organization',
+    });
+    // No membership row or invite transaction is attempted for an
+    // already-active member.
+    expect(getMembershipRpcCalls()).toEqual([]);
+  });
+
+  it('sendInvite reports a previously-disabled member distinctly from an active one', async () => {
+    seedMembershipMswState({
+      memberships: [
+        { id: MEMBERSHIP_ID, user_id: TARGET_USER_ID, tenant_id: TENANT_ID, role: 'disabled', status: 'active', custom_role_id: null },
+      ],
+    });
+    const service = buildService();
+
+    const result = await service.sendInvite({
+      adminUser,
+      tenantId: TENANT_ID,
+      name: 'Target',
+      email: 'target@example.com',
+      role: 'read',
+      origin: 'http://localhost:3000',
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'This user was previously disabled in this organization',
+    });
+    expect(getMembershipRpcCalls()).toEqual([]);
+  });
+
+  // proves AC-077-09
+  it('sendInvite (new user) deletes the just-provisioned auth account when the invite transaction fails', async () => {
+    const NEW_USER_ID = '33333333-3333-4333-a333-333333333333';
+
+    // No profile exists for this email — the new-user branch provisions one.
+    seedSupabaseMswState({
+      profiles: [],
+      generatedAuthLinkUser: { id: NEW_USER_ID, hashedToken: 'new-user-token' },
+    });
+    seedMembershipMswState({
+      memberships: [],
+      forceRpcError: { fn: 'invite_new_user_transaction', message: 'transaction_failed' },
+    });
+    const service = buildService();
+
+    const result = await service.sendInvite({
+      adminUser,
+      tenantId: TENANT_ID,
+      name: 'New Person',
+      email: 'newperson@example.com',
+      role: 'read',
+      origin: 'http://localhost:3000',
+    });
+
+    expect(result).toEqual({ success: false, error: 'transaction_failed' });
+    // The auth account created via generateLink is cleaned up rather than
+    // left orphaned once the membership transaction fails.
+    expect(getDeletedAuthUserIds()).toEqual([NEW_USER_ID]);
+    expect(getMembershipRpcCalls()).toEqual([
+      expect.objectContaining({
+        fn: 'invite_new_user_transaction',
+        params: expect.objectContaining({ p_user_id: NEW_USER_ID }),
+      }),
+    ]);
   });
 });
