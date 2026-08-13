@@ -17,6 +17,7 @@ describe('validateEnvironmentName', () => {
   });
 
   describe('invalid names — length', () => {
+    // proves AC-069-12
     test('rejects single char (under 2-char minimum)', () => {
       const r = validateEnvironmentName('a');
       expect(r.valid).toBe(false);

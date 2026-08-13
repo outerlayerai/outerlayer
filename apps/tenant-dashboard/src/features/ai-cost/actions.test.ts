@@ -82,6 +82,7 @@ it("ignores a client-supplied tenantId — the write always targets the resolved
   expect(otherTenantRow).toEqual([]);
 });
 
+// proves AC-070-08
 it("denies an actor lacking ai_cost_config.update, writing nothing and not revalidating", async () => {
   checkPermMock.mockResolvedValue(false);
   seedAiCostConfigMswState({ rows: [] });

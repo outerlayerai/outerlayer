@@ -65,6 +65,7 @@ function stubSupabase(eqCalls: Array<[string, unknown]>): SupabaseClient {
 }
 
 describe('EnvironmentService.createEnvironment — env-limit count excludes ephemeral previews', () => {
+  // proves AC-069-11
   it('hands checkEnvLimit the persistent-env count only, not the preview envs', async () => {
     const eqCalls: Array<[string, unknown]> = [];
     const seenCounts: number[] = [];

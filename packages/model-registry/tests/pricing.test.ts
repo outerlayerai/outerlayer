@@ -42,6 +42,7 @@ describe("buildTokenPricingDictionary", () => {
     });
   });
 
+  // proves AC-070-02
   it("prices cache at 0 when the registry lists no cache rate, never at the input rate", () => {
     const dict = buildTokenPricingDictionary({
       "no-cache-model": {
@@ -61,6 +62,7 @@ describe("buildTokenPricingDictionary", () => {
 describe("costForUsage", () => {
   const price = { in: 0.000005, out: 0.000025, cacheRead: 0.0000005, cacheCreate: 0.00000625 };
 
+  // proves AC-070-01
   it("charges each token class its own rate", () => {
     // 100*5e-6 + 200*2.5e-5 + 50000*5e-7 + 1000*6.25e-6
     expect(
@@ -191,6 +193,7 @@ describe("resolveModelKey / resolveModelPrice", () => {
     ).toBe("anthropic.claude-3-5-sonnet-20241022-v2:0");
   });
 
+  // proves AC-070-03
   it("resolves unknown dated variants to the base model (prefix fallback)", () => {
     // A model released after the last registry sync should price against its
     // base family, not $0.

@@ -71,6 +71,7 @@ describe('tenant/app consistency is a database invariant', () => {
     created_by: owning.id,
   });
 
+  // proves AC-069-09
   it('rejects an api_key whose tenant_id names an org that does not own its app', async () => {
     const { data, error } = await admin
       .from('api_key')
