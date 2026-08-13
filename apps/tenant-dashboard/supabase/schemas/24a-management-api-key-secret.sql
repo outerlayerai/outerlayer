@@ -41,8 +41,9 @@ COMMENT ON TABLE private.management_api_key_secret IS 'HMAC digests for public.m
 ALTER TABLE private.management_api_key_secret ENABLE ROW LEVEL SECURITY;
 
 -- -----------------------------------------------------------------------------
--- verify_management_api_key — the bearer-auth hot path (withApi's app-scoped
--- branch and the org-scoped `loadBearerServiceContext` seam both call it)
+-- verify_management_api_key — the bearer-auth hot path (the gateway's
+-- `resolveBearerServiceContext` seam calls it; the dashboard no longer
+-- accepts management-API-key bearer calls itself)
 -- -----------------------------------------------------------------------------
 -- One round-trip: given a key digest, return the tenant, permission set, and
 -- creator the key resolves to (or NULL if no live, unrevoked, unexpired key

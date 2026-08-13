@@ -202,25 +202,17 @@ describe('updateSession (strip-only api prefixes)', () => {
   );
 });
 
-describe('updateSession (management API key bearer path on /api/orgs/**)', () => {
+describe('updateSession (/api/orgs/** gets no bearer-auth carve-out)', () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
   });
 
-  it('passes an olk_ bearer request through with no session and strips the inbound tenant header', async () => {
-    const request = new NextRequest('http://localhost:4000/api/orgs/acme/members', {
-      headers: { authorization: 'Bearer olk_somekey', 'x-tenant-id': 'spoofed-tenant' },
-    });
-
-    const response = await updateSession(request);
-
-    expect(response.status).toBe(200);
-    expect(forwardedTenant(response)).toBeNull();
-  });
-
-  it('401s a non-olk bearer on /api/orgs/** with no session, same as any other unauthenticated request', async () => {
-    const request = new NextRequest('http://localhost:4000/api/orgs/acme/members', {
-      headers: { authorization: 'Bearer sk_outerlayer_notanadminkey' },
+  it('401s an unauthenticated request bearing an Authorization header on /api/orgs/**, same as any other unauthenticated request', async () => {
+    // No cookie-session logic ever inspects this header — the dashboard has
+    // no bearer-auth path at all, so any Authorization value is irrelevant
+    // to the outcome; the header content is incidental here.
+    const request = new NextRequest('http://localhost:4000/api/orgs/acme/apps', {
+      headers: { authorization: 'Bearer some-token', 'x-tenant-id': 'spoofed-tenant' },
     });
 
     const response = await updateSession(request);
@@ -237,21 +229,11 @@ describe('updateSession (management API key bearer path on /api/orgs/**)', () =>
     });
 
     const response = await updateSession(
-      makeAuthedRequest('/api/orgs/org-a/members', 'user-1'),
+      makeAuthedRequest('/api/orgs/org-a/apps', 'user-1'),
     );
 
     expect(response.status).toBe(200);
     expect(forwardedTenant(response)).toBe('tenant-A');
-  });
-
-  it('still 401s an olk_ bearer request with no session on a non-orgs API path', async () => {
-    const request = new NextRequest('http://localhost:4000/api/platform-admin/score-coverage', {
-      headers: { authorization: 'Bearer olk_somekey' },
-    });
-
-    const response = await updateSession(request);
-
-    expect(response.status).toBe(401);
   });
 });
 

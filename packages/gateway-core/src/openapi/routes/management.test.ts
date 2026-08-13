@@ -114,7 +114,19 @@ interface Captured {
 
 function makeContext(opts: { body?: unknown } = {}): { ctx: Context; captured: () => Captured | null } {
   let captured: Captured | null = null;
-  const values: Record<string, unknown> = { managementAuth: MANAGEMENT_AUTH };
+  const values: Record<string, unknown> = {
+    managementAuth: MANAGEMENT_AUTH,
+    // buildMembershipService (management.ts) constructs the full service —
+    // including the email + rate-limit adapters — for every route, so `gtx`
+    // must carry both even for routes that never send an email or hit the
+    // limiter. `smtpEmailSender.supported: false` matches the CF Worker's
+    // real injection; EMAIL_ENABLED is unset in every test's `ctx.env` below,
+    // so buildManagementEmailService never actually reaches this sender.
+    gtx: {
+      rateLimiter: { check: vi.fn(async () => ({ allowed: true })) },
+      smtpEmailSender: { supported: false, send: vi.fn() },
+    },
+  };
   const ctx = {
     get: vi.fn((k: string) => values[k]),
     env: { DASHBOARD_BASE_URL: 'https://app.example.test' },
@@ -140,6 +152,7 @@ beforeEach(() => {
 });
 
 describe('ListOrgMembers', () => {
+  // proves AC-059-01
   it('scopes the membership + profile reads to the resolved tenant and shapes each row', async () => {
     const stub = makeSupabaseStub({
       membership: [
@@ -190,6 +203,7 @@ describe('ListOrgMembers', () => {
 });
 
 describe('ListOrgRoles', () => {
+  // proves AC-059-11
   it('returns the built-in role catalog', async () => {
     const route = new ListOrgRoles(ROUTE_OPTIONS as never);
     const { ctx, captured } = makeContext();
@@ -209,6 +223,7 @@ describe('ListOrgRoles', () => {
 });
 
 describe('InviteOrgMember', () => {
+  // proves AC-059-03
   it('delegates to MembershipService with the resolved tenant + actor and returns the membershipId', async () => {
     sendInvite.mockResolvedValue({ success: true, membershipId: 'm-new' });
     (createSystemAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValue(makeSupabaseStub({}).client);
@@ -231,6 +246,7 @@ describe('InviteOrgMember', () => {
     expect(captured()).toEqual({ status: 200, body: { data: { membershipId: 'm-new' } } });
   });
 
+  // proves AC-059-12
   it('maps an entitlement_denied result to 403 with the entitlement key', async () => {
     sendInvite.mockResolvedValue({ success: false, error: 'entitlement_denied', entitlement: { key: 'max_users' } });
     (createSystemAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValue(makeSupabaseStub({}).client);
@@ -274,6 +290,7 @@ describe('InviteOrgMember', () => {
 });
 
 describe('ResendOrgMemberInvite', () => {
+  // proves AC-059-06
   it('404s when the invite id does not name a pending membership in this tenant', async () => {
     const stub = makeSupabaseStub({ membership: [{ data: null }] });
     (createSystemAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValue(stub.client);
@@ -287,6 +304,7 @@ describe('ResendOrgMemberInvite', () => {
     expect(resendInviteLink).not.toHaveBeenCalled();
   });
 
+  // proves AC-059-05
   it('resolves the invite email from the membership id, then delegates to the service', async () => {
     const stub = makeSupabaseStub({
       membership: [{ data: { id: 'm1', user_id: 'u1' } }],
@@ -308,6 +326,7 @@ describe('ResendOrgMemberInvite', () => {
 });
 
 describe('ChangeOrgMemberRole', () => {
+  // proves AC-059-07
   it('changes the role and returns success', async () => {
     changeUserRole.mockResolvedValue({ success: true });
 
@@ -337,6 +356,7 @@ describe('ChangeOrgMemberRole', () => {
 });
 
 describe('RemoveOrgMember', () => {
+  // proves AC-059-09
   it('removes the member and returns success', async () => {
     removeUserFromOrg.mockResolvedValue({ success: true });
 

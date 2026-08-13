@@ -191,6 +191,8 @@ describe('CustomRoleService', () => {
       }
     });
 
+    // proves AC-059-22: an unlicensed tenant's create-custom-role call is
+    // denied with a structured entitlement_denied failure and no role written.
     it('should return entitlement_denied when entitlement check fails', async () => {
       mockCanAccess = vi.fn().mockResolvedValue(false);
 
@@ -447,6 +449,8 @@ describe('CustomRoleService', () => {
       }
     });
 
+    // proves AC-059-23: an unlicensed tenant's update-custom-role call is
+    // denied with a structured entitlement_denied failure and no role changed.
     it('should return entitlement_denied when entitlement check fails', async () => {
       mockCanAccess = vi.fn().mockResolvedValue(false);
 

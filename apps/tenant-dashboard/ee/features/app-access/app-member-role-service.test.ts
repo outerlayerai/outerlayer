@@ -173,6 +173,8 @@ describe('AppMemberRoleService', () => {
   // ========================================================================
 
   describe('entitlement gating', () => {
+    // proves AC-059-24: an unlicensed tenant's per-app role assignment is
+    // denied with a structured entitlement_denied failure and no assignment made.
     it('should return entitlement_denied when canAccess returns false (assign)', async () => {
       mockCanAccess.mockResolvedValue(false);
 

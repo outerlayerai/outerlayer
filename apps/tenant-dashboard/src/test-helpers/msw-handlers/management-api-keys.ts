@@ -159,7 +159,7 @@ export const managementApiKeysHandlers = [
     return HttpResponse.json(matched);
   }),
 
-  // `loadBearerServiceContext`'s live intersection: the creator's CURRENT
+  // `resolveBearerServiceContext`'s live intersection: the creator's CURRENT
   // role's grant set, read directly (the DB-side resolver lives in the
   // `private` schema and isn't reachable over PostgREST).
   http.get(`${SUPABASE_URL}/rest/v1/role_permissions`, ({ request }) => {

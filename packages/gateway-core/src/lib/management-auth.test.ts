@@ -110,6 +110,8 @@ describe('managementAuthGuard', () => {
     });
   });
 
+  // proves AC-059-18: an invalid/expired/revoked/malformed bearer is denied
+  // with 401 and next() is never called — the route handler never runs.
   it('returns 401 unauthorized with no Authorization header at all, and never calls next()', async () => {
     resolveBearerServiceContext.mockResolvedValue({ ok: false, status: 401, message: 'Not authenticated' });
     const { ctx, captured, nextSpy } = makeContext({ orgName: 'acme', authorization: null });
@@ -161,6 +163,9 @@ describe('managementAuthGuard', () => {
     expect(nextSpy).not.toHaveBeenCalled();
   });
 
+  // proves AC-059-02, AC-059-04, AC-059-08, AC-059-10: every member route denies
+  // with 403 when the caller's intersected permission set lacks the route's
+  // required grant, uniformly across membership.read/insert/update/delete.
   it('returns 403 when the verified/tenant-bound key lacks the route permission (post creator-demotion intersection)', async () => {
     // keyPermissions is already the package's demotion-aware intersection
     // (auth.permissions ∩ creator's live role_permissions) — a permission
