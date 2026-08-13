@@ -389,29 +389,27 @@ export class SyncAgentSessions extends BaseRoute {
     // never turn into a dropped sync. `checkStorageCap` caches its verdict for
     // 5 minutes (see `GatewayContext.billing`'s doc), so this stays off the
     // per-request Stripe round trip on repeat syncs within the window.
-    // An empty customer id carries nothing to meter against — bearer-session
-    // callers and tenants without a billing row — so the gate is skipped
-    // outright rather than paying a guaranteed-failing Stripe call per sync.
-    if (user.stripeCustomerId) {
-      try {
-        const capResult = await gtx.billing.checkStorageCap(
-          adminSupabase,
-          user.tenantId,
-          user.stripeCustomerId,
-          gatewayCache,
+    // Bearer-session callers (and stale API-key meta) carry an empty customer
+    // id; the service resolves it from the tenant's billing row, so both auth
+    // modes are enforced identically — like the span-limit gate above.
+    try {
+      const capResult = await gtx.billing.checkStorageCap(
+        adminSupabase,
+        user.tenantId,
+        user.stripeCustomerId,
+        gatewayCache,
+      );
+      if (!capResult.allowed) {
+        return c.json(
+          structuredError('storage_cap_exceeded', 'Monthly storage cap exceeded. Upgrade your plan for more storage.', {
+            currentBytes: capResult.currentBytes,
+            limitBytes: capResult.limitBytes,
+          }),
+          429,
         );
-        if (!capResult.allowed) {
-          return c.json(
-            structuredError('storage_cap_exceeded', 'Monthly storage cap exceeded. Upgrade your plan for more storage.', {
-              currentBytes: capResult.currentBytes,
-              limitBytes: capResult.limitBytes,
-            }),
-            429,
-          );
-        }
-      } catch (e) {
-        console.warn('[agents/sync] storage-cap check failed, continuing:', e);
       }
+    } catch (e) {
+      console.warn('[agents/sync] storage-cap check failed, continuing:', e);
     }
 
     const tenantTier = await resolveTenantCaptureTier(adminSupabase, user.tenantId);

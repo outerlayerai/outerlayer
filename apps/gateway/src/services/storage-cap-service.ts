@@ -24,7 +24,6 @@ import type { GatewayCache, StorageCapCheckResult } from '@repo/gateway-core/typ
 import type { Database } from '@repo/gateway-core/db';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveTierWithOverride } from '@repo/gateway-core/services/tier-resolution';
-import { isSyntheticStripeCustomerId } from '../billing/synthetic-customer';
 import { getNumericLimit, UNLIMITED } from '@repo/tier-config';
 import Stripe from 'stripe';
 
@@ -52,14 +51,6 @@ export class StorageCapService implements IStorageCapService {
   ) {}
 
   async checkStorageCap(tenantId: string, stripeCustomerId: string): Promise<StorageCapCheckResult> {
-    // Fixture tenants carry synthetic customer ids with no Stripe customer
-    // behind them — the meter call can only fail, so they are skipped at
-    // every metering boundary (see billing/synthetic-customer.ts), this
-    // enforcement boundary included.
-    if (!stripeCustomerId || isSyntheticStripeCustomerId(stripeCustomerId)) {
-      return { allowed: true, currentBytes: 0, limitBytes: 0, capReached: false };
-    }
-
     const capCacheKey = `cap:${tenantId}`;
     const cached = await this.cache.storageCap.get(capCacheKey);
     if (cached.val) return cached.val;
@@ -79,6 +70,25 @@ export class StorageCapService implements IStorageCapService {
         return result;
       }
 
+      // Bearer-session callers carry no customer id, and an API key's cached
+      // meta can predate the billing row — resolve from the tenant so neither
+      // auth path escapes the cap. A tenant with no customer at all has
+      // nothing metered yet; that verdict is stable enough to cache.
+      let customerId = stripeCustomerId;
+      if (!customerId) {
+        const { data: billingRow } = await this.supabase
+          .from('billing')
+          .select('stripe_customer_id')
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        customerId = billingRow?.stripe_customer_id ?? '';
+        if (!customerId) {
+          const result: StorageCapCheckResult = { allowed: true, currentBytes: 0, limitBytes: 0, capReached: false };
+          await this.cache.storageCap.set(capCacheKey, result);
+          return result;
+        }
+      }
+
       // Resolve effective limit: override takes precedence over tier default
       const effectiveLimitGb = overrideLimitGb !== null ? overrideLimitGb : getNumericLimit(ENTITLEMENT_KEY, tierId);
 
@@ -91,15 +101,23 @@ export class StorageCapService implements IStorageCapService {
 
       const limitBytes = effectiveLimitGb * BYTES_PER_GB;
 
-      // Query Stripe meter for cumulative GB this billing period
+      // Query Stripe meter for cumulative GB this billing period. Stripe
+      // requires BOTH window bounds to sit on minute boundaries — an
+      // arbitrary-second end_time is a guaranteed 400 on almost every call.
       const now = new Date();
       const periodStart = Math.floor(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).getTime() / 1000);
-      const periodEnd = Math.floor(now.getTime() / 1000);
+      const periodEnd = Math.floor(now.getTime() / 60_000) * 60;
+      if (periodEnd <= periodStart) {
+        // First minute of the billing month: nothing can be metered yet.
+        const result: StorageCapCheckResult = { allowed: true, currentBytes: 0, limitBytes, capReached: false };
+        await this.cache.storageCap.set(capCacheKey, result);
+        return result;
+      }
 
       const summaries = await this.stripe.billing.meters.listEventSummaries(
         this.storageMeterID,
         {
-          customer: stripeCustomerId,
+          customer: customerId,
           start_time: periodStart,
           end_time: periodEnd,
         }

@@ -188,10 +188,6 @@ type SupabaseMswState = {
   tableErrors: TableErrorMap;
   /** Queued response for the next `auth.admin.generateLink` call. */
   generatedAuthLinkUser: GeneratedAuthLinkUser | null;
-  /** Force `auth.admin.generateLink` to fail with this message. */
-  forceGenerateLinkError: string | null;
-  /** Force `auth.admin.deleteUser` to fail with this message. */
-  forceDeleteUserError: string | null;
   /** Every user id `auth.admin.deleteUser` was called with, in order. */
   deletedAuthUserIds: string[];
 };
@@ -232,8 +228,6 @@ const defaultState = (): SupabaseMswState => ({
   updatedProfiles: [],
   tableErrors: {},
   generatedAuthLinkUser: null,
-  forceGenerateLinkError: null,
-  forceDeleteUserError: null,
   deletedAuthUserIds: [],
 });
 
@@ -291,17 +285,11 @@ export function seedSupabaseMswState(nextState: Partial<SupabaseMswState>) {
       nextState.deletedEntitlementOverrides ?? state.deletedEntitlementOverrides,
     updatedBilling: nextState.updatedBilling ?? state.updatedBilling,
     tableErrors: nextState.tableErrors ?? state.tableErrors,
-    // For these three, null IS the meaningful "off" value, so presence of the
-    // key wins — the ?? pattern above would silently refuse to clear them.
+    // null IS the meaningful "off" value here, so presence of the key wins —
+    // the ?? pattern above would silently refuse to clear it.
     generatedAuthLinkUser: Object.hasOwn(nextState, "generatedAuthLinkUser")
       ? (nextState.generatedAuthLinkUser ?? null)
       : state.generatedAuthLinkUser,
-    forceGenerateLinkError: Object.hasOwn(nextState, "forceGenerateLinkError")
-      ? (nextState.forceGenerateLinkError ?? null)
-      : state.forceGenerateLinkError,
-    forceDeleteUserError: Object.hasOwn(nextState, "forceDeleteUserError")
-      ? (nextState.forceDeleteUserError ?? null)
-      : state.forceDeleteUserError,
     deletedAuthUserIds: nextState.deletedAuthUserIds ?? state.deletedAuthUserIds,
   };
 }
@@ -485,9 +473,6 @@ export const supabaseHandlers = [
   // runs. The response shape mirrors GoTrue's `_generateLinkResponse` xform:
   // user fields at the top level, link metadata under separate keys.
   http.post(`${SUPABASE_URL}/auth/v1/admin/generate_link`, () => {
-    if (state.forceGenerateLinkError) {
-      return HttpResponse.json({ message: state.forceGenerateLinkError }, { status: 500 });
-    }
     const queued = state.generatedAuthLinkUser ?? { id: '00000000-0000-4000-a000-000000000001', hashedToken: 'generated-token' };
     return HttpResponse.json({
       id: queued.id,
@@ -501,9 +486,6 @@ export const supabaseHandlers = [
   // clean up the just-provisioned auth account when the membership
   // transaction fails, so the account is never left orphaned.
   http.delete(`${SUPABASE_URL}/auth/v1/admin/users/:id`, ({ params }) => {
-    if (state.forceDeleteUserError) {
-      return HttpResponse.json({ message: state.forceDeleteUserError }, { status: 500 });
-    }
     state.deletedAuthUserIds.push(String(params.id));
     return HttpResponse.json({});
   }),

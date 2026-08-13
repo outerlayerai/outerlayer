@@ -3,11 +3,13 @@
  * git-connection cleanup when the GitHub App loses access to a repo.
  *
  * Pins: a repository reported in `repositories_removed` has its
- * `git_connection` row deleted, scoped to the payload's installation id (a
- * same-named repo connected through a different installation must survive);
- * a repo not in the removed list is left untouched; an event with no
- * installation id deletes nothing. Supabase runs through MSW (no client
- * mocks).
+ * `git_connection` row deleted, scoped to the payload's installation id
+ * (legacy NULL-installation rows stay matchable by repository name, but a
+ * same-named repo under a DIFFERENT installation must survive); a repo not
+ * in the removed list is left untouched; an event with no installation id
+ * deletes nothing; and the cache revalidation targets the ORGANIZATION-NAME
+ * route the apps page actually renders under. Supabase runs through MSW
+ * (no client mocks).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -42,36 +44,48 @@ describe("handleInstallationEvent", () => {
   let existingConnections: Array<{
     repository: string;
     tenant_id: string;
-    installation_id: number;
+    installation_id: number | null;
   }>;
+  let tenants: Array<{ tenant_id: string; organization_name: string }>;
+
+  function matchesScope(
+    c: { repository: string; installation_id: number | null },
+    params: URLSearchParams,
+  ): boolean {
+    const repos = params.get("repository");
+    const wanted = repos ? repos.replace(/^in\.\(|\)$/g, "").split(",") : [];
+    if (!wanted.includes(c.repository)) return false;
+    const or = params.get("or");
+    if (!or) return true;
+    // `(installation_id.eq.N,installation_id.is.null)` — either side admits.
+    return (
+      or.includes(`installation_id.eq.${c.installation_id}`) ||
+      (c.installation_id === null && or.includes("installation_id.is.null"))
+    );
+  }
 
   beforeEach(() => {
     m.revalidatePath.mockReset();
     deletes = [];
     existingConnections = [];
+    tenants = [{ tenant_id: "t-1", organization_name: "acme-inc" }];
     server.use(
       http.get(`${API}/git_connection`, ({ request }) => {
         const params = new URL(request.url).searchParams;
-        const repos = params.get("repository");
-        const wanted = repos ? repos.replace(/^in\.\(|\)$/g, "").split(",") : [];
-        const installation = params.get("installation_id");
         return HttpResponse.json(
-          existingConnections.filter(
-            (c) =>
-              wanted.includes(c.repository) &&
-              (installation === null || `eq.${c.installation_id}` === installation),
-          ),
+          existingConnections.filter((c) => matchesScope(c, params)),
         );
       }),
       http.delete(`${API}/git_connection`, ({ request }) => {
         deletes.push({ search: new URL(request.url).searchParams });
         return HttpResponse.json([]);
       }),
+      http.get(`${API}/tenant`, () => HttpResponse.json(tenants)),
     );
   });
 
   // proves AC-068-12
-  it("deletes the git connection for a repository the installation lost access to, scoped to that installation", async () => {
+  it("deletes the connection for a removed repository, scoped to the installation, and revalidates the org-name route", async () => {
     existingConnections = [
       { repository: "acme/repo", tenant_id: "t-1", installation_id: INSTALLATION_ID },
     ];
@@ -80,10 +94,15 @@ describe("handleInstallationEvent", () => {
 
     expect(deletes).toHaveLength(1);
     expect(deletes[0]!.search.get("repository")).toBe("in.(acme/repo)");
-    // The installation filter is what keeps a same-named repo connected
-    // through a DIFFERENT installation (another tenant's) out of the sweep.
-    expect(deletes[0]!.search.get("installation_id")).toBe(`eq.${INSTALLATION_ID}`);
-    expect(m.revalidatePath).toHaveBeenCalledWith("/orgs/t-1/apps");
+    // The installation scope keeps a same-named repo connected through a
+    // DIFFERENT installation (another tenant's) out of the sweep, while a
+    // legacy NULL-installation row stays matchable.
+    expect(deletes[0]!.search.get("or")).toBe(
+      `(installation_id.eq.${INSTALLATION_ID},installation_id.is.null)`,
+    );
+    // The apps route is keyed by organization name — a tenant-id path would
+    // match no cached route and revalidate nothing.
+    expect(m.revalidatePath).toHaveBeenCalledWith("/orgs/acme-inc/apps");
   });
 
   // proves AC-068-12
@@ -97,7 +116,6 @@ describe("handleInstallationEvent", () => {
 
     expect(deletes).toHaveLength(1);
     expect(deletes[0]!.search.get("repository")).toBe("in.(acme/removed)");
-    // Only the removed repo's tenant path revalidates — once, not per row.
     expect(m.revalidatePath).toHaveBeenCalledTimes(1);
   });
 

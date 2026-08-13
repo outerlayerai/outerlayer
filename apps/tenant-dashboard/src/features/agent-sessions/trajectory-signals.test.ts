@@ -20,6 +20,7 @@ const bash = (status: 'ok' | 'error'): TrajectorySpan => ({
 });
 
 describe('findEditRetryLoop', () => {
+  // proves AC-062-09
   it('finds the longest consecutive failed-edit run to one file', () => {
     const spans = [
       edit('a.ts', 'error'),
@@ -30,6 +31,7 @@ describe('findEditRetryLoop', () => {
     expect(findEditRetryLoop(spans)).toEqual({ file: 'a.ts', fails: 4 });
   });
 
+  // proves AC-062-09
   it('returns null below the ≥3 threshold — two failures is friction, not a loop', () => {
     expect(findEditRetryLoop([edit('a.ts', 'error'), edit('a.ts', 'error')])).toBeNull();
   });

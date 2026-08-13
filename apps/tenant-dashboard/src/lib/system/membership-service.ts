@@ -794,13 +794,18 @@ export class MembershipService {
       try {
         const { error } = await this.supabaseAdmin.auth.admin.deleteUser(userId);
         if (!error) return;
+        // 404 means the user is already gone — the desired end state, and
+        // permanent: retrying it only stalls the caller's invite response.
+        if ((error as { status?: number }).status === 404) return;
         failure = error;
       } catch (error) {
         failure = error;
       }
       if (attempt === maxRetries) {
-        console.error(
-          `Failed to cleanup orphaned auth user after ${maxRetries} attempts:`,
+        // An orphaned auth account is real operator-visible debt — it must
+        // reach the monitored log stream, not just the process console.
+        await serverLogger.error(
+          new Error(`Failed to cleanup orphaned auth user after ${maxRetries} attempts`),
           { userId, error: failure }
         );
         return;
