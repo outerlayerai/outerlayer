@@ -297,6 +297,7 @@ describe('POST /api/cli/dev-key (create)', () => {
     resetMintDefault();
   });
 
+  // proves AC-060-07
   it('should return 401 when Authorization header is missing', async () => {
     const request = new Request('http://localhost/api/cli/dev-key', {
       method: 'POST',
@@ -377,6 +378,7 @@ describe('POST /api/cli/dev-key (create)', () => {
     expect(body.error).toBe('Invalid characters in device_name');
   });
 
+  // proves AC-060-09
   it('should return 403 when app is not found for the tenant', async () => {
     mockGetUser.mockResolvedValue({ data: { user: mockUser }, error: null });
     mockFrom.mockImplementation(
@@ -454,6 +456,7 @@ describe('POST /api/cli/dev-key (create)', () => {
     expect(Math.abs(expiresAt - thirtyDaysFromNow)).toBeLessThan(60 * 1000);
   });
 
+  // proves AC-060-08
   it('mints with trace.write scope, dev prefix, and a 30-day expiry', async () => {
     mockGetUser.mockResolvedValue({ data: { user: mockUser }, error: null });
     const appChain = makeChain({
@@ -763,6 +766,7 @@ describe('POST /api/cli/dev-key/:keyId/refresh', () => {
     expect(Math.abs(expiresAt - thirtyDaysFromNow)).toBeLessThan(60 * 1000);
   });
 
+  // proves AC-060-10
   it('re-mints in place (replaceExisting) preserving the key name, app, and env', async () => {
     mockGetUser.mockResolvedValue({ data: { user: mockUser }, error: null });
     mockFrom.mockImplementation(

@@ -208,6 +208,7 @@ describe('gateway bearer path — explicit request tenant', () => {
     ).toBe(401);
   });
 
+  // proves AC-060-11
   it('an explicit header creates in the HEADER tenant (B) for a two-org member, not the claim (A)', async () => {
     // The wrong-tenant-write class: claim = A, header = B, and the app must
     // land in B. Proven by gateway reads — reachable under a B header, denied
@@ -229,6 +230,7 @@ describe('gateway bearer path — explicit request tenant', () => {
     ).toBe(401);
   });
 
+  // proves AC-060-12
   it('hard-denies a header naming a tenant the caller is not a member of — no claim fallback', async () => {
     // The user belongs to A and B only. A header naming an unrelated tenant
     // must 401 — never silently fall back to the valid claim (which would

@@ -61,6 +61,7 @@ describe('apps-core: api_key sweep tenant scoping', () => {
     await cleanupTenantAndUsers(orgB.tenantId, [orgB]);
   });
 
+  // proves AC-060-13
   it('a wrong-tenant scope matches no rows and leaves the key untouched', async () => {
     // orgB's owner has no membership in A — a client scoped to A's app_id but
     // B's tenant header (RLS filters by public.tenant_id() from the header,

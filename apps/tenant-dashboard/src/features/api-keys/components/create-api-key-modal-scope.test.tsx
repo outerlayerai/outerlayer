@@ -106,6 +106,7 @@ describe("CreateApiKeyModal — environment scope", () => {
     expect(saveBtn()).toBeDisabled();
   });
 
+  // proves AC-060-04
   it("re-enables Create once a kind is selected", () => {
     render(<CreateApiKeyModal canCreateApiKey />);
     fireEvent.click(screen.getByText("Environment kinds"));

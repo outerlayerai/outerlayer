@@ -139,6 +139,7 @@ describe('createApiKeyAction — entitlement enforcement', () => {
     seedAuthedMember();
   });
 
+  // proves AC-060-03
   it('should block API key creation when at the limit', async () => {
     seedApiKeysMswState({
       apiKeys: Array.from({ length: 25 }, (_, index) => ({
@@ -299,6 +300,7 @@ describe('createApiKeyAction — permission validation', () => {
     expect(mockMintApiKeySystem).not.toHaveBeenCalled();
   });
 
+  // proves AC-060-01
   it('forwards the requested permissions to the key-store when valid', async () => {
     seedApiKeysMswState({ apiKeys: [] });
 
@@ -328,6 +330,7 @@ describe('createApiKeyAction — clamped to the caller\'s own permissions', () =
     mockCheckLimit.mockResolvedValue({ allowed: true, limit: 25, currentCount: 0 });
   });
 
+  // proves AC-060-02
   it('rejects a grant the caller does not themselves hold, and mints nothing', async () => {
     // The caller holds api_key.insert (so the wrapper's own gate passes) but
     // NOT environment.delete — a permission a caller could request onto a
@@ -548,6 +551,7 @@ describe('deleteApiKeyAction', () => {
   // proves AC-5 — mutation-verified: fails if the handler's explicit
   // app-scoped check is removed (the wrapper's org-scoped declaration alone
   // is deliberately NOT sufficient for this action).
+  // proves AC-060-05
   it('leaves the row untouched, returns forbidden (not internal_error), and audits the denial when api_key.delete is missing on this app', async () => {
     seedAuthedMember({ permissions: [] });
     seedApiKeysMswState({
@@ -714,6 +718,7 @@ describe('updateApiKeyPermissionsAction', () => {
     expect(result).toEqual({ ok: true, data: { ok: false, message: 'Update matched no rows' } });
   });
 
+  // proves AC-060-06
   it('rejects granting an existing key permissions the caller does not themselves hold', async () => {
     seedAuthedMember({ permissions: ['api_key.update'] });
     let patchCalled = false;
