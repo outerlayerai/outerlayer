@@ -65,6 +65,7 @@ describe('one result per facet, in input order', () => {
     expect(results.map((r) => r.facetKey)).toEqual(BUILTIN_FACETS.map((f) => f.key));
   });
 
+  // proves AC-056-07
   it('works with a custom subset of facets', async () => {
     const custom: FacetDefinition[] = [
       { key: 'alpha', name: 'Alpha', systemPrompt: 'Summarize alpha.' },

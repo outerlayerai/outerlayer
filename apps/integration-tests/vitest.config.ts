@@ -175,6 +175,14 @@ export default defineConfig({
             // needs this project's container instead of the Supabase-only
             // `acceptance` project (excluded there).
             'src/tests/topics/topics-tenancy.acceptance.test.ts',
+            // Topic drill-down facet filtering: the real listSessions seam the
+            // Topics view's row-click drives, over real trace_facets/
+            // trace_topic_maps/agent_session_summary rows.
+            'src/tests/topics/topics-facet-filter.acceptance.test.ts',
+            // Clustering round-trip: the real TopicsService.generateTopics
+            // against real ClickHouse (mocked models, stubbed clustering
+            // fetch) — the anchor that keeps the fully-mocked unit suite honest.
+            'src/tests/topics/topics-generation-clickhouse.acceptance.test.ts',
             // Context Overview acceptance: the inventory ∪ usage join over real
             // skill/MCP rollups + session summaries (excluded from `acceptance`).
             'src/tests/context/context-overview.acceptance.test.ts',
