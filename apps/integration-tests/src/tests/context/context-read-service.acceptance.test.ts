@@ -253,6 +253,7 @@ describe('context read surface — ContextReadService + adoption overlays under 
       ]);
     });
 
+    // AC-066-14
     it('resolves an explicit historical snapshotId instead of head', async () => {
       const service = new ContextReadService(owner.client as never);
       const tree = await service.getTree(connectedAppId, historicalSnapshotId);
@@ -337,6 +338,7 @@ describe('context read surface — ContextReadService + adoption overlays under 
       expect(file.commitSha).toBe(historicalCommitSha);
     });
 
+    // AC-066-15
     it('returns oversize:true with null content when the tree entry has no mirrored blob', async () => {
       const service = new ContextReadService(owner.client as never);
       const file = await service.getFile(connectedAppId, '.outerlayer/deploy-notes.md');

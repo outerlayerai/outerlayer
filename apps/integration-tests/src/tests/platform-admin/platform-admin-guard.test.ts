@@ -105,6 +105,7 @@ describe('Platform Admin - Guard Tests', () => {
       expect(role?.role).toBe('platform_admin');
     });
 
+    // proves AC-075-12
     it('should not recognize user without platform_role as admin', async () => {
       requirePrerequisite(platformRoleCheck);
 

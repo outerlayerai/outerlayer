@@ -218,6 +218,7 @@ describe('get_current_user_app_permissions — app-scoped custom-role resolution
     }
   });
 
+  // proves AC-075-06
   it('returns an empty set for an app the app-scoped user is not assigned to (fail-closed)', async () => {
     if (skip) return;
     const user = await createAuthenticatedUser('read');

@@ -118,6 +118,7 @@ describe('context save — the request tenant, not the claim, gates the connecti
     await cleanupTenantAndUsers(actor.tenantId, [actor]);
   });
 
+  // AC-066-11
   it('under the URL org the connection read finds the app’s repository', async () => {
     const asUrlOrg = await createTenantScopedClient(actor, urlOrg.tenantId);
 

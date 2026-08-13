@@ -254,6 +254,7 @@ describe('addWidget', () => {
     expect(revalidateMock).not.toHaveBeenCalled();
   });
 
+  // proves AC-063-11
   it('gates a derived-metric widget behind the custom-metrics entitlement, denying an ungated tenant', async () => {
     hasCustomMetricsMock.mockResolvedValue(false);
 

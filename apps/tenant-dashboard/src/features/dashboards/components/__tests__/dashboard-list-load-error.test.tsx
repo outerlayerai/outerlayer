@@ -75,6 +75,7 @@ beforeEach(() => {
 const READ_FAILED = "The dashboard list couldn't be read just now. Nothing was lost — try again.";
 
 describe('DashboardList — a failed read', () => {
+  // proves AC-063-14
   it('reports the failure and withholds the cold-start invitation', async () => {
     render(
       <DashboardList

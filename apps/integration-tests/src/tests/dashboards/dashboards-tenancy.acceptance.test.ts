@@ -127,6 +127,7 @@ describe('dashboards reads and writes are tenant- and permission-scoped', () => 
   // Cross-tenant leak — dashboards + widgets
   // ---------------------------------------------------------------------------
 
+  // proves AC-063-13
   it("a member of A sees exactly A's dashboards and widgets, never B's", async () => {
     const asA = await createTenantScopedClient(orgA, orgA.tenantId);
 
@@ -227,6 +228,7 @@ describe('dashboards reads and writes are tenant- and permission-scoped', () => 
     expect(widgetAfter).toEqual([]);
   });
 
+  // proves AC-063-12
   it('a read-only role (dashboard.read only) is denied every write, but the owner is not', async () => {
     const asReader = await createTenantScopedClient(readerA, orgA.tenantId);
 
