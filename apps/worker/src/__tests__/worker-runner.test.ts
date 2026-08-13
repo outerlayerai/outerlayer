@@ -331,6 +331,7 @@ describe('runWorker param loading + preflight', () => {
 
 // --- one-shot mode ---------------------------------------------------------
 describe('runWorker one-shot mode', () => {
+  // proves AC-061-06
   it('clones, runs the agent, and reports the produced diff as a succeeded/changes callback', async () => {
     const bare = await makeOrigin();
     registryState.adapter = agentWith({
@@ -360,6 +361,7 @@ describe('runWorker one-shot mode', () => {
     expect(typeof body.duration_ms).toBe('number');
   });
 
+  // proves AC-061-07
   it('reports succeeded/no_changes with no changes array or branch when the agent edited nothing', async () => {
     const bare = await makeOrigin();
     registryState.adapter = agentWith({ emit: [{ type: 'result', is_error: false }] });
@@ -420,6 +422,7 @@ describe('runWorker one-shot mode', () => {
     ]);
   });
 
+  // proves AC-061-08
   it('reports clone_failed when the repo cannot be cloned', async () => {
     registryState.adapter = agentWith({});
     await run(makeParams({ repo_url: '/no/such/repo-xyz.git' }));
@@ -456,6 +459,7 @@ describe('runWorker one-shot mode', () => {
     expect(callbackBody()).toMatchObject({ status: 'failed', failure_code: 'diff_too_large' });
   });
 
+  // proves AC-061-09
   it('reports timed_out/wall_clock_exceeded when the agent runs past the cap', async () => {
     const bare = await makeOrigin();
     registryState.adapter = agentWith({ emit: [{ type: 'session', id: 's' }], sleepMs: 5000 });

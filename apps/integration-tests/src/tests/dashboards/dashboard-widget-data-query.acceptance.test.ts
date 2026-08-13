@@ -112,6 +112,7 @@ afterAll(async () => {
 
 describe('widget-data query correctness — real seeded ClickHouse, the route\'s AnalyticsService calls', () => {
   describe('WD-1 — basic summary metrics (getMetrics): request_count / total_cost', () => {
+    // proves AC-063-10
     it('aggregates total requests and total cost across both models', async () => {
       const { summary } = await readerService().getMetrics(ctx(), RANGE);
       expect(summary.totalRequests).toBe(GPT4_TRACES.length + CLAUDE_TRACES.length);

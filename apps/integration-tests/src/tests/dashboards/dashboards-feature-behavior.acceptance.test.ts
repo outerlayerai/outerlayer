@@ -198,6 +198,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
   });
 
   describe('D-2 — create: template widget seeding, duplicate-name rejection, per-app limit', () => {
+    // proves AC-063-01
     it('seeds every template widget + a layout entry per widget when created from a template', async () => {
       const appId = await createApp('d2-template');
       const created = await dashboardsService.create(ctxFor(owner), {
@@ -214,6 +215,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
       for (const item of created.layout) expect(widgetIds.has(item.widgetId)).toBe(true);
     });
 
+    // proves AC-063-02
     it('rejects a case-insensitive duplicate name within the same app as a ValidationError', async () => {
       const appId = await createApp('d2-dup');
       const name = `d2-dup-${suffix}`;
@@ -223,6 +225,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
       ).rejects.toMatchObject({ name: 'ValidationError' });
     });
 
+    // proves AC-063-03
     it(`refuses the ${MAX_DASHBOARDS_PER_APP + 1}th dashboard in one app`, async () => {
       const capAppId = await createApp('d2-cap');
       const ctx = ctxFor(owner);
@@ -236,6 +239,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
   });
 
   describe('D-3 — update / updateWidget: partial fields, duplicate-name rejection, NotFoundError', () => {
+    // proves AC-063-04
     it('update only writes the fields present in the input, leaving the rest untouched', async () => {
       const appId = await createApp('d3-partial');
       const ctx = ctxFor(owner);
@@ -282,6 +286,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
   });
 
   describe('D-4 — delete / deleteWidget: NotFoundError, and delete cascades widgets', () => {
+    // proves AC-063-05
     it('delete removes the dashboard and its widgets are gone with it (ON DELETE CASCADE)', async () => {
       const appId = await createApp('d4-cascade');
       const ctx = ctxFor(owner);
@@ -310,6 +315,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
   });
 
   describe('D-5 — addWidget: per-dashboard limit + duplicate title rejection', () => {
+    // proves AC-063-08
     it('rejects a duplicate widget title (case-insensitive) on the same dashboard', async () => {
       const appId = await createApp('d5-dup');
       const ctx = ctxFor(owner);
@@ -320,6 +326,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
       ).rejects.toMatchObject({ name: 'ValidationError' });
     });
 
+    // proves AC-063-09
     it(`refuses the ${MAX_WIDGETS_PER_DASHBOARD + 1}th widget on one dashboard`, async () => {
       const appId = await createApp('d5-cap');
       const ctx = ctxFor(owner);
@@ -334,6 +341,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
   });
 
   describe('D-7 — duplicate: deep copy of widgets + remapped layout', () => {
+    // proves AC-063-06
     it('copies every widget and remaps the layout to the NEW widget ids, leaving the source untouched', async () => {
       const appId = await createApp('d7');
       const ctx = ctxFor(owner);
@@ -367,6 +375,7 @@ describe('dashboards feature behavior — DashboardService + read.ts surface', (
   });
 
   describe('D-8 — setDefault: exactly one default per app', () => {
+    // proves AC-063-07
     it('setting a new default unsets the prior one — never two defaults at once', async () => {
       const defAppId = await createApp('d8-default');
       const ctx = ctxFor(owner);
