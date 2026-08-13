@@ -13,8 +13,8 @@
  *     ClickHouse container runs alongside the shared integration-tests
  *     Supabase stack. On a null client the read THROWS
  *     `ServiceUnavailableError` before ever computing a shape — unlike the
- *     context domain's skill/MCP adoption overlays (`getSkillAdoption` etc.),
- *     which degrade to an empty result on the same null client, topics has no
+ *     context domain's Overview (`getOverview`), which degrades to an
+ *     inventory-only response on the same null client, topics has no
  *     degrade path. There is no way to reach the "no map generated" empty
  *     shape without a real ClickHouse to query zero rows from.
  *   - `generateTopics`'s handler (`features/topics/actions.ts`) reaches

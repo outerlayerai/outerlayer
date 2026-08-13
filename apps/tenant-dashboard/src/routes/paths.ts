@@ -93,6 +93,23 @@ export const appPaths = {
   context: {
     root: (orgName: string, appName: string) =>
       `${ROOTS.ORG}/${orgName}/apps/${appName}/context`,
+    /**
+     * The Overview (the bare context route's default view), optionally with a
+     * range and one open detail panel. `skill` and `server` are mutually
+     * exclusive — one panel at a time — so `skill` wins when both are passed.
+     */
+    overview: (
+      orgName: string,
+      appName: string,
+      opts?: { range?: string; skill?: string; server?: string },
+    ) => {
+      const params = new URLSearchParams();
+      if (opts?.range) params.set("range", opts.range);
+      if (opts?.skill) params.set("skill", opts.skill);
+      else if (opts?.server) params.set("server", opts.server);
+      const qs = params.toString();
+      return `${ROOTS.ORG}/${orgName}/apps/${appName}/context${qs ? `?${qs}` : ""}`;
+    },
   },
   // "developers" is the legacy name for the per-env Settings surface. `root`
   // is the settings index (redirects to General); the sub-page builders below

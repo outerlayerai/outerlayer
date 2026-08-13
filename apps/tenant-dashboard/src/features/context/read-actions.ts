@@ -29,9 +29,8 @@ import { Permissions } from "@/utils/permissions";
 import type { Database } from "../../types/db";
 import {
   ContextReadService,
-  getMcpAdoption,
   getMcpDrilldown,
-  getSkillAdoption,
+  getOverview,
   getSkillDrilldown,
 } from "./service";
 
@@ -66,12 +65,24 @@ export const getContextFile = authorizedAction({
   },
 });
 
-/** The per-skill activation overlay for the tree, scoped to the URL tenant. */
-export const getContextSkillAdoption = authorizedAction({
-  input: z.object({ appId: z.string().min(1) }),
+/**
+ * The Overview payload (inventory ∪ usage rows, coverage, topics) for a
+ * range. The client re-reads through this on every range switch; the initial
+ * render is RSC-seeded.
+ */
+export const getContextOverview = authorizedAction({
+  input: z.object({
+    appId: z.string().min(1),
+    range: z.enum(["24h", "7d", "30d", "90d"]),
+  }),
   permission: Permissions.CONTEXT_READ,
   appId: (input) => input.appId,
-  handler: (ctx, input) => getSkillAdoption({ tenantId: ctx.tenantId, appId: input.appId }),
+  handler: (ctx, input) =>
+    getOverview(
+      ctx.db as SupabaseClient<Database>,
+      { tenantId: ctx.tenantId, appId: input.appId },
+      input.range,
+    ),
 });
 
 /** The per-skill drill-down, loaded when its panel expands. */
@@ -81,14 +92,6 @@ export const getContextSkillDrilldown = authorizedAction({
   appId: (input) => input.appId,
   handler: (ctx, input) =>
     getSkillDrilldown({ tenantId: ctx.tenantId, appId: input.appId, skill: input.skill }),
-});
-
-/** The per-server MCP usage overlay for the tree, scoped to the URL tenant. */
-export const getContextMcpAdoption = authorizedAction({
-  input: z.object({ appId: z.string().min(1) }),
-  permission: Permissions.CONTEXT_READ,
-  appId: (input) => input.appId,
-  handler: (ctx, input) => getMcpAdoption({ tenantId: ctx.tenantId, appId: input.appId }),
 });
 
 /** The per-server MCP drill-down, loaded when its panel expands. */

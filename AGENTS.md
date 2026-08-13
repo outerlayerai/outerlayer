@@ -113,6 +113,39 @@ counts) — assert the contract. Mutation testing runs per package
 `scripts/ci/mutation-score-floors.json` are ratcheted in CI — bump the floor
 when you improve a score.
 
+### Acceptance criteria: requirements first, proven at the right boundary
+
+`acceptance/NNN-*.md` criteria are a REQUIREMENTS artifact, not a test
+notebook: extract them from the agreed spec BEFORE implementing, in
+stakeholder-readable Given/When/Then, and treat them as the definition of
+done. Tests then prove the criteria — never write the criteria by reading
+the finished implementation back. (`ci:acceptance-coverage` enforces only
+the id join; the ordering discipline is on you.)
+
+Where a criterion binds, in order of preference:
+
+- **Business behavior → the seam just below the UI.** Prove it by driving
+  the service/use-case function (`getOverview`, a save service, an action
+  handler), not only a rendered component — GUI-coupled proof is fragile
+  and skips the rule itself. Criteria that ARE the UI contract (URL params,
+  rendering, keyboard) bind at the component tier; that is the exception,
+  not the default.
+- **Behavior that lives in a store → the integration tier.** Some business
+  rules here are deliberately pushed into the stores (ClickHouse rollup
+  arithmetic, Postgres RLS, cross-store joins). A mocked-seam test cannot
+  prove those: hand-authored fixtures drift semantically from what the
+  server returns while the gate stays green. Cite such criteria from
+  `apps/integration-tests` (real Supabase + ClickHouse, nothing mocked at
+  the database boundary); dual-cite the component test for the client half.
+  Pattern: `src/tests/context/context-overview.acceptance.test.ts` (data
+  halves of AC-058-01/04/06) alongside the component suite citing the same
+  ids.
+
+`apps/integration-tests` imports dashboard code directly (the
+`tenant-dashboard/…` alias) — when changing or deleting an exported service
+function, grep that app too; per-package typecheck won't catch the break,
+and CI's integration shards will.
+
 ## Removing a feature
 
 Removing a feature means removing its whole footprint, not just its UI.

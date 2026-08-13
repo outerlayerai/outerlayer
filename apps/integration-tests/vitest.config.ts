@@ -151,6 +151,9 @@ export default defineConfig({
             'src/tests/gateway-http/**',
             'src/tests/topics/topics-tenancy.acceptance.test.ts',
             'src/tests/dashboards/dashboard-widget-data-query.acceptance.test.ts',
+            // Context Overview acceptance reads real skill/MCP rollups — runs
+            // under the `clickhouse` project's container + analytics_reader.
+            'src/tests/context/context-overview.acceptance.test.ts',
           ],
           testTimeout: 30000,
           server: { deps: { inline: sharedInline } },
@@ -172,6 +175,9 @@ export default defineConfig({
             // needs this project's container instead of the Supabase-only
             // `acceptance` project (excluded there).
             'src/tests/topics/topics-tenancy.acceptance.test.ts',
+            // Context Overview acceptance: the inventory ∪ usage join over real
+            // skill/MCP rollups + session summaries (excluded from `acceptance`).
+            'src/tests/context/context-overview.acceptance.test.ts',
             'src/tests/contracts/clickhouse-errors.test.ts',
             'src/tests/contracts/scores-insert.test.ts',
             'src/tests/contracts/retention-sweep.test.ts',

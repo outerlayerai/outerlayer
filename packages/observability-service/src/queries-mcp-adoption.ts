@@ -4,7 +4,7 @@
  * (populated at ingest by its materialized view over `agent.tool.mcp__*`
  * spans), NOT raw `otel_traces`: the raw SpanName scan reads every span
  * granule for the tenant window, and these queries back the interactive
- * Context adoption overlay.
+ * Context Overview drill-down.
  *
  * Counts stay exact despite span re-ingests: the rollup's Calls states are
  * uniqExact keyed by SpanId, so replayed span versions collapse at merge
@@ -17,62 +17,23 @@
  * grain only.
  */
 
-export interface McpAdoptionQueryInput {
-  tenantId: string;
-  appId: string;
-  /** Total scan window (the "gone quiet" horizon). */
-  lookbackDays: number;
-  /** Recent-activity window the headline counts use. */
-  recentDays: number;
-}
-
 export interface McpQueryResult {
   query: string;
   params: Record<string, unknown>;
-}
-
-export interface McpServerRow {
-  server: string;
-  recentCalls: number;
-  recentSessions: number;
-  totalCalls: number;
-  totalSessions: number;
-  lastUsedAt: string;
-}
-
-export function buildMcpAdoptionQuery(
-  input: McpAdoptionQueryInput,
-): McpQueryResult {
-  return {
-    query: `SELECT
-  Server AS server,
-  uniqExactMergeIf(Calls, Day >= today() - {recentDays:UInt32}) AS recentCalls,
-  uniqExactIf(TraceId, Day >= today() - {recentDays:UInt32}) AS recentSessions,
-  uniqExactMerge(Calls) AS totalCalls,
-  uniqExact(TraceId) AS totalSessions,
-  toString(toDateTime(max(LastUsedAt))) AS lastUsedAt
-FROM mcp_tool_use
-WHERE TenantId = {tenantId:String}
-  AND AppId = {appId:String}
-  AND Day >= today() - {lookbackDays:UInt32}
-GROUP BY Server
-ORDER BY recentCalls DESC, totalCalls DESC
-LIMIT 500`,
-    params: {
-      tenantId: input.tenantId,
-      appId: input.appId,
-      lookbackDays: input.lookbackDays,
-      recentDays: input.recentDays,
-    },
-  };
 }
 
 /* ------------------------------------------------------------------------- *
  * Per-server drill-down: tool breakdown, trend, activating sessions.
  * ------------------------------------------------------------------------- */
 
-export interface McpServerDrilldownInput extends McpAdoptionQueryInput {
+export interface McpServerDrilldownInput {
+  tenantId: string;
+  appId: string;
   server: string;
+  /** Total scan window (the "gone quiet" horizon). */
+  lookbackDays: number;
+  /** Recent-activity window the tool split's headline counts use. */
+  recentDays: number;
 }
 
 /** One tool of the server — the unused-tool tail is the actionable signal. */

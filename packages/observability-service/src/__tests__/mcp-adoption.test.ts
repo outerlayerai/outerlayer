@@ -1,34 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildMcpAdoptionQuery,
   buildMcpServerSessionsQuery,
   buildMcpServerToolsQuery,
   buildMcpServerTrendQuery,
 } from '../queries-mcp-adoption';
 
 const base = { tenantId: 't1', appId: 'a1', lookbackDays: 90, recentDays: 14 };
-
-describe('buildMcpAdoptionQuery', () => {
-  it('reads the mcp_tool_use rollup per server, parameterized and day-windowed', () => {
-    const { query, params } = buildMcpAdoptionQuery(base);
-    expect(params).toEqual({ tenantId: 't1', appId: 'a1', lookbackDays: 90, recentDays: 14 });
-    expect(query).toContain('FROM mcp_tool_use');
-    expect(query).toContain('uniqExactMergeIf(Calls, Day >= today() - {recentDays:UInt32})');
-    expect(query).toContain('uniqExactIf(TraceId, Day >= today() - {recentDays:UInt32})');
-    expect(query).toContain('Day >= today() - {lookbackDays:UInt32}');
-    expect(query).toContain('GROUP BY Server');
-    // Bound params only — raw values never reach the SQL string.
-    expect(query).not.toContain('t1');
-    expect(query).not.toContain('a1');
-  });
-
-  it('never touches the raw span table and carries no actor identity', () => {
-    const { query } = buildMcpAdoptionQuery(base);
-    expect(query).not.toContain('otel_traces');
-    expect(query).not.toContain('FINAL');
-    expect(query).not.toContain('ActorId');
-  });
-});
 
 describe('per-server drill-down queries', () => {
   const input = { ...base, server: 'playwright' };

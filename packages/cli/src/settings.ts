@@ -54,8 +54,20 @@ export interface HookMatcher {
   matcher?: string;
   hooks: HookCommand[];
 }
+/** Claude Code's `statusLine` slot: one command whose stdout becomes the
+ * status line. Unknown keys (our markers included) ride along untouched —
+ * the same tolerance the hook entries already rely on. */
+export interface StatusLineSetting {
+  type: "command";
+  command: string;
+  padding?: number;
+  [MARKER]?: true;
+  [WRAP_MARKER]?: string;
+  [key: string]: unknown;
+}
 export interface ClaudeSettings {
   hooks?: Record<string, HookMatcher[]>;
+  statusLine?: StatusLineSetting;
   [key: string]: unknown;
 }
 
@@ -316,6 +328,95 @@ export function wrapHooks(
     }
   }
   return { next, changed, wrapped };
+}
+
+// ---------------------------------------------------------------------------
+// statusLine slot
+//
+// One slot, so coexistence is the whole design: an empty slot gets our
+// command; an occupied slot is WRAPPED (`statusline --wrap-id <b64>` runs the
+// original and appends our line), never replaced. The original command
+// travels base64 in the argv AND verbatim under WRAP_MARKER, exactly like
+// `hooks wrap`, so removal is a pure lookup and always lossless.
+// ---------------------------------------------------------------------------
+
+/** The command an empty statusLine slot gets. */
+export function statuslineCommand(cliBin: string): string {
+  return `${cliBin} statusline`;
+}
+
+function statuslineWrapCommand(cliBin: string, original: string): string {
+  return `${cliBin} statusline --wrap-id ${encodeWrappedCommand(original)}`;
+}
+
+export type StatuslineMergeOutcome = "installed" | "wrapped" | "unchanged" | "repaired" | "skipped";
+
+/**
+ * Idempotently claim the statusLine slot. Empty → our command; ours → repair
+ * the cliBin path if the install moved; foreign command → wrap it. A slot we
+ * can't safely represent (not a command entry) is left byte-for-byte
+ * untouched (`skipped`) — never clobbered.
+ */
+export function mergeStatusline(
+  settings: ClaudeSettings | null,
+  cliBin: string,
+): { next: ClaudeSettings; changed: boolean; outcome: StatuslineMergeOutcome; wrappedCommand?: string } {
+  const next: ClaudeSettings = settings ? structuredClone(settings) : {};
+  const slot = next.statusLine;
+
+  if (slot === undefined || slot === null) {
+    next.statusLine = { type: "command", command: statuslineCommand(cliBin), [MARKER]: true };
+    return { next, changed: true, outcome: "installed" };
+  }
+  // A fast path, not the only guard: a JSON-sourced primitive here (string,
+  // number, boolean) has no `.command`/marker property of its own, so it
+  // would fall through to the same "skipped" verdict via the checks below.
+  if (typeof slot !== "object") {
+    return { next, changed: false, outcome: "skipped" };
+  }
+
+  if (slot[MARKER] === true) {
+    const original = slot[WRAP_MARKER];
+    const desired = typeof original === "string" ? statuslineWrapCommand(cliBin, original) : statuslineCommand(cliBin);
+    if (slot.command === desired) {
+      return { next, changed: false, outcome: "unchanged", ...(typeof original === "string" ? { wrappedCommand: original } : {}) };
+    }
+    slot.command = desired;
+    return { next, changed: true, outcome: "repaired", ...(typeof original === "string" ? { wrappedCommand: original } : {}) };
+  }
+
+  if (slot.type !== "command" || typeof slot.command !== "string") {
+    return { next, changed: false, outcome: "skipped" };
+  }
+  const original = slot.command;
+  slot.command = statuslineWrapCommand(cliBin, original);
+  slot[MARKER] = true;
+  slot[WRAP_MARKER] = original;
+  return { next, changed: true, outcome: "wrapped", wrappedCommand: original };
+}
+
+/**
+ * Undo `mergeStatusline`: a slot we installed is deleted; a slot we wrapped
+ * is restored to the original command (other keys, e.g. `padding`, kept);
+ * a foreign slot is untouched.
+ */
+export function removeStatusline(
+  settings: ClaudeSettings | null,
+): { next: ClaudeSettings; changed: boolean; restoredCommand?: string } {
+  const next: ClaudeSettings = settings ? structuredClone(settings) : {};
+  const slot = next.statusLine;
+  if (!slot || typeof slot !== "object" || slot[MARKER] !== true) {
+    return { next, changed: false };
+  }
+  const original = slot[WRAP_MARKER];
+  if (typeof original === "string") {
+    delete slot[MARKER];
+    delete slot[WRAP_MARKER];
+    slot.command = original;
+    return { next, changed: true, restoredCommand: original };
+  }
+  delete next.statusLine;
+  return { next, changed: true };
 }
 
 /** Restores every wrapped hook command to its original, dropping the marker. */
