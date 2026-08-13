@@ -211,37 +211,32 @@ export async function createAuthenticatedUser(role: MembershipRole): Promise<Tes
   }
 }
 
+/**
+ * `createAuthenticatedUser` creates exactly one membership per tenant, so
+ * for an 'owner' role that membership is the tenant's only active owner.
+ * `membership.user_id` cascades from `auth.users`, so deleting the auth
+ * user directly would cascade into the same membership delete a raw
+ * `tenant` delete does — tripping the `protect_last_owner` trigger either
+ * way. The tenant must go first, via the `platform_admin_delete_tenant` RPC
+ * (SECURITY DEFINER; sets the compensating flag `protect_last_owner` checks
+ * for), so its cascade (api_key, app, membership, …) removes the owner
+ * membership before the auth user delete below ever reaches it. Each step
+ * throws on error instead of swallowing it, so a failed cleanup fails the
+ * suite loudly rather than leaking a tenant.
+ */
 export async function cleanupTestUsers() {
   const admin = getSupabaseAdmin();
   for (const user of testUsers) {
-    try {
-      // Delete in proper order respecting foreign key constraints
+    const { error: tenantError } = await admin.rpc('platform_admin_delete_tenant', {
+      p_tenant_id: user.tenantId,
+    });
+    if (tenantError) throw new Error(`Tenant delete for ${user.email}: ${tenantError.message}`);
 
-      // 1. Delete api_keys (they reference app which references tenant)
-      await admin.from('api_key').delete().eq('tenant_id', user.tenantId);
+    const { error: profileError } = await admin.from('profile').delete().eq('id', user.id);
+    if (profileError) throw new Error(`Profile delete for ${user.email}: ${profileError.message}`);
 
-      // 2. Delete apps (they reference tenant)
-      await admin.from('app').delete().eq('tenant_id', user.tenantId);
-
-      // 3. Delete membership
-      await admin.from('membership').delete().eq('user_id', user.id);
-
-      // 4. Delete auth user
-      try {
-        await admin.auth.admin.deleteUser(user.id);
-      } catch (authError) {
-        console.warn(`Could not delete auth user ${user.id}:`, authError);
-      }
-
-      // 5. Delete profile
-      await admin.from('profile').delete().eq('id', user.id);
-
-      // 6. Delete tenant last
-      await admin.from('tenant').delete().eq('tenant_id', user.tenantId);
-
-    } catch (error) {
-      console.warn(`Failed to cleanup user ${user.email}:`, error);
-    }
+    const { error: authError } = await admin.auth.admin.deleteUser(user.id);
+    if (authError) throw new Error(`Auth user delete for ${user.email}: ${authError.message}`);
   }
 
   testUsers = [];

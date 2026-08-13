@@ -227,42 +227,35 @@ export async function setupEnvFixture(): Promise<EnvTestFixture> {
   return fixture;
 }
 
+/**
+ * The fixture's owner user is the tenant's only active owner membership.
+ * `membership.user_id` cascades from `auth.users`, so deleting the auth user
+ * directly would cascade into the same membership delete a raw `tenant`
+ * delete does — tripping the `protect_last_owner` trigger either way. The
+ * tenant must go first, via the `platform_admin_delete_tenant` RPC
+ * (SECURITY DEFINER; sets the compensating flag `protect_last_owner` checks
+ * for), so its cascade (api_key, environment, app_member_role, app,
+ * membership, …) removes the owner membership before the auth user deletes
+ * below ever reach it. Every step throws on error instead of swallowing it,
+ * so a failed cleanup fails the suite loudly rather than leaking a tenant.
+ */
 async function cleanupFixture(
   tenantId: string,
   users: SameTenantUser[],
 ): Promise<void> {
   const admin = createSupabaseAdminClient() as unknown as SupabaseClient;
 
-  // Order matters: child rows first. There is no env-promotion saga
-  // (`deployment`, `template_snapshot`, `env_config_snapshot`), so nothing
-  // beyond the tables below needs clearing.
-  try {
-    await admin.from('api_key').delete().eq('tenant_id', tenantId);
-    await admin.from('environment').delete().eq('tenant_id', tenantId);
-    await admin.from('app_member_role').delete().eq('tenant_id', tenantId);
-    await admin.from('app').delete().eq('tenant_id', tenantId);
-  } catch (err) {
-    // Cleanup is best-effort; swallow.
-
-    console.warn(`cleanup: child-row delete swallowed: ${(err as Error).message}`);
-  }
+  const { error: tenantError } = await admin.rpc('platform_admin_delete_tenant', {
+    p_tenant_id: tenantId,
+  });
+  if (tenantError) throw new Error(`Tenant delete: ${tenantError.message}`);
 
   for (const u of users) {
-    try {
-      await admin.from('membership').delete().eq('id', u.membershipId);
-      await admin.from('profile').delete().eq('id', u.id);
-      await admin.auth.admin.deleteUser(u.id);
-    } catch (err) {
-       
-      console.warn(`Cleanup user ${u.email} failed: ${(err as Error).message}`);
-    }
-  }
+    const { error: profileError } = await admin.from('profile').delete().eq('id', u.id);
+    if (profileError) throw new Error(`Profile delete for ${u.email}: ${profileError.message}`);
 
-  try {
-    await admin.from('tenant').delete().eq('tenant_id', tenantId);
-  } catch (err) {
-     
-    console.warn(`Cleanup tenant ${tenantId} failed: ${(err as Error).message}`);
+    const { error: authError } = await admin.auth.admin.deleteUser(u.id);
+    if (authError) throw new Error(`Auth user delete for ${u.email}: ${authError.message}`);
   }
 }
 
