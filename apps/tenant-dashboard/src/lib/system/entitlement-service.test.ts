@@ -94,6 +94,7 @@ describe('EntitlementService', () => {
       expect(await makeService().canAccess('t1', 'workers_enabled')).toBe(false);
     });
 
+    // proves AC-059-14
     it('should return true when override grants access despite tier denial', async () => {
       seedTierAndOverride('t1', 'hobby', 'workers_enabled', { v: true });
       expect(await makeService().canAccess('t1', 'workers_enabled')).toBe(true);

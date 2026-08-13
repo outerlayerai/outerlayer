@@ -139,6 +139,7 @@ describe('SAGA COMPENSATION - Organization Creation', () => {
   });
 
   describe('STRIPE FAILURE COMPENSATION', () => {
+    // proves AC-064-05
     it('Should fail gracefully when Stripe fails (no orphaned data)', async () => {
       const orgName = uniqueOrgName('stripe-fail-org');
       const testUser = await createAuthenticatedUser('owner');
@@ -171,6 +172,7 @@ describe('SAGA COMPENSATION - Organization Creation', () => {
   });
 
   describe('DATABASE FAILURE COMPENSATION', () => {
+    // proves AC-064-06
     it('Should rollback Stripe when tenant creation fails (duplicate name)', { retry: 2 }, async () => {
       const existingOrgName = uniqueOrgName('existing-org');
       const testUser = await createAuthenticatedUser('owner');
@@ -219,6 +221,7 @@ describe('SAGA COMPENSATION - Organization Creation', () => {
   });
 
   describe('SAGA PATTERN VERIFICATION', () => {
+    // proves AC-064-07
     it('Should execute services in correct order on success', { retry: 2 }, async () => {
       const orgName = uniqueOrgName('saga-order-org');
       const testUser = await createAuthenticatedUser('owner');

@@ -259,6 +259,7 @@ describe('User Registration Flow (integration)', () => {
 
   // Email registration does not require companyName
   describe('Email-Based Registration', () => {
+    // proves AC-064-01
     it('creates user and profile on successful email registration (no tenant)', async () => {
       // Arrange - no companyName required
       const reg: RegistrationData = {
@@ -282,6 +283,7 @@ describe('User Registration Flow (integration)', () => {
       await validateRegistrationResult(result, reg.email, expectedName);
     });
 
+    // proves AC-064-02
     it('rejects duplicate email registration', async () => {
       // Arrange
       const reg: RegistrationData = {
@@ -380,6 +382,7 @@ describe('User Registration Flow (integration)', () => {
       await validateRegistrationResult(result, userData.email, userData.name);
     });
 
+    // proves AC-064-03
     it('is idempotent for duplicate OAuth registration', async () => {
       // Arrange
       const userData: OAuthUserData = {
@@ -429,6 +432,7 @@ describe('User Registration Flow (integration)', () => {
       expect(typeof (result as any).userId).toBe('string');
     });
 
+    // proves AC-064-04
     it('saves GitHub username when user logs in with GitHub after registering with Google', async () => {
       // Arrange - Create user with Google OAuth first
       const email = uniqueEmail('test-github-link');

@@ -62,6 +62,7 @@ beforeEach(() => {
 });
 
 describe("BillingService.getPageState", () => {
+  // proves AC-059-06
   it("returns combined usage, cancelling status, and tierId on the happy path", async () => {
     seedSupabaseMswState({
       billing: [{ tenant_id: TENANT_ID, stripe_customer_id: "cus_123", stripe_subscription_id: "sub_123", tier_id: "growth" }],
@@ -92,6 +93,7 @@ describe("BillingService.getPageState", () => {
     expect(result).toMatchObject({ units: 42, storageGb: 1, isCancelling: false, tierId: "team" });
   });
 
+  // proves AC-059-07
   it("returns defaults without error when the tenant has no billing row (hobby/free)", async () => {
     seedSupabaseMswState({ billing: [] });
     const billing = stripeMock();
@@ -233,6 +235,7 @@ describe("BillingService.createCheckoutSession", () => {
     expect(billing.createCheckoutSession).not.toHaveBeenCalled();
   });
 
+  // proves AC-059-05
   it("refuses when the org has no Stripe customer (billing disabled)", async () => {
     seedSupabaseMswState({ billing: [{ tenant_id: TENANT_ID, stripe_customer_id: null }] });
     const billing = stripeMock();
@@ -296,6 +299,7 @@ describe("BillingService.upgradeSubscription", () => {
     );
   });
 
+  // proves AC-059-04
   it("throws subscription_canceled for a canceled subscription", async () => {
     const billing = stripeMock();
     billing.retrieveSubscription.mockResolvedValue({ ...activeGrowthSub, status: "canceled" });
@@ -316,6 +320,7 @@ describe("BillingService.upgradeSubscription", () => {
     expect(billing.updateSubscription).not.toHaveBeenCalled();
   });
 
+  // proves AC-059-02
   it("updates the subscription with swapped items and create_prorations, returning success", async () => {
     const billing = stripeMock();
     billing.retrieveSubscription.mockResolvedValue(activeGrowthSub);
@@ -338,6 +343,7 @@ describe("BillingService.upgradeSubscription", () => {
     expect(params.cancel_at_period_end).toBeUndefined();
   });
 
+  // proves AC-059-03
   it("reactivates (cancel_at_period_end: false) when the sub was scheduled to cancel", async () => {
     const billing = stripeMock();
     billing.retrieveSubscription.mockResolvedValue({ ...activeGrowthSub, cancel_at_period_end: true });

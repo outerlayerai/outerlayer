@@ -194,6 +194,7 @@ describe("removeMemberAction", () => {
     expect(mockRevalidatePath).toHaveBeenCalledWith("/settings");
   });
 
+  // proves AC-065-03
   it("denies without calling the adapter when the actor lacks membership.delete", async () => {
     mockCheckPerm.mockResolvedValue(false);
 

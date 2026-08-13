@@ -640,6 +640,7 @@ describe('nullify_custom_role_on_downgrade trigger', () => {
   // ---------------------------------------------------------------------------
   // team -> hobby fires both conditions — verify all three effects
   // ---------------------------------------------------------------------------
+  // proves AC-059-16
   it('should NULL membership and scrub custom_role.* in one trigger fire', async () => {
     // Arrange
     await createBillingRecord(supabaseAdmin, tenantId, 'team', ownerUser.id);
