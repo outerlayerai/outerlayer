@@ -35,7 +35,7 @@ import {
   type TenantContext,
 } from '@/lib/analytics/tenant-context';
 import { EntitlementService } from '@/lib/system/entitlement-service';
-import { resolveAdminApiKeyContext } from '@/lib/system/admin-api-key-service';
+import { resolveManagementApiKeyContext } from '@/lib/system/management-api-key-service';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/db';
 import { analyticsLogger } from '@/lib/analytics/logger';
@@ -188,12 +188,12 @@ export function withApi<
 async function authenticateRequest(
   request: Request,
 ): Promise<TenantContext> {
-  // A bearer admin-API key, when presented, is the whole auth decision — a
+  // A bearer management-API key, when presented, is the whole auth decision — a
   // key that fails to verify (expired/revoked/malformed/wrong prefix) must
-  // not silently retry as an anonymous session, so `resolveAdminApiKeyContext`
+  // not silently retry as an anonymous session, so `resolveManagementApiKeyContext`
   // either succeeds below or this throws; only its `absent` status (no bearer
   // scheme on the request at all) falls through to session auth.
-  const bearerAuth = await resolveAdminApiKeyContext(request);
+  const bearerAuth = await resolveManagementApiKeyContext(request);
   if (bearerAuth.status === 'invalid' || bearerAuth.status === 'forbidden') {
     throw new AnalyticsError('Not authenticated', 'unauthorized', 401);
   }

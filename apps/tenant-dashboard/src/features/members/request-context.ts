@@ -6,12 +6,12 @@ import { AnalyticsError, ForbiddenError } from "@repo/observability-service";
 import { loadRequestServiceContext, checkRequestPermission } from "@/lib/adapters";
 import {
   loadBearerServiceContext,
-  ADMIN_API_KEY_PREFIX,
-} from "@/lib/system/admin-api-key-service";
+  MANAGEMENT_API_KEY_PREFIX,
+} from "@/lib/system/management-api-key-service";
 import type { ServiceContext } from "@/lib/action-kit/service-context";
 
 /**
- * `bearerPermissions` is non-null exactly when `ctx` came from an admin API
+ * `bearerPermissions` is non-null exactly when `ctx` came from an management API
  * key: its own grant set is the permission source for that request (never
  * `authorize()`, which reads `auth.uid()` and has nothing to evaluate for a
  * session-less bearer caller). `null` means a session resolved `ctx` and the
@@ -42,7 +42,7 @@ async function resolveOrgContext(orgName: string): Promise<ResolvedOrgContext> {
     ? authorizationHeader.slice("Bearer ".length).trim()
     : null;
 
-  if (bearerToken?.startsWith(ADMIN_API_KEY_PREFIX)) {
+  if (bearerToken?.startsWith(MANAGEMENT_API_KEY_PREFIX)) {
     const result = await loadBearerServiceContext(orgName);
     if (!result.ok) {
       if (result.status === 401) {

@@ -30,15 +30,15 @@ import Iconify from "@/components/iconify";
 import { useBoolean } from "@/hooks/use-boolean";
 import { APP_PERMISSIONS } from "@repo/db-types/permissions";
 
-import { createAdminApiKeyAction, revokeAdminApiKeyAction } from "../actions";
-import type { AdminApiKeyRow } from "../types";
+import { createManagementApiKeyAction, revokeManagementApiKeyAction } from "../actions";
+import type { ManagementApiKeyRow } from "../types";
 
 type Props = {
-  initial: AdminApiKeyRow[];
+  initial: ManagementApiKeyRow[];
 };
 
-/** Org-scoped bearer credentials for the admin REST API. Create/list/revoke; rotation is create + revoke. */
-export const AdminApiKeysPanel = ({ initial }: Props) => {
+/** Org-scoped bearer credentials for the management REST API. Create/list/revoke; rotation is create + revoke. */
+export const ManagementApiKeysPanel = ({ initial }: Props) => {
   const { enqueueSnackbar } = useSnackbar();
   const [keys, setKeys] = useState(initial);
   const createDialog = useBoolean();
@@ -57,7 +57,7 @@ export const AdminApiKeysPanel = ({ initial }: Props) => {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const result = await createAdminApiKeyAction({ name, permissions: selectedPermissions });
+      const result = await createManagementApiKeyAction({ name, permissions: selectedPermissions });
       if (!result.ok) {
         enqueueSnackbar(result.error.message, { variant: "error" });
         return;
@@ -80,7 +80,7 @@ export const AdminApiKeysPanel = ({ initial }: Props) => {
   const handleRevoke = async (id: string) => {
     setRevokingId(id);
     try {
-      const result = await revokeAdminApiKeyAction({ id });
+      const result = await revokeManagementApiKeyAction({ id });
       if (!result.ok) {
         enqueueSnackbar(result.error.message, { variant: "error" });
         return;
@@ -102,7 +102,7 @@ export const AdminApiKeysPanel = ({ initial }: Props) => {
 
   return (
     <SettingsSection
-      description="Bearer credentials for the admin REST API — member and role management from outside the dashboard. Create/revoke here; rotation is create a new key, then revoke the old one."
+      description="Bearer credentials for the management REST API — member and role management from outside the dashboard. Create/revoke here; rotation is create a new key, then revoke the old one."
       footer={{
         action: (
           <Button variant="contained" onClick={createDialog.onTrue}>
@@ -112,7 +112,7 @@ export const AdminApiKeysPanel = ({ initial }: Props) => {
       }}
     >
       {keys.length === 0 ? (
-        <EmptyContent title="No admin API keys yet" />
+        <EmptyContent title="No management API keys yet" />
       ) : (
         <Table>
           <TableHead>
@@ -182,7 +182,7 @@ export const AdminApiKeysPanel = ({ initial }: Props) => {
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle>Create admin API key</DialogTitle>
+        <DialogTitle>Create management API key</DialogTitle>
         <DialogContent>
           {mintedSecret ? (
             <Stack sx={{ gap: 2, pt: 1 }}>

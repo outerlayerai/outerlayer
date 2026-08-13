@@ -1,6 +1,6 @@
 import { resetSupabaseMswState, supabaseHandlers } from './supabase';
 import { apiKeysHandlers, resetApiKeysMswState } from './api-keys';
-import { adminApiKeysHandlers, resetAdminApiKeysMswState } from './admin-api-keys';
+import { managementApiKeysHandlers, resetManagementApiKeysMswState } from './management-api-keys';
 import {
   managedDeploymentTablesHandlers,
   resetManagedDeploymentTablesState,
@@ -123,7 +123,7 @@ export {
   type AppsListMswRow,
 } from './apps-list';
 export { seedAiCostConfigMswState } from './ai-cost-config';
-export { seedAdminApiKeysMswState } from './admin-api-keys';
+export { seedManagementApiKeysMswState } from './management-api-keys';
 export {
   seedPrSessionCommentMswState,
   getPrSessionCommentRows,
@@ -142,7 +142,7 @@ export const mswHandlers = [
   ...managedDeploymentTablesHandlers,
   ...supabaseHandlers,
   ...apiKeysHandlers,
-  ...adminApiKeysHandlers,
+  ...managementApiKeysHandlers,
   ...vaultHandlers,
   ...environmentsHandlers,
   ...githubChecksHandlers,
@@ -162,7 +162,7 @@ export const mswHandlers = [
 export function resetMswState() {
   resetSupabaseMswState();
   resetApiKeysMswState();
-  resetAdminApiKeysMswState();
+  resetManagementApiKeysMswState();
   resetManagedDeploymentTablesState();
   resetVaultMswState();
   resetEnvironmentsMswState();

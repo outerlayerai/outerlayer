@@ -157,15 +157,15 @@ CREATE TYPE public.app_permission AS ENUM (
     'membership.insert',
     'membership.update',
     'membership.delete',
-    -- Org-scoped machine credentials for the admin REST API (bearer auth,
-    -- resolved in withApi's bearer branch — see 24-admin-api-key.sql).
+    -- Org-scoped machine credentials for the management REST API (bearer auth,
+    -- resolved in withApi's bearer branch — see 24-management-api-key.sql).
     -- Distinct from `api_key.*`, which is app-scoped and gateway-facing;
-    -- an admin API key carries org-wide member/role permissions instead of
+    -- an management API key carries org-wide member/role permissions instead of
     -- gateway permissions. Never "manage", per the granular pattern.
-    'admin_api_key.read',
-    'admin_api_key.insert',
-    'admin_api_key.update',
-    'admin_api_key.delete'
+    'management_api_key.read',
+    'management_api_key.insert',
+    'management_api_key.update',
+    'management_api_key.delete'
 );
 
 -- -----------------------------------------------------------------------------

@@ -13,8 +13,8 @@ export const SUPABASE_SECRET_KEY = env.SUPABASE_SECRET_KEY;
 export const UNKEY_API_KEY = env.UNKEY_API_KEY;
 // API-key store pepper (HMAC secret for minting/hashing key digests).
 export const API_KEY_PEPPER = env.API_KEY_PEPPER;
-// Admin-API-key store pepper (HMAC secret for the org-scoped bearer key store).
-export const ADMIN_API_KEY_PEPPER = env.ADMIN_API_KEY_PEPPER;
+// Management-API-key store pepper (HMAC secret for the org-scoped bearer key store).
+export const MANAGEMENT_API_KEY_PEPPER = env.MANAGEMENT_API_KEY_PEPPER;
 
 // OAuth state secret — must match the gateway's OAUTH_STATE_SECRET
 // for signed state tokens minted by POST /v1/apps/:appId/git/connect

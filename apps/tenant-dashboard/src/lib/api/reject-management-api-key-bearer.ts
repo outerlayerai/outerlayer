@@ -1,6 +1,6 @@
 import 'server-only';
 import { AnalyticsError } from '@repo/observability-service';
-import { ADMIN_API_KEY_PREFIX } from '@/lib/system/admin-api-key-service';
+import { MANAGEMENT_API_KEY_PREFIX } from '@/lib/system/management-api-key-service';
 
 /**
  * A handful of org-scoped routes (custom roles, per-app member roles)
@@ -12,11 +12,11 @@ import { ADMIN_API_KEY_PREFIX } from '@/lib/system/admin-api-key-service';
  * the fix is in the response shape, not the auth decision: these endpoints
  * are session-only by design and stay that way.
  */
-export function rejectAdminApiKeyBearer(request: Request): void {
+export function rejectManagementApiKeyBearer(request: Request): void {
   const authorizationHeader = request.headers.get('authorization');
-  if (authorizationHeader?.startsWith(`Bearer ${ADMIN_API_KEY_PREFIX}`)) {
+  if (authorizationHeader?.startsWith(`Bearer ${MANAGEMENT_API_KEY_PREFIX}`)) {
     throw new AnalyticsError(
-      'Admin API keys are not supported on this endpoint; use a browser session',
+      'Management API keys are not supported on this endpoint; use a browser session',
       'unauthorized',
       401,
     );

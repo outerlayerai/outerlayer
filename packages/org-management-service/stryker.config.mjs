@@ -44,11 +44,11 @@ const config = {
   },
 
   // Mutate the business-logic primitives this package owns — membership
-  // lifecycle rules and admin-API-key bearer authority. Skip `index.ts`
+  // lifecycle rules and management-API-key bearer authority. Skip `index.ts`
   // (pure re-exports) and `types.ts` (interfaces only, no behavior).
   mutate: [
     'src/membership-service.ts',
-    'src/admin-api-key-authority.ts',
+    'src/management-api-key-authority.ts',
     '!src/**/*.test.ts',
     '!src/**/*.spec.ts',
     '!src/**/*.d.ts',

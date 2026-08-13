@@ -1,10 +1,10 @@
 /**
- * Store-resident behavior of the admin API key credential: RLS on
- * public.admin_api_key, and the SECURITY DEFINER RPCs in
- * private.admin_api_key_secret (24a-admin-api-key-secret.sql) that verify
+ * Store-resident behavior of the management API key credential: RLS on
+ * public.management_api_key, and the SECURITY DEFINER RPCs in
+ * private.management_api_key_secret (24a-management-api-key-secret.sql) that verify
  * and mint the key digest.
  *
- * Unit suites (admin-api-key-service.test.ts, admin-api-keys/service.test.ts)
+ * Unit suites (management-api-key-service.test.ts, management-api-keys/service.test.ts)
  * prove the same contracts against MSW-mocked Supabase responses, which can
  * only assert the shape the app code assumes the store returns. These tests
  * drive the real Postgres policies and DEFINER functions instead, so a
@@ -54,24 +54,24 @@ async function seedKey(
 ): Promise<string> {
   const rid = randomBytes(4).toString('hex');
   const { data, error } = await admin
-    .from('admin_api_key')
+    .from('management_api_key')
     .insert({
       tenant_id: tenantId,
       name: overrides.name ?? `store-test-${rid}`,
-      admin_api_key_id: `admin_key_${rid}`,
+      management_api_key_id: `admin_key_${rid}`,
       key_prefix: 'olk_test',
-      permissions: (overrides.permissions ?? ['admin_api_key.read']) as never,
+      permissions: (overrides.permissions ?? ['management_api_key.read']) as never,
       created_by: createdBy,
       revoked_at: overrides.revokedAt ?? null,
       expires_at: overrides.expiresAt ?? null,
     })
     .select('id')
     .single();
-  if (error) throw new Error(`admin_api_key seed: ${error.message}`);
+  if (error) throw new Error(`management_api_key seed: ${error.message}`);
   return data!.id;
 }
 
-describe('admin_api_key RLS', () => {
+describe('management_api_key RLS', () => {
   let ownerA: SameTenantUser;
   let ownerB: SameTenantUser;
   let readMember: SameTenantUser;
@@ -89,34 +89,34 @@ describe('admin_api_key RLS', () => {
     await cleanupTenant(ownerB.tenantId, [ownerB]);
   });
 
-  it('a member holding only the read org role (no admin_api_key.read grant) sees zero rows', async () => {
-    const { data, error } = await readMember.client.from('admin_api_key').select('id');
+  it('a member holding only the read org role (no management_api_key.read grant) sees zero rows', async () => {
+    const { data, error } = await readMember.client.from('management_api_key').select('id');
     expect(error).toBeNull();
     expect(data).toEqual([]);
   });
 
   it('the owner sees exactly their tenant’s keys', async () => {
-    const { data, error } = await ownerA.client.from('admin_api_key').select('id, tenant_id');
+    const { data, error } = await ownerA.client.from('management_api_key').select('id, tenant_id');
     expect(error).toBeNull();
     expect(data).toEqual([{ id: keyIdA, tenant_id: ownerA.tenantId }]);
   });
 
-  // proves AC-059-17 (data half: an admin API key's row is invisible outside
+  // proves AC-059-17 (data half: an management API key's row is invisible outside
   // its own tenant, the invariant loadBearerServiceContext's cross-org check
   // relies on)
   it('an owner of a different tenant sees zero rows of another tenant’s keys', async () => {
-    const { data, error } = await ownerB.client.from('admin_api_key').select('id');
+    const { data, error } = await ownerB.client.from('management_api_key').select('id');
     expect(error).toBeNull();
     expect(data).toEqual([]);
   });
 
-  it('a role without admin_api_key.insert cannot create a key', async () => {
+  it('a role without management_api_key.insert cannot create a key', async () => {
     const { data, error } = await readMember.client
-      .from('admin_api_key')
+      .from('management_api_key')
       .insert({
         tenant_id: ownerA.tenantId,
         name: 'should-not-exist',
-        admin_api_key_id: `admin_key_${randomBytes(4).toString('hex')}`,
+        management_api_key_id: `admin_key_${randomBytes(4).toString('hex')}`,
         permissions: [] as never,
         created_by: readMember.id,
       })
@@ -126,14 +126,14 @@ describe('admin_api_key RLS', () => {
     expect(error).not.toBeNull();
 
     const { data: rows } = await admin
-      .from('admin_api_key')
+      .from('management_api_key')
       .select('id')
       .eq('name', 'should-not-exist');
     expect(rows).toEqual([]);
   });
 });
 
-describe('admin_api_key secret RPCs (private.admin_api_key_secret)', () => {
+describe('management_api_key secret RPCs (private.management_api_key_secret)', () => {
   let owner: SameTenantUser;
 
   beforeAll(async () => {
@@ -149,17 +149,17 @@ describe('admin_api_key secret RPCs (private.admin_api_key_secret)', () => {
       permissions: ['membership.read', 'membership.insert'],
     });
     const keyDigest = digest();
-    const { error: setError } = await admin.rpc('set_admin_api_key_secret', {
-      p_admin_api_key_id: keyId,
+    const { error: setError } = await admin.rpc('set_management_api_key_secret', {
+      p_management_api_key_id: keyId,
       p_key_digest: keyDigest,
       p_pepper_version: 1,
     });
     expect(setError).toBeNull();
 
-    const { data, error } = await admin.rpc('verify_admin_api_key', { p_key_digest: keyDigest });
+    const { data, error } = await admin.rpc('verify_management_api_key', { p_key_digest: keyDigest });
     expect(error).toBeNull();
     expect(data).toEqual({
-      adminApiKeyId: keyId,
+      managementApiKeyId: keyId,
       tenantId: owner.tenantId,
       permissions: ['membership.read', 'membership.insert'],
       createdBy: owner.id,
@@ -167,7 +167,7 @@ describe('admin_api_key secret RPCs (private.admin_api_key_secret)', () => {
   });
 
   it('returns nothing for a digest with no matching secret row', async () => {
-    const { data, error } = await admin.rpc('verify_admin_api_key', { p_key_digest: digest() });
+    const { data, error } = await admin.rpc('verify_management_api_key', { p_key_digest: digest() });
     expect(error).toBeNull();
     expect(data).toBeNull();
   });
@@ -179,13 +179,13 @@ describe('admin_api_key secret RPCs (private.admin_api_key_secret)', () => {
       revokedAt: new Date().toISOString(),
     });
     const keyDigest = digest();
-    await admin.rpc('set_admin_api_key_secret', {
-      p_admin_api_key_id: keyId,
+    await admin.rpc('set_management_api_key_secret', {
+      p_management_api_key_id: keyId,
       p_key_digest: keyDigest,
       p_pepper_version: 1,
     });
 
-    const { data, error } = await admin.rpc('verify_admin_api_key', { p_key_digest: keyDigest });
+    const { data, error } = await admin.rpc('verify_management_api_key', { p_key_digest: keyDigest });
     expect(error).toBeNull();
     expect(data).toBeNull();
   });
@@ -197,27 +197,27 @@ describe('admin_api_key secret RPCs (private.admin_api_key_secret)', () => {
       expiresAt: new Date(Date.now() - 60_000).toISOString(),
     });
     const keyDigest = digest();
-    await admin.rpc('set_admin_api_key_secret', {
-      p_admin_api_key_id: keyId,
+    await admin.rpc('set_management_api_key_secret', {
+      p_management_api_key_id: keyId,
       p_key_digest: keyDigest,
       p_pepper_version: 1,
     });
 
-    const { data, error } = await admin.rpc('verify_admin_api_key', { p_key_digest: keyDigest });
+    const { data, error } = await admin.rpc('verify_management_api_key', { p_key_digest: keyDigest });
     expect(error).toBeNull();
     expect(data).toBeNull();
   });
 
-  it('touch_admin_api_key_last_used advances last_used_at from null', async () => {
+  it('touch_management_api_key_last_used advances last_used_at from null', async () => {
     const keyId = await seedKey(owner.tenantId, owner.id);
-    const before = await admin.from('admin_api_key').select('last_used_at').eq('id', keyId).single();
+    const before = await admin.from('management_api_key').select('last_used_at').eq('id', keyId).single();
     expect(before.data?.last_used_at).toBeNull();
 
     const touchedAt = Date.now();
-    const { error } = await admin.rpc('touch_admin_api_key_last_used', { p_admin_api_key_id: keyId });
+    const { error } = await admin.rpc('touch_management_api_key_last_used', { p_management_api_key_id: keyId });
     expect(error).toBeNull();
 
-    const after = await admin.from('admin_api_key').select('last_used_at').eq('id', keyId).single();
+    const after = await admin.from('management_api_key').select('last_used_at').eq('id', keyId).single();
     expect(after.data?.last_used_at).not.toBeNull();
     expect(new Date(after.data!.last_used_at as string).getTime()).toBeGreaterThanOrEqual(touchedAt - 1000);
   });

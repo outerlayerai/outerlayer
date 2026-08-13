@@ -1,10 +1,10 @@
 /**
- * Wrapper-wiring tests for the admin-API-key module. Mint/verify/resolve
+ * Wrapper-wiring tests for the management-API-key module. Mint/verify/resolve
  * behavior itself (digest hashing, revoked/expired filtering, tenant
  * binding, creator-membership resolution, permission intersection) lives in
  * `@repo/org-management-service` and is covered by its own suite — this
  * file pins that the dashboard wrapper reads `next/headers` and threads
- * `ADMIN_API_KEY_PEPPER` + the service-role client into the package calls
+ * `MANAGEMENT_API_KEY_PEPPER` + the service-role client into the package calls
  * correctly.
  */
 const requestHeaders = vi.hoisted(() => new Map<string, string>());
@@ -12,55 +12,55 @@ vi.mock("next/headers", () => ({
   headers: () => ({ get: (name: string) => requestHeaders.get(name.toLowerCase()) ?? null }),
 }));
 
-const { mintAdminApiKeyFn, verifyAdminApiKeyBearerFn, resolveAdminApiKeyContextFn, resolveBearerServiceContextFn } =
+const { mintManagementApiKeyFn, verifyManagementApiKeyBearerFn, resolveManagementApiKeyContextFn, resolveBearerServiceContextFn } =
   vi.hoisted(() => ({
-    mintAdminApiKeyFn: vi.fn(),
-    verifyAdminApiKeyBearerFn: vi.fn(),
-    resolveAdminApiKeyContextFn: vi.fn(),
+    mintManagementApiKeyFn: vi.fn(),
+    verifyManagementApiKeyBearerFn: vi.fn(),
+    resolveManagementApiKeyContextFn: vi.fn(),
     resolveBearerServiceContextFn: vi.fn(),
   }));
 
 vi.mock("@repo/org-management-service", () => ({
-  ADMIN_API_KEY_PREFIX: "olk_",
-  mintAdminApiKey: mintAdminApiKeyFn,
-  verifyAdminApiKeyBearer: verifyAdminApiKeyBearerFn,
-  resolveAdminApiKeyContext: resolveAdminApiKeyContextFn,
+  MANAGEMENT_API_KEY_PREFIX: "olk_",
+  mintManagementApiKey: mintManagementApiKeyFn,
+  verifyManagementApiKeyBearer: verifyManagementApiKeyBearerFn,
+  resolveManagementApiKeyContext: resolveManagementApiKeyContextFn,
   resolveBearerServiceContext: resolveBearerServiceContextFn,
 }));
 
 vi.mock("@/config-global.server", () => ({
-  ADMIN_API_KEY_PEPPER: "test-pepper",
+  MANAGEMENT_API_KEY_PEPPER: "test-pepper",
   SUPABASE_SECRET_KEY: "test-service-role-key",
 }));
 
 import { getAdminDataClient } from "./admin-client";
 import {
-  mintAdminApiKeySystem,
-  verifyAdminApiKeyBearer,
-  resolveAdminApiKeyContext,
+  mintManagementApiKeySystem,
+  verifyManagementApiKeyBearer,
+  resolveManagementApiKeyContext,
   loadBearerServiceContext,
-  ADMIN_API_KEY_PREFIX,
-} from "./admin-api-key-service";
+  MANAGEMENT_API_KEY_PREFIX,
+} from "./management-api-key-service";
 
 function setRequestHeaders(next: { authorization?: string }): void {
   requestHeaders.clear();
   if (next.authorization) requestHeaders.set("authorization", next.authorization);
 }
 
-describe("admin-api-key-service wrapper", () => {
+describe("management-api-key-service wrapper", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("re-exports the package's ADMIN_API_KEY_PREFIX", () => {
-    expect(ADMIN_API_KEY_PREFIX).toBe("olk_");
+  it("re-exports the package's MANAGEMENT_API_KEY_PREFIX", () => {
+    expect(MANAGEMENT_API_KEY_PREFIX).toBe("olk_");
   });
 
-  it("mintAdminApiKeySystem injects the pepper and a service-role admin client", async () => {
-    mintAdminApiKeyFn.mockResolvedValue({ plaintext: "olk_x", row: { id: "1", admin_api_key_id: "key_1" } });
+  it("mintManagementApiKeySystem injects the pepper and a service-role admin client", async () => {
+    mintManagementApiKeyFn.mockResolvedValue({ plaintext: "olk_x", row: { id: "1", management_api_key_id: "key_1" } });
     const rowClient = getAdminDataClient();
 
-    await mintAdminApiKeySystem({
+    await mintManagementApiKeySystem({
       rowClient,
       tenantId: "tenant-1",
       name: "key",
@@ -69,7 +69,7 @@ describe("admin-api-key-service wrapper", () => {
       createdBy: "user-1",
     });
 
-    expect(mintAdminApiKeyFn).toHaveBeenCalledWith({
+    expect(mintManagementApiKeyFn).toHaveBeenCalledWith({
       rowClient,
       tenantId: "tenant-1",
       name: "key",
@@ -81,25 +81,25 @@ describe("admin-api-key-service wrapper", () => {
     });
   });
 
-  it("verifyAdminApiKeyBearer threads the pepper alongside the header and client", async () => {
-    verifyAdminApiKeyBearerFn.mockResolvedValue(null);
+  it("verifyManagementApiKeyBearer threads the pepper alongside the header and client", async () => {
+    verifyManagementApiKeyBearerFn.mockResolvedValue(null);
     const adminClient = getAdminDataClient();
 
-    await verifyAdminApiKeyBearer("Bearer olk_x", adminClient);
+    await verifyManagementApiKeyBearer("Bearer olk_x", adminClient);
 
-    expect(verifyAdminApiKeyBearerFn).toHaveBeenCalledWith("Bearer olk_x", adminClient, "test-pepper");
+    expect(verifyManagementApiKeyBearerFn).toHaveBeenCalledWith("Bearer olk_x", adminClient, "test-pepper");
   });
 
-  it("resolveAdminApiKeyContext extracts the Authorization header off the Request and threads the pepper", async () => {
-    resolveAdminApiKeyContextFn.mockResolvedValue({ status: "absent" });
+  it("resolveManagementApiKeyContext extracts the Authorization header off the Request and threads the pepper", async () => {
+    resolveManagementApiKeyContextFn.mockResolvedValue({ status: "absent" });
     const adminClient = getAdminDataClient();
     const request = new Request("http://localhost/api/orgs/acme/members", {
       headers: { authorization: "Bearer olk_x" },
     });
 
-    await resolveAdminApiKeyContext(request, "membership.read", adminClient);
+    await resolveManagementApiKeyContext(request, "membership.read", adminClient);
 
-    expect(resolveAdminApiKeyContextFn).toHaveBeenCalledWith("Bearer olk_x", adminClient, "test-pepper", "membership.read");
+    expect(resolveManagementApiKeyContextFn).toHaveBeenCalledWith("Bearer olk_x", adminClient, "test-pepper", "membership.read");
   });
 
   it("loadBearerServiceContext reads the Authorization header via next/headers and threads orgName + pepper", async () => {

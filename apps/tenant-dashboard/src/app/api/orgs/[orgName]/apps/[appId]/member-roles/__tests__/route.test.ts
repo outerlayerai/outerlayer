@@ -62,7 +62,7 @@ const BEARER = { authorization: 'Bearer olk_somekey' };
 const EXPECTED_BEARER_REJECTION = {
   error: {
     code: 'unauthorized',
-    message: 'Admin API keys are not supported on this endpoint; use a browser session',
+    message: 'Management API keys are not supported on this endpoint; use a browser session',
   },
 };
 
@@ -122,7 +122,7 @@ describe('GET /api/orgs/[orgName]/apps/[appId]/member-roles', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await GET(listReq('', BEARER), routeCtx);
 
     expect(res.status).toBe(401);
@@ -177,7 +177,7 @@ describe('POST /api/orgs/[orgName]/apps/[appId]/member-roles', () => {
     expect(assignAppRoleAction).not.toHaveBeenCalled();
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await POST(postReq(body, BEARER), routeCtx);
 
     expect(res.status).toBe(401);

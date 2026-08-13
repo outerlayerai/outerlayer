@@ -202,7 +202,7 @@ describe('updateSession (strip-only api prefixes)', () => {
   );
 });
 
-describe('updateSession (admin API key bearer path on /api/orgs/**)', () => {
+describe('updateSession (management API key bearer path on /api/orgs/**)', () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
   });

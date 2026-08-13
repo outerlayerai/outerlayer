@@ -37,7 +37,7 @@ import { getSupabaseTestCookieStore } from '@/test-helpers/supabase-session';
 import { mockUser } from '@/test-helpers/fixtures/auth.fixtures';
 import { seedSupabaseAuth, seedSupabaseMswState } from '@/test-helpers/msw-handlers';
 import { createMswRestClient } from '@/test-helpers/rest-client';
-import { mintAdminApiKeySystem } from '@/lib/system/admin-api-key-service';
+import { mintManagementApiKeySystem } from '@/lib/system/management-api-key-service';
 import { withApi, type ApiRouteSchema } from '../with-api';
 
 const validUser = {
@@ -127,10 +127,10 @@ describe('withApi auth (authenticateRequest → verifyAppAccess over the real Su
   });
 });
 
-describe('withApi auth (admin API key bearer branch)', () => {
+describe('withApi auth (management API key bearer branch)', () => {
   it('reaches the handler with a verified TenantContext on a valid, unrevoked bearer key + owned app', async () => {
     const db = createMswRestClient();
-    const { plaintext, row } = await mintAdminApiKeySystem({
+    const { plaintext, row } = await mintManagementApiKeySystem({
       rowClient: db,
       tenantId: 'tenant-456',
       name: 'automation key',
@@ -161,7 +161,7 @@ describe('withApi auth (admin API key bearer branch)', () => {
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
         context: expect.objectContaining({
-          userId: `admin_api_key:${row.id}`,
+          userId: `management_api_key:${row.id}`,
           tenantId: 'tenant-456',
           appId: 'app-789',
           dataRetentionDays: 30,
@@ -191,7 +191,7 @@ describe('withApi auth (admin API key bearer branch)', () => {
 
   it('returns 403 without calling the handler when the bearer key\'s app belongs to a different tenant', async () => {
     const db = createMswRestClient();
-    const { plaintext } = await mintAdminApiKeySystem({
+    const { plaintext } = await mintManagementApiKeySystem({
       rowClient: db,
       tenantId: 'tenant-456',
       name: 'automation key',
@@ -214,7 +214,7 @@ describe('withApi auth (admin API key bearer branch)', () => {
 
   it('returns 400 without calling the handler when a valid bearer key omits the appId query param', async () => {
     const db = createMswRestClient();
-    const { plaintext } = await mintAdminApiKeySystem({
+    const { plaintext } = await mintManagementApiKeySystem({
       rowClient: db,
       tenantId: 'tenant-456',
       name: 'automation key',

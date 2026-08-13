@@ -217,7 +217,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -372,7 +372,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -498,7 +498,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -694,7 +694,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -916,7 +916,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -1067,7 +1067,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -1219,7 +1219,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -1384,7 +1384,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:
@@ -1538,7 +1538,7 @@ paths:
                 required:
                   - error
                 type: object
-          description: Not authenticated. Admin API keys are not supported on this endpoint — session only.
+          description: Not authenticated. Management API keys are not supported on this endpoint — session only.
         "403":
           content:
             application/json:

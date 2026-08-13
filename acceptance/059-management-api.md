@@ -1,8 +1,8 @@
-# Admin API for Org Members and Roles — Acceptance Criteria
+# Management API for Org Members and Roles — Acceptance Criteria
 
 An org-scoped REST API under `/api/orgs/{orgName}/…` for managing members,
 invites, and roles, callable either with a signed-in session or an org-scoped
-admin API key (`Authorization: Bearer olk_…`). Admin API keys are minted,
+management API key (`Authorization: Bearer olk_…`). Management API keys are minted,
 listed, and revoked from org settings; a key's effective permissions are its
 own grants intersected with its creator's current role, so a creator's
 demotion narrows the key immediately with no separate revocation step.
@@ -39,20 +39,20 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 12. `AC-059-12` **Given** an org that has hit its plan's member-count entitlement, **When** a caller with `membership.insert` calls `POST /members/invites`, **Then** the response is a structured `403` carrying the `entitlement_denied` code and an upgrade payload describing the required tier, rather than a generic business-rule `400`.
 
-## Admin API key lifecycle
+## Management API key lifecycle
 
-13. `AC-059-13` **Given** a caller holding `admin_api_key.insert` requesting a grant set they fully hold themselves, **When** they mint a key, **Then** the key is created with exactly the requested grants and the plaintext secret is returned in that one response only.
-14. `AC-059-14` **Given** a caller holding `admin_api_key.insert` requesting a permission they do NOT themselves hold, **When** they mint a key, **Then** the mint is rejected naming the ungranted permission, and no key is written.
-15. `AC-059-15` **Given** an org with existing admin API keys, **When** a caller lists them, **Then** the keys are returned newest first with no digest or other secret material exposed.
-16. `AC-059-16` **Given** a caller holding `admin_api_key.delete` and an active key's id, **When** they revoke it, **Then** the key's `revoked_at` is stamped and revoking it again fails rather than silently no-oping.
+13. `AC-059-13` **Given** a caller holding `management_api_key.insert` requesting a grant set they fully hold themselves, **When** they mint a key, **Then** the key is created with exactly the requested grants and the plaintext secret is returned in that one response only.
+14. `AC-059-14` **Given** a caller holding `management_api_key.insert` requesting a permission they do NOT themselves hold, **When** they mint a key, **Then** the mint is rejected naming the ungranted permission, and no key is written.
+15. `AC-059-15` **Given** an org with existing management API keys, **When** a caller lists them, **Then** the keys are returned newest first with no digest or other secret material exposed.
+16. `AC-059-16` **Given** a caller holding `management_api_key.delete` and an active key's id, **When** they revoke it, **Then** the key's `revoked_at` is stamped and revoking it again fails rather than silently no-oping.
 
 ## Bearer auth security model
 
-17. `AC-059-17` **Given** a live admin API key minted for org A, **When** it is presented as a bearer token against org B's member routes, **Then** the request is denied with 403 and no cross-org data is read.
+17. `AC-059-17` **Given** a live management API key minted for org A, **When** it is presented as a bearer token against org B's member routes, **Then** the request is denied with 403 and no cross-org data is read.
 18. `AC-059-18` **Given** a bearer token that is expired, revoked, or malformed, **When** it is presented to a member route, **Then** the request is denied with 401 and never falls through to session auth.
-19. `AC-059-19` **Given** an admin API key whose creator is no longer an active member of the key's org, **When** the key is presented as a bearer token, **Then** the request is denied with 403.
-20. `AC-059-20` **Given** an admin API key's creator is demoted to a role that no longer holds some of the key's minted grants, **When** the key is used, **Then** its effective permissions are the intersection of the key's own grants and the creator's current role permissions, not the grants as originally minted.
-21. `AC-059-21` **Given** a deployment with `ADMIN_API_KEY_PEPPER` unset, **When** a client presents any well-formed admin API key bearer token, **Then** the token is rejected as invalid without any database lookup, and minting a new key fails with a clear configuration error — while session auth and every other feature remain unaffected.
+19. `AC-059-19` **Given** an management API key whose creator is no longer an active member of the key's org, **When** the key is presented as a bearer token, **Then** the request is denied with 403.
+20. `AC-059-20` **Given** an management API key's creator is demoted to a role that no longer holds some of the key's minted grants, **When** the key is used, **Then** its effective permissions are the intersection of the key's own grants and the creator's current role permissions, not the grants as originally minted.
+21. `AC-059-21` **Given** a deployment with `MANAGEMENT_API_KEY_PEPPER` unset, **When** a client presents any well-formed management API key bearer token, **Then** the token is rejected as invalid without any database lookup, and minting a new key fails with a clear configuration error — while session auth and every other feature remain unaffected.
 
 ## EE custom roles and app-member-role assignment
 

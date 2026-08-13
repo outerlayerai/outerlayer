@@ -18,11 +18,11 @@ function defaultRolePermissions(): RolePermissionRow[] {
   );
 }
 
-type AdminApiKeyRow = {
+type ManagementApiKeyRow = {
   id: string;
   tenant_id: string;
   name: string;
-  admin_api_key_id: string;
+  management_api_key_id: string;
   key_prefix?: string | null;
   permissions?: string[];
   expires_at?: string | null;
@@ -32,46 +32,46 @@ type AdminApiKeyRow = {
   created_by?: string | null;
 };
 
-/** Digest → row id, mirroring `private.admin_api_key_secret`'s UNIQUE index. */
+/** Digest → row id, mirroring `private.management_api_key_secret`'s UNIQUE index. */
 type SecretIndex = Record<string, string>;
 
-type AdminApiKeysMswState = {
-  adminApiKeys: AdminApiKeyRow[];
+type ManagementApiKeysMswState = {
+  managementApiKeys: ManagementApiKeyRow[];
   secretsByDigest: SecretIndex;
   rolePermissions: RolePermissionRow[];
 };
 
-const defaultState = (): AdminApiKeysMswState => ({
-  adminApiKeys: [],
+const defaultState = (): ManagementApiKeysMswState => ({
+  managementApiKeys: [],
   secretsByDigest: {},
   rolePermissions: defaultRolePermissions(),
 });
 
 let state = defaultState();
 
-export function resetAdminApiKeysMswState(): void {
+export function resetManagementApiKeysMswState(): void {
   state = defaultState();
 }
 
-export function seedAdminApiKeysMswState(next: Partial<AdminApiKeysMswState>): void {
+export function seedManagementApiKeysMswState(next: Partial<ManagementApiKeysMswState>): void {
   state = {
     ...state,
     ...next,
-    adminApiKeys: next.adminApiKeys ?? state.adminApiKeys,
+    managementApiKeys: next.managementApiKeys ?? state.managementApiKeys,
     secretsByDigest: next.secretsByDigest ?? state.secretsByDigest,
     rolePermissions: next.rolePermissions ?? state.rolePermissions,
   };
 }
 
-export const adminApiKeysHandlers = [
-  http.post(`${SUPABASE_URL}/rest/v1/rpc/verify_admin_api_key`, async ({ request }) => {
+export const managementApiKeysHandlers = [
+  http.post(`${SUPABASE_URL}/rest/v1/rpc/verify_management_api_key`, async ({ request }) => {
     const body = (await request.json()) as { p_key_digest?: string };
     const rowId = state.secretsByDigest[body.p_key_digest ?? ''];
-    const row = state.adminApiKeys.find((k) => k.id === rowId);
+    const row = state.managementApiKeys.find((k) => k.id === rowId);
     if (!row) {
       return HttpResponse.json(null);
     }
-    // Mirrors `verify_admin_api_key`'s WHERE clause: revoked/expired keys
+    // Mirrors `verify_management_api_key`'s WHERE clause: revoked/expired keys
     // resolve to no digest match at all.
     if (row.revoked_at) {
       return HttpResponse.json(null);
@@ -80,31 +80,31 @@ export const adminApiKeysHandlers = [
       return HttpResponse.json(null);
     }
     return HttpResponse.json({
-      adminApiKeyId: row.id,
+      managementApiKeyId: row.id,
       tenantId: row.tenant_id,
       permissions: row.permissions ?? [],
       createdBy: row.created_by ?? null,
     });
   }),
 
-  http.post(`${SUPABASE_URL}/rest/v1/rpc/touch_admin_api_key_last_used`, () => {
+  http.post(`${SUPABASE_URL}/rest/v1/rpc/touch_management_api_key_last_used`, () => {
     return HttpResponse.json(null);
   }),
 
-  http.post(`${SUPABASE_URL}/rest/v1/rpc/set_admin_api_key_secret`, async ({ request }) => {
+  http.post(`${SUPABASE_URL}/rest/v1/rpc/set_management_api_key_secret`, async ({ request }) => {
     const body = (await request.json()) as {
-      p_admin_api_key_id?: string;
+      p_management_api_key_id?: string;
       p_key_digest?: string;
     };
-    if (body.p_admin_api_key_id && body.p_key_digest) {
-      state.secretsByDigest[body.p_key_digest] = body.p_admin_api_key_id;
+    if (body.p_management_api_key_id && body.p_key_digest) {
+      state.secretsByDigest[body.p_key_digest] = body.p_management_api_key_id;
     }
     return HttpResponse.json(null);
   }),
 
-  http.get(`${SUPABASE_URL}/rest/v1/admin_api_key`, ({ request }) => {
+  http.get(`${SUPABASE_URL}/rest/v1/management_api_key`, ({ request }) => {
     const url = new URL(request.url);
-    let rows = filterByEqParams(url, state.adminApiKeys, ['id', 'tenant_id', 'admin_api_key_id']);
+    let rows = filterByEqParams(url, state.managementApiKeys, ['id', 'tenant_id', 'management_api_key_id']);
 
     // `.order('created_at', { ascending: false })` — the list read's newest-first sort.
     const order = url.searchParams.get('order');
@@ -121,10 +121,10 @@ export const adminApiKeysHandlers = [
   // Revocation: `.update({ revoked_at }).eq('id', id).is('revoked_at', null)`.
   // PostgREST encodes `.is()` as `?column=is.null` / `?column=is.not.null`,
   // which `filterByEqParams` doesn't cover — applied by hand here.
-  http.patch(`${SUPABASE_URL}/rest/v1/admin_api_key`, async ({ request }) => {
+  http.patch(`${SUPABASE_URL}/rest/v1/management_api_key`, async ({ request }) => {
     const url = new URL(request.url);
-    const patch = (await request.json()) as Partial<AdminApiKeyRow>;
-    let matched = filterByEqParams(url, state.adminApiKeys, ['id']);
+    const patch = (await request.json()) as Partial<ManagementApiKeyRow>;
+    let matched = filterByEqParams(url, state.managementApiKeys, ['id']);
 
     const revokedAtIs = url.searchParams.get('revoked_at');
     if (revokedAtIs === 'is.null') {
@@ -132,30 +132,30 @@ export const adminApiKeysHandlers = [
     }
 
     const matchedIds = new Set(matched.map((row) => row.id));
-    state.adminApiKeys = state.adminApiKeys.map((row) =>
+    state.managementApiKeys = state.managementApiKeys.map((row) =>
       matchedIds.has(row.id) ? { ...row, ...patch } : row,
     );
 
     return HttpResponse.json(wantsSingle(request) ? (matched[0] ?? null) : matched.map((row) => ({ id: row.id })));
   }),
 
-  http.post(`${SUPABASE_URL}/rest/v1/admin_api_key`, async ({ request }) => {
+  http.post(`${SUPABASE_URL}/rest/v1/management_api_key`, async ({ request }) => {
     const body = await request.json();
     const rows = Array.isArray(body) ? body : [body];
     const insertedRows = rows.map((row, index) => ({
-      id: `admin-api-key-${state.adminApiKeys.length + index + 1}`,
-      ...(row as Omit<AdminApiKeyRow, 'id'>),
+      id: `management-api-key-${state.managementApiKeys.length + index + 1}`,
+      ...(row as Omit<ManagementApiKeyRow, 'id'>),
     }));
-    state.adminApiKeys.push(...insertedRows);
+    state.managementApiKeys.push(...insertedRows);
     return HttpResponse.json(wantsSingle(request) ? insertedRows[0] : insertedRows, {
       status: 201,
     });
   }),
 
-  http.delete(`${SUPABASE_URL}/rest/v1/admin_api_key`, ({ request }) => {
+  http.delete(`${SUPABASE_URL}/rest/v1/management_api_key`, ({ request }) => {
     const url = new URL(request.url);
-    const matched = filterByEqParams(url, state.adminApiKeys, ['id']);
-    state.adminApiKeys = state.adminApiKeys.filter((key) => !matched.includes(key));
+    const matched = filterByEqParams(url, state.managementApiKeys, ['id']);
+    state.managementApiKeys = state.managementApiKeys.filter((key) => !matched.includes(key));
     return HttpResponse.json(matched);
   }),
 

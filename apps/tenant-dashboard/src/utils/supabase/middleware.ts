@@ -39,20 +39,20 @@ function isCliApiPath(pathname: string): boolean {
   return pathname.startsWith("/api/cli/");
 }
 
-// Mirrors ADMIN_API_KEY_PREFIX in lib/system/admin-api-key-service.ts,
+// Mirrors MANAGEMENT_API_KEY_PREFIX in lib/system/management-api-key-service.ts,
 // hardcoded rather than imported: that module pulls in Node-only mint/verify
 // dependencies this edge-runtime middleware must not carry.
-const ADMIN_API_KEY_BEARER_PREFIX = "Bearer olk_";
+const MANAGEMENT_API_KEY_BEARER_PREFIX = "Bearer olk_";
 
 /**
- * The canonical org-scoped API routes double as the admin-API-key bearer
+ * The canonical org-scoped API routes double as the management-API-key bearer
  * surface. A bearer call carries no session cookie, so it must not hit the
  * cookie-session block below on these paths.
  */
-function isAdminApiKeyBearerPath(request: NextRequest): boolean {
+function isManagementApiKeyBearerPath(request: NextRequest): boolean {
   return (
     request.nextUrl.pathname.startsWith("/api/orgs/") &&
-    (request.headers.get("authorization") ?? "").startsWith(ADMIN_API_KEY_BEARER_PREFIX)
+    (request.headers.get("authorization") ?? "").startsWith(MANAGEMENT_API_KEY_BEARER_PREFIX)
   );
 }
 
@@ -73,7 +73,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
-  // Admin API keys authenticate themselves at the route
+  // Management API keys authenticate themselves at the route
   // (`loadBearerServiceContext`), which fails closed on its own — an invalid
   // or unknown key 401s/403s there, never here. A session check here would
   // 401 every bearer call before that verification ever runs, since a bearer
@@ -81,7 +81,7 @@ export async function updateSession(request: NextRequest) {
   // stripped: a bearer call has no user to resolve membership for, so no
   // tenant header is threaded for it either — the route resolves its own
   // tenant from the URL org.
-  if (isAdminApiKeyBearerPath(request)) {
+  if (isManagementApiKeyBearerPath(request)) {
     const strippedHeaders = new Headers(request.headers);
     strippedHeaders.delete(TENANT_HEADER);
     return NextResponse.next({ request: { headers: strippedHeaders } });

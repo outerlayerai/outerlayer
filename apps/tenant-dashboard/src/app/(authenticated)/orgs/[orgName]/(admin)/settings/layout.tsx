@@ -20,7 +20,7 @@ export default async function SettingsLayout({ children, params }: Props) {
   let showRolesTab = false;
   let showAuditLogTab = false;
   let showAiCostsTab = false;
-  let showAdminApiKeysTab = false;
+  let showManagementApiKeysTab = false;
   const showBillingTab = resolveBillingConfig({ BILLING_ENABLED }).enabled;
   // The License tab is a self-host-only surface (licensed org, plan, expiry).
   // Cloud never sets OUTERLAYER_SELF_HOSTED, so the tab — and the page behind
@@ -43,22 +43,22 @@ export default async function SettingsLayout({ children, params }: Props) {
     // audit_log entitlement AND the caller needs audit_log.read (owner/admin
     // built-in, custom roles by opt-in — authorize() evaluates the caller's
     // own JWT). The server actions re-check both on every request.
-    const [ssoAccess, rolesAccess, auditEntitled, auditRead, aiCostRead, adminApiKeyRead] =
+    const [ssoAccess, rolesAccess, auditEntitled, auditRead, aiCostRead, managementApiKeyRead] =
       await Promise.all([
         getEntitlement(tenantId, "custom_sso"),
         getEntitlement(tenantId, "custom_roles"),
         getEntitlement(tenantId, "audit_log"),
         supabase.rpc("authorize", { requested_permission: "audit_log.read" }),
         supabase.rpc("authorize", { requested_permission: "ai_cost_config.read" }),
-        supabase.rpc("authorize", { requested_permission: "admin_api_key.read" }),
+        supabase.rpc("authorize", { requested_permission: "management_api_key.read" }),
       ]);
     showSsoTab = ssoAccess;
     showRolesTab = rolesAccess;
     showAuditLogTab = auditEntitled && auditRead.data === true;
     // Owner/admin only (12-rbac seeds) — org-level financial configuration.
     showAiCostsTab = aiCostRead.data === true;
-    // Owner/admin only (12-rbac seeds) — admin API keys are shadow-admin credentials.
-    showAdminApiKeysTab = adminApiKeyRead.data === true;
+    // Owner/admin only (12-rbac seeds) — management API keys are shadow-admin credentials.
+    showManagementApiKeysTab = managementApiKeyRead.data === true;
   }
 
   return (
@@ -73,7 +73,7 @@ export default async function SettingsLayout({ children, params }: Props) {
           showAuditLogTab={showAuditLogTab}
           showLicenseTab={showLicenseTab}
           showAiCostsTab={showAiCostsTab}
-          showAdminApiKeysTab={showAdminApiKeysTab}
+          showManagementApiKeysTab={showManagementApiKeysTab}
         />
       }
     >

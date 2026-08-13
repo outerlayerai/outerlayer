@@ -91,14 +91,14 @@ describe('GET /api/orgs/[orgName]/custom-roles', () => {
     await expect(res.json()).resolves.toMatchObject({ error: { code: 'forbidden' } });
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await GET(listReq(BEARER), routeCtx);
 
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({
       error: {
         code: 'unauthorized',
-        message: 'Admin API keys are not supported on this endpoint; use a browser session',
+        message: 'Management API keys are not supported on this endpoint; use a browser session',
       },
     });
     expect(listCustomRolesAction).not.toHaveBeenCalled();
@@ -160,14 +160,14 @@ describe('POST /api/orgs/[orgName]/custom-roles', () => {
     });
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await POST(postReq(validBody, BEARER), routeCtx);
 
     expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({
       error: {
         code: 'unauthorized',
-        message: 'Admin API keys are not supported on this endpoint; use a browser session',
+        message: 'Management API keys are not supported on this endpoint; use a browser session',
       },
     });
     expect(createCustomRoleAction).not.toHaveBeenCalled();

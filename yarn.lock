@@ -6049,6 +6049,24 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@repo/org-management-service@npm:*, @repo/org-management-service@workspace:packages/org-management-service":
+  version: 0.0.0-use.local
+  resolution: "@repo/org-management-service@workspace:packages/org-management-service"
+  dependencies:
+    "@repo/api-key-service": "npm:*"
+    "@repo/db-types": "npm:*"
+    "@repo/typescript-config": "npm:*"
+    "@stryker-mutator/core": "npm:9.6.1"
+    "@stryker-mutator/vitest-runner": "npm:9.6.1"
+    "@supabase/supabase-js": "npm:2.112.0"
+    typescript: "npm:^5.5.3"
+    vitest: "npm:^4.1.8"
+    zod: "npm:^4.3.6"
+  peerDependencies:
+    "@supabase/supabase-js": ^2.50.0
+  languageName: unknown
+  linkType: soft
+
 "@repo/shared-utils@workspace:*, @repo/shared-utils@workspace:packages/shared-utils":
   version: 0.0.0-use.local
   resolution: "@repo/shared-utils@workspace:packages/shared-utils"
@@ -18208,6 +18226,7 @@ __metadata:
     "@repo/eslint-config": "npm:*"
     "@repo/gateway-core": "workspace:*"
     "@repo/observability-service": "npm:*"
+    "@repo/org-management-service": "npm:*"
     "@repo/shared-utils": "workspace:*"
     "@repo/test-msw": "npm:*"
     "@repo/tier-config": "workspace:*"

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "description": "Framework-free membership lifecycle and admin-API-key bearer-authority primitives for org management. Used by the tenant dashboard (Next.js) and the gateway (Cloudflare Worker, Node). Consumers supply their own Supabase clients and app-specific dependencies (email, rate limiting, entitlements, audit logging).",
+  "description": "Framework-free membership lifecycle and management-API-key bearer-authority primitives for org management. Used by the tenant dashboard (Next.js) and the gateway (Cloudflare Worker, Node). Consumers supply their own Supabase clients and app-specific dependencies (email, rate limiting, entitlements, audit logging).",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",

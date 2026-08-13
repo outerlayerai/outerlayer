@@ -34,9 +34,9 @@ export type Database = {
   }
   public: {
     Tables: {
-      admin_api_key: {
+      management_api_key: {
         Row: {
-          admin_api_key_id: string
+          management_api_key_id: string
           created_at: string
           created_by: string | null
           expires_at: string | null
@@ -51,7 +51,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
-          admin_api_key_id: string
+          management_api_key_id: string
           created_at?: string
           created_by?: string | null
           expires_at?: string | null
@@ -66,7 +66,7 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
-          admin_api_key_id?: string
+          management_api_key_id?: string
           created_at?: string
           created_by?: string | null
           expires_at?: string | null
@@ -82,21 +82,21 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "admin_api_key_created_by_fkey"
+            foreignKeyName: "management_api_key_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profile"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "admin_api_key_tenant_id_fkey"
+            foreignKeyName: "management_api_key_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenant"
             referencedColumns: ["tenant_id"]
           },
           {
-            foreignKeyName: "admin_api_key_updated_by_fkey"
+            foreignKeyName: "management_api_key_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profile"
@@ -3049,9 +3049,9 @@ export type Database = {
         }
         Returns: Json
       }
-      set_admin_api_key_secret: {
+      set_management_api_key_secret: {
         Args: {
-          p_admin_api_key_id: string
+          p_management_api_key_id: string
           p_key_digest: string
           p_pepper_version: number
         }
@@ -3070,15 +3070,15 @@ export type Database = {
         Returns: string
       }
       tenant_id: { Args: never; Returns: string }
-      touch_admin_api_key_last_used: {
-        Args: { p_admin_api_key_id: string }
+      touch_management_api_key_last_used: {
+        Args: { p_management_api_key_id: string }
         Returns: undefined
       }
       update_secret: {
         Args: { secret: string; secret_name: string }
         Returns: boolean
       }
-      verify_admin_api_key: { Args: { p_key_digest: string }; Returns: Json }
+      verify_management_api_key: { Args: { p_key_digest: string }; Returns: Json }
       verify_api_key: { Args: { p_key_digest: string }; Returns: Json }
       verify_audit_log_chain: {
         Args: never
@@ -3170,10 +3170,10 @@ export type Database = {
         | "membership.insert"
         | "membership.update"
         | "membership.delete"
-        | "admin_api_key.read"
-        | "admin_api_key.insert"
-        | "admin_api_key.update"
-        | "admin_api_key.delete"
+        | "management_api_key.read"
+        | "management_api_key.insert"
+        | "management_api_key.update"
+        | "management_api_key.delete"
       app_role: "admin" | "write" | "read" | "disabled" | "owner"
       flag_strategy: "global" | "random" | "targeted" | "percentage"
       platform_permission:
@@ -4048,10 +4048,10 @@ export const Constants = {
         "membership.insert",
         "membership.update",
         "membership.delete",
-        "admin_api_key.read",
-        "admin_api_key.insert",
-        "admin_api_key.update",
-        "admin_api_key.delete",
+        "management_api_key.read",
+        "management_api_key.insert",
+        "management_api_key.update",
+        "management_api_key.delete",
       ],
       app_role: ["admin", "write", "read", "disabled", "owner"],
       flag_strategy: ["global", "random", "targeted", "percentage"],

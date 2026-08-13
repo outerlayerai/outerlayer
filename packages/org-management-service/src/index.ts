@@ -1,7 +1,7 @@
 /**
  * @repo/org-management-service
  *
- * Framework-free membership lifecycle and admin-API-key bearer-authority
+ * Framework-free membership lifecycle and management-API-key bearer-authority
  * primitives. Every host-specific concern — email, rate limiting,
  * entitlement gating, audit logging, per-app role assignment, request
  * metadata, and the HMAC pepper — is injected; this package imports no
@@ -15,15 +15,15 @@ export {
 } from './membership-service';
 
 export {
-  ADMIN_API_KEY_PREFIX,
-  mintAdminApiKey,
-  verifyAdminApiKeyBearer,
-  resolveAdminApiKeyContext,
+  MANAGEMENT_API_KEY_PREFIX,
+  mintManagementApiKey,
+  verifyManagementApiKeyBearer,
+  resolveManagementApiKeyContext,
   resolveBearerServiceContext,
-  type AdminApiKeyServiceContext,
-  type AdminApiKeyRequestAuth,
+  type ManagementApiKeyServiceContext,
+  type ManagementApiKeyRequestAuth,
   type BearerServiceContextResult,
-} from './admin-api-key-authority';
+} from './management-api-key-authority';
 
 export {
   MembershipRoleEnum,

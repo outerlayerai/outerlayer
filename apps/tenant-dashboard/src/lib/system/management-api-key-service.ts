@@ -13,24 +13,24 @@ import { headers } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  ADMIN_API_KEY_PREFIX,
-  mintAdminApiKey,
-  verifyAdminApiKeyBearer as pkgVerifyAdminApiKeyBearer,
-  resolveAdminApiKeyContext as pkgResolveAdminApiKeyContext,
+  MANAGEMENT_API_KEY_PREFIX,
+  mintManagementApiKey,
+  verifyManagementApiKeyBearer as pkgVerifyManagementApiKeyBearer,
+  resolveManagementApiKeyContext as pkgResolveManagementApiKeyContext,
   resolveBearerServiceContext,
-  type AdminApiKeyRequestAuth,
+  type ManagementApiKeyRequestAuth,
   type BearerServiceContextResult,
 } from "@repo/org-management-service";
-import { ADMIN_API_KEY_PEPPER } from "@/config-global.server";
+import { MANAGEMENT_API_KEY_PEPPER } from "@/config-global.server";
 import { getAdminDataClient } from "./admin-client";
 
-export { ADMIN_API_KEY_PREFIX };
+export { MANAGEMENT_API_KEY_PREFIX };
 // eslint-disable-next-line import/no-unused-modules -- consumed by bearer-auth call sites outside this module (withApi's authenticateRequest today; org-scoped route auth seams next)
-export type { AdminApiKeyRequestAuth };
+export type { ManagementApiKeyRequestAuth };
 // eslint-disable-next-line import/no-unused-modules -- part of loadBearerServiceContext's public return type, for callers/tests that want to branch on it explicitly
 export type { BearerServiceContextResult };
 
-interface MintAdminApiKeyParams {
+interface MintManagementApiKeyParams {
   /** RLS-scoped client (ctx.db); the row INSERT runs under its policy. */
   rowClient: SupabaseClient;
   tenantId: string;
@@ -40,51 +40,51 @@ interface MintAdminApiKeyParams {
   createdBy: string;
 }
 
-interface MintAdminApiKeyResult {
+interface MintManagementApiKeyResult {
   /** Plaintext key — return to the caller once, then drop. */
   plaintext: string;
-  row: Record<string, unknown> & { id: string; admin_api_key_id: string };
+  row: Record<string, unknown> & { id: string; management_api_key_id: string };
 }
 
 /**
- * Mint an admin API key: write the `public.admin_api_key` row, then its
+ * Mint an management API key: write the `public.management_api_key` row, then its
  * private digest. On a digest-write failure the row is deleted rather than
  * left as a visible-but-unverifiable key.
  */
-export async function mintAdminApiKeySystem(
-  params: MintAdminApiKeyParams,
-): Promise<MintAdminApiKeyResult> {
-  return mintAdminApiKey({
+export async function mintManagementApiKeySystem(
+  params: MintManagementApiKeyParams,
+): Promise<MintManagementApiKeyResult> {
+  return mintManagementApiKey({
     ...params,
-    pepper: ADMIN_API_KEY_PEPPER,
+    pepper: MANAGEMENT_API_KEY_PEPPER,
     adminClient: getAdminDataClient(),
   });
 }
 
 /**
- * Resolves an `Authorization` header to the admin API key it names, or
+ * Resolves an `Authorization` header to the management API key it names, or
  * `null` on anything short of a live, unrevoked, unexpired key.
  */
-export async function verifyAdminApiKeyBearer(
+export async function verifyManagementApiKeyBearer(
   authorizationHeader: string | null,
   adminClient: SupabaseClient = getAdminDataClient(),
 ) {
-  return pkgVerifyAdminApiKeyBearer(authorizationHeader, adminClient, ADMIN_API_KEY_PEPPER);
+  return pkgVerifyManagementApiKeyBearer(authorizationHeader, adminClient, MANAGEMENT_API_KEY_PEPPER);
 }
 
 /**
- * Resolves a request's `Authorization` header to an admin-API-key
+ * Resolves a request's `Authorization` header to an management-API-key
  * `ServiceContext`, or a typed reason it didn't.
  */
-export async function resolveAdminApiKeyContext(
+export async function resolveManagementApiKeyContext(
   request: Request,
   requiredPermission?: string,
   adminClient: SupabaseClient = getAdminDataClient(),
-): Promise<AdminApiKeyRequestAuth> {
-  return pkgResolveAdminApiKeyContext(
+): Promise<ManagementApiKeyRequestAuth> {
+  return pkgResolveManagementApiKeyContext(
     request.headers.get("authorization"),
     adminClient,
-    ADMIN_API_KEY_PEPPER,
+    MANAGEMENT_API_KEY_PEPPER,
     requiredPermission,
   );
 }
@@ -105,6 +105,6 @@ export async function loadBearerServiceContext(
     authorizationHeader: requestHeaders.get("authorization"),
     orgName,
     adminClient,
-    pepper: ADMIN_API_KEY_PEPPER,
+    pepper: MANAGEMENT_API_KEY_PEPPER,
   });
 }

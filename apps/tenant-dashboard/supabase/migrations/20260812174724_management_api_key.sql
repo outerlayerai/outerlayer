@@ -1,7 +1,7 @@
 -- =============================================================================
--- Adds the `admin_api_key.{read,insert,update,delete}` app_permission enum
--- values and the admin_api_key / admin_api_key_secret tables backing them:
--- org-scoped machine credentials for the dashboard admin REST API.
+-- Adds the `management_api_key.{read,insert,update,delete}` app_permission enum
+-- values and the management_api_key / management_api_key_secret tables backing them:
+-- org-scoped machine credentials for the dashboard management REST API.
 --
 -- Postgres has no `ALTER TYPE ... ADD VALUE` that takes effect within the same
 -- transaction as dependent DDL, so the enum is rebuilt the same way
@@ -214,10 +214,10 @@ CREATE TYPE public.app_permission AS ENUM (
     'membership.insert',
     'membership.update',
     'membership.delete',
-    'admin_api_key.read',
-    'admin_api_key.insert',
-    'admin_api_key.update',
-    'admin_api_key.delete'
+    'management_api_key.read',
+    'management_api_key.insert',
+    'management_api_key.update',
+    'management_api_key.delete'
 );
 
 ALTER TABLE public.role_permissions
@@ -286,25 +286,25 @@ $replay$;
 DROP TYPE public.app_permission_old;
 
 -- ---------------------------------------------------------------------------
--- 3. Admin API key tables — org-scoped bearer credentials for the admin
---    REST API. Created after the enum rebuild so `admin_api_key.permissions`
+-- 3. Management API key tables — org-scoped bearer credentials for the admin
+--    REST API. Created after the enum rebuild so `management_api_key.permissions`
 --    binds directly to the final type.
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE "private"."admin_api_key_secret" (
-    "admin_api_key_id" uuid NOT NULL,
+CREATE TABLE "private"."management_api_key_secret" (
+    "management_api_key_id" uuid NOT NULL,
     "key_digest" text NOT NULL,
     "pepper_version" bigint NOT NULL DEFAULT 1,
     "created_at" timestamp with time zone DEFAULT now()
 );
 
-ALTER TABLE "private"."admin_api_key_secret" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "private"."management_api_key_secret" ENABLE ROW LEVEL SECURITY;
 
-CREATE TABLE "public"."admin_api_key" (
+CREATE TABLE "public"."management_api_key" (
     "id" uuid NOT NULL DEFAULT gen_random_uuid(),
     "tenant_id" uuid NOT NULL,
     "name" text NOT NULL,
-    "admin_api_key_id" text NOT NULL,
+    "management_api_key_id" text NOT NULL,
     "key_prefix" text,
     "permissions" public.app_permission[] NOT NULL DEFAULT '{}'::public.app_permission[],
     "expires_at" timestamp with time zone,
@@ -316,29 +316,29 @@ CREATE TABLE "public"."admin_api_key" (
     "updated_by" uuid
 );
 
-ALTER TABLE "public"."admin_api_key" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."management_api_key" ENABLE ROW LEVEL SECURITY;
 
-CREATE UNIQUE INDEX admin_api_key_secret_pkey ON private.admin_api_key_secret USING btree (admin_api_key_id);
-CREATE UNIQUE INDEX uc_admin_api_key_secret_digest ON private.admin_api_key_secret USING btree (key_digest);
+CREATE UNIQUE INDEX management_api_key_secret_pkey ON private.management_api_key_secret USING btree (management_api_key_id);
+CREATE UNIQUE INDEX uc_management_api_key_secret_digest ON private.management_api_key_secret USING btree (key_digest);
 
-CREATE UNIQUE INDEX admin_api_key_admin_api_key_id_key ON public.admin_api_key USING btree (admin_api_key_id);
-CREATE UNIQUE INDEX admin_api_key_pkey ON public.admin_api_key USING btree (id);
-CREATE INDEX idx_admin_api_key_tenant ON public.admin_api_key USING btree (tenant_id);
-CREATE UNIQUE INDEX uc_admin_api_key ON public.admin_api_key USING btree (name, tenant_id);
+CREATE UNIQUE INDEX management_api_key_management_api_key_id_key ON public.management_api_key USING btree (management_api_key_id);
+CREATE UNIQUE INDEX management_api_key_pkey ON public.management_api_key USING btree (id);
+CREATE INDEX idx_management_api_key_tenant ON public.management_api_key USING btree (tenant_id);
+CREATE UNIQUE INDEX uc_management_api_key ON public.management_api_key USING btree (name, tenant_id);
 
-ALTER TABLE "private"."admin_api_key_secret" ADD CONSTRAINT "admin_api_key_secret_pkey" PRIMARY KEY USING INDEX "admin_api_key_secret_pkey";
-ALTER TABLE "public"."admin_api_key" ADD CONSTRAINT "admin_api_key_pkey" PRIMARY KEY USING INDEX "admin_api_key_pkey";
+ALTER TABLE "private"."management_api_key_secret" ADD CONSTRAINT "management_api_key_secret_pkey" PRIMARY KEY USING INDEX "management_api_key_secret_pkey";
+ALTER TABLE "public"."management_api_key" ADD CONSTRAINT "management_api_key_pkey" PRIMARY KEY USING INDEX "management_api_key_pkey";
 
-ALTER TABLE "private"."admin_api_key_secret" ADD CONSTRAINT "admin_api_key_secret_admin_api_key_id_fkey" FOREIGN KEY (admin_api_key_id) REFERENCES public.admin_api_key(id) ON DELETE CASCADE;
-ALTER TABLE "private"."admin_api_key_secret" ADD CONSTRAINT "uc_admin_api_key_secret_digest" UNIQUE USING INDEX "uc_admin_api_key_secret_digest";
+ALTER TABLE "private"."management_api_key_secret" ADD CONSTRAINT "management_api_key_secret_management_api_key_id_fkey" FOREIGN KEY (management_api_key_id) REFERENCES public.management_api_key(id) ON DELETE CASCADE;
+ALTER TABLE "private"."management_api_key_secret" ADD CONSTRAINT "uc_management_api_key_secret_digest" UNIQUE USING INDEX "uc_management_api_key_secret_digest";
 
-ALTER TABLE "public"."admin_api_key" ADD CONSTRAINT "admin_api_key_admin_api_key_id_key" UNIQUE USING INDEX "admin_api_key_admin_api_key_id_key";
-ALTER TABLE "public"."admin_api_key" ADD CONSTRAINT "admin_api_key_created_by_fkey" FOREIGN KEY (created_by) REFERENCES public.profile(id) ON DELETE SET NULL;
-ALTER TABLE "public"."admin_api_key" ADD CONSTRAINT "admin_api_key_tenant_id_fkey" FOREIGN KEY (tenant_id) REFERENCES public.tenant(tenant_id) ON DELETE CASCADE;
-ALTER TABLE "public"."admin_api_key" ADD CONSTRAINT "admin_api_key_updated_by_fkey" FOREIGN KEY (updated_by) REFERENCES public.profile(id) ON DELETE SET NULL;
-ALTER TABLE "public"."admin_api_key" ADD CONSTRAINT "uc_admin_api_key" UNIQUE USING INDEX "uc_admin_api_key";
+ALTER TABLE "public"."management_api_key" ADD CONSTRAINT "management_api_key_management_api_key_id_key" UNIQUE USING INDEX "management_api_key_management_api_key_id_key";
+ALTER TABLE "public"."management_api_key" ADD CONSTRAINT "management_api_key_created_by_fkey" FOREIGN KEY (created_by) REFERENCES public.profile(id) ON DELETE SET NULL;
+ALTER TABLE "public"."management_api_key" ADD CONSTRAINT "management_api_key_tenant_id_fkey" FOREIGN KEY (tenant_id) REFERENCES public.tenant(tenant_id) ON DELETE CASCADE;
+ALTER TABLE "public"."management_api_key" ADD CONSTRAINT "management_api_key_updated_by_fkey" FOREIGN KEY (updated_by) REFERENCES public.profile(id) ON DELETE SET NULL;
+ALTER TABLE "public"."management_api_key" ADD CONSTRAINT "uc_management_api_key" UNIQUE USING INDEX "uc_management_api_key";
 
-CREATE FUNCTION private.verify_admin_api_key(p_key_digest text)
+CREATE FUNCTION private.verify_management_api_key(p_key_digest text)
  RETURNS jsonb
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
@@ -348,13 +348,13 @@ DECLARE
   v_result jsonb;
 BEGIN
   SELECT jsonb_build_object(
-    'adminApiKeyId', k.id,
+    'managementApiKeyId', k.id,
     'tenantId', k.tenant_id,
     'permissions', COALESCE(to_jsonb(k.permissions), '[]'::jsonb)
   )
   INTO v_result
-  FROM public.admin_api_key k
-  JOIN private.admin_api_key_secret s ON s.admin_api_key_id = k.id
+  FROM public.management_api_key k
+  JOIN private.management_api_key_secret s ON s.management_api_key_id = k.id
   WHERE s.key_digest = p_key_digest
     AND k.revoked_at IS NULL
     AND (k.expires_at IS NULL OR k.expires_at > now());
@@ -363,100 +363,100 @@ BEGIN
 END;
 $function$;
 
-CREATE FUNCTION private.touch_admin_api_key_last_used(p_admin_api_key_id uuid)
+CREATE FUNCTION private.touch_management_api_key_last_used(p_management_api_key_id uuid)
  RETURNS void
  LANGUAGE sql
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
-  UPDATE public.admin_api_key SET last_used_at = now() WHERE id = p_admin_api_key_id;
+  UPDATE public.management_api_key SET last_used_at = now() WHERE id = p_management_api_key_id;
 $function$;
 
-CREATE FUNCTION private.set_admin_api_key_secret(p_admin_api_key_id uuid, p_key_digest text, p_pepper_version bigint)
+CREATE FUNCTION private.set_management_api_key_secret(p_management_api_key_id uuid, p_key_digest text, p_pepper_version bigint)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 BEGIN
-  INSERT INTO private.admin_api_key_secret (admin_api_key_id, key_digest, pepper_version)
-  VALUES (p_admin_api_key_id, p_key_digest, p_pepper_version)
-  ON CONFLICT (admin_api_key_id) DO UPDATE
+  INSERT INTO private.management_api_key_secret (management_api_key_id, key_digest, pepper_version)
+  VALUES (p_management_api_key_id, p_key_digest, p_pepper_version)
+  ON CONFLICT (management_api_key_id) DO UPDATE
     SET key_digest = EXCLUDED.key_digest,
         pepper_version = EXCLUDED.pepper_version;
 END;
 $function$;
 
-CREATE FUNCTION public.verify_admin_api_key(p_key_digest text)
+CREATE FUNCTION public.verify_management_api_key(p_key_digest text)
  RETURNS jsonb
  LANGUAGE sql
  SECURITY INVOKER
  SET search_path TO 'public'
 AS $function$
-  SELECT private.verify_admin_api_key(p_key_digest);
+  SELECT private.verify_management_api_key(p_key_digest);
 $function$;
 
-CREATE FUNCTION public.touch_admin_api_key_last_used(p_admin_api_key_id uuid)
+CREATE FUNCTION public.touch_management_api_key_last_used(p_management_api_key_id uuid)
  RETURNS void
  LANGUAGE sql
  SECURITY INVOKER
  SET search_path TO 'public'
 AS $function$
-  SELECT private.touch_admin_api_key_last_used(p_admin_api_key_id);
+  SELECT private.touch_management_api_key_last_used(p_management_api_key_id);
 $function$;
 
-CREATE FUNCTION public.set_admin_api_key_secret(p_admin_api_key_id uuid, p_key_digest text, p_pepper_version bigint)
+CREATE FUNCTION public.set_management_api_key_secret(p_management_api_key_id uuid, p_key_digest text, p_pepper_version bigint)
  RETURNS void
  LANGUAGE sql
  SECURITY INVOKER
  SET search_path TO 'public'
 AS $function$
-  SELECT private.set_admin_api_key_secret(p_admin_api_key_id, p_key_digest, p_pepper_version);
+  SELECT private.set_management_api_key_secret(p_management_api_key_id, p_key_digest, p_pepper_version);
 $function$;
 
-REVOKE EXECUTE ON FUNCTION private.verify_admin_api_key(text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION private.verify_admin_api_key(text) TO service_role;
+REVOKE EXECUTE ON FUNCTION private.verify_management_api_key(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION private.verify_management_api_key(text) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION private.touch_admin_api_key_last_used(uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION private.touch_admin_api_key_last_used(uuid) TO service_role;
+REVOKE EXECUTE ON FUNCTION private.touch_management_api_key_last_used(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION private.touch_management_api_key_last_used(uuid) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION private.set_admin_api_key_secret(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION private.set_admin_api_key_secret(uuid, text, bigint) TO service_role;
+REVOKE EXECUTE ON FUNCTION private.set_management_api_key_secret(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION private.set_management_api_key_secret(uuid, text, bigint) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION public.verify_admin_api_key(text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.verify_admin_api_key(text) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.verify_management_api_key(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.verify_management_api_key(text) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION public.touch_admin_api_key_last_used(uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.touch_admin_api_key_last_used(uuid) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.touch_management_api_key_last_used(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.touch_management_api_key_last_used(uuid) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION public.set_admin_api_key_secret(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.set_admin_api_key_secret(uuid, text, bigint) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.set_management_api_key_secret(uuid, text, bigint) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_management_api_key_secret(uuid, text, bigint) TO service_role;
 
-GRANT ALL ON public.admin_api_key TO authenticated;
-GRANT ALL ON public.admin_api_key TO service_role;
+GRANT ALL ON public.management_api_key TO authenticated;
+GRANT ALL ON public.management_api_key TO service_role;
 
-CREATE POLICY "Enable admin_api_key delete for users with admin access" ON "public"."admin_api_key" FOR DELETE TO "authenticated" USING (( SELECT "private"."authorize"('admin_api_key.delete'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
+CREATE POLICY "Enable management_api_key delete for users with admin access" ON "public"."management_api_key" FOR DELETE TO "authenticated" USING (( SELECT "private"."authorize"('management_api_key.delete'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
 
-CREATE POLICY "Enable admin_api_key insert for users with admin access" ON "public"."admin_api_key" FOR INSERT TO "authenticated" WITH CHECK (( SELECT "private"."authorize"('admin_api_key.insert'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
+CREATE POLICY "Enable management_api_key insert for users with admin access" ON "public"."management_api_key" FOR INSERT TO "authenticated" WITH CHECK (( SELECT "private"."authorize"('management_api_key.insert'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
 
-CREATE POLICY "Enable read access for tenant users" ON "public"."admin_api_key" FOR SELECT TO "authenticated" USING (( SELECT "private"."authorize"('admin_api_key.read'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
+CREATE POLICY "Enable read access for tenant users" ON "public"."management_api_key" FOR SELECT TO "authenticated" USING (( SELECT "private"."authorize"('management_api_key.read'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
 
-CREATE POLICY "Enable admin_api_key update for users with update access" ON "public"."admin_api_key" FOR UPDATE TO "authenticated" USING (( SELECT "private"."authorize"('admin_api_key.update'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id")) WITH CHECK (( SELECT "private"."authorize"('admin_api_key.update'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
+CREATE POLICY "Enable management_api_key update for users with update access" ON "public"."management_api_key" FOR UPDATE TO "authenticated" USING (( SELECT "private"."authorize"('management_api_key.update'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id")) WITH CHECK (( SELECT "private"."authorize"('management_api_key.update'::"public"."app_permission")) AND (( SELECT "public"."tenant_id"() AS "tenant_id") = "tenant_id"));
 
--- Org-scoped bearer credentials for the admin REST API (member/role
+-- Org-scoped bearer credentials for the management REST API (member/role
 -- management, SCIM-layerable later). More privileged than a gateway api_key
 -- by design — a key carries org-wide member/role permissions — so creating
 -- and reading are owner/admin only, unlike api_key.insert/read which also
 -- grant write.
 INSERT INTO public.role_permissions (role, permission) VALUES
-    ('owner', 'admin_api_key.delete'),
-    ('admin', 'admin_api_key.delete'),
-    ('owner', 'admin_api_key.insert'),
-    ('admin', 'admin_api_key.insert'),
-    ('owner', 'admin_api_key.read'),
-    ('admin', 'admin_api_key.read'),
-    ('owner', 'admin_api_key.update'),
-    ('admin', 'admin_api_key.update')
+    ('owner', 'management_api_key.delete'),
+    ('admin', 'management_api_key.delete'),
+    ('owner', 'management_api_key.insert'),
+    ('admin', 'management_api_key.insert'),
+    ('owner', 'management_api_key.read'),
+    ('admin', 'management_api_key.read'),
+    ('owner', 'management_api_key.update'),
+    ('admin', 'management_api_key.update')
 ON CONFLICT (role, permission) DO NOTHING;
 
 COMMIT;

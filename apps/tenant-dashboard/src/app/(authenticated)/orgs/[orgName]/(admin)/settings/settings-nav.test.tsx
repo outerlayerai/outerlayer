@@ -14,7 +14,7 @@ const baseProps = {
   showBillingTab: false,
   showAuditLogTab: false,
   showAiCostsTab: false,
-  showAdminApiKeysTab: false,
+  showManagementApiKeysTab: false,
 };
 
 describe("SettingsNav — License tab (self-host gate)", () => {
@@ -43,15 +43,15 @@ describe("SettingsNav — AI costs tab (permission gate)", () => {
   });
 });
 
-describe("SettingsNav — Admin API keys tab (permission gate)", () => {
-  it("shows the Admin API keys tab, linked to the admin-api-keys route, when showAdminApiKeysTab is true", () => {
-    render(<SettingsNav {...baseProps} showLicenseTab={false} showAdminApiKeysTab={true} />);
-    const link = screen.getByRole("link", { name: /admin api keys/i });
-    expect(link).toHaveAttribute("href", "/orgs/acme/settings/admin-api-keys");
+describe("SettingsNav — Management API keys tab (permission gate)", () => {
+  it("shows the Management API keys tab, linked to the management-api-keys route, when showManagementApiKeysTab is true", () => {
+    render(<SettingsNav {...baseProps} showLicenseTab={false} showManagementApiKeysTab={true} />);
+    const link = screen.getByRole("link", { name: /management api keys/i });
+    expect(link).toHaveAttribute("href", "/orgs/acme/settings/management-api-keys");
   });
 
-  it("hides the Admin API keys tab when showAdminApiKeysTab is false (member without admin_api_key.read)", () => {
-    render(<SettingsNav {...baseProps} showLicenseTab={false} showAdminApiKeysTab={false} />);
-    expect(screen.queryByRole("link", { name: /admin api keys/i })).not.toBeInTheDocument();
+  it("hides the Management API keys tab when showManagementApiKeysTab is false (member without management_api_key.read)", () => {
+    render(<SettingsNav {...baseProps} showLicenseTab={false} showManagementApiKeysTab={false} />);
+    expect(screen.queryByRole("link", { name: /management api keys/i })).not.toBeInTheDocument();
   });
 });

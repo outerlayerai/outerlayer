@@ -22,9 +22,9 @@ vi.mock('@/lib/adapters', () => ({
   checkRequestPermission: mockCheckPerm,
 }));
 
-vi.mock('@/lib/system/admin-api-key-service', () => ({
+vi.mock('@/lib/system/management-api-key-service', () => ({
   loadBearerServiceContext: mockLoadBearerCtx,
-  ADMIN_API_KEY_PREFIX: 'olk_',
+  MANAGEMENT_API_KEY_PREFIX: 'olk_',
 }));
 
 vi.mock('next/headers', () => ({
@@ -71,7 +71,7 @@ describe('requireOrgContext — session path (unchanged)', () => {
     expect(mockLoadBearerCtx).not.toHaveBeenCalled();
   });
 
-  it('falls through to session auth for a Bearer token that is not an admin API key (wrong prefix)', async () => {
+  it('falls through to session auth for a Bearer token that is not an management API key (wrong prefix)', async () => {
     headersGet.mockReturnValue('Bearer sk_outerlayer_agatewaykey');
     mockLoadCtx.mockResolvedValue(CTX);
 

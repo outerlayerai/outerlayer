@@ -1,27 +1,27 @@
 /**
- * Admin API key mint + bearer-verify authority — framework-free, no `next/*`
+ * Management API key mint + bearer-verify authority — framework-free, no `next/*`
  * import anywhere in this module. A host's request-bound wiring (reading the
  * `Authorization` header off `next/headers`, resolving the URL org segment)
  * stays in the host and is passed in as plain values.
  *
- * Verification never compares digests in application code — `verifyAdminApiKeyBearer`
+ * Verification never compares digests in application code — `verifyManagementApiKeyBearer`
  * looks the digest up through the admin key's secret table UNIQUE index (via
- * the host's `verify_admin_api_key` RPC), so there is no `===` on secret
+ * the host's `verify_management_api_key` RPC), so there is no `===` on secret
  * material to time.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateApiKey, hashApiKey } from '@repo/api-key-service';
 
-/** Plaintext prefix for admin API keys — distinguishes them from gateway `sk_outerlayer_` keys at a glance. */
-export const ADMIN_API_KEY_PREFIX = 'olk_';
+/** Plaintext prefix for management API keys — distinguishes them from gateway `sk_outerlayer_` keys at a glance. */
+export const MANAGEMENT_API_KEY_PREFIX = 'olk_';
 
-interface MintAdminApiKeyParams {
+interface MintManagementApiKeyParams {
   /** RLS-scoped client (ctx.db); the row INSERT runs under its policy. */
   rowClient: SupabaseClient;
   /** Service-role client; only it may write the private digest via RPC. */
   adminClient: SupabaseClient;
-  /** HMAC pepper. `undefined` means admin API keys are unconfigured on this deployment. */
+  /** HMAC pepper. `undefined` means management API keys are unconfigured on this deployment. */
   pepper: string | undefined;
   tenantId: string;
   name: string;
@@ -30,18 +30,18 @@ interface MintAdminApiKeyParams {
   createdBy: string;
 }
 
-interface MintAdminApiKeyResult {
+interface MintManagementApiKeyResult {
   /** Plaintext key — return to the caller once, then drop. */
   plaintext: string;
-  row: Record<string, unknown> & { id: string; admin_api_key_id: string };
+  row: Record<string, unknown> & { id: string; management_api_key_id: string };
 }
 
 /**
- * Mint an admin API key: write the `public.admin_api_key` row, then its
+ * Mint an management API key: write the `public.management_api_key` row, then its
  * private digest. On a digest-write failure the row is deleted rather than
  * left as a visible-but-unverifiable key.
  */
-export async function mintAdminApiKey(params: MintAdminApiKeyParams): Promise<MintAdminApiKeyResult> {
+export async function mintManagementApiKey(params: MintManagementApiKeyParams): Promise<MintManagementApiKeyResult> {
   const { rowClient, adminClient, pepper, tenantId, name, permissions, expiresAt, createdBy } = params;
 
   // pepper is optional (self-host boot must not require a secret for a
@@ -50,19 +50,19 @@ export async function mintAdminApiKey(params: MintAdminApiKeyParams): Promise<Mi
   // pepper-throws-inside-hashApiKey stack trace.
   if (!pepper) {
     throw new Error(
-      'Admin API keys are not configured on this deployment (ADMIN_API_KEY_PEPPER is unset)',
+      'Management API keys are not configured on this deployment (MANAGEMENT_API_KEY_PEPPER is unset)',
     );
   }
 
-  const { plaintext, keyPrefix, apiKeyId } = generateApiKey({ prefix: ADMIN_API_KEY_PREFIX });
+  const { plaintext, keyPrefix, apiKeyId } = generateApiKey({ prefix: MANAGEMENT_API_KEY_PREFIX });
   const keyDigest = await hashApiKey(plaintext, pepper);
 
   const { data: row, error: insertError } = await rowClient
-    .from('admin_api_key')
+    .from('management_api_key')
     .insert({
       name,
       tenant_id: tenantId,
-      admin_api_key_id: apiKeyId,
+      management_api_key_id: apiKeyId,
       key_prefix: keyPrefix,
       permissions,
       expires_at: expiresAt,
@@ -74,21 +74,21 @@ export async function mintAdminApiKey(params: MintAdminApiKeyParams): Promise<Mi
     throw insertError;
   }
 
-  const { error: rpcError } = await adminClient.rpc('set_admin_api_key_secret', {
-    p_admin_api_key_id: row.id,
+  const { error: rpcError } = await adminClient.rpc('set_management_api_key_secret', {
+    p_management_api_key_id: row.id,
     p_key_digest: keyDigest,
     p_pepper_version: 1,
   });
   if (rpcError) {
-    await adminClient.from('admin_api_key').delete().eq('id', row.id);
+    await adminClient.from('management_api_key').delete().eq('id', row.id);
     throw rpcError;
   }
 
-  return { plaintext, row: row as MintAdminApiKeyResult['row'] };
+  return { plaintext, row: row as MintManagementApiKeyResult['row'] };
 }
 
-interface AdminApiKeyAuth {
-  adminApiKeyId: string;
+export interface ManagementApiKeyAuth {
+  managementApiKeyId: string;
   tenantId: string;
   permissions: string[];
   /** The user who minted the key, or `null` for a legacy row written before this column existed. */
@@ -96,22 +96,22 @@ interface AdminApiKeyAuth {
 }
 
 /**
- * Resolves an `Authorization` header to the admin API key it names, or
+ * Resolves an `Authorization` header to the management API key it names, or
  * `null` on anything short of a live, unrevoked, unexpired key: missing
  * header, wrong scheme, wrong prefix, or no matching digest.
- * `verify_admin_api_key`'s WHERE clause (not this function) is what enforces
+ * `verify_management_api_key`'s WHERE clause (not this function) is what enforces
  * revoked/expired.
  */
-export async function verifyAdminApiKeyBearer(
+export async function verifyManagementApiKeyBearer(
   authorizationHeader: string | null,
   adminClient: SupabaseClient,
   pepper: string | undefined,
-): Promise<AdminApiKeyAuth | null> {
+): Promise<ManagementApiKeyAuth | null> {
   if (!authorizationHeader?.startsWith('Bearer ')) {
     return null;
   }
   const token = authorizationHeader.slice('Bearer '.length).trim();
-  if (!token.startsWith(ADMIN_API_KEY_PREFIX)) {
+  if (!token.startsWith(MANAGEMENT_API_KEY_PREFIX)) {
     return null;
   }
 
@@ -132,7 +132,7 @@ export async function verifyAdminApiKeyBearer(
     return null;
   }
 
-  const { data, error } = await adminClient.rpc('verify_admin_api_key', {
+  const { data, error } = await adminClient.rpc('verify_management_api_key', {
     p_key_digest: digest,
   });
   if (error || !data) {
@@ -140,7 +140,7 @@ export async function verifyAdminApiKeyBearer(
   }
 
   const result = data as {
-    adminApiKeyId: string;
+    managementApiKeyId: string;
     tenantId: string;
     permissions: string[];
     createdBy: string | null;
@@ -149,15 +149,15 @@ export async function verifyAdminApiKeyBearer(
   // Best-effort bookkeeping: a failed touch must not turn a valid key into a
   // rejected request.
   try {
-    await adminClient.rpc('touch_admin_api_key_last_used', {
-      p_admin_api_key_id: result.adminApiKeyId,
+    await adminClient.rpc('touch_management_api_key_last_used', {
+      p_management_api_key_id: result.managementApiKeyId,
     });
   } catch {
     // Deliberately empty.
   }
 
   return {
-    adminApiKeyId: result.adminApiKeyId,
+    managementApiKeyId: result.managementApiKeyId,
     tenantId: result.tenantId,
     permissions: result.permissions ?? [],
     createdBy: result.createdBy ?? null,
@@ -165,7 +165,7 @@ export async function verifyAdminApiKeyBearer(
 }
 
 /** The narrow shape a host's `ServiceContext` must satisfy — see `apps/tenant-dashboard`'s own for the full type. */
-export interface AdminApiKeyServiceContext {
+export interface ManagementApiKeyServiceContext {
   db: SupabaseClient;
   tenantId: string;
   actor: { userId: string; role: string };
@@ -189,32 +189,32 @@ export interface AdminApiKeyServiceContext {
  *                    bearer request carries no session JWT, so there is no
  *                    RLS-scoped client to hand back).
  */
-export type AdminApiKeyRequestAuth =
+export type ManagementApiKeyRequestAuth =
   | { status: 'absent' }
   | { status: 'invalid' }
   | { status: 'forbidden'; permissions: string[] }
-  | { status: 'ok'; context: AdminApiKeyServiceContext; permissions: string[] };
+  | { status: 'ok'; context: ManagementApiKeyServiceContext; permissions: string[] };
 
 /**
- * Resolves a request's `Authorization` header to an admin-API-key
- * `AdminApiKeyServiceContext`, or a typed reason it didn't. `requiredPermission`
+ * Resolves a request's `Authorization` header to an management-API-key
+ * `ManagementApiKeyServiceContext`, or a typed reason it didn't. `requiredPermission`
  * is checked against the key's own grant set only — never RLS/`authorize()`,
  * which have nothing to evaluate for a session-less bearer caller.
  */
-export async function resolveAdminApiKeyContext(
+export async function resolveManagementApiKeyContext(
   authorizationHeader: string | null,
   adminClient: SupabaseClient,
   pepper: string | undefined,
   requiredPermission?: string,
-): Promise<AdminApiKeyRequestAuth> {
+): Promise<ManagementApiKeyRequestAuth> {
   const bearerToken = authorizationHeader?.startsWith('Bearer ')
     ? authorizationHeader.slice('Bearer '.length).trim()
     : null;
-  if (!bearerToken?.startsWith(ADMIN_API_KEY_PREFIX)) {
+  if (!bearerToken?.startsWith(MANAGEMENT_API_KEY_PREFIX)) {
     return { status: 'absent' };
   }
 
-  const auth = await verifyAdminApiKeyBearer(authorizationHeader, adminClient, pepper);
+  const auth = await verifyManagementApiKeyBearer(authorizationHeader, adminClient, pepper);
   if (!auth) {
     return { status: 'invalid' };
   }
@@ -223,10 +223,10 @@ export async function resolveAdminApiKeyContext(
     return { status: 'forbidden', permissions: auth.permissions };
   }
 
-  const context: AdminApiKeyServiceContext = {
+  const context: ManagementApiKeyServiceContext = {
     db: adminClient,
     tenantId: auth.tenantId,
-    actor: { userId: `admin_api_key:${auth.adminApiKeyId}`, role: '' },
+    actor: { userId: `management_api_key:${auth.managementApiKeyId}`, role: '' },
   };
 
   return { status: 'ok', context, permissions: auth.permissions };
@@ -239,7 +239,7 @@ export async function resolveAdminApiKeyContext(
  * authenticated-but-not-permitted.
  */
 export type BearerServiceContextResult =
-  | { ok: true; ctx: AdminApiKeyServiceContext; keyPermissions: string[] }
+  | { ok: true; ctx: ManagementApiKeyServiceContext; keyPermissions: string[] }
   | { ok: false; status: 401; message: string }
   | { ok: false; status: 403; message: string };
 
@@ -279,7 +279,7 @@ interface ResolveBearerServiceContextParams {
 }
 
 /**
- * Builds a bearer-authed `AdminApiKeyServiceContext` for org-scoped routes
+ * Builds a bearer-authed `ManagementApiKeyServiceContext` for org-scoped routes
  * that resolve auth manually, given an already-read `Authorization` header
  * and org slug — the host owns reading both off the live request.
  *
@@ -293,7 +293,7 @@ interface ResolveBearerServiceContextParams {
  *      failure.
  *   3. **Actor attribution**: the key's creator must hold an ACTIVE
  *      membership in that tenant RIGHT NOW — re-resolved every call, never
- *      cached from mint time. An admin API key acts as its creator: this is
+ *      cached from mint time. An management API key acts as its creator: this is
  *      what keeps `MembershipService`'s role-based rules (owner-only owner
  *      invites, last-owner protection) and audit-log attribution meaningful
  *      for a bearer caller, and what makes a key's practical authority
@@ -309,7 +309,7 @@ export async function resolveBearerServiceContext(
 ): Promise<BearerServiceContextResult> {
   const { authorizationHeader, orgName, adminClient, pepper } = params;
 
-  const auth = await verifyAdminApiKeyBearer(authorizationHeader, adminClient, pepper);
+  const auth = await verifyManagementApiKeyBearer(authorizationHeader, adminClient, pepper);
   if (!auth) {
     return { ok: false, status: 401, message: 'Not authenticated' };
   }
@@ -360,7 +360,7 @@ export async function resolveBearerServiceContext(
   const rolePermissions = new Set((rolePermissionRows ?? []).map((row) => row.permission as string));
   const effectivePermissions = auth.permissions.filter((permission) => rolePermissions.has(permission));
 
-  const ctx: AdminApiKeyServiceContext = {
+  const ctx: ManagementApiKeyServiceContext = {
     db: adminClient,
     tenantId: auth.tenantId,
     actor: { userId: auth.createdBy, role: creatorMembership.role as string },

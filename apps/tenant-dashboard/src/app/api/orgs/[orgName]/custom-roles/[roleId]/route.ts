@@ -18,7 +18,7 @@ import 'server-only';
 import { z } from 'zod';
 import { withApi } from '@/lib/api/with-api';
 import { EntitlementForbiddenResponseSchema } from '@/lib/api/entitlement-response';
-import { rejectAdminApiKeyBearer } from '@/lib/api/reject-admin-api-key-bearer';
+import { rejectManagementApiKeyBearer } from '@/lib/api/reject-management-api-key-bearer';
 import { getCustomRole, updateCustomRole, deleteCustomRole } from '@ee/features/custom-roles/http';
 import { updateCustomRoleInputSchema } from '@ee/features/custom-roles/schemas';
 
@@ -70,12 +70,12 @@ export const GET = withApi(
     request: { params: RoleParamsSchema },
     responses: {
       200: { description: 'The custom role.', schema: CustomRoleDetailSchema },
-      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
+      401: { description: 'Not authenticated. Management API keys are not supported on this endpoint — session only.' },
       403: { description: 'Lacks `custom_role.read`.' },
     },
   },
   async ({ request, input }) => {
-    rejectAdminApiKeyBearer(request);
+    rejectManagementApiKeyBearer(request);
     return getCustomRole(input.params.roleId);
   },
 );
@@ -96,7 +96,7 @@ export const PATCH = withApi(
     responses: {
       200: { description: 'The updated custom role.', schema: CustomRoleSchema },
       400: { description: 'Invalid body, or a role with this name already exists.' },
-      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
+      401: { description: 'Not authenticated. Management API keys are not supported on this endpoint — session only.' },
       403: {
         description:
           'Lacks `custom_role.update` (plain `forbidden`), or the `custom_roles` entitlement is absent ' +
@@ -106,7 +106,7 @@ export const PATCH = withApi(
     },
   },
   async ({ request, input }) => {
-    rejectAdminApiKeyBearer(request);
+    rejectManagementApiKeyBearer(request);
     return updateCustomRole(input.params.roleId, input.body);
   },
 );
@@ -128,7 +128,7 @@ export const DELETE = withApi(
     responses: {
       200: { description: 'The deleted role and how many members were reassigned.', schema: DeleteResultSchema },
       400: { description: 'Members assigned and no `fallbackRole` given, or an invalid one.' },
-      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
+      401: { description: 'Not authenticated. Management API keys are not supported on this endpoint — session only.' },
       403: {
         description:
           'Lacks `custom_role.delete` (plain `forbidden`), or the `custom_roles` entitlement is absent ' +
@@ -138,7 +138,7 @@ export const DELETE = withApi(
     },
   },
   async ({ request, input }) => {
-    rejectAdminApiKeyBearer(request);
+    rejectManagementApiKeyBearer(request);
     return deleteCustomRole(input.params.roleId, input.query.fallbackRole);
   },
 );

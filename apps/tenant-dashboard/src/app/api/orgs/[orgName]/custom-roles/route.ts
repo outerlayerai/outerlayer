@@ -17,7 +17,7 @@ import 'server-only';
 import { z } from 'zod';
 import { withApi } from '@/lib/api/with-api';
 import { EntitlementForbiddenResponseSchema } from '@/lib/api/entitlement-response';
-import { rejectAdminApiKeyBearer } from '@/lib/api/reject-admin-api-key-bearer';
+import { rejectManagementApiKeyBearer } from '@/lib/api/reject-management-api-key-bearer';
 import { listCustomRoles, createCustomRole } from '@ee/features/custom-roles/http';
 import { createCustomRoleInputSchema } from '@ee/features/custom-roles/schemas';
 
@@ -52,12 +52,12 @@ export const GET = withApi(
     request: { params: OrgParamsSchema },
     responses: {
       200: { description: 'Custom role list.', schema: z.array(CustomRoleSchema) },
-      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
+      401: { description: 'Not authenticated. Management API keys are not supported on this endpoint — session only.' },
       403: { description: 'Lacks `custom_role.read`.' },
     },
   },
   async ({ request }) => {
-    rejectAdminApiKeyBearer(request);
+    rejectManagementApiKeyBearer(request);
     return listCustomRoles();
   },
 );
@@ -78,7 +78,7 @@ export const POST = withApi(
     responses: {
       201: { description: 'The created custom role.', schema: CustomRoleSchema },
       400: { description: 'Invalid body, or a role with this name already exists.' },
-      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
+      401: { description: 'Not authenticated. Management API keys are not supported on this endpoint — session only.' },
       403: {
         description:
           'Lacks `custom_role.insert` (plain `forbidden`), or the `custom_roles` entitlement is absent ' +
@@ -88,7 +88,7 @@ export const POST = withApi(
     },
   },
   async ({ request, input }) => {
-    rejectAdminApiKeyBearer(request);
+    rejectManagementApiKeyBearer(request);
     return createCustomRole(input.body);
   },
 );

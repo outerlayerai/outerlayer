@@ -62,7 +62,7 @@ const BEARER = { authorization: 'Bearer olk_somekey' };
 const EXPECTED_BEARER_REJECTION = {
   error: {
     code: 'unauthorized',
-    message: 'Admin API keys are not supported on this endpoint; use a browser session',
+    message: 'Management API keys are not supported on this endpoint; use a browser session',
   },
 };
 
@@ -120,7 +120,7 @@ describe('PATCH /api/orgs/[orgName]/apps/[appId]/member-roles/[appMemberRoleId]'
     expect(body.error.reason).toBe('entitlement_denied');
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await PATCH(patchReq({ role: 'admin' }, BEARER), routeCtx);
 
     expect(res.status).toBe(401);
@@ -165,7 +165,7 @@ describe('DELETE /api/orgs/[orgName]/apps/[appId]/member-roles/[appMemberRoleId]
     expect(res.status).toBe(403);
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await DELETE(deleteReq(BEARER), routeCtx);
 
     expect(res.status).toBe(401);

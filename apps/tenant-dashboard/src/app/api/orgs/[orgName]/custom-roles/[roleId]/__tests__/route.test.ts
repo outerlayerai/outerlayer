@@ -64,7 +64,7 @@ const BEARER = { authorization: 'Bearer olk_somekey' };
 const EXPECTED_BEARER_REJECTION = {
   error: {
     code: 'unauthorized',
-    message: 'Admin API keys are not supported on this endpoint; use a browser session',
+    message: 'Management API keys are not supported on this endpoint; use a browser session',
   },
 };
 
@@ -84,7 +84,7 @@ describe('GET /api/orgs/[orgName]/custom-roles/[roleId]', () => {
     expect(getCustomRoleAction).toHaveBeenCalledWith({ roleId: 'cr-1' });
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await GET(getReq(BEARER), routeCtx);
 
     expect(res.status).toBe(401);
@@ -119,7 +119,7 @@ describe('PATCH /api/orgs/[orgName]/custom-roles/[roleId]', () => {
     expect(body.error.reason).toBe('entitlement_denied');
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await PATCH(patchReq({ name: 'reviewer-v2' }, BEARER), routeCtx);
 
     expect(res.status).toBe(401);
@@ -156,7 +156,7 @@ describe('DELETE /api/orgs/[orgName]/custom-roles/[roleId]', () => {
     });
   });
 
-  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+  it('returns a clean 401 for an management-API-key bearer caller instead of hitting the session-only action', async () => {
     const res = await DELETE(deleteReq('', BEARER), routeCtx);
 
     expect(res.status).toBe(401);

@@ -49,22 +49,22 @@
       }
     },
     {
-      "key": "admin_api_key",
-      "rationale": "Org-scoped bearer credentials for the admin REST API (member/role management, SCIM-layerable later). More privileged than a gateway api_key by design — a key carries org-wide member/role permissions — so creating and reading are owner/admin only, unlike api_key.insert/read which also grant write.",
+      "key": "management_api_key",
+      "rationale": "Org-scoped bearer credentials for the management REST API (member/role management, SCIM-layerable later). More privileged than a gateway api_key by design — a key carries org-wide member/role permissions — so creating and reading are owner/admin only, unlike api_key.insert/read which also grant write.",
       "grants": {
-        "admin_api_key.delete": [
+        "management_api_key.delete": [
           "owner",
           "admin"
         ],
-        "admin_api_key.insert": [
+        "management_api_key.insert": [
           "owner",
           "admin"
         ],
-        "admin_api_key.read": [
+        "management_api_key.read": [
           "owner",
           "admin"
         ],
-        "admin_api_key.update": [
+        "management_api_key.update": [
           "owner",
           "admin"
         ]
