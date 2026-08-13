@@ -18,5 +18,10 @@
   "072-sso": 0,
   "073-audit-log": 0,
   "074-app-access": 0,
-  "075-access-control": 0
+  "075-access-control": 0,
+  "076-trace-ingest": 0,
+  "077-members": 2,
+  "078-terms": 0,
+  "079-profile": 2,
+  "081-transactional-email": 0
 }
