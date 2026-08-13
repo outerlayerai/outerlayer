@@ -91,6 +91,8 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
     await admin.from('tenant').delete().in('tenant_id', tenantIds);
   });
 
+  // proves AC-068-01
+  // proves AC-068-02
   it('a divergent-claim connect lands under the signed-state tenant, not the claim tenant', async () => {
     // Mint + verify the state exactly as the callback does: the tenant it lands
     // under is `verified.payload.tenant_id` (org A), while the actor's claim is org B.
@@ -129,6 +131,7 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
     expect(bView).toEqual([]);
   });
 
+  // proves AC-068-03
   it('a signed state for a tenant the user does not belong to writes nothing', async () => {
     // Org C is validly signed, but the actor is not a member — public.tenant_id()
     // resolves to null and the write is denied at the DB, fail-closed.
@@ -154,6 +157,7 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
     expect(rows).toEqual([]);
   });
 
+  // proves AC-068-04
   it('a single-org connect (state tenant == the only org) lands the row', async () => {
     const { token } = await signGitConnectState({
       secret: STATE_SECRET,

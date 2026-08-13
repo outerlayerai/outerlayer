@@ -28,6 +28,7 @@ function createService(): EnvVarService {
 }
 
 describe('EnvVarService.set — app/env pairing check', () => {
+  // proves AC-067-05
   it('throws when the supplied environmentId does NOT belong to appId', async () => {
     // Only app-A's env exists in the environment table; the caller passes
     // env-B's id paired with app-A → pairing check fails.

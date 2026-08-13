@@ -115,6 +115,7 @@ describe('handlePullRequestEvent (integration, real Supabase)', () => {
     expect(row?.opened_at).toBe('2026-07-10T09:00:00+00:00');
   });
 
+  // proves AC-068-07
   it('synchronize on an existing PR updates the same row (head sha advances)', async () => {
     const { appId, repo } = await seedConnectedApp(user.tenantId);
 
@@ -134,6 +135,7 @@ describe('handlePullRequestEvent (integration, real Supabase)', () => {
     expect(count).toBe(1);
   });
 
+  // proves AC-068-08
   it('closed/merged: marks the PR merged, stamping payload times', async () => {
     const { appId, repo } = await seedConnectedApp(user.tenantId);
     await handlePullRequestEvent(prPayload('opened', repo, { number: 14 }));
@@ -148,6 +150,7 @@ describe('handlePullRequestEvent (integration, real Supabase)', () => {
     expect(row?.merged_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
+  // proves AC-068-06
   it('docs-only PR: tracked for fleet metrics same as any other PR', async () => {
     const { appId, repo } = await seedConnectedApp(user.tenantId);
 
@@ -158,6 +161,7 @@ describe('handlePullRequestEvent (integration, real Supabase)', () => {
     expect(row?.pr_number).toBe(15);
   });
 
+  // proves AC-068-11
   it('RLS: a tenant member with git_connection.read can read PR rows; the table is service_role-write', async () => {
     const { appId, repo } = await seedConnectedApp(user.tenantId);
     await handlePullRequestEvent(prPayload('opened', repo, { number: 16 }));

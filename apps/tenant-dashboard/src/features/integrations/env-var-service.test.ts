@@ -323,6 +323,7 @@ describe("EnvVarService — environment-scoped writes", () => {
     expect(getVaultMswState().secrets[`env_${APP_ID}_${ENV_ID}_EXISTING_KEY`]).toBe("new-value");
   });
 
+  // proves AC-067-03
   it("set replaces an existing secret in place, never deleting it first", async () => {
     // Calling deleteEnvVarSecret before writeEnvVarSecret on the update leg
     // leaves the row pointing at a deleted secret whenever the write fails,

@@ -113,6 +113,7 @@ describe('fake GitProvider fixture', () => {
     await admin.from('tenant').delete().eq('tenant_id', owner.tenantId);
   });
 
+  // proves AC-068-05
   it('installFakeGitProvider routes createGitProviderForApp to the fake for a normal github connection', async () => {
     seedFakeRepo(repository, { branch: 'main', files: {} });
 
