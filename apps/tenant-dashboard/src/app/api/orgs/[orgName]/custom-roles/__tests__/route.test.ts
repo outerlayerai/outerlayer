@@ -52,9 +52,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { GET, POST } from '../route';
 
 const routeCtx = { params: Promise.resolve({ orgName: 'acme' }) };
-const listReq = () => new Request('http://localhost/api/orgs/acme/custom-roles');
-const postReq = (body: unknown) =>
-  new Request('http://localhost/api/orgs/acme/custom-roles', { method: 'POST', body: JSON.stringify(body) });
+const listReq = (headers?: Record<string, string>) =>
+  new Request('http://localhost/api/orgs/acme/custom-roles', { headers });
+const postReq = (body: unknown, headers?: Record<string, string>) =>
+  new Request('http://localhost/api/orgs/acme/custom-roles', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers,
+  });
+const BEARER = { authorization: 'Bearer olk_somekey' };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -83,6 +89,19 @@ describe('GET /api/orgs/[orgName]/custom-roles', () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({ error: { code: 'forbidden' } });
+  });
+
+  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+    const res = await GET(listReq(BEARER), routeCtx);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({
+      error: {
+        code: 'unauthorized',
+        message: 'Admin API keys are not supported on this endpoint; use a browser session',
+      },
+    });
+    expect(listCustomRolesAction).not.toHaveBeenCalled();
   });
 });
 
@@ -139,5 +158,18 @@ describe('POST /api/orgs/[orgName]/custom-roles', () => {
     await expect(res.json()).resolves.toMatchObject({
       error: { code: 'invalid_field_value', message: 'A role with this name already exists' },
     });
+  });
+
+  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+    const res = await POST(postReq(validBody, BEARER), routeCtx);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({
+      error: {
+        code: 'unauthorized',
+        message: 'Admin API keys are not supported on this endpoint; use a browser session',
+      },
+    });
+    expect(createCustomRoleAction).not.toHaveBeenCalled();
   });
 });

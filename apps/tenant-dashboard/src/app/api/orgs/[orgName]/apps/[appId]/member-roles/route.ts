@@ -18,6 +18,7 @@ import 'server-only';
 import { z } from 'zod';
 import { withApi } from '@/lib/api/with-api';
 import { EntitlementForbiddenResponseSchema } from '@/lib/api/entitlement-response';
+import { rejectAdminApiKeyBearer } from '@/lib/api/reject-admin-api-key-bearer';
 import { listMemberRoles, assignMemberRole } from '@ee/features/app-access/http';
 import { assignAppRoleInputSchema } from '@ee/features/app-access/schemas';
 
@@ -67,11 +68,14 @@ export const GET = withApi(
     request: { params: AppParamsSchema, query: ListQuerySchema },
     responses: {
       200: { description: 'App-member-role assignment list.', schema: z.array(AppMemberRoleListItemSchema) },
-      401: { description: 'Not authenticated.' },
+      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
       403: { description: 'Lacks `app_member_role.read`.' },
     },
   },
-  async ({ input }) => listMemberRoles(input.params.appId, input.query.membershipId),
+  async ({ request, input }) => {
+    rejectAdminApiKeyBearer(request);
+    return listMemberRoles(input.params.appId, input.query.membershipId);
+  },
 );
 
 export const POST = withApi(
@@ -90,7 +94,7 @@ export const POST = withApi(
     responses: {
       201: { description: 'The created app-member-role row.', schema: AppMemberRoleRowSchema },
       400: { description: 'Invalid body, or the target membership is an org owner.' },
-      401: { description: 'Not authenticated.' },
+      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
       403: {
         description:
           'Lacks `app_member_role.insert` (plain `forbidden`), or the `app_level_roles` entitlement is absent ' +
@@ -99,5 +103,8 @@ export const POST = withApi(
       },
     },
   },
-  async ({ input }) => assignMemberRole(input.params.appId, input.body.membershipId, input.body.role),
+  async ({ request, input }) => {
+    rejectAdminApiKeyBearer(request);
+    return assignMemberRole(input.params.appId, input.body.membershipId, input.body.role);
+  },
 );

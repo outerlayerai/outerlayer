@@ -391,7 +391,7 @@ export interface operations {
                     }[];
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -486,7 +486,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -560,7 +560,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -668,7 +668,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -805,7 +805,7 @@ export interface operations {
                     }[];
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -898,7 +898,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -984,7 +984,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1064,7 +1064,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1170,7 +1170,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Not authenticated. */
+            /** @description Not authenticated. Admin API keys are not supported on this endpoint — session only. */
             401: {
                 headers: {
                     [name: string]: unknown;

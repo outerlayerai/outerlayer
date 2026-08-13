@@ -36,14 +36,14 @@ interface ResolvedOrgContext {
  * retry as an anonymous session. Only the ABSENCE of that scheme reaches the
  * session path below, unchanged from before this seam existed.
  */
-async function resolveOrgContext(): Promise<ResolvedOrgContext> {
+async function resolveOrgContext(orgName: string): Promise<ResolvedOrgContext> {
   const authorizationHeader = (await headers()).get("authorization");
   const bearerToken = authorizationHeader?.startsWith("Bearer ")
     ? authorizationHeader.slice("Bearer ".length).trim()
     : null;
 
   if (bearerToken?.startsWith(ADMIN_API_KEY_PREFIX)) {
-    const result = await loadBearerServiceContext();
+    const result = await loadBearerServiceContext(orgName);
     if (!result.ok) {
       if (result.status === 401) {
         throw new AnalyticsError("Not authenticated", "unauthorized", 401);
@@ -71,8 +71,8 @@ async function resolveOrgContext(): Promise<ResolvedOrgContext> {
  * `withApi`'s own auth path uses, so both auth paths look identical to a
  * client.
  */
-export async function requireOrgContext(): Promise<ServiceContext> {
-  const { ctx } = await resolveOrgContext();
+export async function requireOrgContext(orgName: string): Promise<ServiceContext> {
+  const { ctx } = await resolveOrgContext(orgName);
   return ctx;
 }
 
@@ -84,8 +84,8 @@ export async function requireOrgContext(): Promise<ServiceContext> {
  * caller, "the gate" is membership in the key's own permission set, not the
  * `authorize()` RPC session check.
  */
-export async function requireMembershipContext(permission: string): Promise<ServiceContext> {
-  const { ctx, bearerPermissions } = await resolveOrgContext();
+export async function requireMembershipContext(permission: string, orgName: string): Promise<ServiceContext> {
+  const { ctx, bearerPermissions } = await resolveOrgContext(orgName);
   const allowed = bearerPermissions
     ? bearerPermissions.includes(permission)
     : await checkRequestPermission(ctx.actor, permission);

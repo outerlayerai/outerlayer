@@ -47,7 +47,7 @@ export const PATCH = withApi(
     authRequired: false,
   },
   async ({ input }) => {
-    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_UPDATE);
+    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_UPDATE, input.params.orgName);
     const result = await changeMemberRole({
       tenantId: ctx.tenantId,
       actorUserId: ctx.actor.userId,
@@ -83,7 +83,7 @@ export const DELETE = withApi(
     authRequired: false,
   },
   async ({ input }) => {
-    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_DELETE);
+    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_DELETE, input.params.orgName);
     const result = await removeMember({
       tenantId: ctx.tenantId,
       actorUserId: ctx.actor.userId,

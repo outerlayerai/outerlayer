@@ -17,7 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { generateApiKey, hashApiKey } from "@repo/api-key-service";
 import { ADMIN_API_KEY_PEPPER } from "@/config-global.server";
-import { getRequestTenantId } from "@/lib/tenant/request-tenant";
+import { escapeOrgNameForIlike } from "@/lib/tenant/request-tenant";
 import type { ServiceContext } from "@/lib/action-kit/service-context";
 import { getAdminDataClient } from "./admin-client";
 
@@ -251,21 +251,45 @@ export type BearerServiceContextResult =
   | { ok: false; status: 403; message: string };
 
 /**
+ * Resolves a URL org slug to its tenant id directly against the `tenant`
+ * table, with no membership filter — a bearer caller has no session user to
+ * scope the lookup to. Same case-insensitive, metacharacter-escaped `ilike`
+ * match `resolveRequestTenantId` uses for the session path, so `/api/orgs/Acme`
+ * and `/api/orgs/acme` resolve identically for both auth paths. An org slug
+ * naming no tenant resolves to `null`.
+ */
+async function resolveBearerTenantId(
+  adminClient: SupabaseClient,
+  orgName: string,
+): Promise<string | null> {
+  const literal = escapeOrgNameForIlike(orgName);
+  const { data } = await adminClient
+    .from("tenant")
+    .select("tenant_id")
+    .ilike("organization_name", literal)
+    .limit(1)
+    .maybeSingle();
+
+  return (data?.tenant_id as string | undefined) ?? null;
+}
+
+/**
  * Builds a bearer-authed `ServiceContext` for org-scoped routes that resolve
  * auth manually (the `requireOrgContext` family), rather than through
  * `withApi`'s app-scoped `authenticateRequest`. Reads the `Authorization`
  * header itself via `next/headers` — these routes call in with no `Request`
- * object in hand, the same reason `getRequestTenantId()` reads headers
- * directly instead of taking one.
+ * object in hand.
  *
  * Three checks, all fail-closed:
  *
  *   1. The key verifies (not malformed/unknown/expired/revoked) — 401.
- *   2. **Tenant binding**: the key's own `tenant_id` must equal the
- *      URL-resolved request tenant (`getRequestTenantId()`). A key minted
- *      for org A presented against org B's URL is a cross-tenant attempt,
- *      not a fallback to the key's own tenant — 403. No resolved request
- *      tenant at all (the URL doesn't name a live org) is the same failure.
+ *   2. **Tenant binding**: the key's own `tenant_id` must equal the tenant
+ *      `orgName` resolves to. A key minted for org A presented against org
+ *      B's URL is a cross-tenant attempt, not a fallback to the key's own
+ *      tenant — 403. An `orgName` that names no tenant at all is the same
+ *      failure. This resolution is the route's own — the middleware threads
+ *      no `x-tenant-id` for a bearer call, since there is no session user to
+ *      scope a membership lookup to.
  *   3. **Actor attribution**: the key's creator must hold an ACTIVE
  *      membership in that tenant RIGHT NOW — re-resolved every call, never
  *      cached from mint time. An admin API key acts as its creator: this is
@@ -285,6 +309,7 @@ export type BearerServiceContextResult =
  * alone was protecting.
  */
 export async function loadBearerServiceContext(
+  orgName: string,
   adminClient: SupabaseClient = getAdminDataClient(),
 ): Promise<BearerServiceContextResult> {
   const requestHeaders = await headers();
@@ -295,8 +320,8 @@ export async function loadBearerServiceContext(
     return { ok: false, status: 401, message: "Not authenticated" };
   }
 
-  const requestTenantId = await getRequestTenantId();
-  if (!requestTenantId || requestTenantId !== auth.tenantId) {
+  const resolvedTenantId = await resolveBearerTenantId(adminClient, orgName);
+  if (!resolvedTenantId || resolvedTenantId !== auth.tenantId) {
     return { ok: false, status: 403, message: "This key does not belong to this organization" };
   }
 

@@ -38,10 +38,10 @@ describe('loadMembersForApi', () => {
     const rows = [{ id: 'u1' }] as never;
     mockListMembers.mockResolvedValue(rows);
 
-    const result = await loadMembersForApi();
+    const result = await loadMembersForApi('acme');
 
     expect(result).toBe(rows);
-    expect(mockRequireMembershipContext).toHaveBeenCalledWith('membership.read');
+    expect(mockRequireMembershipContext).toHaveBeenCalledWith('membership.read', 'acme');
     expect(mockListMembers).toHaveBeenCalledWith('tenant-1');
   });
 });

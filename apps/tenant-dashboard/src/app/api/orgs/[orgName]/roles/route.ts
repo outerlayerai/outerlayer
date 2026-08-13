@@ -26,10 +26,10 @@ export const GET = withApi(
     },
     authRequired: false,
   },
-  async () => {
+  async ({ input }) => {
     // A static, tenant-independent catalog — any authenticated org member
     // may read it, so this checks auth only, no `Permissions.*` gate.
-    await requireOrgContext();
+    await requireOrgContext(input.params.orgName);
     return { roles: BUILT_IN_ROLES };
   },
 );

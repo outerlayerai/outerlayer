@@ -11,8 +11,8 @@ import { listMembers } from "./service";
  * the resolved request context. Distinct from the RSC settings page, which
  * calls `listMembers` directly under the page's own access control.
  */
-export async function loadMembersForApi(): Promise<TenantMember[]> {
-  const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_READ);
+export async function loadMembersForApi(orgName: string): Promise<TenantMember[]> {
+  const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_READ, orgName);
   return listMembers(ctx.tenantId);
 }
 

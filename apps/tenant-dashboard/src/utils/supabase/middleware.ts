@@ -39,6 +39,23 @@ function isCliApiPath(pathname: string): boolean {
   return pathname.startsWith("/api/cli/");
 }
 
+// Mirrors ADMIN_API_KEY_PREFIX in lib/system/admin-api-key-service.ts,
+// hardcoded rather than imported: that module pulls in Node-only mint/verify
+// dependencies this edge-runtime middleware must not carry.
+const ADMIN_API_KEY_BEARER_PREFIX = "Bearer olk_";
+
+/**
+ * The canonical org-scoped API routes double as the admin-API-key bearer
+ * surface. A bearer call carries no session cookie, so it must not hit the
+ * cookie-session block below on these paths.
+ */
+function isAdminApiKeyBearerPath(request: NextRequest): boolean {
+  return (
+    request.nextUrl.pathname.startsWith("/api/orgs/") &&
+    (request.headers.get("authorization") ?? "").startsWith(ADMIN_API_KEY_BEARER_PREFIX)
+  );
+}
+
 export async function updateSession(request: NextRequest) {
   // Strip any inbound x-tenant-id so the value downstream code reads was minted
   // by this middleware. Self-authenticating / tenant-agnostic api prefixes get
@@ -54,6 +71,20 @@ export async function updateSession(request: NextRequest) {
   // passes through for resolveCliTenant to handle.
   if (isCliApiPath(request.nextUrl.pathname)) {
     return NextResponse.next({ request });
+  }
+
+  // Admin API keys authenticate themselves at the route
+  // (`loadBearerServiceContext`), which fails closed on its own — an invalid
+  // or unknown key 401s/403s there, never here. A session check here would
+  // 401 every bearer call before that verification ever runs, since a bearer
+  // caller carries no session cookie. The inbound x-tenant-id is still
+  // stripped: a bearer call has no user to resolve membership for, so no
+  // tenant header is threaded for it either — the route resolves its own
+  // tenant from the URL org.
+  if (isAdminApiKeyBearerPath(request)) {
+    const strippedHeaders = new Headers(request.headers);
+    strippedHeaders.delete(TENANT_HEADER);
+    return NextResponse.next({ request: { headers: strippedHeaders } });
   }
 
   let supabaseResponse = NextResponse.next({

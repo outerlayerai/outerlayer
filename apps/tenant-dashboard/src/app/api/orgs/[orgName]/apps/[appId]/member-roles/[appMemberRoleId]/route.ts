@@ -18,6 +18,7 @@ import 'server-only';
 import { z } from 'zod';
 import { withApi } from '@/lib/api/with-api';
 import { EntitlementForbiddenResponseSchema } from '@/lib/api/entitlement-response';
+import { rejectAdminApiKeyBearer } from '@/lib/api/reject-admin-api-key-bearer';
 import { updateMemberRoleBuiltin, updateMemberRoleCustom, revokeMemberRole } from '@ee/features/app-access/http';
 
 const MemberRoleParamsSchema = z.object({
@@ -69,7 +70,7 @@ export const PATCH = withApi(
     responses: {
       200: { description: 'The updated app-member-role row.', schema: AppMemberRoleRowSchema },
       400: { description: 'Neither or both of `role`/`customRoleId` given.' },
-      401: { description: 'Not authenticated.' },
+      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
       403: {
         description:
           'Lacks `app_member_role.update` (plain `forbidden`), or the `app_level_roles` entitlement is absent ' +
@@ -78,7 +79,8 @@ export const PATCH = withApi(
       },
     },
   },
-  async ({ input }) => {
+  async ({ request, input }) => {
+    rejectAdminApiKeyBearer(request);
     const { role, customRoleId } = input.body;
     return role !== undefined
       ? updateMemberRoleBuiltin(input.params.appMemberRoleId, role)
@@ -101,7 +103,7 @@ export const DELETE = withApi(
     request: { params: MemberRoleParamsSchema },
     responses: {
       200: { description: 'Acknowledgement of the revoke — not the deleted row.', schema: RevokeResultSchema },
-      401: { description: 'Not authenticated.' },
+      401: { description: 'Not authenticated. Admin API keys are not supported on this endpoint — session only.' },
       403: {
         description:
           'Lacks `app_member_role.delete` (plain `forbidden`), or the `app_level_roles` entitlement is absent ' +
@@ -110,5 +112,8 @@ export const DELETE = withApi(
       },
     },
   },
-  async ({ input }) => revokeMemberRole(input.params.appMemberRoleId),
+  async ({ request, input }) => {
+    rejectAdminApiKeyBearer(request);
+    return revokeMemberRole(input.params.appMemberRoleId);
+  },
 );

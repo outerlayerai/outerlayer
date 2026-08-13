@@ -202,6 +202,59 @@ describe('updateSession (strip-only api prefixes)', () => {
   );
 });
 
+describe('updateSession (admin API key bearer path on /api/orgs/**)', () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
+  });
+
+  it('passes an olk_ bearer request through with no session and strips the inbound tenant header', async () => {
+    const request = new NextRequest('http://localhost:4000/api/orgs/acme/members', {
+      headers: { authorization: 'Bearer olk_somekey', 'x-tenant-id': 'spoofed-tenant' },
+    });
+
+    const response = await updateSession(request);
+
+    expect(response.status).toBe(200);
+    expect(forwardedTenant(response)).toBeNull();
+  });
+
+  it('401s a non-olk bearer on /api/orgs/** with no session, same as any other unauthenticated request', async () => {
+    const request = new NextRequest('http://localhost:4000/api/orgs/acme/members', {
+      headers: { authorization: 'Bearer sk_outerlayer_notanadminkey' },
+    });
+
+    const response = await updateSession(request);
+
+    expect(response.status).toBe(401);
+  });
+
+  it('leaves a session request to /api/orgs/** unchanged — tenant still threaded from the URL org', async () => {
+    seedMembershipMswState({
+      memberships: [
+        { id: 'm1', user_id: 'user-1', tenant_id: 'tenant-A', role: 'admin', status: 'active' },
+      ],
+      tenants: [{ tenant_id: 'tenant-A', organization_name: 'org-a' }],
+    });
+
+    const response = await updateSession(
+      makeAuthedRequest('/api/orgs/org-a/members', 'user-1'),
+    );
+
+    expect(response.status).toBe(200);
+    expect(forwardedTenant(response)).toBe('tenant-A');
+  });
+
+  it('still 401s an olk_ bearer request with no session on a non-orgs API path', async () => {
+    const request = new NextRequest('http://localhost:4000/api/platform-admin/score-coverage', {
+      headers: { authorization: 'Bearer olk_somekey' },
+    });
+
+    const response = await updateSession(request);
+
+    expect(response.status).toBe(401);
+  });
+});
+
 describe('updateSession (CLI api path — the one header-strip exception)', () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';

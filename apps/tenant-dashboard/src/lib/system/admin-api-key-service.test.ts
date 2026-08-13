@@ -31,10 +31,9 @@ function requestWithAuth(authorization?: string): Request {
   });
 }
 
-function setRequestHeaders(next: { authorization?: string; tenantId?: string }): void {
+function setRequestHeaders(next: { authorization?: string }): void {
   requestHeaders.clear();
   if (next.authorization) requestHeaders.set("authorization", next.authorization);
-  if (next.tenantId) requestHeaders.set("x-tenant-id", next.tenantId);
 }
 
 describe("mintAdminApiKeySystem", () => {
@@ -274,16 +273,23 @@ describe("resolveAdminApiKeyContext", () => {
 });
 
 describe("loadBearerServiceContext", () => {
-  it("returns 401 for an invalid/unknown bearer token", async () => {
-    setRequestHeaders({ authorization: `Bearer ${ADMIN_API_KEY_PREFIX}doesnotexist`, tenantId: "tenant-1" });
+  beforeEach(() => {
+    // The middleware threads no x-tenant-id for a bearer call — every case
+    // below resolves its tenant from `orgName` against this seeded row
+    // unless a test overrides it.
+    seedMembershipMswState({ tenants: [{ tenant_id: "tenant-1", organization_name: "acme" }] });
+  });
 
-    const result = await loadBearerServiceContext(getAdminDataClient());
+  it("returns 401 for an invalid/unknown bearer token", async () => {
+    setRequestHeaders({ authorization: `Bearer ${ADMIN_API_KEY_PREFIX}doesnotexist` });
+
+    const result = await loadBearerServiceContext("acme", getAdminDataClient());
 
     expect(result).toEqual({ ok: false, status: 401, message: "Not authenticated" });
   });
 
   // proves AC-059-17
-  it("returns 403 when the key's tenant does not match the URL-resolved request tenant", async () => {
+  it("returns 403 when the key's tenant does not match the tenant the URL org resolves to", async () => {
     const db = getAdminDataClient();
     const { plaintext } = await mintAdminApiKeySystem({
       rowClient: db,
@@ -293,9 +299,15 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-2" });
+    seedMembershipMswState({
+      tenants: [
+        { tenant_id: "tenant-1", organization_name: "acme" },
+        { tenant_id: "tenant-2", organization_name: "other-org" },
+      ],
+    });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("other-org", db);
 
     expect(result).toEqual({
       ok: false,
@@ -304,7 +316,7 @@ describe("loadBearerServiceContext", () => {
     });
   });
 
-  it("returns 403 when the request resolves no tenant at all (unmapped org URL)", async () => {
+  it("returns 403 when the URL org names no tenant at all", async () => {
     const db = getAdminDataClient();
     const { plaintext } = await mintAdminApiKeySystem({
       rowClient: db,
@@ -316,13 +328,35 @@ describe("loadBearerServiceContext", () => {
     });
     setRequestHeaders({ authorization: `Bearer ${plaintext}` });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("no-such-org", db);
 
     expect(result).toEqual({
       ok: false,
       status: 403,
       message: "This key does not belong to this organization",
     });
+  });
+
+  it("resolves the org name case-insensitively, same as the session path", async () => {
+    const db = getAdminDataClient();
+    const { plaintext } = await mintAdminApiKeySystem({
+      rowClient: db,
+      tenantId: "tenant-1",
+      name: "key",
+      permissions: ["membership.read"],
+      expiresAt: null,
+      createdBy: "creator-1",
+    });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
+    seedMembershipMswState({
+      memberships: [
+        { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "active" },
+      ],
+    });
+
+    const result = await loadBearerServiceContext("ACME", db);
+
+    expect(result.ok).toBe(true);
   });
 
   // proves AC-059-19
@@ -336,11 +370,11 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     // No membership seeded for creator-1 in tenant-1 at all — never joined,
     // or already removed.
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result).toEqual({
       ok: false,
@@ -359,14 +393,14 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     seedMembershipMswState({
       memberships: [
         { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "pending" },
       ],
     });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result.ok).toBe(false);
   });
@@ -381,14 +415,14 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     seedMembershipMswState({
       memberships: [
         { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "active" },
       ],
     });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result).toEqual({
       ok: true,
@@ -411,7 +445,7 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     // The creator was an owner at mint time but has since been demoted.
     seedMembershipMswState({
       memberships: [
@@ -419,7 +453,7 @@ describe("loadBearerServiceContext", () => {
       ],
     });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -440,7 +474,7 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     // The creator has since been demoted to 'read', which (per the seeded
     // built-in catalog) holds membership.read but NOT membership.insert.
     seedMembershipMswState({
@@ -449,7 +483,7 @@ describe("loadBearerServiceContext", () => {
       ],
     });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -467,7 +501,7 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     // 'read' holds no membership.* write verbs.
     seedMembershipMswState({
       memberships: [
@@ -475,7 +509,7 @@ describe("loadBearerServiceContext", () => {
       ],
     });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -493,14 +527,14 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     seedMembershipMswState({
       memberships: [
         { id: "m-1", user_id: "creator-1", tenant_id: "tenant-1", role: "owner", status: "active" },
       ],
     });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -518,7 +552,7 @@ describe("loadBearerServiceContext", () => {
       expiresAt: null,
       createdBy: "creator-1",
     });
-    setRequestHeaders({ authorization: `Bearer ${plaintext}`, tenantId: "tenant-1" });
+    setRequestHeaders({ authorization: `Bearer ${plaintext}` });
     seedMembershipMswState({
       memberships: [
         {
@@ -532,7 +566,7 @@ describe("loadBearerServiceContext", () => {
       ],
     });
 
-    const result = await loadBearerServiceContext(db);
+    const result = await loadBearerServiceContext("acme", db);
 
     expect(result).toEqual({
       ok: false,

@@ -50,12 +50,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { GET, POST } from '../route';
 
 const routeCtx = { params: Promise.resolve({ orgName: 'acme', appId: 'app-1' }) };
-const listReq = (qs = '') => new Request(`http://localhost/api/orgs/acme/apps/app-1/member-roles${qs}`);
-const postReq = (body: unknown) =>
+const listReq = (qs = '', headers?: Record<string, string>) =>
+  new Request(`http://localhost/api/orgs/acme/apps/app-1/member-roles${qs}`, { headers });
+const postReq = (body: unknown, headers?: Record<string, string>) =>
   new Request('http://localhost/api/orgs/acme/apps/app-1/member-roles', {
     method: 'POST',
     body: JSON.stringify(body),
+    headers,
   });
+const BEARER = { authorization: 'Bearer olk_somekey' };
+const EXPECTED_BEARER_REJECTION = {
+  error: {
+    code: 'unauthorized',
+    message: 'Admin API keys are not supported on this endpoint; use a browser session',
+  },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -112,6 +121,14 @@ describe('GET /api/orgs/[orgName]/apps/[appId]/member-roles', () => {
 
     expect(res.status).toBe(403);
   });
+
+  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+    const res = await GET(listReq('', BEARER), routeCtx);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual(EXPECTED_BEARER_REJECTION);
+    expect(listAppRolesAction).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/orgs/[orgName]/apps/[appId]/member-roles', () => {
@@ -157,6 +174,14 @@ describe('POST /api/orgs/[orgName]/apps/[appId]/member-roles', () => {
     const res = await POST(postReq({ membershipId: 'm-1', role: 'not-a-role' }), routeCtx);
 
     expect(res.status).toBe(400);
+    expect(assignAppRoleAction).not.toHaveBeenCalled();
+  });
+
+  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+    const res = await POST(postReq(body, BEARER), routeCtx);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual(EXPECTED_BEARER_REJECTION);
     expect(assignAppRoleAction).not.toHaveBeenCalled();
   });
 });

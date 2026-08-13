@@ -48,25 +48,25 @@ describe('requireOrgContext — session path (unchanged)', () => {
   it('returns the resolved context on success', async () => {
     mockLoadCtx.mockResolvedValue(CTX);
 
-    await expect(requireOrgContext()).resolves.toBe(CTX);
+    await expect(requireOrgContext('acme')).resolves.toBe(CTX);
   });
 
   it('maps an unauthenticated session to a 401', async () => {
     mockLoadCtx.mockRejectedValue(new Error('Not authenticated'));
 
-    await expect(requireOrgContext()).rejects.toMatchObject({ statusCode: 401 });
+    await expect(requireOrgContext('acme')).rejects.toMatchObject({ statusCode: 401 });
   });
 
   it('maps a missing tenant to a 403, not a generic 401', async () => {
     mockLoadCtx.mockRejectedValue(new Error('No tenant for request'));
 
-    await expect(requireOrgContext()).rejects.toMatchObject({ statusCode: 403 });
+    await expect(requireOrgContext('acme')).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it('never calls the bearer resolver when no Authorization header is present', async () => {
     mockLoadCtx.mockResolvedValue(CTX);
 
-    await requireOrgContext();
+    await requireOrgContext('acme');
 
     expect(mockLoadBearerCtx).not.toHaveBeenCalled();
   });
@@ -75,8 +75,16 @@ describe('requireOrgContext — session path (unchanged)', () => {
     headersGet.mockReturnValue('Bearer sk_outerlayer_agatewaykey');
     mockLoadCtx.mockResolvedValue(CTX);
 
-    await expect(requireOrgContext()).resolves.toBe(CTX);
+    await expect(requireOrgContext('acme')).resolves.toBe(CTX);
     expect(mockLoadBearerCtx).not.toHaveBeenCalled();
+  });
+
+  it('resolves the session tenant from the middleware-threaded header, never from the orgName argument', async () => {
+    mockLoadCtx.mockResolvedValue(CTX);
+
+    await requireOrgContext('some-other-org-in-the-url');
+
+    expect(mockLoadCtx).toHaveBeenCalledWith();
   });
 });
 
@@ -89,8 +97,21 @@ describe('requireOrgContext — bearer path', () => {
       keyPermissions: ['membership.read'],
     });
 
-    await expect(requireOrgContext()).resolves.toBe(BEARER_CTX);
+    await expect(requireOrgContext('acme')).resolves.toBe(BEARER_CTX);
     expect(mockLoadCtx).not.toHaveBeenCalled();
+  });
+
+  it('passes the orgName argument through to the bearer resolver', async () => {
+    headersGet.mockReturnValue('Bearer olk_validkey');
+    mockLoadBearerCtx.mockResolvedValue({
+      ok: true,
+      ctx: BEARER_CTX,
+      keyPermissions: ['membership.read'],
+    });
+
+    await requireOrgContext('acme');
+
+    expect(mockLoadBearerCtx).toHaveBeenCalledWith('acme');
   });
 
   // proves AC-059-18
@@ -98,7 +119,7 @@ describe('requireOrgContext — bearer path', () => {
     headersGet.mockReturnValue('Bearer olk_badkey');
     mockLoadBearerCtx.mockResolvedValue({ ok: false, status: 401, message: 'Not authenticated' });
 
-    await expect(requireOrgContext()).rejects.toMatchObject({ statusCode: 401 });
+    await expect(requireOrgContext('acme')).rejects.toMatchObject({ statusCode: 401 });
     expect(mockLoadCtx).not.toHaveBeenCalled();
   });
 
@@ -110,7 +131,7 @@ describe('requireOrgContext — bearer path', () => {
       message: 'This key does not belong to this organization',
     });
 
-    await expect(requireOrgContext()).rejects.toMatchObject({
+    await expect(requireOrgContext('acme')).rejects.toMatchObject({
       statusCode: 403,
       message: 'This key does not belong to this organization',
     });
@@ -124,7 +145,7 @@ describe('requireOrgContext — bearer path', () => {
       message: "This key's creator is no longer an active member",
     });
 
-    await expect(requireOrgContext()).rejects.toMatchObject({ statusCode: 403 });
+    await expect(requireOrgContext('acme')).rejects.toMatchObject({ statusCode: 403 });
   });
 });
 
@@ -133,7 +154,7 @@ describe('requireMembershipContext — session path (unchanged)', () => {
     mockLoadCtx.mockResolvedValue(CTX);
     mockCheckPerm.mockResolvedValue(true);
 
-    const result = await requireMembershipContext('membership.read');
+    const result = await requireMembershipContext('membership.read', 'acme');
 
     expect(result).toBe(CTX);
     expect(mockCheckPerm).toHaveBeenCalledWith(ACTOR, 'membership.read');
@@ -143,7 +164,7 @@ describe('requireMembershipContext — session path (unchanged)', () => {
     mockLoadCtx.mockResolvedValue(CTX);
     mockCheckPerm.mockResolvedValue(false);
 
-    await expect(requireMembershipContext('membership.delete')).rejects.toMatchObject({
+    await expect(requireMembershipContext('membership.delete', 'acme')).rejects.toMatchObject({
       statusCode: 403,
       message: 'Permission denied: membership.delete',
     });
@@ -159,7 +180,7 @@ describe('requireMembershipContext — bearer path', () => {
       keyPermissions: ['membership.read', 'membership.insert'],
     });
 
-    const result = await requireMembershipContext('membership.insert');
+    const result = await requireMembershipContext('membership.insert', 'acme');
 
     expect(result).toBe(BEARER_CTX);
     expect(mockCheckPerm).not.toHaveBeenCalled();
@@ -173,7 +194,7 @@ describe('requireMembershipContext — bearer path', () => {
       keyPermissions: ['membership.read'],
     });
 
-    await expect(requireMembershipContext('membership.delete')).rejects.toMatchObject({
+    await expect(requireMembershipContext('membership.delete', 'acme')).rejects.toMatchObject({
       statusCode: 403,
       message: 'Permission denied: membership.delete',
     });

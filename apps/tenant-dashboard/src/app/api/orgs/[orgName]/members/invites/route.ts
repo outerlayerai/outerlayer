@@ -69,7 +69,7 @@ export const POST = withApi(
     authRequired: false,
   },
   async ({ input }) => {
-    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_INSERT);
+    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_INSERT, input.params.orgName);
     const result = await sendMemberInvite({
       tenantId: ctx.tenantId,
       actorUserId: ctx.actor.userId,

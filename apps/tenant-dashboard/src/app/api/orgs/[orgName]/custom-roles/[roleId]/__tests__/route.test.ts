@@ -50,10 +50,23 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { GET, PATCH, DELETE } from '../route';
 
 const routeCtx = { params: Promise.resolve({ orgName: 'acme', roleId: 'cr-1' }) };
-const getReq = () => new Request('http://localhost/api/orgs/acme/custom-roles/cr-1');
-const patchReq = (body: unknown) =>
-  new Request('http://localhost/api/orgs/acme/custom-roles/cr-1', { method: 'PATCH', body: JSON.stringify(body) });
-const deleteReq = (qs = '') => new Request(`http://localhost/api/orgs/acme/custom-roles/cr-1${qs}`, { method: 'DELETE' });
+const getReq = (headers?: Record<string, string>) =>
+  new Request('http://localhost/api/orgs/acme/custom-roles/cr-1', { headers });
+const patchReq = (body: unknown, headers?: Record<string, string>) =>
+  new Request('http://localhost/api/orgs/acme/custom-roles/cr-1', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    headers,
+  });
+const deleteReq = (qs = '', headers?: Record<string, string>) =>
+  new Request(`http://localhost/api/orgs/acme/custom-roles/cr-1${qs}`, { method: 'DELETE', headers });
+const BEARER = { authorization: 'Bearer olk_somekey' };
+const EXPECTED_BEARER_REJECTION = {
+  error: {
+    code: 'unauthorized',
+    message: 'Admin API keys are not supported on this endpoint; use a browser session',
+  },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,6 +82,14 @@ describe('GET /api/orgs/[orgName]/custom-roles/[roleId]', () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual(detail);
     expect(getCustomRoleAction).toHaveBeenCalledWith({ roleId: 'cr-1' });
+  });
+
+  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+    const res = await GET(getReq(BEARER), routeCtx);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual(EXPECTED_BEARER_REJECTION);
+    expect(getCustomRoleAction).not.toHaveBeenCalled();
   });
 });
 
@@ -96,6 +117,14 @@ describe('PATCH /api/orgs/[orgName]/custom-roles/[roleId]', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error.reason).toBe('entitlement_denied');
+  });
+
+  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+    const res = await PATCH(patchReq({ name: 'reviewer-v2' }, BEARER), routeCtx);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual(EXPECTED_BEARER_REJECTION);
+    expect(updateCustomRoleAction).not.toHaveBeenCalled();
   });
 });
 
@@ -125,5 +154,13 @@ describe('DELETE /api/orgs/[orgName]/custom-roles/[roleId]', () => {
     await expect(res.json()).resolves.toMatchObject({
       error: { code: 'invalid_field_value', message: 'Role has 3 assigned member(s). Specify a fallback role.' },
     });
+  });
+
+  it('returns a clean 401 for an admin-API-key bearer caller instead of hitting the session-only action', async () => {
+    const res = await DELETE(deleteReq('', BEARER), routeCtx);
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual(EXPECTED_BEARER_REJECTION);
+    expect(deleteCustomRoleAction).not.toHaveBeenCalled();
   });
 });

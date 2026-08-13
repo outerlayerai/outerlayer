@@ -141,12 +141,16 @@ function wantsTenantEmbed(url: URL): boolean {
 }
 
 /**
- * Parse the embedded `tenant.organization_name` filter into a matcher. Supports
- * `eq.<slug>` (exact) and `ilike.<pattern>` (case-insensitive literal — the org
- * resolver escapes LIKE metacharacters, so unescape and compare lowercased).
+ * Parse an `organization_name` filter (bare column or `tenant.`-embedded)
+ * into a matcher. Supports `eq.<slug>` (exact) and `ilike.<pattern>`
+ * (case-insensitive literal — the org resolvers escape LIKE metacharacters,
+ * so unescape and compare lowercased).
  */
-function orgNameMatcher(url: URL): ((orgName: string | undefined) => boolean) | null {
-  const raw = url.searchParams.get('tenant.organization_name');
+function orgNameMatcher(
+  url: URL,
+  param = 'tenant.organization_name',
+): ((orgName: string | undefined) => boolean) | null {
+  const raw = url.searchParams.get(param);
   if (!raw) return null;
   if (raw.startsWith('eq.')) {
     const want = raw.slice(3);
@@ -303,7 +307,12 @@ export const membershipHandlers = [
   http.get(`${SUPABASE_URL}/rest/v1/tenant`, ({ request }) => {
     const url = new URL(request.url);
     const tenantId = eqParam(url, 'tenant_id');
-    const rows = state.tenants.filter((t) => (tenantId ? t.tenant_id === tenantId : true));
+    const matchesOrgName = orgNameMatcher(url, 'organization_name');
+    const rows = state.tenants.filter(
+      (t) =>
+        (tenantId ? t.tenant_id === tenantId : true) &&
+        (matchesOrgName ? matchesOrgName(t.organization_name) : true),
+    );
     if (wantsSingle(request)) {
       if (rows.length !== 1) {
         return HttpResponse.json({ message: 'no rows', code: 'PGRST116' }, { status: 406 });

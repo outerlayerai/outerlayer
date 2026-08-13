@@ -31,8 +31,8 @@ export const GET = withApi(
     // manually via `requireMembershipContext` instead.
     authRequired: false,
   },
-  async () => {
-    const members = await loadMembersForApi();
+  async ({ input }) => {
+    const members = await loadMembersForApi(input.params.orgName);
     return { members };
   },
 );

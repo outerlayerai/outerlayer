@@ -42,7 +42,7 @@ export const POST = withApi(
     authRequired: false,
   },
   async ({ input }) => {
-    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_INSERT);
+    const ctx = await requireMembershipContext(Permissions.MEMBERSHIP_INSERT, input.params.orgName);
     const invite = await findPendingInviteByMembershipId(ctx.tenantId, input.params.inviteId);
     if (!invite) {
       throw new NotFoundError("Pending invite not found");
