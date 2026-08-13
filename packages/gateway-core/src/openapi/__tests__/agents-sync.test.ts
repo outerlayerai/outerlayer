@@ -256,6 +256,7 @@ describe('SyncAgentSessions', () => {
     expect((json() as { error: { code: string } }).error.code).toBe('invalid_request_body');
   });
 
+  // proves AC-076-01
   it('ingests a valid session: spans + summary rows, tier-clamped and scrubbed', async () => {
     const { ctx, status, json } = ctxFor(
       {
@@ -525,6 +526,7 @@ describe('SyncAgentSessions', () => {
     expect(insertsByTable['agent_blobs']).toBeUndefined();
   });
 
+  // proves AC-076-06
   it('rejects a blob whose decoded size exceeds the per-blob cap', async () => {
     // Valid base64 (all 'A' → 0x00 bytes) decoding to just over 2 MiB, but the
     // base64 string stays under the 8 MiB whole-request ceiling so it reaches
@@ -552,6 +554,7 @@ describe('SyncAgentSessions', () => {
     expect(ok?.content?.['application/json']?.schema?.shape).toHaveProperty('data');
   });
 
+  // proves AC-076-07
   it('returns 429 span_limit_exceeded when the monthly unit limit is hit', async () => {
     limitResult = { allowed: false, currentCount: 100, limit: 100 };
     const { ctx, status, json } = ctxFor({ schemaVersion: 1, sessions: [agentSession()] });
@@ -638,6 +641,7 @@ describe('SyncAgentSessions', () => {
     expect(createdClients[0]!.close).toHaveBeenCalledTimes(1);
   });
 
+  // proves AC-076-06
   it('sheds an over-ceiling request with a structured 413 before parsing or opening a client', async () => {
     const { ctx, status, json } = ctxFor(
       { schemaVersion: 1, sessions: [agentSession()] },

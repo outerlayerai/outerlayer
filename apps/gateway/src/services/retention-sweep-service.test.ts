@@ -100,6 +100,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runRetentionSweep rows", () => {
+  // proves AC-076-09
   test("deletes exactly the expired tenants with their own cutoffs; unlimited, invalid, boundary, and fresh tenants excluded", async () => {
     const store = makeStore({
       oldestRowPerTenant: oldestByTable({

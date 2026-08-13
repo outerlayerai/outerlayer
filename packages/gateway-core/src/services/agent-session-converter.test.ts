@@ -71,6 +71,7 @@ describe("deterministic identity", () => {
     expect(spanIdForPath("abc", "turn:1")).not.toBe(spanIdForPath("abc", "turn:2"));
   });
 
+  // proves AC-076-10
   it("re-converting the same session yields byte-identical rows (idempotent re-sync)", () => {
     const opts = { meta: META, actorId: "member-1", tenantTier: "full" as const };
     const a = agentSessionToClickHouseRows(session(), opts);
@@ -282,6 +283,7 @@ describe("hook execution spans", () => {
     expect(hookSpan.duration).toBeLessThan(30 * 24 * 60 * 60 * 1000);
   });
 
+  // proves AC-076-05
   it("caps hook entries per event at the server, even when the client sends more than its own parser cap allows", () => {
     const manyHooks = Array.from({ length: 60 }, (_, i) => ({ command: `hook-${i}`, durationMs: i }));
     const s = session({ events: [{ type: "hook_executed", seq: 1, data: { hooks: manyHooks } }] });
@@ -384,6 +386,7 @@ describe("hook execution spans", () => {
     expect(hookSpan.metadata.durationUnreported).toBe("1");
   });
 
+  // proves AC-076-05
   it("caps statusMessage at 500 chars, same as every other capped content field", () => {
     const longError = "E".repeat(600);
     const s = session({
@@ -547,6 +550,7 @@ describe("tier enforcement (client lies, server truncates)", () => {
     expect(effectiveTier("redacted", "redacted")).toBe("redacted");
   });
 
+  // proves AC-076-02
   it("client sends full while tenant=metrics → stored rows contain ZERO content fields", () => {
     const rows = agentSessionToClickHouseRows(session(), { meta: META, actorId: "m-1", tenantTier: "metrics" });
     const dump = JSON.stringify(rows);
@@ -569,6 +573,7 @@ describe("secret scrub (all tiers, before write)", () => {
     expect(scrubText("plain build output, no secrets")).toBe("plain build output, no secrets");
   });
 
+  // proves AC-076-03
   it("a planted AWS key in tool output is not present at rest in ANY tier", () => {
     const planted = session({
       turns: [
@@ -602,6 +607,7 @@ describe("secret scrub (all tiers, before write)", () => {
     expect(scrubText("scan /rootkit/mod and src/Users/model.ts")).toBe("scan /rootkit/mod and src/Users/model.ts");
   });
 
+  // proves AC-076-04
   it("leaves no username-bearing home prefix at rest (leak pin)", () => {
     const planted = session({
       turns: [
