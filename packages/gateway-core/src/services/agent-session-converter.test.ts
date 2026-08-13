@@ -646,6 +646,7 @@ describe("loose-schema resilience + cost exactness", () => {
     expect(dump).toContain("[SCRUBBED:aws-key-id]");
   });
 
+  // proves AC-070-11
   it("SUM(Cost) over rows equals the session's exact total even when per-turn costs overshoot", () => {
     const overshooting = session({
       totals: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 10 },
@@ -728,6 +729,7 @@ describe("server-side repricing", () => {
     expect(agentSessionSummaryRow(s, OPTS).CostUsd).toBeCloseTo(1 + EXPECTED, 6);
   });
 
+  // proves AC-070-11
   it("prices each turn against its own model when a session mixes models", () => {
     const mixed = session({
       models: ["new-model-9", "cheap-model-1"],

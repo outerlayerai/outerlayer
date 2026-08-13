@@ -25,7 +25,7 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 ## Attribution to sessions
 
-1. **Given** a coding-agent session whose turns span more than one model, **When** the session's total cost is computed, **Then** each turn is priced individually and turn-level costs are rescaled so they still sum to the session's authoritative total.
+1. `AC-070-11` **Given** a coding-agent session whose turns span more than one model, **When** the session's total cost is computed, **Then** each turn is priced individually and turn-level costs are rescaled so they still sum to the session's authoritative total.
 
 ## Org-level AI cost configuration
 
