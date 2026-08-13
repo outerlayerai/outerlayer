@@ -518,11 +518,21 @@ describe("AgentSessionsService.getSessionDetail", () => {
       const facetCall = (mockQuery.mock.calls as unknown as [{ query: string; query_params: Record<string, unknown> }][])
         .map((c) => c[0])
         .find((c) => c.query.includes("trace_facets"));
-      expect(facetCall!.query).toContain("TraceId = {traceId:String}");
+      expect(facetCall!.query).toContain(
+        "PREWHERE TenantId = {tenantId:String} AND AppId = {appId:String} AND TraceId = {traceId:String}",
+      );
       expect(facetCall!.query).toContain("Status = 'ok'");
       expect(facetCall!.query).toContain("IsDeleted = 0");
+      // Empty-summary rows are the pipeline's nothing-to-report sentinels.
+      expect(facetCall!.query).toContain("Summary != ''");
+      // Writers order multi-item facets most-significant-first, so the
+      // collapse must take the LOWEST ItemIndex.
+      expect(facetCall!.query).toContain("argMin(Summary, ItemIndex)");
+      // Version floors pin the built-ins only; a custom facet (independent
+      // versioning, absent spec version stamps 0) must pass through.
+      expect(facetCall!.query).toContain("Facet = 'steering', {steeringExtractorVersion:UInt32}");
       expect(facetCall!.query).toContain(
-        "ExtractorVersion >= if(Facet = 'steering', {steeringExtractorVersion:UInt32}, {batchedExtractorVersion:UInt32})",
+        "Facet IN ('task', 'sentiment', 'issues'), {batchedExtractorVersion:UInt32}",
       );
       expect(facetCall!.query_params.traceId).toBe(FAT_ROW.traceId);
       expect(facetCall!.query_params.steeringExtractorVersion).toBe(STEERING_EXTRACTOR_VERSION);

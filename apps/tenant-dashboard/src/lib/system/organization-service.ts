@@ -386,13 +386,23 @@ export class OrganizationService {
       return { success: false, error: "Invitation not found" };
     }
 
-    const { error: deleteError } = await this.supabaseAdmin
+    // The delete re-asserts owner AND pending status: the admin client
+    // bypasses RLS, and between the read above and this write a concurrent
+    // accept can flip the row to active — the predicates make that race
+    // delete nothing instead of erasing a just-activated membership.
+    const { data: deleted, error: deleteError } = await this.supabaseAdmin
       .from("membership")
       .delete()
-      .eq("id", membershipId);
+      .eq("id", membershipId)
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .select("id");
 
     if (deleteError) {
       return { success: false, error: deleteError.message };
+    }
+    if (!deleted || deleted.length === 0) {
+      return { success: false, error: "This invitation has already been accepted" };
     }
 
     await this.auditLog.create({

@@ -369,17 +369,11 @@ function SessionOutcomeStrip({ prs }: { prs: SessionPrOutcome[] }) {
   );
 }
 
-/** Display labels for the built-in facet keys; an unrecognized (custom) key
- * falls back to itself title-cased. */
-const FACET_LABELS: Record<string, string> = {
-  task: "Task",
-  sentiment: "Sentiment",
-  issues: "Issues",
-  steering: "Steering",
-};
-
+/** Facet keys are lowercase `[a-z0-9_]+` slugs; title-casing them is the
+ * whole display transform — every built-in already reads correctly, and a
+ * custom key gets the same treatment with no hand-maintained list. */
 function facetLabel(facet: string): string {
-  return FACET_LABELS[facet] ?? facet.charAt(0).toUpperCase() + facet.slice(1);
+  return facet.charAt(0).toUpperCase() + facet.slice(1);
 }
 
 /** The session's facet-classification summaries — one row per enabled facet.

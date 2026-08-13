@@ -252,21 +252,30 @@ class AgentSessionsService {
           format: "JSONEachRow",
         })
         .then((r) => r.json<Record<string, unknown>>()),
-      // Facet summaries for this one trace — bounded by exact TraceId, no
-      // otel_traces scan. FINAL + argMax(Summary, ItemIndex) collapses a
-      // facet that wrote multiple items (steering emits one row per
-      // correction) to its latest; Status='ok' drops rows the model refused;
-      // the ExtractorVersion floor excludes mid-re-extraction leftovers
-      // written under a retired prompt (see topics/service.ts's
-      // minExtractorVersionForFacet, which this mirrors).
+      // Facet summaries for this one trace. PREWHERE keeps the version-stable
+      // identity predicates cutting the FINAL merge (TraceId alone is not a
+      // sort-key prefix on trace_facets), and the trace's start time bounds
+      // the scan from below — facets are written after the trace starts, and
+      // there is deliberately no upper bound so a late re-extraction still
+      // surfaces. Writers order a multi-item facet most-significant-first
+      // (ItemIndex 0 first), so argMin keeps the item worth a one-line
+      // summary. A Status='ok' row with an empty Summary is the pipeline's
+      // nothing-to-report sentinel, not a summary — excluded. The
+      // ExtractorVersion floor drops mid-re-extraction leftovers for the
+      // built-in facets only; custom facets version independently (absent
+      // spec version stamps 0) and must pass through.
       ch
         .query({
           query: `
-          SELECT Facet AS facet, argMax(Summary, ItemIndex) AS summary
+          SELECT Facet AS facet, argMin(Summary, ItemIndex) AS summary
           FROM trace_facets FINAL
-          WHERE TenantId = {tenantId:String} AND AppId = {appId:String} AND TraceId = {traceId:String}
-            AND Status = 'ok' AND IsDeleted = 0
-            AND ExtractorVersion >= if(Facet = 'steering', {steeringExtractorVersion:UInt32}, {batchedExtractorVersion:UInt32})
+          PREWHERE TenantId = {tenantId:String} AND AppId = {appId:String} AND TraceId = {traceId:String}
+          WHERE Status = 'ok' AND IsDeleted = 0 AND Summary != ''
+            AND ExtractorVersion >= multiIf(
+              Facet = 'steering', {steeringExtractorVersion:UInt32},
+              Facet IN ('task', 'sentiment', 'issues'), {batchedExtractorVersion:UInt32},
+              0)
+            ${params.tsRangeStart ? "AND CreatedAt >= {tsRangeStart:DateTime64(9)}" : ""}
           GROUP BY Facet`,
           query_params: {
             ...params,
@@ -275,7 +284,9 @@ class AgentSessionsService {
           },
           format: "JSONEachRow",
         })
-        .then((r) => r.json<{ facet: string; summary: string }>()),
+        .then((r) => r.json<{ facet: string; summary: string }>())
+        // Decorative strip — a failed facet read must never 500 the transcript.
+        .catch(() => [] as Array<{ facet: string; summary: string }>),
     ]);
 
     if (rows.length === 0) return null;

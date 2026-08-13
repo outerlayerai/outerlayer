@@ -106,10 +106,12 @@ function makeSupabaseMock() {
       // Detect the count-style select via the second arg.
       if (opts?.count === 'exact' && opts?.head === true) {
         nextOperationIsCount = true;
-      } else {
+        nextOperationIsUpdate = false;
+      } else if (!nextOperationIsUpdate) {
+        // A `.select()` chained AFTER `.delete()`/`.update()` only shapes the
+        // returned rows — the pending write still resolves from its queue.
         nextOperationIsCount = false;
       }
-      nextOperationIsUpdate = false;
       return chain;
     }),
     update: vi.fn(() => {
@@ -622,12 +624,27 @@ describe('declineInvitation', () => {
   it('deletes the pending membership row and reports success on the happy path', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({ data: membershipRow(), error: null });
-    admin.queueDelete({ data: null, error: null });
+    admin.queueDelete({ data: [{ id: 'm-1' }], error: null });
 
     const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
 
     expect(result).toEqual({ success: true });
     expect(admin.from).toHaveBeenCalledWith('membership');
+  });
+
+  it('reports already-accepted when the guarded delete matches no row (a concurrent accept won the race)', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({ data: membershipRow(), error: null });
+    // The row read back as pending, but the predicate-guarded delete found
+    // nothing — the status flipped between the read and the write.
+    admin.queueDelete({ data: [], error: null });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'This invitation has already been accepted',
+    });
   });
 
   it('returns "Invitation not found" when the membership query errors', async () => {

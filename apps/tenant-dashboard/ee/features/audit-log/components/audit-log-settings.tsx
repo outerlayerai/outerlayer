@@ -27,6 +27,8 @@ const ACTION_TYPES: AuditLogFilterOption<ActionType>[] = [
   { value: '', label: 'All Actions' },
   { value: 'member_invited', label: 'Member Invited' },
   { value: 'invite_resent', label: 'Invite Resent' },
+  { value: 'invite_accepted', label: 'Invite Accepted' },
+  { value: 'invite_declined', label: 'Invite Declined' },
   { value: 'member_role_changed', label: 'Member Role Changed' },
   { value: 'member_removed', label: 'Member Removed' },
   { value: 'custom_role_created', label: 'Custom Role Created' },

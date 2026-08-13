@@ -125,16 +125,18 @@ export default function AcceptInviteView() {
     if (state.status !== "ready") return;
 
     setIsDeclining(true);
-    const result = await declineInvitationAction(state.id);
-
-    if (result.error) {
-      setIsDeclining(false);
-      setState({ status: "error", message: result.error });
+    try {
+      const result = await declineInvitationAction(state.id);
+      if (result.error) {
+        setState({ status: "error", message: result.error });
+        return;
+      }
+    } catch {
+      setState({ status: "error", message: t("auth.acceptInvite.error.title") });
       return;
     }
 
-    // Same destination the button navigated to before it dispatched a
-    // server action: the invite is gone, nothing left on this page to act on.
+    // The invite is gone; the dashboard is the only place left to act.
     router.push(paths.dashboard.root);
   };
 
@@ -327,7 +329,10 @@ export default function AcceptInviteView() {
           color="inherit"
           size="large"
           onClick={handleAccept}
-          disabled={needsTermsAgreement && !agreedToTerms}
+          // A decline in flight must not race an accept on the same
+          // membership; accepting flips the whole view, so the reverse
+          // direction cannot happen.
+          disabled={(needsTermsAgreement && !agreedToTerms) || isDeclining}
         >
           {t("auth.acceptInvite.acceptButton")}
         </Button>
