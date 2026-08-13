@@ -266,6 +266,7 @@ describe('generateTopics', () => {
     expect(ch.insert).not.toHaveBeenCalled();
   });
 
+  // proves AC-056-06
   test('first generation: clusters, names via keywords, writes map v1 and re-assigns every sampled row', async () => {
     const rows = sampleRows();
     const refundIds = rows.slice(0, 60).map(unitId);
