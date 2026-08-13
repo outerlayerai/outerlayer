@@ -25,6 +25,7 @@ export { ALL_TARGET_IDS } from './types';
 export { cursorEnvRefRewrite, findEnvRefs, rewriteEnvRefs } from './env-refs';
 export type { EnvRef, RewriteEnvRefsResult } from './env-refs';
 export { parseOuterlayerConfig } from './config';
+export { generatedHeaderSource } from './header';
 export type { OuterlayerConfig } from './config';
 
 const TARGET_BUILDERS: Record<TargetId, (input: EmitInput) => TargetBuildResult> = {

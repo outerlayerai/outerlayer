@@ -12,6 +12,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient, type SupabaseAdminClient } from '../../lib/supabase-admin';
 import { retryOnTransientError, retryCreateAuthUser } from '../../lib/retry';
+import { deleteTenantsAndUsers } from '../../lib/tenant-cleanup';
 import type { Database } from 'tenant-dashboard/src/types/db';
 import { randomUUID } from 'crypto';
 
@@ -175,20 +176,16 @@ export async function createBillingRecord(
   if (error) throw new Error(`Billing create: ${error.message}`);
 }
 
+/**
+ * `createTenantWithOwner` leaves each tenant with exactly one active owner
+ * membership, and `createCrossTenantUser` can add another — see
+ * `deleteTenantsAndUsers` for why the delete order and
+ * attempt-all-then-aggregate-throw behavior matter here.
+ */
 export async function cleanupTenantsAndUsers(
   tenantIds: string[],
   users: TenantUser[],
 ): Promise<void> {
   const admin = createSupabaseAdminClient();
-  await admin.from('billing').delete().in('tenant_id', tenantIds);
-  await admin.from('membership').delete().in('user_id', users.map((u) => u.id));
-  for (const user of users) {
-    await admin.from('profile').delete().eq('id', user.id);
-    try {
-      await admin.auth.admin.deleteUser(user.id);
-    } catch {
-      // best-effort; a leaked auth user does not affect other suites
-    }
-  }
-  await admin.from('tenant').delete().in('tenant_id', tenantIds);
+  await deleteTenantsAndUsers(admin, tenantIds, users);
 }

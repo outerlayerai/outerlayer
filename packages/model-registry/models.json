@@ -1,14 +1,14 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-12T02:12:27.316Z",
+  "generatedAt": "2026-08-13T02:15:46.045Z",
   "sources": {
     "litellm": {
-      "fetchedAt": "2026-08-12T02:12:27.316Z",
+      "fetchedAt": "2026-08-13T02:15:46.045Z",
       "modelCount": 1523
     },
     "openrouter": {
-      "fetchedAt": "2026-08-12T02:12:27.316Z",
-      "modelCount": 183
+      "fetchedAt": "2026-08-13T02:15:46.045Z",
+      "modelCount": 184
     }
   },
   "models": {
@@ -16415,8 +16415,7 @@
         "structuredOutput": true,
         "promptCaching": true,
         "reasoning": true
-      },
-      "deprecationDate": null
+      }
     },
     "grok-vision-beta": {
       "provider": "xai",
@@ -31442,6 +31441,31 @@
       "source": "litellm",
       "capabilities": {
         "audioOutput": true
+      }
+    },
+    "deepseek-v4-pro-0813": {
+      "provider": "deepseek",
+      "displayName": "DeepSeek: DeepSeek V4 Pro 0813",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 4.35e-7,
+        "outputCostPerToken": 8.7e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 384000
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "structuredOutput": true
       }
     }
   }

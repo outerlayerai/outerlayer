@@ -11,6 +11,7 @@
 import type { Mock } from 'vitest';
 import { createSupabaseAdminClient } from "../lib/supabase-admin";
 import { createAuthenticatedUser, cleanupTestUsers } from "../lib/test-utils";
+import { deleteTenantsAndUsers } from "../lib/tenant-cleanup";
 import { OrganizationService } from "tenant-dashboard/src/lib/system";
 import { createOAuthRegistrationService } from "tenant-dashboard/src/lib/system/registration/oauth-registration";
 import {
@@ -236,10 +237,10 @@ describe("OrganizationService Integration Tests", { retry: 2 }, () => {
         expect.objectContaining({ idempotencyKey: expect.any(String) }),
       );
 
-      // Cleanup
-      await supabaseAdmin.from("membership").delete().eq("user_id", user.id).eq("tenant_id", result.tenantId);
-      await supabaseAdmin.from("billing").delete().eq("tenant_id", result.tenantId);
-      await supabaseAdmin.from("tenant").delete().eq("tenant_id", result.tenantId);
+      // Cleanup. `user` is the tenant's only owner — deleteTenantsAndUsers
+      // routes through platform_admin_delete_tenant so the delete doesn't
+      // trip protect_last_owner (a raw tenant delete here would).
+      await deleteTenantsAndUsers(supabaseAdmin, [result.tenantId!], []);
     });
 
     it("self-hosting (billing disabled): stores a NULL customer + enterprise tier via the real RPC", async () => {
@@ -292,10 +293,8 @@ describe("OrganizationService Integration Tests", { retry: 2 }, () => {
       expect(billing!.stripe_customer_id).toBeNull();
       expect(billing!.tier_id).toBe("enterprise");
 
-      // Cleanup
-      await supabaseAdmin.from("membership").delete().eq("user_id", user.id).eq("tenant_id", result.tenantId);
-      await supabaseAdmin.from("billing").delete().eq("tenant_id", result.tenantId);
-      await supabaseAdmin.from("tenant").delete().eq("tenant_id", result.tenantId);
+      // Cleanup — see the previous test's cleanup comment.
+      await deleteTenantsAndUsers(supabaseAdmin, [result.tenantId!], []);
     });
 
     it("should reject duplicate organization names (case-insensitive)", { retry: 2 }, async () => {
@@ -332,10 +331,9 @@ describe("OrganizationService Integration Tests", { retry: 2 }, () => {
       expect(second.success).toBe(false);
       expect(second.error).toContain("already taken");
 
-      // Cleanup
-      await supabaseAdmin.from("membership").delete().eq("user_id", user.id).eq("tenant_id", first.tenantId);
-      await supabaseAdmin.from("billing").delete().eq("tenant_id", first.tenantId);
-      await supabaseAdmin.from("tenant").delete().eq("tenant_id", first.tenantId);
+      // Cleanup — `second` never created a tenant (duplicate-name rejection);
+      // only `first` needs deleting.
+      await deleteTenantsAndUsers(supabaseAdmin, [first.tenantId!], []);
     });
 
     it("should rollback on Stripe failure", async () => {
@@ -480,14 +478,15 @@ describe("OrganizationService Integration Tests", { retry: 2 }, () => {
       expect(result.tenantId).toEqual(expect.any(String));
       expect(result.organizationName).toBe(firstOrgName);
 
-      // Cleanup - only the org we created (no registration-created tenant to clean)
-      if (result.tenantId) {
-        await supabaseAdmin.from("membership").delete().eq("tenant_id", result.tenantId);
-        await supabaseAdmin.from("billing").delete().eq("tenant_id", result.tenantId);
-        await supabaseAdmin.from("tenant").delete().eq("tenant_id", result.tenantId);
-      }
-      await supabaseAdmin.from("profile").delete().eq("id", userId);
-      await supabaseAdmin.auth.admin.deleteUser(userId);
+      // Cleanup — only the org we created (no registration-created tenant to
+      // clean). `userId` is the org's only owner, so the tenant must be
+      // deleted before the auth user (see deleteTenantsAndUsers); its profile
+      // cascades from the auth-user delete.
+      await deleteTenantsAndUsers(
+        supabaseAdmin,
+        result.tenantId ? [result.tenantId] : [],
+        [{ id: userId }],
+      );
     });
   });
 

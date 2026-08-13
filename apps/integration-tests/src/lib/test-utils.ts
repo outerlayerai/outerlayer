@@ -26,6 +26,7 @@
 import { createSupabaseAdminClient, SupabaseAdminClient } from './supabase-admin';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { retryingFetch } from './retrying-fetch';
+import { deleteTenantsAndUsers, TenantCleanupError } from './tenant-cleanup';
 import type { Database } from 'tenant-dashboard/src/types/db';
 
 type MembershipRole = Database['public']['Tables']['membership']['Insert']['role'];
@@ -211,40 +212,31 @@ export async function createAuthenticatedUser(role: MembershipRole): Promise<Tes
   }
 }
 
+/**
+ * `createAuthenticatedUser` creates exactly one membership per tenant, so
+ * for an 'owner' role that membership is the tenant's only active owner —
+ * see `deleteTenantsAndUsers` for why the delete order matters. `testUsers`
+ * is shared, cross-suite mutable state: on a partial failure, only the
+ * users `deleteTenantsAndUsers` actually deleted are pruned, so a later
+ * `afterEach` doesn't re-attempt work that already succeeded and doesn't
+ * silently drop a user whose cleanup is still outstanding.
+ */
 export async function cleanupTestUsers() {
   const admin = getSupabaseAdmin();
-  for (const user of testUsers) {
-    try {
-      // Delete in proper order respecting foreign key constraints
-
-      // 1. Delete api_keys (they reference app which references tenant)
-      await admin.from('api_key').delete().eq('tenant_id', user.tenantId);
-
-      // 2. Delete apps (they reference tenant)
-      await admin.from('app').delete().eq('tenant_id', user.tenantId);
-
-      // 3. Delete membership
-      await admin.from('membership').delete().eq('user_id', user.id);
-
-      // 4. Delete auth user
-      try {
-        await admin.auth.admin.deleteUser(user.id);
-      } catch (authError) {
-        console.warn(`Could not delete auth user ${user.id}:`, authError);
-      }
-
-      // 5. Delete profile
-      await admin.from('profile').delete().eq('id', user.id);
-
-      // 6. Delete tenant last
-      await admin.from('tenant').delete().eq('tenant_id', user.tenantId);
-
-    } catch (error) {
-      console.warn(`Failed to cleanup user ${user.email}:`, error);
+  const snapshot = [...testUsers];
+  try {
+    await deleteTenantsAndUsers(
+      admin,
+      snapshot.map((user) => user.tenantId),
+      snapshot,
+    );
+    testUsers = [];
+  } catch (err) {
+    if (err instanceof TenantCleanupError) {
+      testUsers = testUsers.filter((user) => !err.succeededUserIds.includes(user.id));
     }
+    throw err;
   }
-
-  testUsers = [];
 }
 
 /**
