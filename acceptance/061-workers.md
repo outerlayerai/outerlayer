@@ -16,6 +16,9 @@ re-points at a different criterion the moment a scenario is inserted or
 reordered, and the test keeps passing while proving the wrong thing. Never
 renumber an id. Retire one by deleting the line and the citation together.
 
+Scenarios without an id are not yet proven by a test; they are tracked debt,
+not requirements to skip.
+
 ## Launching a worker run
 
 1. `AC-061-01` **Given** an operator with write access to an app submits a task prompt and agent, **When** the worker is launched, **Then** a run is created in `queued` status and is re-readable with that exact status.

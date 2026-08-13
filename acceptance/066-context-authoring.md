@@ -41,7 +41,7 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 ## Tenant and permission boundaries
 
-10. `AC-066-10` **Given** a write action names an app that belongs to a different tenant than the acting user's request, **When** the action runs, **Then** it is denied before any git connection lookup or provider call is made.
+10. `AC-066-10` **Given** a write action names an app that belongs to a different tenant than the acting user's request, **When** the action runs, **Then** it is denied with a forbidden error and no repository write occurs.
 11. `AC-066-11` **Given** a user is a member of more than one organization and their session claim names an organization other than the one in the URL, **When** they save a context change, **Then** the save resolves the git connection for the organization in the URL, not the one in the session claim.
 
 ## Snapshot and sync data integrity

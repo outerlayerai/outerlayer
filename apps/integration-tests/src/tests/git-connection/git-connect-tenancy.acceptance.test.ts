@@ -92,7 +92,6 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
   });
 
   // proves AC-068-01
-  // proves AC-068-02
   it('a divergent-claim connect lands under the signed-state tenant, not the claim tenant', async () => {
     // Mint + verify the state exactly as the callback does: the tenant it lands
     // under is `verified.payload.tenant_id` (org A), while the actor's claim is org B.
@@ -129,6 +128,42 @@ describe('git-connect lands under the signed-state tenant, rejects a foreign ten
       .eq('app_id', appAForActor);
     expect(bError).toBeNull();
     expect(bView).toEqual([]);
+  });
+
+  // proves AC-068-02
+  it("another org's scope can neither read nor edit the connection row", async () => {
+    const scoped = await createTenantScopedClient(actor, orgA.tenantId);
+    const installationId = uniqueInstallationId();
+    const { error: seedError } = await scoped.from('git_connection').upsert(
+      { app_id: appAForActor, provider: 'github', installation_id: installationId, repository: null } as GitConnectionInsert,
+      { onConflict: 'tenant_id, app_id' },
+    );
+    expect(seedError).toBeNull();
+
+    const asB = await createTenantScopedClient(actor, orgB.tenantId);
+    const { data: bView, error: bReadError } = await asB
+      .from('git_connection')
+      .select('id')
+      .eq('app_id', appAForActor);
+    expect(bReadError).toBeNull();
+    expect(bView).toEqual([]);
+
+    // RLS makes a cross-tenant UPDATE affect zero rows rather than erroring;
+    // the row must come back untouched under the owning tenant.
+    const { data: updated, error: bWriteError } = await asB
+      .from('git_connection')
+      .update({ repository: 'evil/overwrite' })
+      .eq('app_id', appAForActor)
+      .select('id');
+    expect(bWriteError).toBeNull();
+    expect(updated).toEqual([]);
+
+    const { data: after } = await admin
+      .from('git_connection')
+      .select('repository, installation_id')
+      .eq('app_id', appAForActor)
+      .single();
+    expect(after).toEqual({ repository: null, installation_id: installationId });
   });
 
   // proves AC-068-03

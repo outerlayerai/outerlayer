@@ -175,6 +175,10 @@ async function createdAppId(res: Response): Promise<string> {
 
 describe('gateway bearer path — explicit request tenant', () => {
   let owner: TwoOrgOwner;
+  // A second, unrelated account whose tenants EXIST but the primary caller is
+  // not a member of — the spoof probe needs a real tenant, because a random
+  // UUID cannot distinguish the membership check from a tenant-existence check.
+  let stranger: TwoOrgOwner;
   // Apps created through the two tenant-resolution paths. Each tenant ends the
   // suite with a single app, so no per-tenant app quota is exercised.
   let appInAId: string;
@@ -182,10 +186,12 @@ describe('gateway bearer path — explicit request tenant', () => {
 
   beforeAll(async () => {
     owner = await createTwoOrgOwner();
+    stranger = await createTwoOrgOwner();
   });
 
   afterAll(async () => {
     await owner.cleanup();
+    await stranger.cleanup();
   });
 
   it('no header creates in the claim tenant (A): reachable under A, denied under B', async () => {
@@ -241,5 +247,15 @@ describe('gateway bearer path — explicit request tenant', () => {
       requestTenantId: randomUUID(),
     });
     expect(res.status).toBe(401);
+
+    // The same denial for a tenant that EXISTS but the caller is not a member
+    // of — a membership check regressing to a tenant-existence check would
+    // pass the random-UUID probe above and fail only here.
+    const resReal = await createApp({
+      token: owner.token,
+      name: `spoof-real-${randomUUID()}`,
+      requestTenantId: stranger.tenantAId,
+    });
+    expect(resReal.status).toBe(401);
   });
 });

@@ -14,6 +14,9 @@ re-points at a different criterion the moment a scenario is inserted or
 reordered, and the test keeps passing while proving the wrong thing. Never
 renumber an id. Retire one by deleting the line and the citation together.
 
+Scenarios without an id are not yet proven by a test; they are tracked debt,
+not requirements to skip.
+
 ## Organization settings
 
 1. `AC-065-01` **Given** an org owner submits a new organization name, **When** the rename is saved, **Then** the organization's stored name is updated and the new name is returned.

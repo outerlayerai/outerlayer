@@ -42,7 +42,7 @@ renumber an id. Retire one by deleting the line and the citation together.
 
 ## Tenancy and permission scoping
 
-1. `AC-059-15` **Given** an actor who holds only read access (or no access at all) to an organization, **When** they call any billing mutation or read under that organization, **Then** every one of them is denied with a billing-permission error, regardless of the role they hold in another organization.
+1. `AC-059-15` **Given** an actor who holds only read access (or no access at all) to an organization, **When** they call any billing mutation under that organization, **Then** every one of them is denied with a billing-permission error, regardless of the role they hold in another organization. Billing reads are deliberately open to every role.
 
 ## Downgrade side effects
 

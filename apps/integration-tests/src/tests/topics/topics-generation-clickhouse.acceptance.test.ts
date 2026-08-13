@@ -14,7 +14,7 @@
 import { describe, it, afterAll, expect, vi } from 'vitest';
 import { createClient, type ClickHouseClient } from '@clickhouse/client';
 import { randomBytes } from 'node:crypto';
-import { MockTopicsModelClient, NO_MATCH_TOPIC_ID } from '@repo/trace-topics';
+import { BATCHED_EXTRACTOR_VERSION, MockTopicsModelClient, NO_MATCH_TOPIC_ID } from '@repo/trace-topics';
 import { TopicsService } from 'tenant-dashboard/src/features/topics/service';
 import { CLICKHOUSE_TEST_HOST } from '../../../clickhouse/setup-clickhouse';
 
@@ -40,7 +40,7 @@ function facetRow(group: 0 | 1, index: number) {
     TraceId: traceId,
     Facet: 'task',
     ItemIndex: 0,
-    ExtractorVersion: 4, // BATCHED_EXTRACTOR_VERSION
+    ExtractorVersion: BATCHED_EXTRACTOR_VERSION,
     Summary:
       group === 0
         ? `Customer wanted a refund for a delayed shipment order ${index}.`
@@ -149,10 +149,13 @@ describe('topic clustering writes a named map back to real ClickHouse', () => {
       .then((r) => r.json<{ TopicId: string; Name: string; MemberCount: number }>());
 
     expect(mapRows).toHaveLength(2);
-    for (const row of mapRows) {
-      expect(row.Name.trim().length).toBeGreaterThan(0);
-      expect(row.Name).not.toBe(row.TopicId); // a real name, not a raw cluster id
-    }
+    // Exact names from the deterministic keyword namer over each cluster's OWN
+    // summaries — a shape check alone would pass a raw cluster id or a name
+    // written onto the wrong topic row.
+    expect(mapRows.map((r) => r.Name).sort()).toEqual([
+      'Attempt Login Password',
+      'Delayed Order Refund',
+    ]);
     const memberCounts = mapRows.map((r) => Number(r.MemberCount)).sort((a, b) => a - b);
     expect(memberCounts).toEqual([60, 60]);
 
@@ -170,7 +173,13 @@ describe('topic clustering writes a named map back to real ClickHouse', () => {
     expect(memberRows).toHaveLength(120);
     expect(memberRows.every((r) => r.MapVersion === 1)).toBe(true);
     expect(memberRows.every((r) => r.TopicId !== NO_MATCH_TOPIC_ID)).toBe(true);
+    // Name→cluster ownership: the refund trace must sit in the refund-named
+    // topic and the login trace in the login-named one — swapped names between
+    // map rows would pass every count assertion above.
     const byTrace = new Map(memberRows.map((r) => [r.TraceId, r]));
-    expect(byTrace.get(rows[0]!.TraceId)!.TopicId).toBe(mapRows.find((m) => Number(m.MemberCount) === 60)!.TopicId);
+    const refundTopic = mapRows.find((m) => m.Name === 'Delayed Order Refund')!;
+    const loginTopic = mapRows.find((m) => m.Name === 'Attempt Login Password')!;
+    expect(byTrace.get(rows[0]!.TraceId)!.TopicId).toBe(refundTopic.TopicId);
+    expect(byTrace.get(rows.at(-1)!.TraceId)!.TopicId).toBe(loginTopic.TopicId);
   });
 });

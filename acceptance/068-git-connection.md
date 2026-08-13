@@ -17,6 +17,9 @@ re-points at a different criterion the moment a scenario is inserted or
 reordered, and the test keeps passing while proving the wrong thing. Never
 renumber an id. Retire one by deleting the line and the citation together.
 
+Scenarios without an id are not yet proven by a test; they are tracked debt,
+not requirements to skip.
+
 ## Connection tenancy
 
 1. `AC-068-01` **Given** the OAuth callback completes with a signed connect-state naming a tenant that differs from the actor's session claim, **When** the connection is written, **Then** it lands under the signed-state tenant, never the claim tenant.

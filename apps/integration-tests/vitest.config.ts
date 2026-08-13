@@ -150,6 +150,8 @@ export default defineConfig({
             '**/node_modules/**',
             'src/tests/gateway-http/**',
             'src/tests/topics/topics-tenancy.acceptance.test.ts',
+            'src/tests/topics/topics-facet-filter.acceptance.test.ts',
+            'src/tests/topics/topics-generation-clickhouse.acceptance.test.ts',
             'src/tests/dashboards/dashboard-widget-data-query.acceptance.test.ts',
             // Context Overview acceptance reads real skill/MCP rollups — runs
             // under the `clickhouse` project's container + analytics_reader.

@@ -15,6 +15,9 @@ re-points at a different criterion the moment a scenario is inserted or
 reordered, and the test keeps passing while proving the wrong thing. Never
 renumber an id. Retire one by deleting the line and the citation together.
 
+Scenarios without an id are not yet proven by a test; they are tracked debt,
+not requirements to skip.
+
 ## Storage and secrecy
 
 1. `AC-067-01` **Given** an app admin sets an env var's value, **When** it is saved, **Then** the value is stored in the platform's encrypted secret store under a name derived from its scope, and is retrievable back through that same name.
