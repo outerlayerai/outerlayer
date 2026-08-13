@@ -327,6 +327,7 @@ vi.mock('../routes/paths', async (importOriginal) => {
         root: '/device',
       },
       orgs: {
+        root: '/orgs',
         org: {
           device: { root: (orgName: string) => `/orgs/${orgName}/device` },
         },
