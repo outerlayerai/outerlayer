@@ -105,6 +105,11 @@ export async function runLogin(opts: LoginCommandOptions = {}): Promise<LoginCom
   const home = opts.home ?? homedir();
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleepImpl = opts.sleepImpl ?? defaultSleep;
+  // Stryker disable next-line all: collapsing this fallback to `defaultOpen`
+  // escapes the tests' injected mock opener — `defaultOpen` really launches
+  // the platform browser, so a mutant here fires a real `open`/`xdg-open`/
+  // `start` against the run's fixture URL instead of being caught as a
+  // behavior change.
   const openImpl = opts.openImpl ?? defaultOpen;
   const syncImpl = opts.syncImpl ?? runSync;
 
