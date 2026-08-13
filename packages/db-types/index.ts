@@ -1111,6 +1111,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "device_auth_request_tenant_app_fk"
+            columns: ["tenant_id", "app_id"]
+            isOneToOne: false
+            referencedRelation: "app"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
             foreignKeyName: "device_auth_request_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
