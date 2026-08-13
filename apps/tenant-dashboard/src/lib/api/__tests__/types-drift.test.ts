@@ -52,6 +52,8 @@ describe('Generated types drift', () => {
     expect(regenerated).toEqual(committed);
     // Spawns the `openapi-typescript` CLI synchronously — irreducible
     // multi-second codegen. Explicit ceiling so this test is never the flake,
-    // independent of the (lower) suite-wide default.
-  }, 30_000);
+    // independent of the (lower) suite-wide default. Sized for a saturated
+    // machine (the pre-push gate runs every workspace's checks concurrently),
+    // where the spawn can take an order of magnitude longer than solo.
+  }, 120_000);
 });
