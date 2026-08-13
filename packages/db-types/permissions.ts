@@ -11,10 +11,6 @@ type BuiltInRole = 'owner' | 'admin' | 'write' | 'read';
 
 /** Every permission granted to at least one built-in role (the active catalog). */
 export const APP_PERMISSIONS = [
-  'management_api_key.delete',
-  'management_api_key.insert',
-  'management_api_key.read',
-  'management_api_key.update',
   'agents.sessions.self.read',
   'agents.sessions.team.read',
   'agents.settings.write',
@@ -69,6 +65,10 @@ export const APP_PERMISSIONS = [
   'git_connection.insert',
   'git_connection.read',
   'git_connection.update',
+  'management_api_key.delete',
+  'management_api_key.insert',
+  'management_api_key.read',
+  'management_api_key.update',
   'membership.delete',
   'membership.insert',
   'membership.read',
@@ -100,10 +100,6 @@ export const APP_PERMISSIONS = [
 /** Built-in app_role → the exact permission set the role holds. */
 export const BUILT_IN_ROLE_PERMISSIONS = {
   owner: [
-    'management_api_key.delete',
-    'management_api_key.insert',
-    'management_api_key.read',
-    'management_api_key.update',
     'agents.sessions.self.read',
     'agents.sessions.team.read',
     'agents.settings.write',
@@ -158,6 +154,10 @@ export const BUILT_IN_ROLE_PERMISSIONS = {
     'git_connection.insert',
     'git_connection.read',
     'git_connection.update',
+    'management_api_key.delete',
+    'management_api_key.insert',
+    'management_api_key.read',
+    'management_api_key.update',
     'membership.delete',
     'membership.insert',
     'membership.read',
@@ -186,10 +186,6 @@ export const BUILT_IN_ROLE_PERMISSIONS = {
     'worker_run.update',
   ],
   admin: [
-    'management_api_key.delete',
-    'management_api_key.insert',
-    'management_api_key.read',
-    'management_api_key.update',
     'agents.sessions.self.read',
     'agents.sessions.team.read',
     'agents.settings.write',
@@ -242,6 +238,10 @@ export const BUILT_IN_ROLE_PERMISSIONS = {
     'git_connection.insert',
     'git_connection.read',
     'git_connection.update',
+    'management_api_key.delete',
+    'management_api_key.insert',
+    'management_api_key.read',
+    'management_api_key.update',
     'membership.delete',
     'membership.insert',
     'membership.read',

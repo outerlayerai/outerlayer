@@ -557,6 +557,7 @@ export const openApiApp = fromHono(app, {
       { name: 'Apps', description: 'App CRUD — the top-level tenant entity every other resource hangs off. Lets a headless agent provision an app without the dashboard.' },
       { name: 'Workers', description: 'Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app\'s connected repo; every response carries the dashboard deep link to the live thread.' },
       { name: 'Health', description: 'Service health checks.' },
+      { name: 'Org Management', description: 'Org member and role administration, authenticated with an org-scoped management API key (`olk_…`) minted in the dashboard\'s settings.' },
     ],
   },
 });
