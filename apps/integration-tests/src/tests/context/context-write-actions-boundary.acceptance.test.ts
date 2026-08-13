@@ -127,6 +127,7 @@ describe('context write-action boundaries not gated by a live git provider', () 
       expect(result).toEqual({ ok: true, data: { decided: [] } });
     });
 
+    // AC-066-09
     it('filters merged and closed PRs into decided, leaving the open one out', async () => {
       await actAsInOrg(owner, owner.tenantId);
       const result = await runCheckPendingPullRequests({
@@ -165,6 +166,7 @@ describe('context write-action boundaries not gated by a live git provider', () 
   });
 
   describe('cross-tenant denial: every context write action rejects a foreign appId before touching git', () => {
+    // AC-066-10
     it('runSaveContextFile', async () => {
       await actAsInOrg(otherOrg, otherOrg.tenantId);
       const result = await runSaveContextFile({
@@ -209,6 +211,7 @@ describe('context write-action boundaries not gated by a live git provider', () 
   });
 
   describe('enumerateSkillDeletion, not_connected short-circuit (real production ports, no git call)', () => {
+    // AC-066-08
     it('returns status "not_connected" for an app with no git_connection row — never reaches GitProvider', async () => {
       const result = await enumerateSkillDeletion(
         {
