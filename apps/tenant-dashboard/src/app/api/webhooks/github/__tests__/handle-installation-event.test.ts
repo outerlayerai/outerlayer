@@ -47,6 +47,7 @@ describe("handleInstallationEvent", () => {
     installation_id: number | null;
   }>;
   let tenants: Array<{ tenant_id: string; organization_name: string }>;
+  let tenantFetches: number;
 
   function matchesScope(
     c: { repository: string; installation_id: number | null },
@@ -67,6 +68,7 @@ describe("handleInstallationEvent", () => {
   beforeEach(() => {
     m.revalidatePath.mockReset();
     deletes = [];
+    tenantFetches = 0;
     existingConnections = [];
     tenants = [{ tenant_id: "t-1", organization_name: "acme-inc" }];
     server.use(
@@ -80,7 +82,14 @@ describe("handleInstallationEvent", () => {
         deletes.push({ search: new URL(request.url).searchParams });
         return HttpResponse.json([]);
       }),
-      http.get(`${API}/tenant`, () => HttpResponse.json(tenants)),
+      http.get(`${API}/tenant`, ({ request }) => {
+        tenantFetches += 1;
+        // Faithful to PostgREST: only tenants named by the in() filter come
+        // back — an empty id list must resolve to zero rows.
+        const filter = new URL(request.url).searchParams.get("tenant_id") ?? "in.()";
+        const wanted = filter.replace(/^in\.\(|\)$/g, "").split(",").filter(Boolean);
+        return HttpResponse.json(tenants.filter((t) => wanted.includes(t.tenant_id)));
+      }),
     );
   });
 
@@ -102,6 +111,7 @@ describe("handleInstallationEvent", () => {
     );
     // The apps route is keyed by organization name — a tenant-id path would
     // match no cached route and revalidate nothing.
+    expect(tenantFetches).toBe(1);
     expect(m.revalidatePath).toHaveBeenCalledWith("/orgs/acme-inc/apps");
   });
 
@@ -117,6 +127,21 @@ describe("handleInstallationEvent", () => {
     expect(deletes).toHaveLength(1);
     expect(deletes[0]!.search.get("repository")).toBe("in.(acme/removed)");
     expect(m.revalidatePath).toHaveBeenCalledTimes(1);
+  });
+
+  it("revalidates nothing when the removed repository matches no connection row", async () => {
+    existingConnections = [
+      { repository: "acme/other-repo", tenant_id: "t-1", installation_id: INSTALLATION_ID },
+    ];
+
+    await handleInstallationEvent(installationRepositoriesPayload(["acme/ghost"]));
+
+    // The delete still fires (it is repo-scoped and matches nothing), but
+    // with zero affected rows there is no tenant to look up or revalidate —
+    // the tenant read itself must not run on an empty match.
+    expect(deletes).toHaveLength(1);
+    expect(tenantFetches).toBe(0);
+    expect(m.revalidatePath).not.toHaveBeenCalled();
   });
 
   it("deletes nothing when the event carries no repositories_removed", async () => {
