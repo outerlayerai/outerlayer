@@ -2,6 +2,12 @@ import path from 'path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // @repo/gateway-core imports @repo/transactional's email templates, which use
+  // the automatic JSX runtime (no `import React`). See
+  // packages/gateway-core/vitest.config.ts for the same fix.
+  esbuild: {
+    jsx: 'automatic',
+  },
   resolve: {
     alias: {
       // Redirect the CF Workers virtual module to a Node.js-compatible stub so

@@ -130,6 +130,16 @@ STRIPE_STORAGE_METER_KEY=storage_gb
 STRIPE_STORAGE_METER_ID=mtr_dev_placeholder
 
 # ---------------------------------------------------------------------------
+# Resend (management-API-key invite/role-changed/removed-from-org emails) — OPTIONAL
+# ---------------------------------------------------------------------------
+# Unset locally by default: management-API sends fail closed with a clear
+# error (the membership/invite row still commits). Set both to exercise real
+# delivery; names mirror the dashboard's own env (apps/tenant-dashboard/src/env.ts).
+# RESEND_API_KEY=re_dev_placeholder
+# FROM_EMAIL=dev@example.com
+# REPLY_TO_EMAIL=dev@example.com
+
+# ---------------------------------------------------------------------------
 # Fly Machines (environment provisioning + promote) — REQUIRED (hosted)
 # ---------------------------------------------------------------------------
 # Optional in the shared schema, asserted by the Cloudflare entrypoint. Local

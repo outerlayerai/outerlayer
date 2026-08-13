@@ -131,6 +131,16 @@ export const EnvSchema = z.object({
   STRIPE_STORAGE_METER_ID: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
 
+  // Resend — management-API-key invite/role-changed/removed-from-org emails
+  // (lib/management-email.ts). Optional: unset on a deployment that hasn't
+  // provisioned Resend, in which case management-API sends fail closed with a
+  // clear error (the membership/invite row still commits). Names mirror the
+  // dashboard's own env (apps/tenant-dashboard/src/env.ts) so a shared Resend
+  // account can be wired into both with the same values.
+  RESEND_API_KEY: z.string().optional(),
+  FROM_EMAIL: z.string().optional(),
+  REPLY_TO_EMAIL: z.string().optional(),
+
   // Cloudflare
   CLOUDFLARE_ZONE_ID: z.string().min(1, "Cloudflare zone ID is required"),
   CLOUDFLARE_API_KEY: z.string().min(1, "Cloudflare API key is required"),

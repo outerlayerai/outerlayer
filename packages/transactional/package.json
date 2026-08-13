@@ -1,6 +1,6 @@
 {
   "name": "@repo/transactional",
-  "main": "./index.tsx",
+  "main": "./index.ts",
   "version": "0.0.0",
   "devDependencies": {
     "@react-email/ui": "6.9.1",

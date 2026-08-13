@@ -2,6 +2,10 @@
   "compilerOptions": {
     "target": "es2021",
     "lib": ["es2021", "DOM", "DOM.Iterable"],
+    /* gateway-core's management-email adapter imports @repo/transactional's
+       .tsx template source directly (no built dist) — needs a jsx mode to
+       resolve, same as gateway-core's own tsconfig. */
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     /* No `paths` remap for @outerlayer/*: gateway-node resolves them via

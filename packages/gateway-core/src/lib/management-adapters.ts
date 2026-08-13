@@ -6,26 +6,31 @@
  * is also the honest record of what a management-API-key invite/role/remove
  * call can and cannot do until those facilities land on the gateway:
  *
- *   - EmailService: NO provider wired. Every send fails with a clear error.
- *     `MembershipService` already degrades gracefully on an email failure
+ *   - EmailService: Resend-backed (`management-email.ts`), rendering the
+ *     same `@repo/transactional` React Email templates the dashboard uses,
+ *     when `RESEND_API_KEY` + `FROM_EMAIL` are configured on the
+ *     deployment. Sends via a raw `fetch` to Resend's REST API rather than
+ *     the `resend` npm SDK, keeping the Workers bundle to just the
+ *     templates + `@react-email/render`. Unset env (the default on a fresh
+ *     self-host deploy) keeps the old fail-closed behavior: every send
+ *     returns a clear error and `MembershipService` degrades gracefully
  *     (the membership/invite row still commits; the caller is told to
- *     resend) — but a resend hits the same unconfigured adapter, so an
- *     invite minted through the gateway today can never successfully email
- *     its recipient. The membership row exists; the dashboard's own
- *     "Resend invite" (Resend-backed) is the only way to actually deliver
- *     the email until the gateway gets a mail provider.
+ *     resend) — a resend against an unconfigured adapter hits the same
+ *     error, so the dashboard's own "Resend invite" is the only delivery
+ *     path until Resend is wired.
  *   - RateLimitService: reuses the injected `gtx.rateLimiter` (the same
  *     Unkey-backed, fail-open limiter every other /v1/* write route uses),
  *     keyed by the caller-supplied identifier directly.
- *   - EntitlementGate: `max_users` / `app_level_roles` are dashboard-only
- *     keys — no shared `@repo/tier-config` matrix exists for them (unlike
- *     `max_api_keys` / `max_apps`, which the gateway already tier-gates).
- *     This adapter honors an explicit `tenant_entitlement_override` row
- *     (the same override table the dashboard consults first) but has no
- *     tier matrix to fall back to, so an org with no override is treated as
- *     unlimited/allowed. Net effect: inviting via the gateway does not
- *     enforce the dashboard's per-tier seat cap or the `app_level_roles`
- *     entitlement — only an explicit platform-admin override is honored.
+ *   - EntitlementGate: `max_users` and `app_level_roles` are both present in
+ *     `@repo/tier-config`'s shared matrix (alongside `max_api_keys` /
+ *     `max_apps`), so this adapter resolves them through
+ *     `@repo/entitlements`'s override → tier-matrix → hobby-default chain —
+ *     the same resolver the gateway's other quota-gated /v1/* routes and the
+ *     dashboard's `EntitlementService` use — with the self-host generous
+ *     default applied via `isSelfHostGateway`. A gateway-minted invite now
+ *     enforces the tenant's per-tier seat cap and `app_level_roles`
+ *     entitlement exactly as the dashboard does; an explicit
+ *     `tenant_entitlement_override` row still wins over the tier default.
  *   - AppRoleAssigner: per-app role assignment on invite requires the EE
  *     custom-role/app-access resolution the dashboard's own
  *     `AppMemberRoleService` performs; the gateway has no such surface.
@@ -49,30 +54,54 @@ import type {
   RequestContext,
   StripeService,
 } from '@repo/org-management-service';
+import {
+  resolveBooleanEntitlement as resolveSharedBoolean,
+  resolveNumericLimit as resolveSharedNumericLimit,
+  quotaCheck,
+} from '@repo/entitlements';
+import { resolveSelfHostBoolean, SELF_HOST_NUMERIC_LIMIT } from '@repo/ee-license';
+import {
+  TIER_IDS,
+  UNLIMITED,
+  NUMERIC_ENTITLEMENTS,
+  BOOLEAN_ENTITLEMENTS,
+  type TierId,
+  type NumericEntitlementKey,
+  type BooleanEntitlementKey,
+} from '@repo/tier-config';
 import type { Env } from '../types';
 import type { OpenAPIVariables } from '../openapi/middleware';
 import type { Json } from '@repo/db-types';
 import type { SystemAdminClient } from './system-client';
+import { isSelfHostGateway } from './entitlements';
+import { buildResendManagementEmailService } from './management-email';
 
 type ManagementAppContext = Context<{ Bindings: Env; Variables: OpenAPIVariables }>;
 
 /**
- * No email provider is wired into the gateway. Every send fails with a
- * stable, non-throwing error so `MembershipService`'s existing
- * "membership created but email failed, please resend" handling takes over
- * — the caller sees an honest signal rather than a silent no-op or a
- * fabricated success.
+ * Resend-backed when `RESEND_API_KEY` + `FROM_EMAIL` are configured (see
+ * `management-email.ts`); otherwise every send fails with a stable,
+ * non-throwing error so `MembershipService`'s existing "membership created
+ * but email failed, please resend" handling takes over — the caller sees an
+ * honest signal rather than a silent no-op or a fabricated success.
  */
-export function buildManagementEmailService(): EmailService {
-  return {
-    async sendEmail() {
-      return {
-        error: new Error(
-          'No email provider is configured on this gateway deployment — the membership/invite record was written, but no email was sent',
-        ),
-      };
-    },
-  };
+export function buildManagementEmailService(env: Env): EmailService {
+  if (!env.RESEND_API_KEY || !env.FROM_EMAIL) {
+    return {
+      async sendEmail() {
+        return {
+          error: new Error(
+            'No email provider is configured on this gateway deployment — the membership/invite record was written, but no email was sent',
+          ),
+        };
+      },
+    };
+  }
+  return buildResendManagementEmailService({
+    resendApiKey: env.RESEND_API_KEY,
+    fromEmail: env.FROM_EMAIL,
+    replyToEmail: env.REPLY_TO_EMAIL,
+  });
 }
 
 /**
@@ -118,58 +147,87 @@ export function buildManagementStripeService(): StripeService {
   };
 }
 
-interface EntitlementOverrideRow {
-  entitlement_key: string;
-  value: unknown;
+function isNumericEntitlementKey(key: string): key is NumericEntitlementKey {
+  return key in NUMERIC_ENTITLEMENTS;
 }
 
-async function readOverride(
-  admin: SystemAdminClient,
-  tenantId: string,
-  key: string,
-): Promise<unknown> {
-  const { data, error } = await admin
-    .from('tenant_entitlement_override')
-    .select('entitlement_key, value')
-    .eq('tenant_id', tenantId)
-    .eq('entitlement_key', key)
-    .maybeSingle();
-  if (error) {
-    console.error('[management-adapters] entitlement override read failed', {
-      tenantId,
-      key,
-      error: error.message,
-    });
-    return undefined;
-  }
-  return (data as EntitlementOverrideRow | null)?.value;
+function isBooleanEntitlementKey(key: string): key is BooleanEntitlementKey {
+  return key in BOOLEAN_ENTITLEMENTS;
 }
 
 /**
- * `max_users` / `app_level_roles` have no shared tier matrix (see module
- * doc) — this only ever consults an explicit override, defaulting open
- * (unlimited / allowed) absent one.
+ * Lowest tier (by `@repo/tier-config` matrix order) that grants a numeric
+ * key a higher-than-hobby limit, or a boolean key `true`. Mirrors the
+ * dashboard's `getRequiredTierForFeature` (`lib/app-shell/entitlement-denied.ts`)
+ * restricted to the keys that actually live in the shared matrix — the
+ * dashboard's version also covers its own display-only categorical keys,
+ * which the management API never asks about.
  */
-export function buildManagementEntitlementGate(admin: SystemAdminClient): EntitlementGate {
+function requiredTierForNumericKey(key: NumericEntitlementKey): TierId {
+  const matrix = NUMERIC_ENTITLEMENTS[key];
+  const lowest = TIER_IDS[0] ?? 'hobby';
+  const lowestValue = matrix[lowest];
+  for (const tier of TIER_IDS.slice(1)) {
+    const value = matrix[tier];
+    if (value === UNLIMITED || value > lowestValue) return tier;
+  }
+  return lowest;
+}
+
+function requiredTierForBooleanKey(key: BooleanEntitlementKey): TierId {
+  const matrix = BOOLEAN_ENTITLEMENTS[key];
+  for (const tier of TIER_IDS) {
+    if (matrix[tier]) return tier;
+  }
+  return TIER_IDS[TIER_IDS.length - 1] ?? 'enterprise';
+}
+
+/**
+ * Resolves `max_users` / `app_level_roles` (and any other key that lands in
+ * `@repo/tier-config`'s shared matrix) through the same override → tier →
+ * hobby-default chain as the gateway's other quota-gated /v1/* routes and
+ * the dashboard's `EntitlementService`. A key the shared matrix doesn't
+ * know about (there are none the management API asks about today, but the
+ * `EntitlementGate` interface accepts an arbitrary string) resolves open —
+ * unlimited / allowed — rather than fail closed, so a future key added to
+ * `MembershipService` without a matching tier-config entry doesn't start
+ * blocking invites on a KeyError-shaped surprise.
+ */
+export function buildManagementEntitlementGate(admin: SystemAdminClient, env: Env): EntitlementGate {
   return {
     async checkLimit(tenantId, key, currentCount) {
-      const override = await readOverride(admin, tenantId, key);
-      if (typeof override === 'number' && Number.isFinite(override)) {
-        if (override < 0) return { allowed: true, limit: override, currentCount };
-        return { allowed: currentCount < override, limit: override, currentCount };
+      if (!isNumericEntitlementKey(key)) {
+        return { allowed: true, limit: UNLIMITED, currentCount };
       }
-      return { allowed: true, limit: -1, currentCount };
+      const limit = isSelfHostGateway(env)
+        ? SELF_HOST_NUMERIC_LIMIT
+        : await resolveSharedNumericLimit(admin, tenantId, key);
+      const { allowed } = quotaCheck(currentCount, limit);
+      if (allowed) return { allowed: true, limit, currentCount };
+      return { allowed: false, limit, currentCount, requiredTier: requiredTierForNumericKey(key) };
     },
     async canAccess(tenantId, key) {
-      const override = await readOverride(admin, tenantId, key);
-      if (typeof override === 'boolean') return override;
-      return true;
+      if (!isBooleanEntitlementKey(key)) return true;
+      if (isSelfHostGateway(env)) {
+        // No EE key has a gateway license-resolution surface today (see
+        // `entitlements.ts`'s self-host note) — licensed: false is the
+        // generous-default half, matching every other self-host boolean
+        // resolution in this gateway.
+        return resolveSelfHostBoolean(key, false);
+      }
+      return resolveSharedBoolean(admin, tenantId, key);
     },
     buildDeniedInfo(key, checkResult) {
+      const requiredTier = isNumericEntitlementKey(key)
+        ? requiredTierForNumericKey(key)
+        : isBooleanEntitlementKey(key)
+          ? requiredTierForBooleanKey(key)
+          : undefined;
       return {
         entitlement: key,
         limit: checkResult?.limit,
         currentCount: checkResult?.currentCount,
+        requiredTier: checkResult?.requiredTier ?? requiredTier,
       };
     },
   };

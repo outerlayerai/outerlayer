@@ -2,6 +2,13 @@ import path from 'path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // @repo/transactional's email templates use the automatic JSX runtime (no
+  // `import React` — matches gateway-core's own tsconfig `"jsx": "react-jsx"`).
+  // Vite/esbuild default to the classic transform, which would emit an
+  // unbound `React.createElement` reference.
+  esbuild: {
+    jsx: 'automatic',
+  },
   resolve: {
     alias: {
       // @outerlayer/session-schema resolved from source, ships source-entry
