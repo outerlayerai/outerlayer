@@ -1,7 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import type { User } from '@supabase/supabase-js';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../../test-helpers/msw-server';
 import { MembershipService } from '../membership-service';
+
+const serverLoggerErrorMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('@/lib/observability/server-logger', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/observability/server-logger')>()),
+  serverLogger: {
+    error: serverLoggerErrorMock,
+    info: vi.fn().mockResolvedValue(undefined),
+    warn: vi.fn().mockResolvedValue(undefined),
+  },
+}));
 import {
   seedMembershipMswState,
   getMembershipRpcCalls,
@@ -274,5 +286,97 @@ describe('MembershipService atomic audit RPCs', () => {
         params: expect.objectContaining({ p_user_id: NEW_USER_ID }),
       }),
     ]);
+  });
+
+  function seedFailedNewUserInvite(newUserId: string) {
+    seedSupabaseMswState({
+      profiles: [],
+      generatedAuthLinkUser: { id: newUserId, hashedToken: 'new-user-token' },
+    });
+    seedMembershipMswState({
+      memberships: [],
+      forceRpcError: { fn: 'invite_new_user_transaction', message: 'transaction_failed' },
+    });
+  }
+
+  function sendFailingInvite() {
+    return buildService().sendInvite({
+      adminUser,
+      tenantId: TENANT_ID,
+      name: 'New Person',
+      email: 'newperson@example.com',
+      role: 'read',
+      origin: 'http://localhost:3000',
+    });
+  }
+
+  it('cleanup stops after ONE attempt when the auth user is already gone (404) — no retries, no orphan report', async () => {
+    seedFailedNewUserInvite('44444444-4444-4444-a444-444444444444');
+    let attempts = 0;
+    server.use(
+      http.delete('http://localhost:54321/auth/v1/admin/users/:id', () => {
+        attempts += 1;
+        return HttpResponse.json({ message: 'User not found' }, { status: 404 });
+      }),
+    );
+
+    const result = await sendFailingInvite();
+
+    expect(result).toEqual({ success: false, error: 'transaction_failed' });
+    // 404 IS the desired end state (the user is gone); retrying it would
+    // only stall the invite response, and it is not an orphan to page on.
+    expect(attempts).toBe(1);
+    expect(serverLoggerErrorMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('orphaned auth user') }),
+      expect.anything(),
+    );
+  });
+
+  it('cleanup retries a persistently failing delete and reports the orphan through the monitored logger', async () => {
+    seedFailedNewUserInvite('55555555-5555-4555-a555-555555555555');
+    let attempts = 0;
+    server.use(
+      http.delete('http://localhost:54321/auth/v1/admin/users/:id', () => {
+        attempts += 1;
+        return HttpResponse.json({ message: 'boom' }, { status: 500 });
+      }),
+    );
+
+    const result = await sendFailingInvite();
+
+    expect(result).toEqual({ success: false, error: 'transaction_failed' });
+    // auth-js RETURNS HTTP failures rather than throwing — each returned
+    // error must count as a failed attempt, and the terminal miss must
+    // reach the monitored stream (an orphaned auth account is operator debt).
+    expect(attempts).toBe(3);
+    expect(serverLoggerErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Failed to cleanup orphaned auth user after 3 attempts'),
+      }),
+      expect.objectContaining({ userId: '55555555-5555-4555-a555-555555555555' }),
+    );
+  });
+
+  it('cleanup recovers when a transient delete failure clears on retry', async () => {
+    seedFailedNewUserInvite('66666666-6666-4666-a666-666666666666');
+    let attempts = 0;
+    server.use(
+      http.delete('http://localhost:54321/auth/v1/admin/users/:id', () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return HttpResponse.json({ message: 'flaky' }, { status: 500 });
+        }
+        return HttpResponse.json({});
+      }),
+    );
+
+    const result = await sendFailingInvite();
+
+    expect(result).toEqual({ success: false, error: 'transaction_failed' });
+    expect(attempts).toBe(2);
+    expect(serverLoggerErrorMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('orphaned auth user') }),
+      expect.anything(),
+    );
   });
 });

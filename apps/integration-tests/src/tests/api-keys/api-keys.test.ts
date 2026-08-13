@@ -477,9 +477,8 @@ describe('real-key auth round-trips — live verify path', () => {
 
       // Attempt an "un-revoke": restore the exact metadata row (same id,
       // same api_key_id) that authenticated before deletion.
-      const { id, created_at: _created_at, updated_at: _updated_at, ...rest } =
-        original as Record<string, unknown>;
-      const { error: reinsertErr } = await admin.from('api_key').insert({ id, ...rest });
+      const { created_at: _created_at, updated_at: _updated_at, ...restorable } = original;
+      const { error: reinsertErr } = await admin.from('api_key').insert(restorable);
       expect(reinsertErr).toBeNull();
 
       const afterRestoreAttempt = await callWithKey('/v1/environments', key);
@@ -488,7 +487,7 @@ describe('real-key auth round-trips — live verify path', () => {
       // api_key row alone — the same plaintext still fails.
       expect(afterRestoreAttempt.status).toBe(401);
 
-      await admin.from('api_key').delete().eq('id', id as string);
+      await admin.from('api_key').delete().eq('id', original.id as string);
     },
   );
 
