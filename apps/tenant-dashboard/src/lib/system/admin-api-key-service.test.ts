@@ -282,6 +282,7 @@ describe("loadBearerServiceContext", () => {
     expect(result).toEqual({ ok: false, status: 401, message: "Not authenticated" });
   });
 
+  // proves AC-059-17
   it("returns 403 when the key's tenant does not match the URL-resolved request tenant", async () => {
     const db = getAdminDataClient();
     const { plaintext } = await mintAdminApiKeySystem({
@@ -324,6 +325,7 @@ describe("loadBearerServiceContext", () => {
     });
   });
 
+  // proves AC-059-19
   it("returns 403 when the key's creator is no longer an active member of the tenant", async () => {
     const db = getAdminDataClient();
     const { plaintext } = await mintAdminApiKeySystem({
@@ -425,6 +427,7 @@ describe("loadBearerServiceContext", () => {
     }
   });
 
+  // proves AC-059-20
   it("drops a permission the creator's CURRENT role no longer holds (demotion after mint), while keeping one it still holds — proves an intersection, not a blanket deny", async () => {
     const db = getAdminDataClient();
     // Minted while the creator was 'owner' — a role that holds both grants —

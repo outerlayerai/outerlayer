@@ -37,6 +37,7 @@ beforeEach(() => {
 });
 
 describe("createAdminApiKeyAction", () => {
+  // proves AC-059-13
   it("mints a key and returns the plaintext exactly once", async () => {
     const res = await createAdminApiKeyAction({
       name: "CI automation",
@@ -64,6 +65,7 @@ describe("createAdminApiKeyAction", () => {
     expect(revalidateMock).not.toHaveBeenCalled();
   });
 
+  // proves AC-059-14
   it("rejects a grant that exceeds the caller's own permissions instead of trimming it", async () => {
     // The wrapper's own admin_api_key.insert check passes; the in-handler
     // clamp denies the specific requested-but-unheld permission.

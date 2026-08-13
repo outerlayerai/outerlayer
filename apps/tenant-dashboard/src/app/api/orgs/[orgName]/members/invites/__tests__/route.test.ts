@@ -64,6 +64,7 @@ beforeEach(() => {
 });
 
 describe('POST /api/orgs/[orgName]/members/invites', () => {
+  // proves AC-059-03
   it('gates on membership.insert and forwards the parsed invite + origin to the adapter', async () => {
     mockSendInvite.mockResolvedValue({ success: true, membershipId: 'mem-1' });
 
@@ -95,6 +96,7 @@ describe('POST /api/orgs/[orgName]/members/invites', () => {
     expect(mockSendInvite).not.toHaveBeenCalled();
   });
 
+  // proves AC-059-04
   it('returns 403 without calling the adapter when the actor lacks membership.insert', async () => {
     mockCheckPerm.mockResolvedValue(false);
 
@@ -116,6 +118,7 @@ describe('POST /api/orgs/[orgName]/members/invites', () => {
     expect((await res.json()).error.message).toBe('Only owners can invite users as owners');
   });
 
+  // proves AC-059-12
   it('maps an entitlement denial to 403 with the entitlement_denied code and the deny-info payload', async () => {
     const entitlement = {
       featureKey: 'max_users',

@@ -128,6 +128,7 @@ describe('POST /api/orgs/[orgName]/apps/[appId]/member-roles', () => {
     expect(assignAppRoleAction).toHaveBeenCalledWith({ appId: 'app-1', membershipId: 'm-1', role: 'write' });
   });
 
+  // proves AC-059-24
   it('fails closed with 403 when the app_level_roles entitlement is absent', async () => {
     assignAppRoleAction.mockResolvedValue({
       ok: true,

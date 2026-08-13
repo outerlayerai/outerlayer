@@ -60,6 +60,7 @@ beforeEach(() => {
 });
 
 describe('GET /api/orgs/[orgName]/members', () => {
+  // proves AC-059-01
   it('gates on membership.read and returns the members list for the request tenant', async () => {
     mockListMembers.mockResolvedValue([{ id: 'u1', membershipStatus: 'active' }]);
 
@@ -71,6 +72,7 @@ describe('GET /api/orgs/[orgName]/members', () => {
     expect(mockListMembers).toHaveBeenCalledWith('tenant-1');
   });
 
+  // proves AC-059-02
   it('returns 403 without listing members when the actor lacks membership.read', async () => {
     mockCheckPerm.mockResolvedValue(false);
 

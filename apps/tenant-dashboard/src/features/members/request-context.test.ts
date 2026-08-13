@@ -93,6 +93,7 @@ describe('requireOrgContext — bearer path', () => {
     expect(mockLoadCtx).not.toHaveBeenCalled();
   });
 
+  // proves AC-059-18
   it('maps an invalid/expired/revoked/malformed key to a 401, never falling through to session auth', async () => {
     headersGet.mockReturnValue('Bearer olk_badkey');
     mockLoadBearerCtx.mockResolvedValue({ ok: false, status: 401, message: 'Not authenticated' });

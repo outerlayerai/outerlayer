@@ -64,6 +64,7 @@ beforeEach(() => {
 });
 
 describe('POST /api/orgs/[orgName]/members/invites/[inviteId]/resend', () => {
+  // proves AC-059-05
   it('gates on membership.insert, resolves the invite email from the membership id, and resends', async () => {
     mockListMembers.mockResolvedValue([
       { membershipId: 'mem-1', membershipStatus: 'pending', email: 'ryan@example.com' },
@@ -84,6 +85,7 @@ describe('POST /api/orgs/[orgName]/members/invites/[inviteId]/resend', () => {
     });
   });
 
+  // proves AC-059-06
   it('returns 404 without calling resend when the id does not name a pending invite', async () => {
     mockListMembers.mockResolvedValue([
       { membershipId: 'mem-1', membershipStatus: 'active', email: 'ryan@example.com' },

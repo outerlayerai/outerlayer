@@ -18,6 +18,7 @@ function makeCtx(): ServiceContext {
 }
 
 describe("adminApiKeysService.list", () => {
+  // proves AC-059-15
   it("returns the tenant's keys, newest first, without exposing the digest", async () => {
     seedAdminApiKeysMswState({
       adminApiKeys: [
@@ -48,6 +49,7 @@ describe("adminApiKeysService.list", () => {
 });
 
 describe("adminApiKeysService.revoke", () => {
+  // proves AC-059-16
   it("stamps revoked_at on an active key", async () => {
     seedAdminApiKeysMswState({
       adminApiKeys: [
@@ -68,6 +70,7 @@ describe("adminApiKeysService.revoke", () => {
     expect(rows[0]!.revoked_at).not.toBeNull();
   });
 
+  // proves AC-059-16
   it("fails when the key is already revoked, rather than silently no-oping", async () => {
     seedAdminApiKeysMswState({
       adminApiKeys: [

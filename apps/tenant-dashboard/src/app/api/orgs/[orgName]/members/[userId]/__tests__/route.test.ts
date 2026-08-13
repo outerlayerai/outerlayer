@@ -67,6 +67,7 @@ beforeEach(() => {
 });
 
 describe('PATCH /api/orgs/[orgName]/members/[userId]', () => {
+  // proves AC-059-07
   it('gates on membership.update and forwards the path userId + body role to the adapter', async () => {
     mockChangeRole.mockResolvedValue({ success: true });
 
@@ -84,6 +85,7 @@ describe('PATCH /api/orgs/[orgName]/members/[userId]', () => {
     });
   });
 
+  // proves AC-059-08
   it('returns 403 without calling the adapter when the actor lacks membership.update', async () => {
     mockCheckPerm.mockResolvedValue(false);
 
@@ -115,6 +117,7 @@ describe('PATCH /api/orgs/[orgName]/members/[userId]', () => {
 });
 
 describe('DELETE /api/orgs/[orgName]/members/[userId]', () => {
+  // proves AC-059-09
   it('gates on membership.delete and forwards the path userId to the adapter', async () => {
     mockRemoveMember.mockResolvedValue({ success: true });
 
@@ -130,6 +133,7 @@ describe('DELETE /api/orgs/[orgName]/members/[userId]', () => {
     });
   });
 
+  // proves AC-059-10
   it('returns 403 without calling the adapter when the actor lacks membership.delete', async () => {
     mockCheckPerm.mockResolvedValue(false);
 

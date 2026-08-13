@@ -84,6 +84,7 @@ describe('PATCH /api/orgs/[orgName]/custom-roles/[roleId]', () => {
     expect(updateCustomRoleAction).toHaveBeenCalledWith({ roleId: 'cr-1', name: 'reviewer-v2' });
   });
 
+  // proves AC-059-23
   it('fails closed with 403 when the custom_roles entitlement is absent', async () => {
     updateCustomRoleAction.mockResolvedValue({
       ok: true,

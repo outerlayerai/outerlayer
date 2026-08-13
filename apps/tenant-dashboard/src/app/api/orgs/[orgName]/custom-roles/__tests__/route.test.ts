@@ -100,6 +100,7 @@ describe('POST /api/orgs/[orgName]/custom-roles', () => {
     expect(createCustomRoleAction).toHaveBeenCalledWith(validBody);
   });
 
+  // proves AC-059-22
   it('fails closed with 403 when the custom_roles entitlement is absent', async () => {
     createCustomRoleAction.mockResolvedValue({
       ok: true,

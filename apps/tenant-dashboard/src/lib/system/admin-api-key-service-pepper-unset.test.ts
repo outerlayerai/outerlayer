@@ -17,6 +17,7 @@ import { createMswRestClient } from "@/test-helpers/rest-client";
 import { mintAdminApiKeySystem, verifyAdminApiKeyBearer } from "./admin-api-key-service";
 
 describe("mintAdminApiKeySystem — ADMIN_API_KEY_PEPPER unset", () => {
+  // proves AC-059-21
   it("throws a clear configuration error, before writing any row", async () => {
     const db = createMswRestClient();
 
@@ -36,6 +37,7 @@ describe("mintAdminApiKeySystem — ADMIN_API_KEY_PEPPER unset", () => {
 });
 
 describe("verifyAdminApiKeyBearer — ADMIN_API_KEY_PEPPER unset", () => {
+  // proves AC-059-21
   it("rejects a well-formed bearer token as invalid, without any DB lookup", async () => {
     const rpc = vi.fn();
     const fakeAdminClient = { rpc } as unknown as SupabaseClient;

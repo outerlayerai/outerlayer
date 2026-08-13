@@ -44,6 +44,7 @@ beforeEach(() => {
 });
 
 describe('GET /api/orgs/[orgName]/roles', () => {
+  // proves AC-059-11
   it('returns the built-in role catalog for any authenticated org member (no permission gate)', async () => {
     const res = await GET(req(), routeCtx);
 
