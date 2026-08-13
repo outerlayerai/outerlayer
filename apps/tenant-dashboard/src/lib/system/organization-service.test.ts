@@ -485,6 +485,7 @@ describe('acceptInvitation', () => {
     };
   }
 
+  // proves AC-077-10
   it('flips status to active and returns tenant info on the happy path', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({ data: membershipRow(), error: null });
@@ -524,6 +525,7 @@ describe('acceptInvitation', () => {
     );
   });
 
+  // proves AC-077-11
   it('returns "already a member" when status is already active', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({
@@ -539,6 +541,7 @@ describe('acceptInvitation', () => {
     });
   });
 
+  // proves AC-077-12
   it('returns "expired" when expires_at is in the past', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({
@@ -567,6 +570,7 @@ describe('acceptInvitation', () => {
     expect(result.success).toBe(true);
   });
 
+  // proves AC-077-13
   it('rejects when user is at the 10-org membership ceiling', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({ data: membershipRow(), error: null });

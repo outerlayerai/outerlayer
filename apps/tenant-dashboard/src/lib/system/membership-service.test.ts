@@ -381,6 +381,7 @@ describe('MembershipService.sendInvite()', () => {
   // ── Entitlement: denied ─────────────────────────────────────────────
 
   describe('when entitlement check denies the invite', () => {
+    // proves AC-077-03
     it('should return entitlement_denied with denied info', async () => {
       mockCheckLimit.mockResolvedValue({
         allowed: false,
@@ -473,6 +474,7 @@ describe('MembershipService.sendInvite()', () => {
       expect(mockCheckLimit).not.toHaveBeenCalled();
     });
 
+    // proves AC-077-01
     it('should reject owner-invite-by-non-owner before checking entitlements', async () => {
       const svc = buildService();
       const result = await svc.sendInvite({

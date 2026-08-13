@@ -153,6 +153,7 @@ describe('MembershipService atomic audit RPCs', () => {
     expect(getInsertedAuditLogRows()).toEqual([]);
   });
 
+  // proves AC-077-02
   it('sendInvite (existing user) passes actor and context into the invite transaction', async () => {
     // The target has no membership yet in this flow
     seedMembershipMswState({ memberships: [] });

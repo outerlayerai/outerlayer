@@ -24,7 +24,7 @@ beforeEach(() => {
 
 describe('ProfileSettings', () => {
   it('shows the success snackbar and strips both query params without a navigation', () => {
-    // proves AC-9
+    // proves AC-079-03
     window.history.replaceState({}, '', '/profile?email_change=success&email_error=ignored');
 
     render(<ProfileSettings emailChangeStatus="success" emailChangeError="ignored" />);
@@ -39,7 +39,7 @@ describe('ProfileSettings', () => {
   });
 
   it('shows the expired-link message for email_error=expired', () => {
-    // proves AC-10
+    // proves AC-079-04
     render(<ProfileSettings emailChangeStatus="error" emailChangeError="expired" />);
     expect(enqueueSnackbar).toHaveBeenCalledWith(
       'dashboard.profileSettings.emailChangeErrors.expired',
@@ -48,7 +48,7 @@ describe('ProfileSettings', () => {
   });
 
   it('shows the already-used message for email_error=already_used', () => {
-    // proves AC-10
+    // proves AC-079-05
     render(<ProfileSettings emailChangeStatus="error" emailChangeError="already_used" />);
     expect(enqueueSnackbar).toHaveBeenCalledWith(
       'dashboard.profileSettings.emailChangeErrors.alreadyUsed',
