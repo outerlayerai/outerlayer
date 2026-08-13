@@ -89,6 +89,28 @@ describe("runInit", () => {
     expect(result.pluginAlreadyActive).toBe(false);
   });
 
+  it("--remove does not report pluginAlreadyActive even when the plugin is installed", () => {
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    const removed = runInit({ scope: "user", cliBin: BIN, home, remove: true });
+    expect(removed.pluginAlreadyActive).toBeUndefined();
+  });
+
+  it("an unresolved cliBin short-circuits before the plugin check — pluginAlreadyActive is absent", () => {
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    const brokenBin = join(home, "does-not-exist", "outerlayer");
+    const result = runInit({ scope: "user", cliBin: brokenBin, home });
+    expect(result.cliBinUnresolved).toBe(true);
+    expect(result.pluginAlreadyActive).toBeUndefined();
+  });
+
+  it("reports pluginAlreadyActive and a completed statusline install together on the same result", () => {
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    const result = runInit({ scope: "user", cliBin: BIN, home });
+    expect(result.pluginAlreadyActive).toBe(true);
+    expect(result.statusline).toBe("installed");
+  });
+
   it("project scope writes ./.claude and can update .gitignore", () => {
     const result = runInit({ scope: "project", cliBin: BIN, home, cwd, addGitignore: true });
     expect(existsSync(join(cwd, ".claude", "settings.json"))).toBe(true);

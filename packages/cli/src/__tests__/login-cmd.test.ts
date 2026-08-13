@@ -119,9 +119,18 @@ describe("runLogin — happy path", () => {
     expect(statSync(cloudConfigPath(home)).mode & 0o777).toBe(0o600);
 
     expect(sync).toHaveBeenCalledWith(
-      expect.objectContaining({ url: "https://gw.outerlayer.test", apiKey: "sk_outerlayer_minted", appId: "app-1" }),
+      expect.objectContaining({ url: "https://gw.outerlayer.test", apiKey: "sk_outerlayer_minted", appId: "app-1", quiet: true }),
     );
     expect(result.sync?.synced).toBe(3);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://dash.test/api/cli/device/start",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://dash.test/api/cli/device/poll",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: "the-device-code" }) },
+    );
   });
 
   it("a browser-open failure does not abort login — the printed URL is the fallback", async () => {
@@ -206,5 +215,191 @@ describe("runLogin — terminal poll states", () => {
     await expect(
       runLogin({ url: "https://dash.test", home, fetchImpl, sleepImpl: noSleep, openImpl: vi.fn(), syncImpl: fakeSync() }),
     ).rejects.toThrow(LoginTransportError);
+  });
+
+  it("/start failing with a non-200 status throws the exact message and status", async () => {
+    const fetchImpl = vi.fn(async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    const err = await runLogin({
+      url: "https://dash.test",
+      home,
+      fetchImpl,
+      sleepImpl: noSleep,
+      openImpl: vi.fn(),
+      syncImpl: fakeSync(),
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LoginTransportError);
+    expect((err as LoginTransportError).message).toBe("Failed to start device login (500)");
+    expect((err as LoginTransportError).status).toBe(500);
+  });
+
+  it("a non-200, non-402 poll response throws the exact message and status", async () => {
+    const fetchImpl = fakeFetch([{ status: 500, body: { error: "internal" } }]);
+    const err = await runLogin({
+      url: "https://dash.test",
+      home,
+      fetchImpl,
+      sleepImpl: noSleep,
+      openImpl: vi.fn(),
+      syncImpl: fakeSync(),
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LoginTransportError);
+    expect((err as LoginTransportError).message).toBe("Poll failed (500)");
+    expect((err as LoginTransportError).status).toBe(500);
+  });
+
+  it("a 402 poll response with no body message falls back to the literal 'API key limit reached'", async () => {
+    const fetchImpl = fakeFetch([{ status: 402, body: { error: "entitlement_denied" } }]);
+    const err = await runLogin({
+      url: "https://dash.test",
+      home,
+      fetchImpl,
+      sleepImpl: noSleep,
+      openImpl: vi.fn(),
+      syncImpl: fakeSync(),
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LoginTransportError);
+    expect((err as LoginTransportError).message).toBe("API key limit reached");
+    expect((err as LoginTransportError).status).toBe(402);
+  });
+});
+
+describe("runLogin — poll backoff", () => {
+  it("clamps the poll interval to a 1000ms floor when the server sends a smaller interval", async () => {
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+      if (href.endsWith("/start")) {
+        return new Response(JSON.stringify({ ...START_RESPONSE, interval: 0 }), { status: 200 });
+      }
+      return new Response(JSON.stringify(APPROVED_RESPONSE), { status: 200 });
+    }) as unknown as typeof fetch;
+    const sleepImpl = vi.fn(async () => {});
+
+    await runLogin({ url: "https://dash.test", home, fetchImpl, sleepImpl, openImpl: vi.fn(), syncImpl: fakeSync() });
+
+    expect(sleepImpl).toHaveBeenCalledWith(1000);
+  });
+
+  it("uses interval*1000ms verbatim when it is above the 1000ms floor", async () => {
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+      if (href.endsWith("/start")) {
+        return new Response(JSON.stringify({ ...START_RESPONSE, interval: 5 }), { status: 200 });
+      }
+      return new Response(JSON.stringify(APPROVED_RESPONSE), { status: 200 });
+    }) as unknown as typeof fetch;
+    const sleepImpl = vi.fn(async () => {});
+
+    await runLogin({ url: "https://dash.test", home, fetchImpl, sleepImpl, openImpl: vi.fn(), syncImpl: fakeSync() });
+
+    expect(sleepImpl).toHaveBeenCalledWith(5000);
+  });
+});
+
+describe("runLogin — poll deadline", () => {
+  it("computes the deadline as expires_in SECONDS after start (not raw ms)", async () => {
+    const dateSpy = vi.spyOn(Date, "now");
+    dateSpy.mockReturnValueOnce(0); // deadline calc: 0 + 10*1000 = 10000
+    dateSpy.mockReturnValueOnce(5000); // loop check: 5s elapsed, well under the 10s deadline
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+      if (href.endsWith("/start")) {
+        return new Response(JSON.stringify({ ...START_RESPONSE, expires_in: 10 }), { status: 200 });
+      }
+      return new Response(JSON.stringify(APPROVED_RESPONSE), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const result = await runLogin({ url: "https://dash.test", home, fetchImpl, sleepImpl: noSleep, openImpl: vi.fn(), syncImpl: fakeSync() });
+
+    expect(result.appId).toBe("app-1");
+    dateSpy.mockRestore();
+  });
+
+  it("times out exactly AT the deadline — the boundary is inclusive", async () => {
+    const dateSpy = vi.spyOn(Date, "now");
+    dateSpy.mockReturnValueOnce(0); // deadline calc: 0 + 10*1000 = 10000
+    dateSpy.mockReturnValueOnce(10000); // loop check: exactly at the deadline
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+      if (href.endsWith("/start")) {
+        return new Response(JSON.stringify({ ...START_RESPONSE, expires_in: 10 }), { status: 200 });
+      }
+      // Reached only if the boundary check wrongly lets the loop through.
+      return new Response(JSON.stringify(APPROVED_RESPONSE), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      runLogin({ url: "https://dash.test", home, fetchImpl, sleepImpl: noSleep, openImpl: vi.fn(), syncImpl: fakeSync() }),
+    ).rejects.toThrow(LoginTimeoutError);
+    dateSpy.mockRestore();
+  });
+});
+
+describe("runLogin — poll loop", () => {
+  it("keeps polling through repeated pending states until approved", async () => {
+    let pollCount = 0;
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+      const href = String(url);
+      if (href.endsWith("/start")) {
+        return new Response(JSON.stringify(START_RESPONSE), { status: 200 });
+      }
+      pollCount += 1;
+      if (pollCount < 3) {
+        return new Response(JSON.stringify({ status: "pending" }), { status: 200 });
+      }
+      return new Response(JSON.stringify(APPROVED_RESPONSE), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const result = await runLogin({ url: "https://dash.test", home, fetchImpl, sleepImpl: noSleep, openImpl: vi.fn(), syncImpl: fakeSync() });
+
+    expect(pollCount).toBe(3);
+    expect(result.appId).toBe("app-1");
+  });
+});
+
+describe("runLogin — exact result shape", () => {
+  it("returns the full LoginCommandResult object on the happy path", async () => {
+    const fetchImpl = fakeFetch([{ status: 200, body: APPROVED_RESPONSE }]);
+    const sync = fakeSync();
+
+    const { output, ...rest } = await runLogin({
+      url: "https://dash.test",
+      home,
+      fetchImpl,
+      sleepImpl: noSleep,
+      openImpl: vi.fn(),
+      syncImpl: sync,
+    });
+
+    expect(output).toContain("AAAA-BBBB");
+    expect(output).toContain("Synced 3 session(s).\n");
+    expect(rest).toEqual({
+      url: "https://gw.outerlayer.test",
+      apiKey: "sk_outerlayer_minted",
+      appId: "app-1",
+      orgName: "acme",
+      appName: "My App",
+      configWritten: true,
+      sync: {
+        scanned: 3,
+        eligible: 3,
+        synced: 3,
+        rejected: [],
+        blobsSent: 0,
+        batches: 1,
+        tier: "full",
+        url: "https://gw.outerlayer.test",
+        dryRun: false,
+        output: "",
+      },
+    });
+  });
+
+  it("falls back to the automatic-sync message when the first sync throws", async () => {
+    const fetchImpl = fakeFetch([{ status: 200, body: APPROVED_RESPONSE }]);
+    const failingSync = vi.fn().mockRejectedValue(new Error("network down"));
+
+    const result = await runLogin({ url: "https://dash.test", home, fetchImpl, sleepImpl: noSleep, openImpl: vi.fn(), syncImpl: failingSync });
+
+    expect(result.output).toContain("Login succeeded; the first sync will run automatically from your next session.\n");
   });
 });
