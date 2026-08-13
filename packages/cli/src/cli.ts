@@ -89,6 +89,12 @@ export function formatInitOutput(result: InitResult): string {
     lines.push(`${YELLOW}!${RESET} Status line slot has an unrecognized shape — left untouched\n`);
   }
   if (result.gitignoreUpdated) lines.push(`${GREEN}✓${RESET} Added .outerlayer/ to .gitignore\n`);
+  if (result.pluginAlreadyActive) {
+    lines.push(
+      `${YELLOW}!${RESET} The Claude Code plugin already captures sessions on this machine — these settings hooks are redundant.\n` +
+        `  Run ${YELLOW}outerlayer init --remove${RESET} to drop them and rely on the plugin alone.\n`,
+    );
+  }
   lines.push(
     "\nSessions sync to your OuterLayer app with full content: prompts, agent\n" +
       "messages, thinking, tool inputs/outputs, file paths, repo and branch\n" +
@@ -211,6 +217,32 @@ export async function runCli(processArgv: string[]): Promise<void> {
         if (result.rejected.length > 0) process.exitCode = 2;
       } catch (err) {
         if (err instanceof SyncConfigError || err instanceof SyncTransportError) {
+          process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        throw err;
+      }
+    });
+
+  program
+    .command("login")
+    .description("Connect this machine to an OuterLayer dashboard via device-code login, then sync")
+    .option("--url <url>", "dashboard base URL (or OUTERLAYER_DASHBOARD_URL)")
+    .action(async (opts) => {
+      const { runLogin, LoginConfigError, LoginTransportError, LoginDeniedError, LoginTimeoutError } = await import(
+        "./login-cmd.js"
+      );
+      try {
+        const result = await runLogin({ url: opts.url });
+        process.stdout.write(result.output);
+      } catch (err) {
+        if (
+          err instanceof LoginConfigError ||
+          err instanceof LoginTransportError ||
+          err instanceof LoginDeniedError ||
+          err instanceof LoginTimeoutError
+        ) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
           process.exitCode = 1;
           return;

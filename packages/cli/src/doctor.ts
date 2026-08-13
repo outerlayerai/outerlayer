@@ -6,7 +6,7 @@ import { existsSync, readdirSync, statSync, accessSync, constants } from "node:f
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { compareVersions, SUPPORTED_VERSIONS } from "@outerlayer/capture";
-import { readSettings, settingsPath, MARKER, REGISTERED_EVENTS, isOurHookCommand } from "./settings.js";
+import { readSettings, settingsPath, MARKER, REGISTERED_EVENTS, isOurHookCommand, pluginActive } from "./settings.js";
 import { spoolDir } from "./hook-fast.js";
 import { assessSyncHealth, formatAgo, readSyncStatus, SYNC_STALE_AFTER_MS } from "./sync-status.js";
 import { readStatuslineState, STATE_FRESH_MS } from "./statusline-fast.js";
@@ -45,6 +45,7 @@ export function runDoctor(env: DoctorEnv = {}): Check[] {
     checkDiskHeadroom(home),
     checkClaudeVersion(env),
     checkSettingsValid(home, env.cwd),
+    checkInstallPath(home, env.cwd),
     ...checkStatusline(home, now, env.cwd),
     ...checkInstalls(env),
   ];
@@ -144,7 +145,7 @@ function checkTranscripts(home: string, now: () => number): Check {
   };
   walk(root);
   if (count === 0) {
-    return { name: "Transcripts", status: "warn", detail: "0 transcripts found", fix: "Use Claude Code, then run `outerlayer scan`." };
+    return { name: "Transcripts", status: "warn", detail: "0 transcripts found", fix: "Use Claude Code, then run `outerlayer doctor` again." };
   }
   const ageH = (now() - newest) / 3_600_000;
   const age = ageH < 1 ? "<1h ago" : ageH < 48 ? `${Math.round(ageH)}h ago` : `${Math.round(ageH / 24)}d ago`;
@@ -172,6 +173,47 @@ function checkHooksInstalled(home: string, cwd?: string): Check {
     }
   }
   return { name: "Hooks installed", status: "fail", detail: "no OuterLayer hooks found", fix: "Run `outerlayer init`." };
+}
+
+/** True when any of our lifecycle hooks are present in user or project
+ * settings — the `init`-written install path, as opposed to the plugin's. */
+function hasSettingsHooks(home: string, cwd?: string): boolean {
+  for (const scope of ["user", "project"] as const) {
+    let settings;
+    try {
+      settings = readSettings(settingsPath(scope, { home, cwd }));
+    } catch {
+      continue;
+    }
+    if (!settings?.hooks) continue;
+    if (REGISTERED_EVENTS.some((event) => (settings.hooks?.[event] ?? []).some((b) => (b.hooks ?? []).some(isOurHookCommand)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Names which install path is capturing sessions: the Claude Code plugin,
+ * settings hooks written by `outerlayer init`, both (redundant — hook-fast's
+ * dedupe already prevents double capture, so this is a warn, not a fail), or
+ * neither.
+ */
+function checkInstallPath(home: string, cwd?: string): Check {
+  const name = "Install path";
+  const plugin = pluginActive(home);
+  const settings = hasSettingsHooks(home, cwd);
+  if (plugin && settings) {
+    return {
+      name,
+      status: "warn",
+      detail: "both the Claude Code plugin and settings hooks are installed",
+      fix: "Run `outerlayer init --remove` to drop the redundant settings copy; the plugin keeps capturing.",
+    };
+  }
+  if (plugin) return { name, status: "pass", detail: "Claude Code plugin" };
+  if (settings) return { name, status: "pass", detail: "settings hooks (outerlayer init)" };
+  return { name, status: "fail", detail: "no install path found", fix: "Enable the OuterLayer Claude Code plugin, or run `outerlayer init`." };
 }
 
 function checkSpoolWritable(home: string): Check {

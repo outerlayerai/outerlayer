@@ -42,6 +42,7 @@ import {
   prSessionCommentHandlers,
   resetPrSessionCommentMswState,
 } from './pr-session-comment';
+import { deviceAuthHandlers, resetDeviceAuthMswState } from './device-auth';
 
 export {
   seedPullRequestSessionMswState,
@@ -130,6 +131,12 @@ export {
   seedPrSessionCommentReadError,
   type PrSessionCommentMswRow,
 } from './pr-session-comment';
+export {
+  seedDeviceAuthMswState,
+  getDeviceAuthMswRows,
+  forceDeviceAuthInsertError,
+  forceDeviceAuthUpdateError,
+} from './device-auth';
 
 // MSW resolves handlers in registration order; the FIRST matching handler
 // wins. We register managed-deployment-tables BEFORE the shared supabase
@@ -155,6 +162,7 @@ export const mswHandlers = [
   ...pullRequestSessionHandlers,
   ...aiCostConfigHandlers,
   ...prSessionCommentHandlers,
+  ...deviceAuthHandlers,
 ];
 
 export function resetMswState() {
@@ -178,4 +186,5 @@ export function resetMswState() {
   resetAppsListMswState();
   resetAiCostConfigMswState();
   resetPrSessionCommentMswState();
+  resetDeviceAuthMswState();
 }

@@ -14,6 +14,20 @@ export type HookEvent = (typeof REGISTERED_EVENTS)[number];
 /** Marker so our entries are recognizable + removable without touching others. */
 export const MARKER = "_outerlayer";
 
+/**
+ * Where the Claude Code plugin's launcher (`claude-plugin/scripts/hook.mjs`)
+ * installs its self-managed CLI copy. Its presence means the plugin is
+ * active independently of anything in settings.json — `init` and `doctor`
+ * both check it to tell the two install paths apart.
+ */
+function managedPluginInstallDir(home: string): string {
+  return join(home, ".outerlayer", "cli", "node_modules", "outerlayer");
+}
+
+export function pluginActive(home: string): boolean {
+  return existsSync(managedPluginInstallDir(home));
+}
+
 export type Scope = "user" | "project";
 
 export function settingsPath(scope: Scope, opts: { home?: string; cwd?: string } = {}): string {

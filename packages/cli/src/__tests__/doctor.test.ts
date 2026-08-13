@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { runDoctor, doctorExitCode, type Check } from "../doctor.js";
 import { runInit } from "../init.js";
 import { statuslineStatePath, STATE_FRESH_MS } from "../statusline-fast.js";
-import { mergeStatusline } from "../settings.js";
+import { mergeStatusline, MARKER } from "../settings.js";
 
 let home: string;
 // A bare name (no path separator) so `cliBinResolvable` trusts it via PATH
@@ -100,6 +100,87 @@ describe("runDoctor — the 8 failure modes each detected", () => {
     const c = byName(checks, "Claude Code installs");
     expect(c.status).toBe("warn");
     expect(c.detail).toMatch(/multiple/);
+  });
+
+  it("neither install path present → Install path fails", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/no install path/);
+  });
+
+  it("only the plugin's managed CLI install present → Install path passes as plugin", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("Claude Code plugin");
+  });
+
+  it("settings hooks present for only ONE lifecycle event still counts as an install path (any event is enough)", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    const settingsFile = join(home, ".claude", "settings.json");
+    const settings = JSON.parse(readFileSync(settingsFile, "utf8")) as { hooks: Record<string, unknown> };
+    // Drop every registered event's hooks except one, so only a partial
+    // install remains — this must still be detected as "settings hooks
+    // present", not require every lifecycle event to be installed.
+    for (const event of Object.keys(settings.hooks)) {
+      if (event !== "SessionStart") delete settings.hooks[event];
+    }
+    writeFileSync(settingsFile, JSON.stringify(settings));
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("settings hooks (outerlayer init)");
+  });
+
+  it("detects our hook even when it shares a binding array with an unrelated foreign hook", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: "/foreign/first" }, { type: "command", command: "ours", [MARKER]: true }] },
+          ],
+        },
+      }),
+    );
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("settings hooks (outerlayer init)");
+  });
+
+  it("a hook binding with a foreign command alongside a mixed non-matching entry is not mistaken for our hook", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ hooks: [{ type: "command", command: "/some/foreign/hook" }] }],
+        },
+      }),
+    );
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("fail");
+    expect(c.detail).toMatch(/no install path/);
+  });
+
+  it("only settings hooks present (outerlayer init) → Install path passes as settings", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("pass");
+    expect(c.detail).toBe("settings hooks (outerlayer init)");
+  });
+
+  it("both the plugin and settings hooks present → Install path warns as redundant", () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    mkdirSync(join(home, ".outerlayer", "cli", "node_modules", "outerlayer"), { recursive: true });
+    runInit({ scope: "user", cliBin: BIN, home });
+    const c = byName(runDoctor({ home, ...STUBBED }), "Install path");
+    expect(c.status).toBe("warn");
+    expect(c.fix).toMatch(/outerlayer init --remove/);
   });
 
   it("statusline not installed → warn naming `outerlayer init`", () => {

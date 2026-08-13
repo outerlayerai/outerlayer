@@ -54,6 +54,9 @@ schema_paths = [
     # billing/git_branch which load later — safe, plpgsql defers body resolution
     # to runtime.
     "./schemas/23a-api-key-secret.sql",
+    # CLI device-code login state. After 10-tenant/20-app/52-environment/
+    # 12-rbac (membership) — its columns reference all four.
+    "./schemas/24-device-auth.sql",
     "./schemas/27-env-var.sql",
     "./schemas/27-notification.sql",
     "./schemas/28-dashboard.sql",

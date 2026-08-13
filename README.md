@@ -55,6 +55,19 @@ npx outerlayer sync --dry-run # see exactly what would leave your machine
 npx outerlayer sync           # upload to your workspace
 ```
 
+### Claude Code plugin
+
+Skip the CLI install step entirely: browse `/plugin` in Claude Code and enable
+OuterLayer from the marketplace. It registers the same lifecycle hooks
+`outerlayer init` does, running a self-managed CLI install in the background
+— capture starts from your next session, with no `npx` step. Run
+`/outerlayer:connect` to link the machine to a dashboard (a one-time code you
+approve in your browser); a machine that hasn't connected yet is nudged once,
+at your next session's start, and never nagged again. See
+[`claude-plugin/README.md`](claude-plugin/README.md) for what it captures,
+how it coexists with an existing `outerlayer init` setup, and how to remove
+it.
+
 ### Cloud
 
 The fastest path. Sign up at <https://app.outerlayer.ai>, connect your repo,

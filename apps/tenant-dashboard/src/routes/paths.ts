@@ -6,6 +6,7 @@ const ROOTS = {
   API: "/api",
   PROFILE: "/profile",
   PLATFORM_ADMIN: "/platform-admin",
+  DEVICE: "/device",
 };
 
 // ----------------------------------------------------------------------
@@ -24,6 +25,12 @@ export const paths = {
   },
   profile: {
     root: ROOTS.PROFILE,
+  },
+  // The CLI device-login verification URL — org-less entry point the
+  // `outerlayer login` flow opens in a browser. Resolves the user's org and
+  // redirects to `orgs.org.device`.
+  device: {
+    root: ROOTS.DEVICE,
   },
   platformAdmin: {
     root: ROOTS.PLATFORM_ADMIN,
@@ -48,6 +55,9 @@ export const paths = {
       },
       settings: {
         root: (orgName: string) => `${ROOTS.ORG}/${orgName}/settings`,
+      },
+      device: {
+        root: (orgName: string) => `${ROOTS.ORG}/${orgName}/device`,
       },
     },
   },

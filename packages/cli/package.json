@@ -1,7 +1,7 @@
 {
   "name": "outerlayer",
   "version": "0.1.0",
-  "description": "OuterLayer CLI: init/doctor (hooks + daemon onboarding), watch, scan, and eval (validate/mine/qualify/report — execution-verified evals from your own PRs)",
+  "description": "OuterLayer CLI: init/doctor (hooks + daemon onboarding), watch, sync, and emit — capture and ship Claude Code sessions",
   "license": "Apache-2.0",
   "author": "Magu Studios, Inc.",
   "repository": {

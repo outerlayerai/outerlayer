@@ -76,6 +76,14 @@ ALTER TABLE public.dashboard
     ADD CONSTRAINT dashboard_tenant_app_fk
     FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
 
+-- MATCH SIMPLE skips enforcement while either column is NULL, which is exactly
+-- every 'pending' row (tenant/app are unknown until approval) — this only
+-- starts enforcing once approval sets both, which is the point it needs to be
+-- true.
+ALTER TABLE public.device_auth_request
+    ADD CONSTRAINT device_auth_request_tenant_app_fk
+    FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
+
 ALTER TABLE public.env_var
     ADD CONSTRAINT env_var_tenant_app_fk
     FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;

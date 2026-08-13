@@ -2,6 +2,7 @@
 // Copyright 2026 Magu Studios, Inc.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   mergeHooks,
@@ -11,6 +12,7 @@ import {
   writeSettings,
   wrapHooks,
   cliBinResolvable,
+  pluginActive,
   mergeStatusline,
   removeStatusline,
   REGISTERED_EVENTS,
@@ -52,6 +54,11 @@ export interface InitResult {
    * would point nowhere — the exact failure a broken install path produces,
    * silently, on every subsequent session. Settings are left untouched. */
   cliBinUnresolved?: boolean;
+  /** Set when the Claude Code plugin's managed CLI install is already
+   * present: capture is live through the plugin, so the settings hooks this
+   * call installs are redundant (both fire; `hook-fast`'s dedupe means no
+   * duplicate capture, but there is nothing to gain from keeping both). */
+  pluginAlreadyActive?: boolean;
   /** What happened to the statusLine slot. Absent on `--no-statusline`,
    * remove runs, and `cliBinUnresolved`. */
   statusline?: StatuslineMergeOutcome;
@@ -128,6 +135,8 @@ export function runInit(opts: InitOptions): InitResult {
     gitignoreUpdated = ensureGitignore(opts.cwd ?? process.cwd());
   }
 
+  const pluginAlreadyActive = pluginActive(opts.home ?? homedir());
+
   return {
     path,
     changed,
@@ -135,6 +144,7 @@ export function runInit(opts: InitOptions): InitResult {
     events: REGISTERED_EVENTS,
     gitignoreUpdated,
     wrapped,
+    pluginAlreadyActive,
     ...(statusline ? { statusline } : {}),
     ...(statuslineWrappedCommand ? { statuslineWrappedCommand } : {}),
   };
@@ -179,6 +189,6 @@ export function orgRolloutSnippet(cliBin: string): string {
     "managed-settings.json:",
     managed,
     "",
-    "Each developer still runs `outerlayer login` once to attribute sessions.",
+    "Each developer still runs `outerlayer login` once to connect their machine.",
   ].join("\n");
 }

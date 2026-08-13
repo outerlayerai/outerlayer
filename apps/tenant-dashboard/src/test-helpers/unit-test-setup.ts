@@ -323,6 +323,15 @@ vi.mock('../routes/paths', async (importOriginal) => {
       dashboard: {
         root: '/orgs',
       },
+      device: {
+        root: '/device',
+      },
+      orgs: {
+        root: '/orgs',
+        org: {
+          device: { root: (orgName: string) => `/orgs/${orgName}/device` },
+        },
+      },
     },
     appPaths: actual.appPaths,
     APP_LEVEL_SEGMENTS: actual.APP_LEVEL_SEGMENTS,
