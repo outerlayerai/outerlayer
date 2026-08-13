@@ -72,6 +72,12 @@ CREATE POLICY "Enable admin_api_key update for users with update access" ON "pub
 -- -----------------------------------------------------------------------------
 -- Grants
 -- -----------------------------------------------------------------------------
+-- GRANT ALL restores TRUNCATE/REFERENCES/TRIGGER for authenticated even though
+-- 98-table-privilege-hardening.sql's default-privilege rule already stripped
+-- them at table creation — an explicit GRANT ALL always wins over a default
+-- privilege. The REVOKE below repeats the hardening sweep for this table so
+-- it holds regardless of statement order.
 
 GRANT ALL ON public.admin_api_key TO authenticated;
 GRANT ALL ON public.admin_api_key TO service_role;
+REVOKE TRUNCATE, REFERENCES, TRIGGER ON public.admin_api_key FROM authenticated;

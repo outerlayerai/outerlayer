@@ -162,6 +162,10 @@ CREATE OR REPLACE TRIGGER on_update_set_api_key_updated_columns
     BEFORE UPDATE ON public.api_key
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_columns();
 
+CREATE OR REPLACE TRIGGER on_update_set_admin_api_key_updated_columns
+    BEFORE UPDATE ON public.admin_api_key
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_columns();
+
 CREATE OR REPLACE TRIGGER on_update_set_app_updated_columns
     BEFORE UPDATE ON public.app
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_columns();
@@ -304,6 +308,10 @@ CREATE OR REPLACE TRIGGER audit_log_hash_chain_trigger
 -- assigns that field and would fail at runtime on a table without it.
 
 -- created_by on insert
+CREATE OR REPLACE TRIGGER on_insert_admin_api_key_set_created_columns
+    BEFORE INSERT ON public.admin_api_key
+    FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
+
 CREATE OR REPLACE TRIGGER on_insert_ai_cost_config_set_created_columns
     BEFORE INSERT ON public.ai_cost_config
     FOR EACH ROW EXECUTE FUNCTION public.set_created_columns();
