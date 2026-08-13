@@ -17,7 +17,7 @@ export { CLASSIFIER_VERSION } from './classifier-version';
 export { parseContextFile, splitRawFile } from './frontmatter/parse';
 export type { SplitRawFile } from './frontmatter/parse';
 
-export { emitTree, mergeEmitResults, ALL_TARGET_IDS } from './emit/index';
+export { emitTree, mergeEmitResults, ALL_TARGET_IDS, generatedHeaderSource } from './emit/index';
 export type {
   TargetId,
   EmitInput,
