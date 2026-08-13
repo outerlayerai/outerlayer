@@ -6102,6 +6102,7 @@ __metadata:
     "@repo/typescript-config": "npm:*"
     react-email: "npm:^6.9.1"
     typescript: "npm:^5.5.3"
+    vitest: "npm:^4.1.8"
   languageName: unknown
   linkType: soft
 
