@@ -93,6 +93,24 @@ async function guardPasses(
   return outcome === undefined;
 }
 
+/**
+ * Same guard-running mechanics as {@link guardPasses}, but reports the
+ * denying Response's HTTP status instead of collapsing it to a boolean —
+ * `enforcePermission`/`enforceEntitlement` deny two structurally different
+ * ways: a real decision (403/402) the caller can act on, or an
+ * infrastructure fault (5xx, e.g. the entitlement Supabase lookup throwing)
+ * neither upgrading nor re-authing fixes. Only the status distinguishes
+ * them, so a caller that needs to report the right JSON-RPC error must see
+ * it rather than a plain pass/fail.
+ */
+async function guardStatus(
+  c: AppContext,
+  guard: (c: AppContext, next: Next) => Promise<Response | void>,
+): Promise<{ passed: true } | { passed: false; status: number }> {
+  const outcome = await guard(c, NO_OP_NEXT);
+  return outcome === undefined ? { passed: true } : { passed: false, status: outcome.status };
+}
+
 /** Exported so tools-conformance.test.ts can assert, for the REAL tool
  * registry, that no defaulted/optional field is ever advertised as
  * `required` — the class of bug that slips past a schema-shaped-like-this
@@ -187,6 +205,22 @@ class McpAppError extends Error {
   }
 }
 
+/**
+ * Maps a denying guard's HTTP status to the JSON-RPC error this dispatcher
+ * reports — a 402/403 is a real decision the guard made about the caller;
+ * a 5xx is the guard's own infrastructure failing to decide at all (e.g.
+ * `enforceEntitlement`'s Supabase lookup throwing). Reporting the latter as
+ * `EntitlementRequired` tells the caller to upgrade their tier for a
+ * problem upgrading can't fix. Any other status is unexpected for a guard
+ * denial and is treated the same as a 5xx: an internal error, logged.
+ */
+function mapGuardDenial(status: number, deniedMessage: string): McpAppError {
+  if (status === 402) return new McpAppError(APP_ERROR_CODE.EntitlementRequired, deniedMessage);
+  if (status === 403) return new McpAppError(APP_ERROR_CODE.PermissionDenied, deniedMessage);
+  console.error(`[mcp] guard denied the call with unexpected status ${status}`);
+  return new McpAppError(ErrorCode.InternalError, 'An unexpected error occurred while checking access.');
+}
+
 async function handleToolsCall(c: AppContext, params: unknown): Promise<CallToolResult> {
   const parsed = z.object({ name: z.string(), arguments: z.unknown().optional() }).safeParse(params);
   if (!parsed.success) {
@@ -204,11 +238,15 @@ async function handleToolsCall(c: AppContext, params: unknown): Promise<CallTool
 
   // RBAC → entitlement → rate limit → handler — same guard order
   // `registerAuthenticatedRoute` composes for REST (see openapi/index.ts).
-  if (!(await guardPasses(c, enforcePermission(tool.requiredPermission)))) {
-    throw new McpAppError(APP_ERROR_CODE.PermissionDenied, `Forbidden: missing required permission '${tool.requiredPermission}'`);
+  const permissionResult = await guardStatus(c, enforcePermission(tool.requiredPermission));
+  if (!permissionResult.passed) {
+    throw mapGuardDenial(permissionResult.status, `Forbidden: missing required permission '${tool.requiredPermission}'`);
   }
-  if (tool.entitlement && !(await guardPasses(c, enforceEntitlement(tool.entitlement)))) {
-    throw new McpAppError(APP_ERROR_CODE.EntitlementRequired, `Tenant tier does not include '${tool.entitlement}'`);
+  if (tool.entitlement) {
+    const entitlementResult = await guardStatus(c, enforceEntitlement(tool.entitlement));
+    if (!entitlementResult.passed) {
+      throw mapGuardDenial(entitlementResult.status, `Tenant tier does not include '${tool.entitlement}'`);
+    }
   }
   if (tool.rateLimit && !(await guardPasses(c, enforceRateLimit(tool.rateLimit)))) {
     throw new McpAppError(APP_ERROR_CODE.RateLimited, 'Rate limit exceeded. Please retry later.');

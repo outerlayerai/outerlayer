@@ -344,6 +344,38 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
   });
 
+  // proves the fix: a guard-side infrastructure fault (5xx) must not be
+  // reported as the same JSON-RPC error a real 402 denial gets — that would
+  // tell a caller to upgrade their tier for a problem upgrading can't fix.
+  it('an entitlement guard failing with a 500 (infrastructure fault) surfaces as InternalError, not EntitlementRequired', async () => {
+    enforceEntitlement.mockImplementation(
+      denyWith({ error: { code: 'internal_error', message: 'Entitlement resolution failed' } }, 500),
+    );
+    const c = buildContext({ jsonrpc: '2.0', id: 17, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number } } };
+
+    expect(result.body.error.code).toBe(ErrorCode.InternalError);
+    expect(result.body.error.code).not.toBe(-32002);
+    expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith('[mcp] guard denied the call with unexpected status 500');
+    consoleSpy.mockRestore();
+  });
+
+  it('a permission guard failing with a 500 also surfaces as InternalError, not PermissionDenied', async () => {
+    enforcePermission.mockImplementation(denyWith({ error: { code: 'internal_error', message: 'boom' } }, 500));
+    const c = buildContext({ jsonrpc: '2.0', id: 18, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number } } };
+
+    expect(result.body.error.code).toBe(ErrorCode.InternalError);
+    expect(result.body.error.code).not.toBe(-32001);
+    expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
   it('runs the guards in permission → entitlement → rate-limit order', async () => {
     const order: string[] = [];
     enforcePermission.mockImplementation(() => async () => {
