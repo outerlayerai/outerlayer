@@ -91,6 +91,7 @@ const DATA: AgentSessionDetailData = {
 };
 
 describe('AgentSessionDetail', () => {
+  // proves AC-062-07
   it('titles the page with the session and captions it with agent, actor, project and tier', () => {
     const { getByRole, getByTestId } = render(<AgentSessionDetail appId="app-1" data={DATA} />);
     const heading = getByRole('heading', { name: 'Wire the widget' });
@@ -246,6 +247,7 @@ describe('AgentSessionDetail', () => {
     expect(container.textContent ?? '').not.toContain('permission prompts');
   });
 
+  // proves AC-062-08
   it('renders an unpriced session as "—", never as a confident $0.00', () => {
     // The transcript carries token counts but no cost — a session whose model
     // the price map did not know arrives with no cost at all. A "$0.00" there
@@ -259,6 +261,7 @@ describe('AgentSessionDetail', () => {
     expect(stats[stats.indexOf('cost') - 1]).toBe('—');
   });
 
+  // proves AC-062-09
   it('surfaces an edit loop as a warning chip naming the file and run length', () => {
     const data: AgentSessionDetailData = {
       ...DATA,
@@ -269,6 +272,7 @@ describe('AgentSessionDetail', () => {
     expect(chip?.textContent).toBe('edit loop · 5× on broken.ts');
   });
 
+  // proves AC-062-10
   it('renders the PR-outcome strip per PR, and hides it entirely when the session touched no scored PR', () => {
     // No scored PR → no strip at all (most sessions), not an empty header.
     const { container: bare } = render(<AgentSessionDetail appId="app-1" data={{ ...DATA, prOutcomes: [] }} />);

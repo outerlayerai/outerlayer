@@ -317,6 +317,7 @@ describe("AgentSessionsService.getSessionDetail", () => {
     expect(spansCall.query).toContain("substringUTF8(SpanAttributes['outerlayer.reasoning'], 1, 1024)");
   });
 
+  // proves AC-062-11
   it("caps an oversized turn output in the response body (JS cap after unwrap)", async () => {
     mockJson.mockResolvedValue([{ ...FAT_ROW, name: "agent.turn.assistant", output: "x".repeat(9000) }]);
     const data = await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
@@ -447,6 +448,7 @@ describe("AgentSessionsService.getSessionDetail", () => {
     expect(spanCall!.query).not.toContain("tsRangeStart");
   });
 
+  // proves AC-062-14
   it("another developer's transcript resolves to null under self scope — indistinguishable from nonexistent", async () => {
     mockScope.value = { kind: "self", actorId: "me-membership" }; // FAT_ROW.actorId is 'devon'
     const data = await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
@@ -611,6 +613,7 @@ describe("AgentSessionsService.listSessions", () => {
     expect(listCall.query).toContain("ORDER BY if(ToolCallCount > 0, ErrorCount / ToolCallCount, 0) DESC");
   });
 
+  // proves AC-062-03
   it("signal filter selects its closed predicate into list, count, AND the origin rollup", async () => {
     await agentSessionsService.listSessions(ctx(), listQuery({ signal: "hands-on" }));
     const calls = chCalls();
