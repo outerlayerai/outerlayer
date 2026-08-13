@@ -6,7 +6,12 @@
  * into a thrown error.
  */
 
-import { seedSupabaseMswState, seedMembershipMswState, getInsertedAuditLogRows } from '@/test-helpers/msw-handlers';
+import {
+  seedSupabaseMswState,
+  seedMembershipMswState,
+  seedAuditLogMswState,
+  getInsertedAuditLogRows,
+} from '@/test-helpers/msw-handlers';
 
 import type { DeviceAuthRequestRow } from './device-auth';
 
@@ -49,9 +54,12 @@ beforeEach(() => {
 });
 
 it('mints with the fixed trace.write permission, the row environment, and the approver as actor', async () => {
+  const before = Date.now();
   const result = await mintDeviceAuthApiKey(consumedRow());
+  const after = Date.now();
 
   expect(result).toEqual({ plaintext: 'sk_outerlayer_minted', appName: 'My App', orgName: 'acme' });
+  expect(mockMintApiKey).toHaveBeenCalledTimes(1);
   expect(mockMintApiKey).toHaveBeenCalledWith(
     expect.objectContaining({
       tenantId: TENANT,
@@ -63,6 +71,15 @@ it('mints with the fixed trace.write permission, the row environment, and the ap
       name: 'CLI Device Login - r1',
     }),
   );
+
+  // The key TTL is exactly 30 days: expiresAt sits between now+30d captured
+  // just before and just after the call, pinning the 30*24*60*60*1000
+  // arithmetic without flaking on wall-clock jitter.
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const expiresAtArg = mockMintApiKey.mock.calls[0]![0] as { expiresAt: string };
+  const expiresAtMs = new Date(expiresAtArg.expiresAt).getTime();
+  expect(expiresAtMs).toBeGreaterThanOrEqual(before + THIRTY_DAYS_MS);
+  expect(expiresAtMs).toBeLessThanOrEqual(after + THIRTY_DAYS_MS);
 });
 
 it('names the key after the device_auth_request row id — collision-proof even for repeated logins from the same device', async () => {
@@ -88,12 +105,48 @@ it('writes an api_key_created audit row attributed to the approver, never carryi
   expect(JSON.stringify(auditRow)).not.toContain('sk_outerlayer_minted');
 });
 
-it('throws if the row is missing tenant_id/app_id — a row that never passed through approval', async () => {
-  await expect(mintDeviceAuthApiKey(consumedRow({ tenant_id: null }))).rejects.toThrow();
+it('falls back to an empty appName when the app row is gone and null orgName when the tenant row is gone', async () => {
+  seedSupabaseMswState({ apps: [] });
+  seedMembershipMswState({ tenants: [] });
+
+  const result = await mintDeviceAuthApiKey(consumedRow());
+
+  expect(result).toEqual({ plaintext: 'sk_outerlayer_minted', appName: '', orgName: null });
+});
+
+it('throws if the row is missing tenant_id — a row that never passed through approval', async () => {
+  await expect(mintDeviceAuthApiKey(consumedRow({ tenant_id: null }))).rejects.toThrow(
+    'device_auth_request row is missing tenant_id/app_id at mint time',
+  );
+  expect(mockMintApiKey).not.toHaveBeenCalled();
+});
+
+it('throws if the row is missing app_id — same guard, other column', async () => {
+  await expect(mintDeviceAuthApiKey(consumedRow({ app_id: null }))).rejects.toThrow(
+    'device_auth_request row is missing tenant_id/app_id at mint time',
+  );
   expect(mockMintApiKey).not.toHaveBeenCalled();
 });
 
 it('a mint failure propagates rather than being swallowed', async () => {
   mockMintApiKey.mockRejectedValue(new Error('uc_api_key violation'));
   await expect(mintDeviceAuthApiKey(consumedRow())).rejects.toThrow('uc_api_key violation');
+});
+
+it('an audit-log write failure is swallowed — the mint still resolves with the key', async () => {
+  seedAuditLogMswState({ forceInsertError: { message: 'audit insert exploded' } });
+
+  const result = await mintDeviceAuthApiKey(consumedRow());
+
+  expect(result).toEqual({ plaintext: 'sk_outerlayer_minted', appName: 'My App', orgName: 'acme' });
+  expect(getInsertedAuditLogRows()).toEqual([]);
+});
+
+it('a row with no approver still mints and audits with null attribution', async () => {
+  const result = await mintDeviceAuthApiKey(consumedRow({ approver_membership_id: null }));
+
+  expect(result).toEqual({ plaintext: 'sk_outerlayer_minted', appName: 'My App', orgName: 'acme' });
+  expect(mockMintApiKey).toHaveBeenCalledWith(expect.objectContaining({ actorMembershipId: null }));
+  const auditRow = getInsertedAuditLogRows().find((r) => r.action_type === 'api_key_created');
+  expect(auditRow).toMatchObject({ actor_id: null });
 });

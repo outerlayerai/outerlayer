@@ -26,7 +26,7 @@ vi.mock('@repo/api-key-service', () => ({
   hashApiKey: vi.fn(async (plaintext: string) => `digest:${plaintext}`),
 }));
 
-import { getDeviceAuthMswRows } from '@/test-helpers/msw-handlers';
+import { getDeviceAuthMswRows, forceDeviceAuthInsertError } from '@/test-helpers/msw-handlers';
 import { POST } from '../start/route';
 
 describe('POST /api/cli/device/start', () => {
@@ -58,5 +58,18 @@ describe('POST /api/cli/device/start', () => {
     const url = new URL(body.verification_url);
     expect(url.pathname).toBe('/device');
     expect(url.searchParams.get('user_code')).toBe(body.user_code);
+  });
+
+  it('a thrown error inside the handler is caught, logged, and mapped to exactly a 500 with a generic body', async () => {
+    forceDeviceAuthInsertError('db exploded');
+
+    const res = await POST();
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Internal server error' });
+    const { serverLogger } = await import('@/lib/observability/server-logger');
+    expect(serverLogger.error).toHaveBeenCalledWith(expect.anything(), {
+      context: '[CLI API] POST /api/cli/device/start failed',
+    });
   });
 });

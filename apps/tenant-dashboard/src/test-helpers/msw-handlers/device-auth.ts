@@ -20,10 +20,15 @@ export type DeviceAuthRequestMswRow = {
 
 let rows: DeviceAuthRequestMswRow[] = [];
 let nextId = 1;
+/** Force a 500 on the matching PostgREST verb so `if (error) throw error` guards fire. */
+let forceInsertError: { message: string } | null = null;
+let forceUpdateError: { message: string } | null = null;
 
 export function resetDeviceAuthMswState() {
   rows = [];
   nextId = 1;
+  forceInsertError = null;
+  forceUpdateError = null;
 }
 
 export function seedDeviceAuthMswState(seed: DeviceAuthRequestMswRow[]) {
@@ -32,6 +37,16 @@ export function seedDeviceAuthMswState(seed: DeviceAuthRequestMswRow[]) {
 
 export function getDeviceAuthMswRows(): DeviceAuthRequestMswRow[] {
   return rows;
+}
+
+/** POST (insert) on `device_auth_request` returns a 500 until reset. */
+export function forceDeviceAuthInsertError(message: string) {
+  forceInsertError = { message };
+}
+
+/** PATCH (update) on `device_auth_request` returns a 500 until reset. */
+export function forceDeviceAuthUpdateError(message: string) {
+  forceUpdateError = { message };
 }
 
 /** `?column=gt.<value>` — string/date-compares greater-than, PostgREST style. */
@@ -68,6 +83,9 @@ export const deviceAuthHandlers = [
   }),
 
   http.post(`${SUPABASE_URL}/rest/v1/device_auth_request`, async ({ request }) => {
+    if (forceInsertError) {
+      return HttpResponse.json({ message: forceInsertError.message }, { status: 500 });
+    }
     const body = (await request.json()) as Partial<DeviceAuthRequestMswRow> | Partial<DeviceAuthRequestMswRow>[];
     const list = Array.isArray(body) ? body : [body];
     const inserted: DeviceAuthRequestMswRow[] = list.map((row) => ({
@@ -92,6 +110,9 @@ export const deviceAuthHandlers = [
   // `rows` array, so a concurrent-request test genuinely exercises "only rows
   // matching the precondition AT THE TIME THIS HANDLER RUNS get updated."
   http.patch(`${SUPABASE_URL}/rest/v1/device_auth_request`, async ({ request }) => {
+    if (forceUpdateError) {
+      return HttpResponse.json({ message: forceUpdateError.message }, { status: 500 });
+    }
     const url = new URL(request.url);
     // `await` the body FIRST: everything after this line is synchronous, with
     // no yield point, so two "concurrent" callers (two fetches started via

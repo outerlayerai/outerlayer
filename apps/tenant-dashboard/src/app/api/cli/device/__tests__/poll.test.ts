@@ -42,6 +42,7 @@ import {
   seedMembershipMswState,
   seedApiKeysMswState,
   getDeviceAuthMswRows,
+  forceDeviceAuthUpdateError,
 } from '@/test-helpers/msw-handlers';
 import { POST } from '../poll/route';
 
@@ -87,14 +88,24 @@ beforeEach(() => {
 });
 
 describe('POST /api/cli/device/poll — validation', () => {
-  it('400s on a missing device_code', async () => {
+  it('400s on a missing device_code with the schema issue as the error body', async () => {
     const res = await POST(new Request('http://localhost/api/cli/device/poll', { method: 'POST', body: JSON.stringify({}) }));
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid input: expected string, received undefined' });
   });
 
-  it('400s on invalid JSON', async () => {
+  it('400s on an empty device_code with the min-length message', async () => {
+    const res = await POST(
+      new Request('http://localhost/api/cli/device/poll', { method: 'POST', body: JSON.stringify({ device_code: '' }) }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'device_code is required' });
+  });
+
+  it('400s on invalid JSON with exactly the invalid-body error', async () => {
     const res = await POST(new Request('http://localhost/api/cli/device/poll', { method: 'POST', body: 'not json' }));
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid JSON body' });
   });
 });
 
@@ -138,6 +149,23 @@ describe('POST /api/cli/device/poll — enumeration-safe status contract', () =>
     ]);
     const res = await POST(pollRequest('the-device-code'));
     expect(await res.json()).toEqual({ status: 'expired' });
+  });
+
+  it('an approved row this poll failed to consume (lost race) reports "pending", not an error', async () => {
+    // consumed_at set while status still reads 'approved': the consume
+    // UPDATE's WHERE (`consumed_at IS NULL`) can no longer match, exactly
+    // the state a losing racer observes mid-transition.
+    seedDeviceAuthMswState([
+      {
+        id: 'r1', user_code: 'AAAA-BBBB', device_code_digest: fakeDigest('the-device-code'),
+        status: 'approved', consumed_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 600_000).toISOString(),
+      },
+    ]);
+    const res = await POST(pollRequest('the-device-code'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'pending' });
+    expect(mockMintApiKey).not.toHaveBeenCalled();
   });
 
   it('re-polling an already-consumed code reports "expired" and never mints again', async () => {
@@ -243,5 +271,24 @@ describe('POST /api/cli/device/poll — entitlement enforcement', () => {
     // mint did not happen — it can never be retried, by design (see
     // mint-device-auth-key.ts's docstring on this tradeoff).
     expect(getDeviceAuthMswRows()[0]!.status).toBe('consumed');
+  });
+});
+
+describe('POST /api/cli/device/poll — internal failure', () => {
+  it('a thrown error inside the handler is caught, logged, and mapped to exactly a 500 with a generic body', async () => {
+    seedApprovedRow();
+    seedMintTargets();
+    // The consume UPDATE 500s — the first await inside the try block throws.
+    forceDeviceAuthUpdateError('db exploded');
+
+    const res = await POST(pollRequest('the-device-code'));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Internal server error' });
+    expect(mockMintApiKey).not.toHaveBeenCalled();
+    const { serverLogger } = await import('@/lib/observability/server-logger');
+    expect(serverLogger.error).toHaveBeenCalledWith(expect.anything(), {
+      context: '[CLI API] POST /api/cli/device/poll failed',
+    });
   });
 });

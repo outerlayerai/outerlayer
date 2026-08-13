@@ -5,7 +5,12 @@
  * client, so the query shape (eq/gt/is filters) is genuinely proven.
  */
 
-import { seedDeviceAuthMswState, getDeviceAuthMswRows } from '@/test-helpers/msw-handlers';
+import {
+  seedDeviceAuthMswState,
+  getDeviceAuthMswRows,
+  forceDeviceAuthInsertError,
+  forceDeviceAuthUpdateError,
+} from '@/test-helpers/msw-handlers';
 
 import {
   createDeviceAuthRequest,
@@ -36,12 +41,26 @@ const future = (secondsFromNow: number) => new Date(Date.now() + secondsFromNow 
 const past = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString();
 
 describe('createDeviceAuthRequest', () => {
+  it('the TTL is exactly 600 seconds (10 minutes)', () => {
+    expect(DEVICE_AUTH_TTL_SECONDS).toBe(600);
+  });
+
   it('creates a pending row with an 8-char user code and a digested device code, never storing the plaintext', async () => {
+    const before = Date.now();
     const result = await createDeviceAuthRequest();
+    const after = Date.now();
 
     expect(result.userCode).toMatch(/^[0-9A-HJ-NP-TV-Z]{4}-[0-9A-HJ-NP-TV-Z]{4}$/);
     expect(result.deviceCode.length).toBeGreaterThan(20);
-    expect(result.ttlSeconds).toBe(DEVICE_AUTH_TTL_SECONDS);
+    expect(result.ttlSeconds).toBe(600);
+    expect(result.pollIntervalSeconds).toBe(5);
+
+    // expiresAt sits between now+600s captured just before and just after the
+    // call — pins the *600 seconds of the TTL arithmetic without flaking on
+    // wall-clock jitter between the two Date.now() reads.
+    const expiresAtMs = new Date(result.expiresAt).getTime();
+    expect(expiresAtMs).toBeGreaterThanOrEqual(before + 600 * 1000);
+    expect(expiresAtMs).toBeLessThanOrEqual(after + 600 * 1000);
 
     const rows = getDeviceAuthMswRows();
     expect(rows).toHaveLength(1);
@@ -49,11 +68,17 @@ describe('createDeviceAuthRequest', () => {
       expect.objectContaining({
         user_code: result.userCode,
         device_code_digest: fakeDigest(result.deviceCode),
+        expires_at: result.expiresAt,
         status: 'pending',
       }),
     );
     // The plaintext device code appears NOWHERE in the stored row.
     expect(JSON.stringify(rows[0])).not.toContain(result.deviceCode);
+  });
+
+  it('propagates the insert error rather than returning a partial result', async () => {
+    forceDeviceAuthInsertError('insert failed');
+    await expect(createDeviceAuthRequest()).rejects.toMatchObject({ message: 'insert failed' });
   });
 });
 
@@ -137,6 +162,22 @@ describe('approveDeviceAuthRequest', () => {
     });
     expect(row).toBeNull();
   });
+
+  it('propagates the update error rather than treating it as "already resolved"', async () => {
+    seedDeviceAuthMswState([
+      { id: 'r1', user_code: 'AAAA-BBBB', device_code_digest: 'd1', status: 'pending', expires_at: future(600) },
+    ]);
+    forceDeviceAuthUpdateError('update failed');
+    await expect(
+      approveDeviceAuthRequest({
+        id: 'r1',
+        tenantId: 'tenant-1',
+        appId: 'app-1',
+        environmentId: null,
+        approverMembershipId: 'member-1',
+      }),
+    ).rejects.toMatchObject({ message: 'update failed' });
+  });
 });
 
 describe('denyDeviceAuthRequest', () => {
@@ -154,6 +195,14 @@ describe('denyDeviceAuthRequest', () => {
     ]);
     expect(await denyDeviceAuthRequest('r1')).toBeNull();
     expect(getDeviceAuthMswRows()[0]!.status).toBe('approved');
+  });
+
+  it('propagates the update error rather than returning null', async () => {
+    seedDeviceAuthMswState([
+      { id: 'r1', user_code: 'AAAA-BBBB', device_code_digest: 'd1', status: 'pending', expires_at: future(600) },
+    ]);
+    forceDeviceAuthUpdateError('update failed');
+    await expect(denyDeviceAuthRequest('r1')).rejects.toMatchObject({ message: 'update failed' });
   });
 });
 
@@ -212,6 +261,14 @@ describe('consumeApprovedDeviceAuthRequest — the single-use guarantee', () => 
       { id: 'r1', user_code: 'AAAA-BBBB', device_code_digest: fakeDigest('plain-1'), status: 'denied', expires_at: future(600) },
     ]);
     expect(await consumeApprovedDeviceAuthRequest('plain-1')).toBeNull();
+  });
+
+  it('propagates the update error rather than returning null', async () => {
+    seedDeviceAuthMswState([
+      { id: 'r1', user_code: 'AAAA-BBBB', device_code_digest: fakeDigest('plain-1'), status: 'approved', expires_at: future(600) },
+    ]);
+    forceDeviceAuthUpdateError('update failed');
+    await expect(consumeApprovedDeviceAuthRequest('plain-1')).rejects.toMatchObject({ message: 'update failed' });
   });
 });
 
