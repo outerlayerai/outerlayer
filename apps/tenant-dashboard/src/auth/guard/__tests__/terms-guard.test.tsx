@@ -49,6 +49,7 @@ describe('TermsGuard', () => {
     mockUseAuthContext.mockReturnValue({ authenticated: true, loading: false });
   });
 
+  // proves AC-078-02
   it('renders children when checkTermsAgreementAction returns an error result', async () => {
     mockRouter();
     vi.mocked(checkTermsAgreementAction).mockResolvedValue({ error: 'Service unavailable' } as any);
@@ -62,6 +63,7 @@ describe('TermsGuard', () => {
     await findByText('protected content');
   });
 
+  // proves AC-078-02
   it('renders children when checkTermsAgreementAction throws', async () => {
     mockRouter();
     vi.mocked(checkTermsAgreementAction).mockRejectedValue(new Error('network down'));
@@ -75,6 +77,7 @@ describe('TermsGuard', () => {
     await findByText('protected content');
   });
 
+  // proves AC-078-01
   it('redirects to the blocking terms-agreement URL with both query params and the current pathname when needsCurrentVersion is true', async () => {
     const replace = mockRouter();
     vi.mocked(checkTermsAgreementAction).mockResolvedValue({

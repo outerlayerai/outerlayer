@@ -45,6 +45,7 @@ test.describe('Self-host licensed — license unlocks EE without billing @selfho
     org = null;
   });
 
+  // proves AC-071-09
   test('custom role can be created and appears in the audit trail, on a free-tier billing row', async ({
     page,
   }) => {

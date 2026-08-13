@@ -287,7 +287,7 @@ export class SyncAgentSessions extends BaseRoute {
       400: errorResponse('Malformed request body.'),
       401: errorResponse('Missing or invalid API key.'),
       413: errorResponse('Batch exceeds the per-request byte ceiling — split it into smaller requests.'),
-      429: errorResponse('Monthly unit limit exceeded.'),
+      429: errorResponse('Monthly unit limit or storage cap exceeded.'),
       503: {
         // Load-triggered: a ClickHouse insert failed (downstream saturated).
         // Structured envelope + Retry-After so a client's backoff can tell
@@ -349,6 +349,10 @@ export class SyncAgentSessions extends BaseRoute {
     const env = c.env;
     const adminSupabase = asServiceClient(createSystemAdminClient(env));
 
+    // One request-scoped cache serves both quota gates below.
+    const gtx = c.get('gtx');
+    const gatewayCache = initCache(gtx.cacheL2Store, gtx.execCtx, memory);
+
     // Billing integrity: agent spans are units like any other ingested span.
     // Mirror the OTLP ingest's monthly-limit gate; fail OPEN on check errors
     // (a metering blip must not lose telemetry), fail CLOSED on a real limit.
@@ -356,7 +360,7 @@ export class SyncAgentSessions extends BaseRoute {
       const limitService = createSpanLimitService(
         createClickHouseService({ host: env.CLICKHOUSE_HOST, ...clickHouseWriteAuth(env) }),
         adminSupabase,
-        initCache(c.get('gtx').cacheL2Store, c.get('gtx').execCtx, memory),
+        gatewayCache,
         { selfHost: isSelfHostGateway(env) },
       );
       const limitResult = await limitService.checkSpanLimit(user.tenantId);
@@ -378,6 +382,34 @@ export class SyncAgentSessions extends BaseRoute {
       }
     } catch (e) {
       console.warn('[agents/sync] span-limit check failed, continuing:', e);
+    }
+
+    // Storage-cap gate: hobby-tier monthly storage ceiling (Stripe usage meter).
+    // Fails OPEN like the span-limit gate above — a Stripe/cache hiccup must
+    // never turn into a dropped sync. `checkStorageCap` caches its verdict for
+    // 5 minutes (see `GatewayContext.billing`'s doc), so this stays off the
+    // per-request Stripe round trip on repeat syncs within the window.
+    // Bearer-session callers (and stale API-key meta) carry an empty customer
+    // id; the service resolves it from the tenant's billing row, so both auth
+    // modes are enforced identically — like the span-limit gate above.
+    try {
+      const capResult = await gtx.billing.checkStorageCap(
+        adminSupabase,
+        user.tenantId,
+        user.stripeCustomerId,
+        gatewayCache,
+      );
+      if (!capResult.allowed) {
+        return c.json(
+          structuredError('storage_cap_exceeded', 'Monthly storage cap exceeded. Upgrade your plan for more storage.', {
+            currentBytes: capResult.currentBytes,
+            limitBytes: capResult.limitBytes,
+          }),
+          429,
+        );
+      }
+    } catch (e) {
+      console.warn('[agents/sync] storage-cap check failed, continuing:', e);
     }
 
     const tenantTier = await resolveTenantCaptureTier(adminSupabase, user.tenantId);

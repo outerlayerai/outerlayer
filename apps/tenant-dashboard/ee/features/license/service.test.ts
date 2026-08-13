@@ -40,6 +40,7 @@ describe("resolveLicenseStatus", () => {
     _resetLicenseCacheForTests();
   });
 
+  // proves AC-071-08
   it("hides the surface entirely on Cloud (not self-hosted)", async () => {
     // No OUTERLAYER_SELF_HOSTED — and a wrong-cased value must not count either.
     expect(await resolveLicenseStatus({}, NOW)).toEqual({ visible: false });
@@ -77,6 +78,7 @@ describe("resolveLicenseStatus", () => {
     });
   });
 
+  // proves AC-071-06
   it("reports grace with expiredAt, graceEndsAt, and days until deactivation", async () => {
     // Expired 3 days ago → inside the 14-day grace window; 11 days remain.
     const { token, publicKey } = mintLicense({

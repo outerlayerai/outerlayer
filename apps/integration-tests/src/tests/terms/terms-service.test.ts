@@ -99,6 +99,7 @@ describe("TermsAgreementService Integration Tests", () => {
   });
 
   describe("recordAgreement", () => {
+    // proves AC-078-03
     it("should record agreement with explicit consent by default", async () => {
       requirePrerequisite(prerequisiteCheck);
 
@@ -141,6 +142,7 @@ describe("TermsAgreementService Integration Tests", () => {
       await supabaseAdmin.from("terms_agreement").delete().eq("id", result.id);
     });
 
+    // proves AC-078-04
     it("should throw error when duplicate agreement for same version", async () => {
       requirePrerequisite(prerequisiteCheck);
 
@@ -217,6 +219,7 @@ describe("TermsAgreementService Integration Tests", () => {
       });
     });
 
+    // proves AC-078-06
     it("should return needsCurrentVersion=false when user has any agreement (non-blocking)", async () => {
       requirePrerequisite(prerequisiteCheck);
 

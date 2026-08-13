@@ -112,6 +112,7 @@ describe('workers mutation actions — real Server Action calls (session-cookie 
   });
 
   describe('launchWorkerAction / createEnvironmentAction: pre-dispatch validation through the real action', () => {
+    // proves AC-061-02
     it('launchWorkerAction rejects an unknown agent before reaching entitlements or dispatch', async () => {
       await actAsInOrg(owner, owner.tenantId);
       const result = await launchWorkerAction({ appId, agent: 'not-a-real-agent', taskPrompt: 'x' });
@@ -132,6 +133,7 @@ describe('workers mutation actions — real Server Action calls (session-cookie 
   });
 
   describe('runEnvironmentTurnAction: unknown environmentId through the real action', () => {
+    // proves AC-061-05
     it('rejects an unknown envId, never reaching dispatch', async () => {
       await actAsInOrg(owner, owner.tenantId);
       const bogusEnvId = randomUUID();
@@ -148,6 +150,7 @@ describe('workers mutation actions — real Server Action calls (session-cookie 
       return { db: user.client as never, tenantId: user.tenantId, actor: { userId: user.id, role: user.orgRole } };
     }
 
+    // proves AC-061-10
     it('cancels a non-terminal run through the real action — status transitions to cancelled', async () => {
       const created = await workersService.createRun(ctxFor(owner), {
         appId,
@@ -171,6 +174,7 @@ describe('workers mutation actions — real Server Action calls (session-cookie 
       expect(detail!.status).toBe('cancelled');
     });
 
+    // proves AC-061-11
     it('a second cancel of the now-terminal run is a no-op through the real action — no status regression', async () => {
       const created = await workersService.createRun(ctxFor(owner), {
         appId,
@@ -194,6 +198,7 @@ describe('workers mutation actions — real Server Action calls (session-cookie 
       expect(detail!.status).toBe('completed');
     });
 
+    // proves AC-061-13
     it('denies a read-only role at the permission gate — distinct from the RLS-layer denial', async () => {
       const created = await workersService.createRun(ctxFor(owner), {
         appId,

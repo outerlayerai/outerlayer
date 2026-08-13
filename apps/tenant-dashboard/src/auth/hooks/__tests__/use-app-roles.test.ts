@@ -39,6 +39,7 @@ function wrapperFor(appRoles: AppMemberRoleRow[], isAppScoped: boolean) {
 
 describe('useAppRoles', () => {
   describe('unrestricted user (is_app_scoped = false, no app role rows)', () => {
+    // proves AC-074-06
     it('should have access to all apps and no app roles', () => {
       const { result } = renderHook(() => useAppRoles(), {
         wrapper: wrapperFor([], false),
@@ -87,6 +88,7 @@ describe('useAppRoles', () => {
       expect(result.current.getAppRole(APP_X_ID)).toBe('read');
     });
 
+    // proves AC-074-05
     it('should deny access to App Y (no role assigned)', () => {
       const { result } = renderHook(() => useAppRoles(), {
         wrapper: wrapperFor(memberAppRoles, true),

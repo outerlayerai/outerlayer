@@ -188,6 +188,7 @@ describe("mutation actions — permission gate + service delegation", () => {
 });
 
 describe("read actions — permission gate + service delegation", () => {
+  // proves AC-074-08
   it("listAppRolesAction gates on app_member_role.read and forwards the filters", async () => {
     listAppRolesFn.mockResolvedValue({ data: [] });
 

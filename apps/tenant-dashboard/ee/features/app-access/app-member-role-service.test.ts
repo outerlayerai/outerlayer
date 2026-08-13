@@ -173,6 +173,7 @@ describe('AppMemberRoleService', () => {
   // ========================================================================
 
   describe('entitlement gating', () => {
+    // proves AC-074-02
     it('should return entitlement_denied when canAccess returns false (assign)', async () => {
       mockCanAccess.mockResolvedValue(false);
 
@@ -288,6 +289,7 @@ describe('AppMemberRoleService', () => {
   // ========================================================================
 
   describe('owner protection', () => {
+    // proves AC-074-03
     it('should return error when assigning per-app role to an org owner', async () => {
       mockCanAccess.mockResolvedValue(true);
 
@@ -387,6 +389,7 @@ describe('AppMemberRoleService', () => {
   // ========================================================================
 
   describe('assign()', () => {
+    // proves AC-074-01
     it('should insert with the correct data on happy path', async () => {
       mockCanAccess.mockResolvedValue(true);
 

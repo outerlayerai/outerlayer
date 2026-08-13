@@ -52,6 +52,7 @@ describe('auditLogRowsToCsv', () => {
     expect(csv).toContain('"agent ""quoted""\nsecond line"');
   });
 
+  // proves AC-073-08
   it('neutralizes spreadsheet formula injection in attacker-controlled values', () => {
     // A custom role NAME is attacker-controlled and lands in target_identifier.
     const csv = auditLogRowsToCsv([
@@ -99,6 +100,7 @@ describe('auditLogRowsToCsv', () => {
     );
   });
 
+  // proves AC-073-08
   it('never includes chain internals in the header', () => {
     expect(AUDIT_LOG_CSV_HEADER).not.toContain('seq');
     expect(AUDIT_LOG_CSV_HEADER).not.toContain('hash');

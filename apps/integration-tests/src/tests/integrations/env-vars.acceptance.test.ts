@@ -71,6 +71,7 @@ describe('env-vars feature behavior — EnvVarService wire (Vault delegated to l
   });
 
   describe('set (create + update) round-trips through Vault', () => {
+    // proves AC-067-01
     it('creates a row with a Vault secret readable back by the env-scoped name', async () => {
       const ctx = ctxFor(fx.ownerUser, fx.tenantId);
       const key = `EV1_${randomUUID().slice(0, 6).toUpperCase()}`;
@@ -107,6 +108,7 @@ describe('env-vars feature behavior — EnvVarService wire (Vault delegated to l
   });
 
   describe('list scoping (per-env vs app-wide)', () => {
+    // proves AC-067-02
     it('list() returns only the given environment’s specific rows (kind rows excluded)', async () => {
       const ctx = ctxFor(fx.ownerUser, fx.tenantId);
       const devKey = `EV3DEV_${randomUUID().slice(0, 6).toUpperCase()}`;
@@ -186,6 +188,7 @@ describe('env-vars feature behavior — EnvVarService wire (Vault delegated to l
   });
 
   describe('kind/specific precedence via collectEnvVars', () => {
+    // proves AC-067-06
     it('a specific-env row overrides a matching kind row for that environment', async () => {
       const key = `EV5_${randomUUID().slice(0, 6).toUpperCase()}`;
       await seedKindEnvVar({ tenantId: fx.tenantId, appId: fx.appId, targetKind: 'all', key, value: 'kind-value' });
@@ -196,6 +199,7 @@ describe('env-vars feature behavior — EnvVarService wire (Vault delegated to l
       expect(collected[key]).toBe('specific-value');
     });
 
+    // proves AC-067-07
     it('a fresh env with zero specific rows inherits the matching kind row', async () => {
       const key = `EV5B_${randomUUID().slice(0, 6).toUpperCase()}`;
       await seedKindEnvVar({ tenantId: fx.tenantId, appId: fx.appId, targetKind: 'all', key, value: 'inherited' });
@@ -207,6 +211,7 @@ describe('env-vars feature behavior — EnvVarService wire (Vault delegated to l
   });
 
   describe('delete removes the row AND the Vault secret', () => {
+    // proves AC-067-04
     it('a subsequent read_secret misses after delete', async () => {
       const ctx = ctxFor(fx.ownerUser, fx.tenantId);
       const key = `EV6_${randomUUID().slice(0, 6).toUpperCase()}`;
@@ -365,6 +370,7 @@ describe('mirrored permission gap: env_var.read alone cannot update', () => {
     await cleanupTenantAndUsers(reader.tenantId, [reader]);
   });
 
+  // proves AC-067-12
   it('a custom role holding only env_var.read is refused at the DB on an insert (WITH CHECK)', async () => {
     const asReader = await createTenantScopedClient(reader, owner.tenantId);
     const { error } = await asReader.from('env_var').insert({

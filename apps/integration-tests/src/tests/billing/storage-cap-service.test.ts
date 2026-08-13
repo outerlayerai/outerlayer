@@ -125,6 +125,7 @@ describe('StorageCapService — Integration', () => {
       expect(result.currentBytes).toBe(500_000_000);
     });
 
+    // proves AC-059-12
     it('should block when Stripe meter reports over 1 GB', async () => {
       const stripe = createMockStripe(1.5);
       const service = new StorageCapService(supabase as any, stripe, 'mtr_test', createTestGatewayCache());
@@ -212,6 +213,7 @@ describe('StorageCapService — Integration', () => {
   });
 
   describe('Stripe failure — fail open', () => {
+    // proves AC-059-13
     it('should allow when Stripe meter query throws', async () => {
       const stripe = {
         billing: { meters: { listEventSummaries: vi.fn().mockRejectedValue(new Error('Stripe down')) } },

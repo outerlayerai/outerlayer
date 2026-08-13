@@ -82,11 +82,13 @@ describe('getActiveTempAccessGrant — cross-admin / cross-tenant confinement', 
     expect(grant?.id).toBe(grantAId);
   });
 
+  // proves AC-065-08
   it("admin A cannot read admin B's grant, even naming the tenant B's grant is for", async () => {
     const grant = await getActiveTempAccessGrant({ tenantId: orgB.tenantId, userId: orgA.id });
     expect(grant).toBeNull();
   });
 
+  // proves AC-065-08
   it("admin B cannot read admin A's grant, even naming the tenant A's grant is for", async () => {
     const grant = await getActiveTempAccessGrant({ tenantId: orgA.tenantId, userId: orgB.id });
     expect(grant).toBeNull();

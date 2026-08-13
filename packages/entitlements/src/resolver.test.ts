@@ -511,6 +511,7 @@ describe('resolveNumericLimitForAllTenants', () => {
     ]);
   });
 
+  // proves AC-059-14
   it('ignores malformed override values and keeps the tier value, logging each with its value type', async () => {
     const warn = vi.fn();
     state.billing.push(

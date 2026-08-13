@@ -80,3 +80,7 @@ export const acceptInvitationInput = z.object({
 export const getInvitationDetailsInput = z.object({
   membershipId: z.string().min(1),
 });
+
+export const declineInvitationInput = z.object({
+  membershipId: z.string().min(1),
+});

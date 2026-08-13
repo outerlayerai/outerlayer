@@ -617,6 +617,7 @@ describe('Saved Trace Filters Integration Tests', () => {
       await supabaseAdmin.from('tenant').delete().eq('tenant_id', owner.tenantId);
     });
 
+    // proves AC-062-06
     timedIt("a fellow tenant member LISTS a filter they did not create", async () => {
       requirePrerequisite(prerequisite);
       const asTeammate = await createTenantScopedClient(teammate, owner.tenantId);

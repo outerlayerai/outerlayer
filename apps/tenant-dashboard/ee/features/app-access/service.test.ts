@@ -96,6 +96,7 @@ describe("mutations", () => {
     expect(updateRoleFn).toHaveBeenCalledWith("tenant-1", "a", "write");
   });
 
+  // proves AC-074-04
   it("assignAppCustomRole calls assignCustomRole with the built-in role defaulted to read", async () => {
     assignCustomRoleFn.mockResolvedValue({ success: true, data: {} });
 
@@ -125,6 +126,7 @@ describe("mutations", () => {
     expect(revokeFn).toHaveBeenCalledWith("tenant-1", "a");
   });
 
+  // proves AC-074-07
   it("setAppScoped calls setAppScoped", async () => {
     setAppScopedFn.mockResolvedValue({ success: true, data: { isAppScoped: true } });
 

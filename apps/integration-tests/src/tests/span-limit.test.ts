@@ -142,6 +142,7 @@ describe('SpanLimitService integration', () => {
       expect(mockCh.query).not.toHaveBeenCalled();
     });
 
+    // proves AC-076-07
     it('never rejects, even at a count far past the old cap', async () => {
       const mockCh = createMockClickHouse(10_000_000);
       const service = new SpanLimitService(mockCh, supabaseAdmin, createTestGatewayCache());

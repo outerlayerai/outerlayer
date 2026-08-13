@@ -91,6 +91,7 @@ describe('session-cookie fixture', () => {
     await admin.from('tenant').delete().eq('tenant_id', owner.tenantId);
   });
 
+  // proves AC-075-10
   it('actAs mints a real session cookie that the aliased createSupabaseServerClient reads back', async () => {
     await actAs(owner);
 

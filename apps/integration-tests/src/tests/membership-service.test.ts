@@ -711,6 +711,7 @@ describe("MembershipService Integration Tests", { retry: 2 }, () => {
       await supabaseAdmin.from("membership").delete().eq("tenant_id", owner.tenantId).in("user_id", [admin.id, member.id]);
     });
 
+    // proves AC-065-06
     it("should prevent demoting the last owner", async () => {
       const owner = await createAuthenticatedUser("owner");
 
@@ -761,6 +762,7 @@ describe("MembershipService Integration Tests", { retry: 2 }, () => {
       expect(membership).toHaveLength(0);
     });
 
+    // proves AC-065-04
     it("should prevent removing the last owner", async () => {
       const owner = await createAuthenticatedUser("owner");
 
@@ -776,6 +778,7 @@ describe("MembershipService Integration Tests", { retry: 2 }, () => {
       expect(result.error).toBe("Cannot remove the last owner from the organization");
     });
 
+    // proves AC-065-05
     it("should allow removing owner when another owner exists", async () => {
       const owner1 = await createAuthenticatedUser("owner");
       const owner2 = await createAuthenticatedUser("owner");
@@ -1352,6 +1355,7 @@ describe("MembershipService Integration Tests", { retry: 2 }, () => {
   });
 
   describe("Concurrent Owner Demotion", () => {
+    // proves AC-065-07
     it("should preserve at least one owner when two owners are demoted concurrently", async () => {
       const owner1 = await createAuthenticatedUser("owner");
       const owner2 = await createAuthenticatedUser("owner");

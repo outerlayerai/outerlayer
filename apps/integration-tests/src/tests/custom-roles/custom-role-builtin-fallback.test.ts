@@ -201,6 +201,7 @@ describe('membership custom_role_id ⇔ built-in role fallback', () => {
   // ON DELETE SET NULL → custom_role_id cleared, fallback takes over
   // ---------------------------------------------------------------------------
   describe('Custom role deletion clears custom_role_id via ON DELETE SET NULL', () => {
+    // proves AC-075-04
     it('leaves the built-in fallback governing after the assigned custom role is deleted', async () => {
       const customRole = await createCustomRole(supabaseAdmin, tenantId, 'Fallback Delete', [
         'sso_config.read',

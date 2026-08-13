@@ -612,6 +612,119 @@ describe("OrganizationService Integration Tests", { retry: 2 }, () => {
     });
   });
 
+  describe("declineInvitation", () => {
+    it("should decline a pending invitation and delete the membership row", async () => {
+      const inviter = await createAuthenticatedUser("owner");
+      const invitee = await createAuthenticatedUser("owner");
+
+      const { data: { user: inviteeUser } } = await supabaseAdmin.auth.admin.getUserById(invitee.id);
+
+      const { data: membership } = await supabaseAdmin
+        .from("membership")
+        .insert({
+          user_id: invitee.id,
+          tenant_id: inviter.tenantId,
+          role: "read",
+          status: "pending",
+          invited_by: inviter.id,
+        })
+        .select()
+        .single();
+
+      const result = await service.declineInvitation({
+        user: inviteeUser!,
+        membershipId: membership!.id,
+      });
+
+      expect(result).toEqual({ success: true });
+
+      // The row is gone, not merely marked — the invite can no longer be accepted.
+      const { data: remaining } = await supabaseAdmin
+        .from("membership")
+        .select("id")
+        .eq("id", membership!.id)
+        .maybeSingle();
+      expect(remaining).toBeNull();
+    });
+
+    it("should refuse to decline an active membership", async () => {
+      const inviter = await createAuthenticatedUser("owner");
+      const member = await createAuthenticatedUser("owner");
+
+      const { data: { user: memberUser } } = await supabaseAdmin.auth.admin.getUserById(member.id);
+
+      const { data: membership } = await supabaseAdmin
+        .from("membership")
+        .insert({
+          user_id: member.id,
+          tenant_id: inviter.tenantId,
+          role: "read",
+          status: "active",
+        })
+        .select()
+        .single();
+
+      const result = await service.declineInvitation({
+        user: memberUser!,
+        membershipId: membership!.id,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "This invitation has already been accepted",
+      });
+
+      // Cleanup
+      await supabaseAdmin.from("membership").delete().eq("id", membership!.id);
+    });
+
+    // proves AC-077-15
+    it("reports a real pending membership owned by someone else identically to a membership id that doesn't exist", async () => {
+      const inviter = await createAuthenticatedUser("owner");
+      const invitee = await createAuthenticatedUser("owner");
+      const otherUser = await createAuthenticatedUser("owner");
+
+      const { data: { user: otherUserObj } } = await supabaseAdmin.auth.admin.getUserById(otherUser.id);
+
+      const { data: membership } = await supabaseAdmin
+        .from("membership")
+        .insert({
+          user_id: invitee.id,
+          tenant_id: inviter.tenantId,
+          role: "read",
+          status: "pending",
+          invited_by: inviter.id,
+        })
+        .select()
+        .single();
+
+      const mismatchedOwnerResult = await service.declineInvitation({
+        user: otherUserObj!,
+        membershipId: membership!.id,
+      });
+
+      const nonexistentResult = await service.declineInvitation({
+        user: otherUserObj!,
+        membershipId: randomUUID(),
+      });
+
+      expect(mismatchedOwnerResult.success).toBe(false);
+      expect(nonexistentResult.success).toBe(false);
+      expect(mismatchedOwnerResult.error).toBe(nonexistentResult.error);
+
+      // The other user's failed attempt must not have touched the real row.
+      const { data: stillThere } = await supabaseAdmin
+        .from("membership")
+        .select("id")
+        .eq("id", membership!.id)
+        .maybeSingle();
+      expect(stillThere).not.toBeNull();
+
+      // Cleanup
+      await supabaseAdmin.from("membership").delete().eq("id", membership!.id);
+    });
+  });
+
   describe("getMembershipCount", () => {
     it("should return count of active memberships", async () => {
       const user = await createAuthenticatedUser("owner");

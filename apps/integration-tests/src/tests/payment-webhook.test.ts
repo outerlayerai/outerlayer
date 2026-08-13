@@ -116,6 +116,7 @@ describe('payment webhook → tier (real Supabase + real signature)', () => {
     ).data;
 
   // Ordered: the events mirror a real subscription lifecycle on one tenant.
+  // proves AC-059-08
   it('subscription.created with the growth flat price persists tier_id=growth', async () => {
     const res = await POST(
       signedRequest(
@@ -144,6 +145,7 @@ describe('payment webhook → tier (real Supabase + real signature)', () => {
     expect(await billingRow()).toEqual({ tier_id: 'team', stripe_subscription_id: 'sub_team' });
   });
 
+  // proves AC-059-09
   it('subscription.deleted of the current sub resets the tenant to hobby and clears the sub id', async () => {
     const res = await POST(
       signedRequest(
@@ -157,6 +159,7 @@ describe('payment webhook → tier (real Supabase + real signature)', () => {
     expect(await billingRow()).toEqual({ tier_id: 'hobby', stripe_subscription_id: null });
   });
 
+  // proves AC-059-10
   it('rejects a tampered signature with 400 and leaves the tier untouched', async () => {
     const body = JSON.stringify(
       subscriptionEvent('customer.subscription.updated', {

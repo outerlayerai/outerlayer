@@ -46,6 +46,11 @@ export interface AcceptInviteResult {
   companyName?: string;
 }
 
+export interface DeclineInviteResult {
+  success: boolean;
+  error?: string;
+}
+
 export interface InvitationDetails {
   id: string;
   companyName: string;
@@ -330,6 +335,88 @@ export class OrganizationService {
       tenantId: tenant.tenant_id,
       companyName: tenant.company_name,
     };
+  }
+
+  /**
+   * Decline a pending invitation to join an organization. Deletes the
+   * membership row outright rather than flipping a status — a declined
+   * invite has no further lifecycle to track, and leaving a 'declined' row
+   * behind would let the same invite id be replayed against other status
+   * branches. There is no separate invite-token record to clean up: the
+   * membership row itself is the only invite-acceptance state, same as
+   * `acceptInvitation`.
+   */
+  async declineInvitation(params: {
+    user: User;
+    membershipId: string;
+  }): Promise<DeclineInviteResult> {
+    const { user, membershipId } = params;
+
+    const { data: membership, error: membershipError } = await this.supabaseAdmin
+      .from("membership")
+      .select("id, user_id, tenant_id, status")
+      .eq("id", membershipId)
+      .single();
+
+    if (membershipError || !membership) {
+      return { success: false, error: "Invitation not found" };
+    }
+
+    // Same collapse as `acceptInvitation`: a mismatched owner reports
+    // identically to a nonexistent membership id so neither outcome is an
+    // enumeration oracle for valid membership ids.
+    if (membership.user_id !== user.id) {
+      void serverLogger.info("Invitation lookup denied: membership belongs to a different user", {
+        membershipId,
+        requestingUserId: user.id,
+      });
+      return { success: false, error: "Invitation not found" };
+    }
+
+    // Declining an active membership is removal — a different feature with
+    // its own authorization (an admin acting on someone else), not this
+    // self-service, pending-only path.
+    if (membership.status === "active") {
+      return { success: false, error: "This invitation has already been accepted" };
+    }
+    // Only a pending row is an invitation. Anything else (a disabled
+    // membership especially) must not be self-deletable through this path —
+    // it reports as no invitation at all.
+    if (membership.status !== "pending") {
+      return { success: false, error: "Invitation not found" };
+    }
+
+    // The delete re-asserts owner AND pending status: the admin client
+    // bypasses RLS, and between the read above and this write a concurrent
+    // accept can flip the row to active — the predicates make that race
+    // delete nothing instead of erasing a just-activated membership.
+    const { data: deleted, error: deleteError } = await this.supabaseAdmin
+      .from("membership")
+      .delete()
+      .eq("id", membershipId)
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .select("id");
+
+    if (deleteError) {
+      return { success: false, error: deleteError.message };
+    }
+    if (!deleted || deleted.length === 0) {
+      return { success: false, error: "This invitation has already been accepted" };
+    }
+
+    await this.auditLog.create({
+      tenantId: membership.tenant_id,
+      actorId: user.id,
+      actionType: 'invite_declined',
+      targetType: 'membership',
+      targetId: membershipId,
+      targetIdentifier: user.email ?? null,
+      beforeState: { status: 'pending' },
+      afterState: { status: 'deleted' },
+    });
+
+    return { success: true };
   }
 
   /**

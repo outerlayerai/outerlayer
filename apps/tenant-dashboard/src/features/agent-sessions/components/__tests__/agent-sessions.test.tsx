@@ -84,6 +84,7 @@ beforeEach(() => {
 });
 
 describe('AgentSessions', () => {
+  // proves AC-062-01
   it('renders the repo scope, total, and session rows from the seeded page', () => {
     render(<AgentSessions data={PAGE} appId="app-1" envName="dev" />);
     expect(screen.getByText('github.com/acme/app')).toBeInTheDocument();
@@ -141,6 +142,7 @@ describe('AgentSessions', () => {
     expect(screen.getByText('#602').closest('a')).toBeNull();
   });
 
+  // proves AC-062-05
   it('topic drill-down: shows a chip labelled by facet + name, and clearing it drops the topic params', () => {
     urlParams = new URLSearchParams('topicId=v1-c0&topicFacet=task&topicName=Refunds');
     render(<AgentSessions data={PAGE} appId="app-1" envName="dev" />);
@@ -154,6 +156,7 @@ describe('AgentSessions', () => {
     expect(next.has('topicFacet')).toBe(false);
   });
 
+  // proves AC-062-02
   it('shows an empty state (not a blank body) when the filter matches no sessions', () => {
     render(<AgentSessions data={{ ...PAGE, total: 0, sessions: [] }} appId="app-1" envName="dev" />);
     const empty = screen.getByTestId('sessions-empty');
@@ -265,6 +268,7 @@ describe('AgentSessions', () => {
     expect(lastReplaceParams().has('signal')).toBe(false);
   });
 
+  // proves AC-062-04
   it('a deep link with an unknown signal token falls back to no active filter', () => {
     urlParams = new URLSearchParams('signal=bogus');
     render(<AgentSessions data={PAGE} appId="app-1" envName="dev" />);

@@ -25,11 +25,15 @@ export const TempAccessNotificationEmail = ({
   expiresAt = '',
   reason,
 }: TempAccessNotificationProps) => {
+  // Pinned to UTC with an explicit label: the render host's zone must never
+  // decide what time the recipient reads, and a bare time misstates the
+  // access window by whole hours across zones.
   const formattedExpiry = expiresAt
-    ? new Date(expiresAt).toLocaleString('en-US', {
+    ? `${new Date(expiresAt).toLocaleString('en-US', {
         dateStyle: 'medium',
         timeStyle: 'short',
-      })
+        timeZone: 'UTC',
+      })} UTC`
     : '24 hours from now';
 
   return (

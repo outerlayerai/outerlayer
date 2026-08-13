@@ -104,6 +104,7 @@ describe("Terms Agreement RLS Contract Tests", () => {
   });
 
   describe("Authenticated User Access (RLS Enforced)", () => {
+    // proves AC-078-07
     it("should allow user to SELECT only their own terms agreement records", async () => {
       requirePrerequisite(prerequisiteCheck);
 
@@ -150,6 +151,7 @@ describe("Terms Agreement RLS Contract Tests", () => {
       await supabaseAdmin.from("terms_agreement").delete().eq("id", record2.id);
     });
 
+    // proves AC-078-08
     it("should block authenticated user from UPDATE on terms agreement records", async () => {
       requirePrerequisite(prerequisiteCheck);
 
@@ -184,6 +186,7 @@ describe("Terms Agreement RLS Contract Tests", () => {
       await supabaseAdmin.from("terms_agreement").delete().eq("id", record.id);
     });
 
+    // proves AC-078-08
     it("should block authenticated user from DELETE on terms agreement records", async () => {
       requirePrerequisite(prerequisiteCheck);
 

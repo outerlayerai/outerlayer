@@ -58,6 +58,7 @@ describe('nullify_custom_role_on_downgrade trigger', () => {
   // ---------------------------------------------------------------------------
   // team -> hobby NULLs all membership custom_role_id
   // ---------------------------------------------------------------------------
+  // proves AC-075-05
   it('should NULL out custom_role_id on all memberships when tier changes from team to hobby', async () => {
     // Arrange -- billing at team tier, two users with custom roles
     await createBillingRecord(supabaseAdmin, tenantId, 'team', ownerUser.id);
@@ -640,6 +641,7 @@ describe('nullify_custom_role_on_downgrade trigger', () => {
   // ---------------------------------------------------------------------------
   // team -> hobby fires both conditions — verify all three effects
   // ---------------------------------------------------------------------------
+  // proves AC-059-16
   it('should NULL membership and scrub custom_role.* in one trigger fire', async () => {
     // Arrange
     await createBillingRecord(supabaseAdmin, tenantId, 'team', ownerUser.id);

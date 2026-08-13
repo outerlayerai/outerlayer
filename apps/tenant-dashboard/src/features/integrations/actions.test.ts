@@ -181,6 +181,7 @@ describe("deleteEnvVar", () => {
 });
 
 describe("revealEnvVarValue", () => {
+  // proves AC-067-11
   it("denies without env_var.read — no getValue() call, no secret read", async () => {
     checkPermMock.mockResolvedValue(false);
 

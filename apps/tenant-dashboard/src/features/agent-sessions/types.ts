@@ -77,6 +77,14 @@ export interface SessionPrOutcome {
   reverted: SessionOutcomeFact | null;
 }
 
+/** One facet's current summary for a trace — `facet` is the raw ClickHouse
+ * facet key ('task' | 'sentiment' | 'issues' | 'steering' | a custom facet's
+ * key), not a display label. */
+export interface FacetSummary {
+  facet: string;
+  summary: string;
+}
+
 export interface AgentSessionDetail {
   session: AgentSessionRow & {
     captureTier: string;
@@ -113,6 +121,11 @@ export interface AgentSessionDetail {
    * when the session touched no scored PR. Rides the session payload so the
    * detail view needs no second fetch. */
   prOutcomes: SessionPrOutcome[];
+  /** Current-extractor-version facet summaries for this trace, in canonical
+   * facet order. Empty when Topics is disabled for the app or the pipeline
+   * hasn't classified this trace yet. Rides the session payload so the
+   * detail view needs no second fetch. */
+  facetSummaries: FacetSummary[];
 }
 
 export interface SessionsPage {

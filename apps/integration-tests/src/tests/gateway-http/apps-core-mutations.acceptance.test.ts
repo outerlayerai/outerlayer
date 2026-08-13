@@ -81,6 +81,7 @@ describe('apps-core mutations — gateway HTTP', () => {
   });
 
   describe('create lands in the header tenant', () => {
+    // proves AC-069-01
     it('the created app row\'s tenant_id equals the header tenant (cites bearer-request-tenant for the base case)', async () => {
       const token = await bearerFor(owner);
       const name = `g2-tenant-${randomUUID().slice(0, 8)}`;
@@ -118,6 +119,7 @@ describe('apps-core mutations — gateway HTTP', () => {
       await admin.from('app').delete().eq('id', appForDenial);
     });
 
+    // proves AC-069-03
     it('create → 403 without app.insert', async () => {
       const token = await bearerFor(reader);
       const res = await gw('POST', '/v1/apps', {
@@ -229,6 +231,7 @@ describe('apps-core mutations — gateway HTTP', () => {
   });
 
   describe('create round-trip', () => {
+    // proves AC-069-10
     it('201 → the app is re-readable AND its default dev environment exists', async () => {
       const token = await bearerFor(owner);
       const name = `f4-roundtrip-${randomUUID().slice(0, 8)}`;
@@ -294,6 +297,7 @@ describe('apps-core mutations — gateway HTTP', () => {
         .eq('entitlement_key', 'max_apps');
     });
 
+    // proves AC-069-02
     it('a second create with the same name → 409 duplicate_app_name, no second row', async () => {
       const token = await bearerFor(owner);
       const name = `f5-dup-${randomUUID().slice(0, 8)}`;
@@ -320,6 +324,7 @@ describe('apps-core mutations — gateway HTTP', () => {
   });
 
   describe('entitlement (max_apps) boundary', () => {
+    // proves AC-069-04
     it('create over the tenant\'s max_apps override → 402 entitlement_required, no row', async () => {
       const { error: overrideError } = await admin.from('tenant_entitlement_override').upsert(
         {
@@ -361,6 +366,8 @@ describe('apps-core mutations — gateway HTTP', () => {
   });
 
   describe('rename round-trip', () => {
+    // proves AC-069-05
+    // proves AC-069-06
     it('PATCH display_name → re-read shows it; PATCH null clears it; name (slug) unchanged', async () => {
       const token = await bearerFor(owner);
       const createRes = await gw('POST', '/v1/apps', {
@@ -402,6 +409,7 @@ describe('apps-core mutations — gateway HTTP', () => {
   });
 
   describe('delete round-trip', () => {
+    // proves AC-069-07
     it('deletes the row + cascades child tables; a second delete hits the no-existence-oracle 401; sweeps api_key', async () => {
       const token = await bearerFor(owner);
       const createRes = await gw('POST', '/v1/apps', {

@@ -230,6 +230,7 @@ describe('SSOConfigService.saveConfig', () => {
     );
   }
 
+  // proves AC-072-01
   it('should create new SAML provider when no config exists', async () => {
     const savedConfig = makeSSOConfig();
     const input = makeSaveInput();
@@ -860,6 +861,7 @@ describe('SSOConfigService.toggleEnforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('SSOConfigService.checkDomainSSO', () => {
+  // proves AC-072-06
   it('should return hasSso true when domain matches active config', async () => {
     const { service, adminDb } = buildService();
     adminDb._chain.maybeSingle.mockResolvedValueOnce({
@@ -1000,6 +1002,7 @@ describe('SSOConfigService.testConnection', () => {
     expect(result.errors).toContain('Failed to reach metadata URL: Unknown error fetching metadata');
   });
 
+  // proves AC-072-05
   it('should report invalid metadata when EntityDescriptor is missing', async () => {
     const config = makeSSOConfig();
     const { service, adminDb } = buildService();
@@ -1099,6 +1102,7 @@ describe('SSOConfigService.testConnection', () => {
 // ---------------------------------------------------------------------------
 
 describe('SSOConfigService.upsertSSOIdentity', () => {
+  // proves AC-072-07
   it('should upsert identity with all params', async () => {
     const { service, adminDb } = buildService();
 

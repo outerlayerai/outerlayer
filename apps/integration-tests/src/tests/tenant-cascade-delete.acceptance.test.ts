@@ -246,6 +246,7 @@ describe('deleting a tenant removes every row that belongs to it', () => {
     }
   });
 
+  // proves AC-065-09
   it('deletes a fully populated tenant and leaves no residue', async () => {
     await seedOrderDependentRows(owner.tenantId, owner.id);
 
@@ -270,6 +271,7 @@ describe('deleting a tenant removes every row that belongs to it', () => {
     expect(tenantRow).toBeNull();
   });
 
+  // proves AC-065-10
   it('leaves an unrelated tenant untouched', async () => {
     // A cascade reaching past the tenant boundary is a far worse bug than an
     // incomplete one, so the delete above is pinned from both sides.

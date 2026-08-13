@@ -86,6 +86,7 @@ describe("Terms Agreement Migration Tests", () => {
       await supabaseAdmin.from("terms_agreement").delete().eq("id", record.id);
     });
 
+    // proves AC-078-05
     it("should reject invalid consent_type values via database constraint", async () => {
       requirePrerequisite(prerequisiteCheck);
 

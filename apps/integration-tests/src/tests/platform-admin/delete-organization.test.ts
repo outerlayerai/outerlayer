@@ -379,6 +379,7 @@ describe('Platform Admin - Delete Organization', () => {
       }
     });
 
+    // proves AC-065-11
     it('should cascade delete temp_access_grant when tenant is deleted', async () => {
       requirePrerequisite(platformAdminCheck);
       if (!cascadeTenantId || !platformAdminId) throw new Error('[PREREQUISITE NOT MET] cascadeTenantId or platformAdminId not created');

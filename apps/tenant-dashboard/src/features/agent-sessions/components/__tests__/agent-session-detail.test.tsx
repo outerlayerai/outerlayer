@@ -88,9 +88,11 @@ const DATA: AgentSessionDetailData = {
     span({ spanId: 'b1', name: 'agent.tool.Bash', parentSpanId: 'a2', statusCode: '2', statusMessage: 'command failed', output: 'boom' }),
   ],
   prOutcomes: [],
+  facetSummaries: [],
 };
 
 describe('AgentSessionDetail', () => {
+  // proves AC-062-07
   it('titles the page with the session and captions it with agent, actor, project and tier', () => {
     const { getByRole, getByTestId } = render(<AgentSessionDetail appId="app-1" data={DATA} />);
     const heading = getByRole('heading', { name: 'Wire the widget' });
@@ -246,6 +248,7 @@ describe('AgentSessionDetail', () => {
     expect(container.textContent ?? '').not.toContain('permission prompts');
   });
 
+  // proves AC-062-08
   it('renders an unpriced session as "—", never as a confident $0.00', () => {
     // The transcript carries token counts but no cost — a session whose model
     // the price map did not know arrives with no cost at all. A "$0.00" there
@@ -259,6 +262,7 @@ describe('AgentSessionDetail', () => {
     expect(stats[stats.indexOf('cost') - 1]).toBe('—');
   });
 
+  // proves AC-062-09
   it('surfaces an edit loop as a warning chip naming the file and run length', () => {
     const data: AgentSessionDetailData = {
       ...DATA,
@@ -269,6 +273,7 @@ describe('AgentSessionDetail', () => {
     expect(chip?.textContent).toBe('edit loop · 5× on broken.ts');
   });
 
+  // proves AC-062-10
   it('renders the PR-outcome strip per PR, and hides it entirely when the session touched no scored PR', () => {
     // No scored PR → no strip at all (most sessions), not an empty header.
     const { container: bare } = render(<AgentSessionDetail appId="app-1" data={{ ...DATA, prOutcomes: [] }} />);
@@ -368,6 +373,46 @@ describe('AgentSessionDetail', () => {
     const { getByTestId } = render(<AgentSessionDetail appId="app-1" data={data} />);
     expect(getByTestId('hook-rollup')).toHaveTextContent('hooks: 3 runs · no timing reported');
     expect(getByTestId('hook-rollup')).not.toHaveTextContent('0ms');
+  });
+
+  it('hides the facet-summaries block entirely when the trace carries no facet summaries', () => {
+    const { queryByTestId, container } = render(<AgentSessionDetail appId="app-1" data={{ ...DATA, facetSummaries: [] }} />);
+    expect(queryByTestId('facet-summaries')).toBeNull();
+    expect(container.textContent ?? '').not.toContain('facet summaries');
+  });
+
+  // proves AC-056-01
+  it('renders one row per facet, in the order the service returned them', () => {
+    const data: AgentSessionDetailData = {
+      ...DATA,
+      facetSummaries: [
+        { facet: 'task', summary: 'Wire the widget into the settings page.' },
+        { facet: 'sentiment', summary: 'Frustrated after three failed retries.' },
+        { facet: 'issues', summary: 'Build kept failing on a stale lockfile.' },
+        { facet: 'churn_risk', summary: 'Customer threatened to cancel.' },
+      ],
+    };
+    const { getByTestId } = render(<AgentSessionDetail appId="app-1" data={data} />);
+    const block = getByTestId('facet-summaries');
+    const rowText = block.textContent ?? '';
+    // Every facet's label and summary render...
+    expect(rowText).toContain('Task');
+    expect(rowText).toContain('Wire the widget into the settings page.');
+    expect(rowText).toContain('Sentiment');
+    expect(rowText).toContain('Frustrated after three failed retries.');
+    expect(rowText).toContain('Issues');
+    expect(rowText).toContain('Build kept failing on a stale lockfile.');
+    // ...and an unrecognized (custom) facet key still renders, title-cased.
+    expect(rowText).toContain('Churn_risk');
+    expect(rowText).toContain('Customer threatened to cancel.');
+    // ...in the exact order given, not alphabetized or reshuffled by the UI.
+    const taskIndex = rowText.indexOf('Task');
+    const sentimentIndex = rowText.indexOf('Sentiment');
+    const issuesIndex = rowText.indexOf('Issues');
+    const churnIndex = rowText.indexOf('Churn_risk');
+    expect(taskIndex).toBeLessThan(sentimentIndex);
+    expect(sentimentIndex).toBeLessThan(issuesIndex);
+    expect(issuesIndex).toBeLessThan(churnIndex);
   });
 
   it('never drops a real slowest duration just because the slowest command string is empty', () => {

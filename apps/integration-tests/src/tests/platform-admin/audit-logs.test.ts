@@ -230,6 +230,7 @@ describe('Platform Admin - Audit Logs', () => {
       }
     });
 
+    // proves AC-073-06
     it('should block UPDATE for authenticated users (RLS immutability)', async () => {
       requirePrerequisite(auditLogCheck);
 
@@ -408,6 +409,7 @@ describe('Platform Admin - Audit Logs', () => {
       if (machineRow) createdAuditLogIds.push(machineRow.id);
     });
 
+    // proves AC-073-02
     it('records tenant-scoped rows and platform rows side by side', async () => {
       requirePrerequisite(auditLogCheck);
 
@@ -538,6 +540,7 @@ describe('Platform Admin - Audit Logs', () => {
     });
   });
   describe('Tamper-evidence hash chain', () => {
+    // proves AC-073-07
     it('links every insert onto the previous hash and detects edits', async () => {
       requirePrerequisite(auditLogCheck);
 

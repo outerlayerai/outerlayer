@@ -258,6 +258,7 @@ describe('DashboardView', () => {
     expect(screen.queryByTestId('error-state')).not.toBeInTheDocument();
   });
 
+  // proves AC-063-15
   it('toasts a thrown widget delete and leaves the widget on the grid', async () => {
     deleteWidget.mockRejectedValue(new Error('Network request failed'));
     const user = userEvent.setup();

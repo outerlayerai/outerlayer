@@ -260,6 +260,7 @@ describe('Tenant Isolation', () => {
   // ============================================================================
 
   describe('Disabled Role Isolation', () => {
+    // proves AC-075-02
     it('should prevent disabled users from accessing any tenant data', async () => {
       const disabledUser = await createTestUser('disabled');
       const activeUser = await createTestUser('owner');

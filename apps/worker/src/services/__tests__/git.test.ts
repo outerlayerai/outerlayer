@@ -94,6 +94,7 @@ describe('credentialHelperArgs', () => {
 });
 
 describe('scrubAuthFromStderr', () => {
+  // proves AC-061-14
   it('redacts embedded credentials but keeps the actionable diagnostic', () => {
     const input =
       "fatal: unable to access 'https://x-access-token:ghs_secret@github.com/o/r/': 403";

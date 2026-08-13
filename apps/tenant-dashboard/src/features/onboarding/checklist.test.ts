@@ -33,6 +33,7 @@ const NO_COUNTS = {
 };
 
 describe("buildChecklistSteps", () => {
+  // proves AC-064-08
   it("always marks 'create app' done (endowed progress) even with no other progress", () => {
     const steps = buildChecklistSteps(NONE, LINKS);
     expect(steps.map((s) => [s.id, s.done])).toEqual([
@@ -81,6 +82,7 @@ describe("interpretChecklistCounts", () => {
     ).toEqual({ ...NONE, hasApiKey: true, hasTrace: true });
   });
 
+  // proves AC-064-09
   it("a single member is the creator, not a teammate (boundary at 2)", () => {
     expect(
       interpretChecklistCounts({ ...NO_COUNTS, memberCount: 1 }).hasTeammate,
@@ -103,6 +105,7 @@ describe("interpretChecklistCounts", () => {
     ).toEqual({ ...NONE, hasGitConnection: true });
   });
 
+  // proves AC-064-10
   it("hasRepoLinked needs BOTH a connection and a branch — a stale branch row alone never satisfies the gate", () => {
     // Branch row left behind, no live connection: NOT linked.
     expect(

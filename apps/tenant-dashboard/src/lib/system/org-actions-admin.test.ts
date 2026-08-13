@@ -12,11 +12,13 @@
 import { seedSupabaseMswState } from "@/test-helpers/msw-handlers";
 
 const mockAcceptInvitation = vi.hoisted(() => vi.fn());
+const mockDeclineInvitation = vi.hoisted(() => vi.fn());
 const mockGetInvitationDetails = vi.hoisted(() => vi.fn());
 const MockOrganizationService = vi.hoisted(() =>
   vi.fn().mockImplementation(function () {
     return {
       acceptInvitation: mockAcceptInvitation,
+      declineInvitation: mockDeclineInvitation,
       getInvitationDetails: mockGetInvitationDetails,
     };
   }),
@@ -40,6 +42,7 @@ vi.mock("@/lib/adapters", async (importOriginal) => ({
 import {
   checkNeedsTermsAgreement,
   acceptInvitationForUser,
+  declineInvitationForUser,
   getInvitationDetailsForUser,
 } from "./org-actions-admin";
 
@@ -122,6 +125,49 @@ describe("acceptInvitationForUser", () => {
     mockAcceptInvitation.mockResolvedValue({ success: true });
 
     await acceptInvitationForUser({ userId: USER_ID, email: null }, "membership-1");
+
+    expect(MockOrganizationService).toHaveBeenCalledWith(
+      expect.objectContaining({ supabaseServer: null }),
+    );
+  });
+});
+
+describe("declineInvitationForUser", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("builds the user object from the explicit subject, not a wider actor shape", async () => {
+    mockDeclineInvitation.mockResolvedValue({ success: true });
+
+    const result = await declineInvitationForUser(
+      { userId: USER_ID, email: "user@example.com" },
+      "membership-1",
+    );
+
+    expect(mockDeclineInvitation).toHaveBeenCalledWith({
+      user: { id: USER_ID, email: "user@example.com" },
+      membershipId: "membership-1",
+    });
+    expect(result).toEqual({ success: true });
+  });
+
+  it("passes through a failure (e.g. already accepted) unchanged", async () => {
+    mockDeclineInvitation.mockResolvedValue({
+      success: false,
+      error: "This invitation has already been accepted",
+    });
+
+    const result = await declineInvitationForUser({ userId: USER_ID, email: null }, "membership-1");
+
+    expect(result).toEqual({
+      success: false,
+      error: "This invitation has already been accepted",
+    });
+  });
+
+  it("constructs OrganizationService with supabaseServer: null, not omitted", async () => {
+    mockDeclineInvitation.mockResolvedValue({ success: true });
+
+    await declineInvitationForUser({ userId: USER_ID, email: null }, "membership-1");
 
     expect(MockOrganizationService).toHaveBeenCalledWith(
       expect.objectContaining({ supabaseServer: null }),

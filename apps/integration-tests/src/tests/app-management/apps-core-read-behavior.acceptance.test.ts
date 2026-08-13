@@ -46,6 +46,7 @@ describe('apps-core: apps-list read behavior + tenancy', () => {
   });
 
   describe('read isolation', () => {
+    // proves AC-069-08
     it('a member of org A sees exactly A\'s apps under A\'s header, and none under a B header', async () => {
       const appName = `g1-isolation-${randomUUID().slice(0, 8)}`;
       const { error } = await admin.from('app').insert({ tenant_id: orgA.tenantId, name: appName });

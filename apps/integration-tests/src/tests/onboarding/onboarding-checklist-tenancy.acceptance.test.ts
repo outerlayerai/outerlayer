@@ -133,6 +133,7 @@ describe('onboarding route handlers — real withApi calls (session-cookie fixtu
       });
     });
 
+    // proves AC-064-11
     it('denies a non-member pointed at the app under a spoofed tenant header — 403, no signal', async () => {
       await actAsInOrg(orgB, orgA.tenantId);
       const [request, ctx] = apiRequest(
@@ -146,6 +147,7 @@ describe('onboarding route handlers — real withApi calls (session-cookie fixtu
       expect(body.error.code).toBe('forbidden');
     });
 
+    // proves AC-064-11
     it("denies a foreign app even under the caller's own request tenant", async () => {
       await actAsInOrg(orgA, orgA.tenantId);
       const [request, ctx] = apiRequest(

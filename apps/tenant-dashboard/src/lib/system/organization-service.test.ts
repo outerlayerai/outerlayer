@@ -106,13 +106,22 @@ function makeSupabaseMock() {
       // Detect the count-style select via the second arg.
       if (opts?.count === 'exact' && opts?.head === true) {
         nextOperationIsCount = true;
-      } else {
+        nextOperationIsUpdate = false;
+      } else if (!nextOperationIsUpdate) {
+        // A `.select()` chained AFTER `.delete()`/`.update()` only shapes the
+        // returned rows — the pending write still resolves from its queue.
         nextOperationIsCount = false;
       }
-      nextOperationIsUpdate = false;
       return chain;
     }),
     update: vi.fn(() => {
+      nextOperationIsUpdate = true;
+      nextOperationIsCount = false;
+      return chain;
+    }),
+    // `.delete()` resolves the same way `.update()` does — a terminal write
+    // awaited straight off the chain — so it shares the update queue.
+    delete: vi.fn(() => {
       nextOperationIsUpdate = true;
       nextOperationIsCount = false;
       return chain;
@@ -161,6 +170,8 @@ function makeSupabaseMock() {
     queueSingle: (resp: { data: unknown; error: unknown }) => singleQueue.push(resp),
     queueCount: (resp: { count: number | null; error: unknown }) => countQueue.push(resp),
     queueUpdate: (resp: { data: unknown; error: unknown }) => updateResultQueue.push(resp),
+    // `.delete()` shares the update queue (see the `delete` chain method above).
+    queueDelete: (resp: { data: unknown; error: unknown }) => updateResultQueue.push(resp),
     setRpcResponse: (name: string, resp: { data: unknown; error: unknown }) =>
       rpcResponses.set(name, resp),
     rpc,
@@ -485,6 +496,7 @@ describe('acceptInvitation', () => {
     };
   }
 
+  // proves AC-077-10
   it('flips status to active and returns tenant info on the happy path', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({ data: membershipRow(), error: null });
@@ -524,6 +536,7 @@ describe('acceptInvitation', () => {
     );
   });
 
+  // proves AC-077-11
   it('returns "already a member" when status is already active', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({
@@ -539,6 +552,7 @@ describe('acceptInvitation', () => {
     });
   });
 
+  // proves AC-077-12
   it('returns "expired" when expires_at is in the past', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({
@@ -567,6 +581,7 @@ describe('acceptInvitation', () => {
     expect(result.success).toBe(true);
   });
 
+  // proves AC-077-13
   it('rejects when user is at the 10-org membership ceiling', async () => {
     const { service, admin } = makeService();
     admin.queueSingle({ data: membershipRow(), error: null });
@@ -587,6 +602,129 @@ describe('acceptInvitation', () => {
     const result = await service.acceptInvitation({ user: makeUser(), membershipId: 'm-1' });
 
     expect(result).toEqual({ success: false, error: 'update conflict' });
+  });
+});
+
+// ===========================================================================
+// declineInvitation
+// ===========================================================================
+
+describe('declineInvitation', () => {
+  function membershipRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'm-1',
+      user_id: USER_ID,
+      tenant_id: TENANT_ID,
+      status: 'pending',
+      ...overrides,
+    };
+  }
+
+  // proves AC-077-15
+  it('deletes the pending membership row and reports success on the happy path', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({ data: membershipRow(), error: null });
+    admin.queueDelete({ data: [{ id: 'm-1' }], error: null });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
+
+    expect(result).toEqual({ success: true });
+    expect(admin.from).toHaveBeenCalledWith('membership');
+  });
+
+  it('reports already-accepted when the guarded delete matches no row (a concurrent accept won the race)', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({ data: membershipRow(), error: null });
+    // The row read back as pending, but the predicate-guarded delete found
+    // nothing — the status flipped between the read and the write.
+    admin.queueDelete({ data: [], error: null });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'This invitation has already been accepted',
+    });
+  });
+
+  it('returns "Invitation not found" when the membership query errors', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({ data: null, error: { message: 'not found' } });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'bad' });
+
+    expect(result).toEqual({ success: false, error: 'Invitation not found' });
+  });
+
+  it('returns "Invitation not found" when the membership row is absent without a query error', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({ data: null, error: null });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'bad' });
+
+    expect(result).toEqual({ success: false, error: 'Invitation not found' });
+  });
+
+  it('reports a mismatched owner identically to a missing membership, logging the real reason server-side', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({
+      data: membershipRow({ user_id: 'someone-else' }),
+      error: null,
+    });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
+
+    // Same client-facing string as a nonexistent membership id — an
+    // attacker probing membership ids can't tell "real, someone else's"
+    // from "doesn't exist" from the response alone.
+    expect(result).toEqual({ success: false, error: 'Invitation not found' });
+    expect(serverLoggerInfoMock).toHaveBeenCalledWith(
+      expect.stringContaining('different user'),
+      { membershipId: 'm-1', requestingUserId: USER_ID },
+    );
+  });
+
+  it('refuses to decline an already-active membership — that is removal, not decline', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({
+      data: membershipRow({ status: 'active' }),
+      error: null,
+    });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'This invitation has already been accepted',
+    });
+    // No delete should have been issued for an active membership.
+    expect(admin.from).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to decline a disabled membership — reports as no invitation, row untouched', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({
+      data: membershipRow({ status: 'disabled' }),
+      error: null,
+    });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
+
+    // A disabled membership is not an invitation; letting its owner delete
+    // it here would erase the org's suspension record through a
+    // self-service path.
+    expect(result).toEqual({ success: false, error: 'Invitation not found' });
+    expect(admin.from).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the delete error when the row removal fails', async () => {
+    const { service, admin } = makeService();
+    admin.queueSingle({ data: membershipRow(), error: null });
+    admin.queueDelete({ data: null, error: { message: 'delete conflict' } });
+
+    const result = await service.declineInvitation({ user: makeUser(), membershipId: 'm-1' });
+
+    expect(result).toEqual({ success: false, error: 'delete conflict' });
   });
 });
 
