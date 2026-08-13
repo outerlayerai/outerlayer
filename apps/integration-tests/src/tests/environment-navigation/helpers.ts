@@ -23,6 +23,7 @@ import {
 } from '@repo/env-kind';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { retryOnTransientError } from '../../lib/retry';
+import { deleteTenantsAndUsers } from '../../lib/tenant-cleanup';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -269,35 +270,46 @@ async function seedEnvironment(params: {
 }
 
 /**
- * The fixture's owner user is the tenant's only active owner membership.
- * `membership.user_id` cascades from `auth.users`, so deleting the auth user
- * directly would cascade into the same membership delete a raw `tenant`
- * delete does — tripping the `protect_last_owner` trigger either way. The
- * tenant must go first, via the `platform_admin_delete_tenant` RPC
- * (SECURITY DEFINER; sets the compensating flag `protect_last_owner` checks
- * for), so its cascade (env_var, api_key, environment, app, membership, …)
- * removes the owner membership before the auth user deletes below ever
- * reach it. Every step throws on error instead of swallowing it, so a
- * failed cleanup fails the suite loudly rather than leaking a tenant.
+ * `env_var.vault_secret_id` is a bare UUID with no FK into Vault, so
+ * deleting the `env_var` row (directly, or via the tenant cascade below)
+ * does not delete the secret it points to — every seeded secret must be
+ * swept explicitly, by the same name scheme `seedEnvVar`/`seedKindEnvVar`
+ * used to create it, before those rows are gone to look up.
+ */
+async function sweepVaultSecrets(admin: SupabaseClient, tenantId: string): Promise<void> {
+  const { data: envVars, error } = await admin
+    .from('env_var')
+    .select('app_id, environment_id, target_kind, key')
+    .eq('tenant_id', tenantId);
+  if (error) throw new Error(`env_var lookup for vault sweep: ${error.message}`);
+
+  for (const row of envVars ?? []) {
+    const secretName = row.environment_id
+      ? envVarEnvVaultName(row.app_id as string, row.environment_id as string, row.key as string)
+      : envVarKindVaultName(
+          row.app_id as string,
+          row.target_kind as EnvVarTargetKind,
+          row.key as string,
+        );
+    const { error: deleteError } = await admin.rpc('delete_secret', { secret_name: secretName });
+    if (deleteError) {
+      throw new Error(`delete_secret(${secretName}): ${deleteError.message}`);
+    }
+  }
+}
+
+/**
+ * The fixture's owner user is the tenant's only active owner membership —
+ * see `deleteTenantsAndUsers` for why the delete order and
+ * attempt-all-then-aggregate-throw behavior matter here.
  */
 async function cleanupEnvNavFixture(
   tenantId: string,
   users: FixtureUser[],
 ): Promise<void> {
   const admin = createSupabaseAdminClient() as unknown as SupabaseClient;
-
-  const { error: tenantError } = await admin.rpc('platform_admin_delete_tenant', {
-    p_tenant_id: tenantId,
-  });
-  if (tenantError) throw new Error(`Tenant delete: ${tenantError.message}`);
-
-  for (const u of users) {
-    const { error: profileError } = await admin.from('profile').delete().eq('id', u.id);
-    if (profileError) throw new Error(`Profile delete for ${u.email}: ${profileError.message}`);
-
-    const { error: authError } = await admin.auth.admin.deleteUser(u.id);
-    if (authError) throw new Error(`Auth user delete for ${u.email}: ${authError.message}`);
-  }
+  await sweepVaultSecrets(admin, tenantId);
+  await deleteTenantsAndUsers(admin, [tenantId], users);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

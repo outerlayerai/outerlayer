@@ -9,6 +9,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { retryOnTransientError } from '../../lib/retry';
+import { deleteTenantsAndUsers } from '../../lib/tenant-cleanup';
 import { randomUUID } from 'crypto';
 
 export interface SameTenantUser {
@@ -200,36 +201,14 @@ export async function addUserToTenant(
 
 /**
  * Clean up all users and tenant data created by the helpers above.
- *
  * `createTenantWithOwner` always leaves the tenant with exactly one active
- * owner membership. `membership.user_id` cascades from `auth.users`, so
- * deleting the auth user directly would cascade into the same membership
- * delete a raw `tenant` delete does — tripping the `protect_last_owner`
- * trigger either way. The tenant must go first, via the
- * `platform_admin_delete_tenant` RPC (SECURITY DEFINER; sets the
- * compensating flag `protect_last_owner` checks for), so its cascade
- * (app_member_role, api_key, app, membership, …) removes the owner
- * membership before the auth user delete below ever reaches it. Every step
- * throws on error instead of swallowing it, so a failed cleanup fails the
- * suite loudly rather than leaking a tenant.
+ * owner membership — see `deleteTenantsAndUsers` for why the delete order
+ * and attempt-all-then-aggregate-throw behavior matter here.
  */
 export async function cleanupTenantAndUsers(
   tenantId: string,
   users: SameTenantUser[]
 ): Promise<void> {
   const admin = createSupabaseAdminClient();
-
-  const { error: tenantError } = await admin.rpc('platform_admin_delete_tenant', {
-    p_tenant_id: tenantId,
-  });
-  if (tenantError) throw new Error(`Tenant delete: ${tenantError.message}`);
-
-  for (const user of users) {
-    const { error: profileError } = await admin.from('profile').delete().eq('id', user.id);
-    if (profileError)
-      throw new Error(`Profile delete for ${user.email}: ${profileError.message}`);
-
-    const { error: authError } = await admin.auth.admin.deleteUser(user.id);
-    if (authError) throw new Error(`Auth user delete for ${user.email}: ${authError.message}`);
-  }
+  await deleteTenantsAndUsers(admin, [tenantId], users);
 }

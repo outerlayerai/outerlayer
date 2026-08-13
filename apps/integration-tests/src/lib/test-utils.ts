@@ -26,6 +26,7 @@
 import { createSupabaseAdminClient, SupabaseAdminClient } from './supabase-admin';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { retryingFetch } from './retrying-fetch';
+import { deleteTenantsAndUsers, TenantCleanupError } from './tenant-cleanup';
 import type { Database } from 'tenant-dashboard/src/types/db';
 
 type MembershipRole = Database['public']['Tables']['membership']['Insert']['role'];
@@ -213,33 +214,29 @@ export async function createAuthenticatedUser(role: MembershipRole): Promise<Tes
 
 /**
  * `createAuthenticatedUser` creates exactly one membership per tenant, so
- * for an 'owner' role that membership is the tenant's only active owner.
- * `membership.user_id` cascades from `auth.users`, so deleting the auth
- * user directly would cascade into the same membership delete a raw
- * `tenant` delete does — tripping the `protect_last_owner` trigger either
- * way. The tenant must go first, via the `platform_admin_delete_tenant` RPC
- * (SECURITY DEFINER; sets the compensating flag `protect_last_owner` checks
- * for), so its cascade (api_key, app, membership, …) removes the owner
- * membership before the auth user delete below ever reaches it. Each step
- * throws on error instead of swallowing it, so a failed cleanup fails the
- * suite loudly rather than leaking a tenant.
+ * for an 'owner' role that membership is the tenant's only active owner —
+ * see `deleteTenantsAndUsers` for why the delete order matters. `testUsers`
+ * is shared, cross-suite mutable state: on a partial failure, only the
+ * users `deleteTenantsAndUsers` actually deleted are pruned, so a later
+ * `afterEach` doesn't re-attempt work that already succeeded and doesn't
+ * silently drop a user whose cleanup is still outstanding.
  */
 export async function cleanupTestUsers() {
   const admin = getSupabaseAdmin();
-  for (const user of testUsers) {
-    const { error: tenantError } = await admin.rpc('platform_admin_delete_tenant', {
-      p_tenant_id: user.tenantId,
-    });
-    if (tenantError) throw new Error(`Tenant delete for ${user.email}: ${tenantError.message}`);
-
-    const { error: profileError } = await admin.from('profile').delete().eq('id', user.id);
-    if (profileError) throw new Error(`Profile delete for ${user.email}: ${profileError.message}`);
-
-    const { error: authError } = await admin.auth.admin.deleteUser(user.id);
-    if (authError) throw new Error(`Auth user delete for ${user.email}: ${authError.message}`);
+  const snapshot = [...testUsers];
+  try {
+    await deleteTenantsAndUsers(
+      admin,
+      snapshot.map((user) => user.tenantId),
+      snapshot,
+    );
+    testUsers = [];
+  } catch (err) {
+    if (err instanceof TenantCleanupError) {
+      testUsers = testUsers.filter((user) => !err.succeededUserIds.includes(user.id));
+    }
+    throw err;
   }
-
-  testUsers = [];
 }
 
 /**

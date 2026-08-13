@@ -12,6 +12,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient, type SupabaseAdminClient } from '../../lib/supabase-admin';
 import { retryOnTransientError, retryCreateAuthUser } from '../../lib/retry';
+import { deleteTenantsAndUsers } from '../../lib/tenant-cleanup';
 import type { Database } from 'tenant-dashboard/src/types/db';
 import { randomUUID } from 'crypto';
 
@@ -177,36 +178,14 @@ export async function createBillingRecord(
 
 /**
  * `createTenantWithOwner` leaves each tenant with exactly one active owner
- * membership, and `createCrossTenantUser` can add another. `membership.user_id`
- * cascades from `auth.users`, so deleting a user directly would cascade into
- * the same membership delete a raw `tenant` delete does — tripping the
- * `protect_last_owner` trigger either way. The tenants must go first, via
- * the `platform_admin_delete_tenant` RPC (SECURITY DEFINER; sets the
- * compensating flag `protect_last_owner` checks for), so their cascade
- * (billing, membership, …) removes every owner membership before the auth
- * user deletes below ever reach them. Every step throws on error instead of
- * swallowing it, so a failed cleanup fails the suite loudly rather than
- * leaking a tenant.
+ * membership, and `createCrossTenantUser` can add another — see
+ * `deleteTenantsAndUsers` for why the delete order and
+ * attempt-all-then-aggregate-throw behavior matter here.
  */
 export async function cleanupTenantsAndUsers(
   tenantIds: string[],
   users: TenantUser[],
 ): Promise<void> {
   const admin = createSupabaseAdminClient();
-
-  for (const tenantId of tenantIds) {
-    const { error: tenantError } = await admin.rpc('platform_admin_delete_tenant', {
-      p_tenant_id: tenantId,
-    });
-    if (tenantError) throw new Error(`Tenant delete (${tenantId}): ${tenantError.message}`);
-  }
-
-  for (const user of users) {
-    const { error: profileError } = await admin.from('profile').delete().eq('id', user.id);
-    if (profileError)
-      throw new Error(`Profile delete for ${user.email}: ${profileError.message}`);
-
-    const { error: authError } = await admin.auth.admin.deleteUser(user.id);
-    if (authError) throw new Error(`Auth user delete for ${user.email}: ${authError.message}`);
-  }
+  await deleteTenantsAndUsers(admin, tenantIds, users);
 }
