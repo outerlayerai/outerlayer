@@ -43,6 +43,37 @@ OuterLayer cloud workspace, with an API key you minted. Two guarantees:
 | `outerlayer watch` | Run the copy-out daemon in the foreground (`--once` for a single sweep). |
 | `outerlayer doctor` | Check the installation: hooks, daemon heartbeat, and sync health. |
 
+## Status line
+
+`init` also adds an ambient Claude Code status-line segment showing what your
+session and your agents are costing today:
+
+```
+⬢ OL  $0.87 session · $23.40 today across 3 agents · 12 unsynced
+```
+
+The session figure comes straight from Claude Code's own cost field, so it
+always matches what Claude Code itself would show. The cross-agent total and
+unsynced count come from `~/.outerlayer/statusline.json`, a small file the
+`watch` daemon keeps fresh — the status line itself never parses transcripts,
+so it stays well under Claude Code's refresh budget. On a day with only one
+active agent, the scope adapts: `across N agents` becomes `across N sessions`
+if you ran several sessions with it, or drops entirely to a bare `$X today`
+for a single session — "across 1 agent" never appears.
+
+If a `statusLine` command is already configured, `init` **wraps it rather
+than replacing it**: your existing command's output is printed first, the
+OuterLayer segment appends after. A hang or failure in the wrapped command
+never blanks the line — it times out and OuterLayer's segment prints alone.
+`outerlayer init --remove` restores the original command exactly.
+
+Without `outerlayer watch` running, the line degrades gracefully to the
+session figure alone plus a dim `outerlayer doctor` hint — run `outerlayer
+doctor` to see why (usually: the daemon isn't running, or hasn't refreshed
+recently).
+
+Opt out of the segment with `outerlayer init --no-statusline`.
+
 ## Supported agents
 
 | Agent | Source | Status |

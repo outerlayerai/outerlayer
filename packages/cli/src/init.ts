@@ -11,10 +11,13 @@ import {
   writeSettings,
   wrapHooks,
   cliBinResolvable,
+  mergeStatusline,
+  removeStatusline,
   REGISTERED_EVENTS,
   AUTO_WRAP_EVENTS,
   type HookCandidate,
   type Scope,
+  type StatuslineMergeOutcome,
 } from "./settings.js";
 
 export interface InitOptions {
@@ -29,6 +32,9 @@ export interface InitOptions {
   /** Auto-wrap eligible PreToolUse/PostToolUse hooks with no prompt. Default
    * true; `init --no-wrap-hooks` disables it entirely. */
   wrapHooks?: boolean;
+  /** Install the status-line segment (wrapping an occupied slot, never
+   * replacing it). Default true; `init --no-statusline` skips the slot. */
+  statusline?: boolean;
 }
 
 export interface InitResult {
@@ -46,6 +52,12 @@ export interface InitResult {
    * would point nowhere — the exact failure a broken install path produces,
    * silently, on every subsequent session. Settings are left untouched. */
   cliBinUnresolved?: boolean;
+  /** What happened to the statusLine slot. Absent on `--no-statusline`,
+   * remove runs, and `cliBinUnresolved`. */
+  statusline?: StatuslineMergeOutcome;
+  /** The pre-existing statusLine command now wrapped (or restored, on
+   * remove) — named in output so the user sees it was preserved. */
+  statuslineWrappedCommand?: string;
 }
 
 /**
@@ -61,9 +73,19 @@ export function runInit(opts: InitOptions): InitResult {
   const current = readSettings(path); // throws SettingsParseError on corruption
 
   if (opts.remove) {
-    const { next, changed } = removeHooks(current);
-    const backupPath = changed ? writeSettings(path, next) : undefined;
-    return { path, changed, backupPath, events: REGISTERED_EVENTS, removed: true, wrapped: [] };
+    const hooksRemoved = removeHooks(current);
+    const statuslineRemoved = removeStatusline(hooksRemoved.next);
+    const changed = hooksRemoved.changed || statuslineRemoved.changed;
+    const backupPath = changed ? writeSettings(path, statuslineRemoved.next) : undefined;
+    return {
+      path,
+      changed,
+      backupPath,
+      events: REGISTERED_EVENTS,
+      removed: true,
+      wrapped: [],
+      ...(statuslineRemoved.restoredCommand ? { statuslineWrappedCommand: statuslineRemoved.restoredCommand } : {}),
+    };
   }
 
   // A cliBin that doesn't resolve breaks every hook command this call would
@@ -87,6 +109,18 @@ export function runInit(opts: InitOptions): InitResult {
     }
   }
 
+  let statusline: StatuslineMergeOutcome | undefined;
+  let statuslineWrappedCommand: string | undefined;
+  if (opts.statusline ?? true) {
+    const slotResult = mergeStatusline(next, opts.cliBin);
+    statusline = slotResult.outcome;
+    statuslineWrappedCommand = slotResult.wrappedCommand;
+    if (slotResult.changed) {
+      next = slotResult.next;
+      changed = true;
+    }
+  }
+
   const backupPath = changed ? writeSettings(path, next) : undefined;
 
   let gitignoreUpdated = false;
@@ -94,7 +128,16 @@ export function runInit(opts: InitOptions): InitResult {
     gitignoreUpdated = ensureGitignore(opts.cwd ?? process.cwd());
   }
 
-  return { path, changed, backupPath, events: REGISTERED_EVENTS, gitignoreUpdated, wrapped };
+  return {
+    path,
+    changed,
+    backupPath,
+    events: REGISTERED_EVENTS,
+    gitignoreUpdated,
+    wrapped,
+    ...(statusline ? { statusline } : {}),
+    ...(statuslineWrappedCommand ? { statuslineWrappedCommand } : {}),
+  };
 }
 
 /** Add `.outerlayer/` to the repo's .gitignore if not already ignored. */

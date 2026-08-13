@@ -22,6 +22,15 @@ if (argv[0] === "hook-wrap") {
   process.exit(code);
 }
 
+// The statusline fast-path: Claude Code re-runs it on every state change
+// (~300ms debounced), so it shares hook-fast.ts's doctrine — builtins only,
+// always exit 0, always print something.
+if (argv[0] === "statusline") {
+  const { runStatuslineFast } = await import("./statusline-fast.js");
+  await runStatuslineFast(argv.slice(1));
+  process.exit(0); // ALWAYS 0 — a nonzero exit blanks the status line
+}
+
 // Everything below is the normal (latency-insensitive) CLI.
 const { runCli } = await import("./cli.js");
 await runCli(process.argv);

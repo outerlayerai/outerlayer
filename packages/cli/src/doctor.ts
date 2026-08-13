@@ -6,9 +6,10 @@ import { existsSync, readdirSync, statSync, accessSync, constants } from "node:f
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { compareVersions, SUPPORTED_VERSIONS } from "@outerlayer/capture";
-import { readSettings, settingsPath, REGISTERED_EVENTS, isOurHookCommand } from "./settings.js";
+import { readSettings, settingsPath, MARKER, REGISTERED_EVENTS, isOurHookCommand } from "./settings.js";
 import { spoolDir } from "./hook-fast.js";
-import { assessSyncHealth, readSyncStatus, SYNC_STALE_AFTER_MS } from "./sync-status.js";
+import { assessSyncHealth, formatAgo, readSyncStatus, SYNC_STALE_AFTER_MS } from "./sync-status.js";
+import { readStatuslineState, STATE_FRESH_MS } from "./statusline-fast.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 export interface Check {
@@ -44,8 +45,65 @@ export function runDoctor(env: DoctorEnv = {}): Check[] {
     checkDiskHeadroom(home),
     checkClaudeVersion(env),
     checkSettingsValid(home, env.cwd),
+    ...checkStatusline(home, now, env.cwd),
     ...checkInstalls(env),
   ];
+}
+
+/**
+ * Status-line health: is our segment in the statusLine slot, and is the
+ * state file the daemon feeds it fresh? The state check only fires when the
+ * segment is installed — warning about a stale feed for a feature not in use
+ * would train people to ignore doctor.
+ */
+function checkStatusline(home: string, now: () => number, cwd?: string): Check[] {
+  const name = "Status line";
+  let installed = false;
+  let wrapping: string | undefined;
+  let foreign: string | undefined;
+  for (const scope of ["user", "project"] as const) {
+    let settings;
+    try {
+      settings = readSettings(settingsPath(scope, { home, cwd }));
+    } catch {
+      continue;
+    }
+    const slot = settings?.statusLine;
+    if (!slot || typeof slot !== "object") continue;
+    if (slot[MARKER] === true) {
+      installed = true;
+      const original = (slot as Record<string, unknown>)._outerlayerWrapped;
+      if (typeof original === "string") wrapping = original;
+      break;
+    }
+    if (typeof slot.command === "string") foreign = slot.command;
+  }
+
+  if (!installed) {
+    return [
+      foreign !== undefined
+        ? { name, status: "warn", detail: `slot occupied by: ${foreign}`, fix: "Run `outerlayer init` to add the OuterLayer segment (wraps the existing command, never replaces it)." }
+        : { name, status: "warn", detail: "not installed", fix: "Run `outerlayer init`." },
+    ];
+  }
+
+  const checks: Check[] = [
+    { name, status: "pass", detail: wrapping ? `installed, wrapping: ${wrapping}` : "installed" },
+  ];
+
+  const stateName = "Status-line state";
+  const state = readStatuslineState(home);
+  if (!state) {
+    checks.push({ name: stateName, status: "warn", detail: "no state file — line runs degraded (session cost only)", fix: "Start `outerlayer watch` (the daemon maintains it)." });
+    return checks;
+  }
+  const age = now() - Date.parse(state.generatedAt);
+  if (!Number.isFinite(age) || age > STATE_FRESH_MS) {
+    checks.push({ name: stateName, status: "warn", detail: `state ${formatAgo(age)} — line runs degraded`, fix: "Restart `outerlayer watch`." });
+    return checks;
+  }
+  checks.push({ name: stateName, status: "pass", detail: `fresh (${formatAgo(age)})` });
+  return checks;
 }
 
 function checkClaudeDir(home: string): Check {
