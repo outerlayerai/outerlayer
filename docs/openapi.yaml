@@ -327,7 +327,7 @@ paths:
                 required:
                   - "error"
                 type: "object"
-          description: "Monthly unit limit exceeded."
+          description: "Monthly unit limit or storage cap exceeded."
         "503":
           content:
             application/json:
