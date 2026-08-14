@@ -56,9 +56,6 @@ export const Permissions = {
   // Trace permissions (non-RLS, checked via app_authorize in API routes)
   TRACE_READ: "trace.read" as const,
 
-  // Non-RLS, checked via app_authorize in server actions.
-  EXPERIMENT_READ: "experiment.read" as const,
-
   // Dataset permissions (separate from template; datasets are a distinct
   // app_permission family in 01-types.sql even though they share the
   // `template` storage table).

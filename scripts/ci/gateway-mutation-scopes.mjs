@@ -61,6 +61,12 @@ const CORE_RULES = [
     include: 'utils.test.ts,utils/**/*.test.ts',
   },
   { match: (f) => f.startsWith('src/openapi/routes/'), vitestDir: 'src/openapi' },
+  // The MCP mount (dispatcher, tool table, resource) — same suite scope as
+  // the route handlers it wraps (`src/openapi`), since its tests live under
+  // `src/openapi/mcp/__tests__` and its dependencies are the same route/
+  // service layer. Unmatched by design would silently skip mutation
+  // coverage for the whole dir (see the module header) — this is that dir.
+  { match: (f) => f.startsWith('src/openapi/mcp/'), vitestDir: 'src/openapi' },
   // Only crypto.ts (token encryption) is mutated by the gateway-git shard;
   // the rest of git/ (github.ts, factory.ts, types.ts) is thin provider-API
   // wrappers the nightly deliberately skips. Match exactly that file so a PR

@@ -5,7 +5,8 @@
  * matters) and the ≥3 threshold.
  */
 
-import { findEditRetryLoop, type TrajectorySpan } from './trajectory-signals';
+import { describe, expect, it } from 'vitest';
+import { findEditRetryLoop, type TrajectorySpan } from '../services/trajectory-signals';
 
 const edit = (file: string, status: 'ok' | 'error' | 'rejected'): TrajectorySpan => ({
   name: 'agent.tool.Edit',

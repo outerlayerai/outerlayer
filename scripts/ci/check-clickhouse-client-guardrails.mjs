@@ -90,6 +90,75 @@ const stale = [...ALLOWLIST].filter(
   (entry) => !seenAllowlisted.has(entry) && !existsSync(join(ROOT, entry)),
 );
 
+// ============================================================================
+// Bounded-query check: every `.query(` call site under the lifted read
+// services (currently just topics.ts — services newly moved into this
+// package for gateway/MCP reuse) must pass `max_memory_usage` and
+// `max_rows_to_read` settings. That package is shared by the gateway (Worker
+// routes with no request-level timeout backstop of their own), so an
+// unbounded query added there ships green on the constructor check above
+// while still reaching the shared analytics cluster unbounded.
+//
+// Scoped to the lifted-service files rather than the whole package: the
+// pre-existing services (traces/scores/metrics/agent-fleet/requests) predate
+// this rule and run their own settings story — bringing them under this gate
+// is a separate, deliberate migration, not a side effect of lifting topics
+// and agent-sessions.
+// ============================================================================
+const BOUNDED_QUERY_FILES = [
+  "packages/observability-service/src/services/topics.ts",
+  "packages/observability-service/src/services/agent-sessions.ts",
+  "packages/observability-service/src/services/metrics-compare.ts",
+];
+
+/** Every `.query({ ... })` call's argument object, brace-balanced so a
+ * nested `query_params`/`clickhouse_settings` object doesn't truncate it. */
+function findQueryCallSites(source) {
+  const sites = [];
+  const re = /\.query\(\s*\{/g;
+  let m;
+  while ((m = re.exec(source))) {
+    const start = m.index + m[0].length - 1; // the opening `{`
+    let depth = 0;
+    let i = start;
+    for (; i < source.length; i++) {
+      if (source[i] === "{") depth++;
+      else if (source[i] === "}") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    sites.push(source.slice(start, i + 1));
+  }
+  return sites;
+}
+
+const unboundedQueries = [];
+for (const relFile of BOUNDED_QUERY_FILES) {
+  const file = join(ROOT, relFile);
+  if (existsSync(file)) {
+    const source = readFileSync(file, "utf8");
+    // Only call sites issuing SQL reads (a `query:` key in the call args) —
+    // this also skips the IClickHouseQuery interface declaration itself.
+    const sites = findQueryCallSites(source).filter((s) => /\bquery\s*:/.test(s));
+    for (const site of sites) {
+      const hasSettingsKey = /\bclickhouse_settings\s*:/.test(site);
+      const boundsInline = /max_memory_usage/.test(site) && /max_rows_to_read/.test(site);
+      // `clickhouse_settings` referencing a file-level constant (the common
+      // shape — one shared settings object spread across every query in a
+      // service) is accepted only when that constant's bounds are defined
+      // somewhere in the same file.
+      const boundsViaFileConstant =
+        hasSettingsKey && /max_memory_usage/.test(source) && /max_rows_to_read/.test(source);
+      if (!hasSettingsKey || !(boundsInline || boundsViaFileConstant)) {
+        unboundedQueries.push(
+          `${relative(ROOT, file)}: ${site.slice(0, 80).replace(/\s+/g, " ")}...`,
+        );
+      }
+    }
+  }
+}
+
 let failed = false;
 if (violations.length > 0) {
   failed = true;
@@ -108,6 +177,14 @@ if (stale.length > 0) {
   console.error(
     "✗ Stale allowlist entries (file deleted or renamed — remove them):\n" +
       stale.map((v) => `  - ${v}`).join("\n"),
+  );
+}
+if (unboundedQueries.length > 0) {
+  failed = true;
+  console.error(
+    "✗ Unbounded query() call(s) in a lifted read service (missing" +
+      " max_memory_usage / max_rows_to_read in clickhouse_settings):\n" +
+      unboundedQueries.map((v) => `  - ${v}`).join("\n"),
   );
 }
 

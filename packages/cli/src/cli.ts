@@ -346,6 +346,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
 
   registerImportCommands(program);
   registerHooksCommands(program);
+  registerMcpCommands(program);
 
   await program.parseAsync(processArgv);
 }
@@ -503,6 +504,35 @@ function registerHooksCommands(program: Command): void {
         `${GREEN}✓${RESET} Restored ${unwrapped} hook(s) in ${path}\n` +
           (backupPath ? `${DIM}  backup: ${backupPath}${RESET}\n` : ""),
       );
+    });
+}
+
+function registerMcpCommands(program: Command): void {
+  const mcpCmd = program.command("mcp").description("Configure MCP clients against the OuterLayer gateway");
+
+  mcpCmd
+    .command("install")
+    .description('Write (or update) an mcpServers entry in .mcp.json pointing at the OuterLayer gateway\'s POST /v1/mcp endpoint')
+    .option("--url <url>", "gateway MCP endpoint (default: the hosted OuterLayer Cloud gateway; self-host: your gateway-node origin + /v1/mcp)")
+    .option("--name <name>", 'mcpServers key to write under (default: "outerlayer")')
+    .option("--dir <path>", "repo root to write into (default: cwd)")
+    .option("--app-id <uuid>", "self-host only: app id, emitted as the X-Outerlayer-App-Id header SelfHostAuthResolver requires (omit for hosted)")
+    .option("--json", "machine-readable JSON output")
+    .addHelpText(
+      "after",
+      "\nThe API key is never a flag and never written to .mcp.json as a literal value — only the\n" +
+        "${OUTERLAYER_API_KEY} placeholder, which Claude Code resolves from your environment at connect\n" +
+        "time. Set OUTERLAYER_API_KEY in your shell (or your MCP client's env config) before connecting.\n" +
+        "\nSelf-host deployments also need --app-id — self-host has no key service to resolve a caller\n" +
+        "from the bearer token alone, so SelfHostAuthResolver 401s without X-Outerlayer-App-Id.\n",
+    )
+    .action(async (opts) => {
+      const { runMcpInstall, handleMcpInstallError } = await import("./mcp-install-cmd.js");
+      try {
+        runMcpInstall({ cwd: opts.dir, url: opts.url, name: opts.name, appId: opts.appId, json: opts.json });
+      } catch (err) {
+        handleMcpInstallError(err);
+      }
     });
 }
 

@@ -262,11 +262,11 @@ describe('Env-bound API keys', () => {
   describe('env binding does not restrict which envs a key can act on', () => {
     it('should resolve a dev-bound key to dev — the binding identifies provenance, not an action scope', async () => {
       // Arrange: a key bound to the default `dev` env, plus a separate `prod`
-      // env the key is NOT bound to. A dev-bound key with
-      // environment.promote can promote `prod`. The mechanism: the resolver
-      // returns the *binding* (`dev`), and the promote route gates on the
-      // app-scoped `environment.promote` permission — never on a match
-      // between the key's bound env and the target env id.
+      // env the key is NOT bound to. A dev-bound key with environment.update
+      // can update `prod`. The mechanism: the resolver returns the
+      // *binding* (`dev`), and every env route gates on the app-scoped
+      // permission — never on a match between the key's bound env and the
+      // target env id.
       const prod = await seedPinnedEnvironment(fixture, {
         name: 'prod-86',
         version: 1,

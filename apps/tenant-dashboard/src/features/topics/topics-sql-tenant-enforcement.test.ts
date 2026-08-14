@@ -12,12 +12,13 @@
  * (so a new topics file can't escape by not being listed), extract SQL template
  * literals, and require a TenantId predicate on every one that touches a tenant
  * table — either literally, or by delegating its WHERE to the shared
- * `samplableRowsClause`, whose own definition (scanned here too) carries the
- * predicate.
+ * `samplableRowsClause` (defined in `@repo/observability-service`; its
+ * definition, scanned here from the package source, carries the predicate).
  */
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const TENANT_TABLES = [
   'otel_traces_trace_id_ts',
@@ -78,7 +79,10 @@ describe('topics inline SQL is tenant-scoped (writer identity, no row-policy bac
   });
 
   it('the shared samplableRowsClause itself binds the tenant', () => {
-    const source = readFileSync(new URL('service.ts', TOPICS_DIR), 'utf8');
+    const packageSourcePath = fileURLToPath(
+      new URL('../../../../../packages/observability-service/src/services/topics.ts', TOPICS_DIR),
+    );
+    const source = readFileSync(packageSourcePath, 'utf8');
     const clauseBody = source.slice(source.indexOf('function samplableRowsClause'));
     expect(TENANT_ID_PATTERN.test(clauseBody.slice(0, 400))).toBe(true);
   });

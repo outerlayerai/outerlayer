@@ -55,6 +55,22 @@ describe('SelfHostAuthResolver — perimeter trust (no secret configured)', () =
 
     expect(result).toEqual({ ok: false, status: 401, message: 'Not authorized', code: 'unauthorized' });
   });
+
+  // Unlike the hosted key-store, this resolver has no per-key row that names
+  // an app — perimeter trust authenticates nothing, and the shared secret
+  // (below) authenticates the same way for every app. So a null appId (the
+  // `/v1/mcp` optional-header case) has nothing to derive from and must fail
+  // closed rather than guess.
+  it('401s without resolving anything when appId is null (nothing to derive from)', async () => {
+    const result = await new SelfHostAuthResolver().resolveApiKey({
+      authHeader: 'whatever-token-the-sdk-sends',
+      appId: null,
+      env,
+    });
+
+    expect(result).toEqual({ ok: false, status: 401, message: 'Missing app id', code: 'unauthorized' });
+    expect(resolveAppIdentity).not.toHaveBeenCalled();
+  });
 });
 
 describe('SelfHostAuthResolver — shared secret configured', () => {

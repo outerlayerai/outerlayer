@@ -1,5 +1,5 @@
 /**
- * Topics service — Stage 4 generation + topic listing.
+ * Topics service — Stage 4 generation.
  *
  * Generation:
  *   pull ≤50k ok facet embeddings from trace_facets
@@ -12,21 +12,11 @@
  *       (MapVersion+1) LAST — the new version activates only once its
  *       assignments exist, so a mid-write failure leaves the old map serving.
  *
- * Listing reads the active (max MapVersion) map and counts live assignments
- * from trace_facets — so traces classified by the enrichment cron AFTER
- * generation are included. Counts are SESSION-denominated: every facet row is
- * attributed to its root agent session via the agent_session_summary rollup
- * (a subagent transcript credits its parent), so a workflow that fans out N
- * children counts once and the list matches what the sessions drill-down
- * shows. The task facet goes further and drops subagent rows entirely — task
- * topics describe what users ran, not the agent's internal chores — while
- * issues keep them (a failure inside a child is the session's failure).
- * Outcome metrics (error rate / latency / cost) are NOT live: generation
- * computes them over the sampled member traces and stores them on the map
- * row, so the list route reads them with zero otel_traces joins. The
- * topics-over-time trend uses the same rollup join for each session's start
- * time — no otel_traces span scan — and buckets over the data's own span
- * rather than a now()-relative window, so a backfilled corpus still charts.
+ * Listing lives in `@repo/observability-service` (shared with the gateway's
+ * `/v1/topics` route and the `list_topics` MCP tool) — this module wraps that
+ * package service for `listTopics` and owns generation, which needs the
+ * clustering service, the model-provider clients, and a writable ClickHouse
+ * identity, none of which a read-only route has.
  *
  * Cold start: generation refuses below 100 ok summaries per facet.
  *
@@ -42,20 +32,23 @@ import type { ClickHouseClient } from '@clickhouse/client';
 import {
   STATUS_ERROR_VALUES_SQL,
   ServiceUnavailableError,
+  TopicsService as ObservabilityTopicsService,
+  minExtractorVersionForFacet,
+  resolveGenerationFloor,
+  samplableRowsClause,
+  type IClickHouseQuery,
+  type TopicsScope,
 } from '@repo/observability-service';
 import {
-  BATCHED_EXTRACTOR_VERSION,
   DEFAULT_ASSIGN_MAX_DISTANCE,
   FACET_NAMING_GUIDANCE,
   MAX_TOPIC_DESCRIPTION_LENGTH,
   NO_MATCH_TOPIC_ID,
-  STEERING_EXTRACTOR_VERSION,
   cosineDistance,
   createTopicsModelClientsFromEnv,
   nameTopics,
   normalizedCentroid,
   reconcileTopics,
-  resolveTopicsModelSelection,
   type PreviousTopic,
   type TopicsModelClients,
   type TopicsModelEnv,
@@ -65,7 +58,9 @@ import {
  * Model-provider env slice read straight from process.env (env.ts zod defaults
  * are dead on Vercel — see resolveTopicsRuntimeConfig). Generation must select
  * the SAME provider the gateway enrichment used, so the naming model matches
- * the client and the embedding dimension matches what was written.
+ * the client and the embedding dimension matches what was written. Also fed
+ * to the package's read-only service, whose samplable-row count needs the
+ * same dimension without constructing model clients.
  */
 function readTopicsModelEnv(): TopicsModelEnv {
   return {
@@ -81,14 +76,21 @@ function readTopicsModelEnv(): TopicsModelEnv {
   };
 }
 
+/**
+ * `TOPICS_MIN_SUMMARIES` read straight from process.env (env.ts zod defaults
+ * are dead on Vercel), so an environment with a thin-but-real corpus can opt
+ * into earlier, thinner maps. `undefined` when unset or unparseable — the
+ * package's `resolveGenerationFloor` applies the `>= 5` floor and facet
+ * default itself.
+ */
+function resolveMinSummariesOverride(): number | undefined {
+  const parsed = Number.parseInt(process.env.TOPICS_MIN_SUMMARIES ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 // Client-safe contracts (types + constants) live in topics-shared.ts —
 // consumers import them from there; this module owns only the server side.
-import {
-  generationFloorForFacet,
-  type GenerateOutcome,
-  type TopicFacet,
-  type TopicsList,
-} from '@/lib/analytics/topics/topics-shared';
+import type { GenerateOutcome, TopicFacet, TopicsList } from '@/lib/analytics/topics/topics-shared';
 
 /** Clustering sample ceiling per generation pass. */
 const MAX_GENERATION_SAMPLE = 50_000;
@@ -123,34 +125,6 @@ export const MIXED_TOPIC_NAME = 'Mixed one-off items';
 export const MIXED_TOPIC_DESCRIPTION =
   'A residual group with no shared subject — its members are dissimilar one-offs. Treat its size as the signal, not its label.';
 
-/**
- * Generation floor: the facet's default unless TOPICS_MIN_SUMMARIES overrides
- * it — read straight from process.env (env.ts zod defaults are dead on
- * Vercel), so an environment with a thin-but-real corpus can opt into
- * earlier, thinner maps. Values below 5 can't form clusters at all and fall
- * back to the facet default.
- */
-function resolveGenerationFloor(facet: TopicFacet): number {
-  const parsed = Number.parseInt(process.env.TOPICS_MIN_SUMMARIES ?? '', 10);
-  return Number.isFinite(parsed) && parsed >= 5 ? parsed : generationFloorForFacet(facet);
-}
-
-/**
- * The extractor version a generation pass requires of its sample. Facet
- * prompts version independently (batched task/issues vs steering's own-pass
- * extraction), and a version bump re-drains history through the backfill
- * sweeps — during which the corpus holds BOTH generations of summary side by
- * side. Clustering must see only the current version: rows written under an
- * older prompt encode different semantics (an issues prompt that narrates
- * clean runs as prose yields narrations that cluster into top-of-page
- * "issues" which are really success stories), so a mixed sample rebuilds
- * exactly the map the current prompt avoids. Pinning also makes the samplable
- * count an honest re-extraction progress meter while a drain is in flight.
- */
-function minExtractorVersionForFacet(facet: TopicFacet): number {
-  return facet === 'steering' ? STEERING_EXTRACTOR_VERSION : BATCHED_EXTRACTOR_VERSION;
-}
-
 /** Exemplar summaries per cluster handed to the namer. */
 const NAMING_EXEMPLARS_PER_CLUSTER = 8;
 
@@ -160,147 +134,6 @@ const NAMING_EXEMPLARS_PER_CLUSTER = 8;
  * the memory budget of the smallest ClickHouse tier.
  */
 const FACET_REINSERT_BATCH = 250;
-
-/**
- * Topics-over-time granularity. The axis is anchored to the data's own span
- * (earliest→latest assigned-trace bucket), not wall-clock now, so a backfilled
- * corpus that ended weeks ago still charts. Hourly buckets while the span fits
- * within a couple of days of activity; daily once it stretches past this (a
- * backfill), capped so a wide corpus keeps its most recent buckets.
- */
-const TREND_HOURLY_MAX_HOURS = 48;
-const TREND_MAX_BUCKETS = 90;
-
-/**
- * Root-session attribution key for a trace_facets row `f` joined to the
- * agent_session_summary rollup as `s`: a subagent transcript credits its
- * parent (ParentSessionId is the parent's SessionId), a top-level session
- * credits itself, and a trace with no rollup row at all (plain OTLP traffic —
- * the LEFT JOIN filled '' defaults) stands as its own unit.
- */
-const ROOT_SESSION_KEY =
-  "if(s.ParentSessionId != '', s.ParentSessionId, if(s.SessionId != '', s.SessionId, f.TraceId))";
-
-/**
- * Drops rows whose ROOT session was initiated programmatically (Origin='agent')
- * from the counting/trend population: those runs are templated fan-outs that
- * would otherwise dominate the per-topic session counts. The predicate keys on
- * the ROOT session's Origin, resolved through the root-session set — NOT on the
- * current trace's own Origin. A subagent transcript always carries
- * Origin='agent', but it credits its parent via ROOT_SESSION_KEY; when that
- * parent is interactive/worker the parent's SessionId is absent from the set
- * below, so the subagent stays counted. Legacy '' and interactive roots stay
- * (only 'agent' is excluded).
- */
-const NON_AGENT_ROOT_CLAUSE = `${ROOT_SESSION_KEY} NOT IN (
-        SELECT SessionId FROM agent_session_summary FINAL
-        WHERE TenantId = {tenantId:String}
-          AND AppId = {appId:String}
-          AND ParentSessionId = ''
-          AND SessionId != ''
-          AND Origin = 'agent'
-      )`;
-
-/**
- * The rollup side of the attribution join, collapsed to one row per TraceId
- * (the ReplacingMergeTree key includes GitRepo/StartedAt, so FINAL alone can't
- * guarantee per-trace uniqueness) so the join never fans facet rows out.
- */
-const SESSION_ROLLUP_SUBQUERY = `
-        SELECT TraceId,
-               any(SessionId) AS SessionId,
-               any(ParentSessionId) AS ParentSessionId,
-               min(StartedAt) AS StartedAt
-        FROM agent_session_summary FINAL
-        WHERE TenantId = {tenantId:String}
-          AND AppId = {appId:String}
-        GROUP BY TraceId`;
-
-/**
- * Task and steering topics describe what USERS ran/typed, so subagent
- * transcripts are excluded from their counting/clustering; an unmatched LEFT
- * JOIN row carries ParentSessionId = '', so non-agent traces still pass.
- * Issues facet keeps subagent rows and attributes them to the parent via
- * ROOT_SESSION_KEY.
- */
-function facetRowScopeClause(facet: TopicFacet): string {
-  return facet === 'issues' ? '' : "AND s.ParentSessionId = ''";
-}
-
-/**
- * Agent-origin exclusion is scoped to task/steering only — those facets
- * describe what USERS ran/typed, so templated agent fan-outs skew them. Issues
- * stays origin-blind: a failure inside an agent run is still a real failure, so
- * its counts and clustering include every origin.
- */
-function agentOriginScopeClause(facet: TopicFacet): string {
-  return facet === 'issues' ? '' : `AND ${NON_AGENT_ROOT_CLAUSE}`;
-}
-
-/**
- * WHERE fragment selecting exactly the rows a generation pass samples: ok
- * status, an embedding in the dimension generation clusters in, summaries
- * written by the facet's CURRENT extractor version (older-version rows are
- * mid-re-extraction leftovers whose summaries encode retired prompt
- * semantics — see minExtractorVersionForFacet), and — for task/steering — no
- * subagent transcripts or top-level programmatic runs (Origin='agent'). Both are templated fan-outs that would dominate the
- * manifold and produce topics about the agent's plumbing instead of what
- * users ran/typed; issues keeps every origin because a failure inside a
- * child is a real failure of the session.
- *
- * The cold-start/regenerate counter compiles from THIS fragment too. If the
- * two predicates diverge, the page promises maps generation then refuses —
- * "127 of 100 collected" beside a "12 of 100 required" refusal.
- */
-function samplableRowsClause(scope: TopicsScope, facet: TopicFacet): string {
-  return `TenantId = {tenantId:String}
-        AND AppId = {appId:String}
-        AND ${facetsEnvClause(scope)}
-        AND Facet = {facet:String}
-        AND Status = 'ok'
-        AND length(Embedding) = {dimension:UInt32}
-        AND ExtractorVersion >= {minExtractorVersion:UInt32}
-        AND IsDeleted = 0
-        ${
-          facet !== 'issues'
-            ? `AND TraceId NOT IN (
-          SELECT TraceId FROM agent_session_summary FINAL
-          WHERE TenantId = {tenantId:String}
-            AND AppId = {appId:String}
-            AND (ParentSessionId != '' OR Origin = 'agent')
-        )`
-            : ''
-        }`;
-}
-
-/**
- * Embedding dimension for the samplable count on the READ path, resolved from
- * env WITHOUT constructing model clients — reads must never require model
- * config. An invalid TOPICS_MODEL_PROVIDER falls back to the provider
- * defaults so a misconfig breaks generation loudly, never the Topics GET.
- */
-function resolveCountDimension(): number {
-  try {
-    return resolveTopicsModelSelection(readTopicsModelEnv()).embeddingDimension;
-  } catch {
-    return resolveTopicsModelSelection({}).embeddingDimension;
-  }
-}
-
-interface TopicsScope {
-  tenantId: string;
-  appId: string;
-  environment: string;
-  /**
-   * When scoping to the app's default environment, legacy rows stamped with
-   * Environment='' belong to its view (same semantics as
-   * buildEnvironmentWhereClause in @repo/observability-service). Applies to
-   * trace_facets reads; trace_topic_maps rows are always written with the
-   * canonical env name, so map reads stay exact-match.
-   */
-  environmentIsDefault: boolean;
-}
-
 
 /** Full trace_facets row shape pulled for generation (re-inserted verbatim + assignment). */
 interface FacetRowFull {
@@ -362,8 +195,8 @@ interface SessionOutcome {
 
 /**
  * Root-session key over an unaliased `agent_session_summary` row — the same
- * attribution {@link ROOT_SESSION_KEY} applies on the facet-join side, so a
- * subagent credits its parent and a rollup-less trace stands alone.
+ * attribution used on the facet-join side, so a subagent credits its parent
+ * and a rollup-less trace stands alone.
  */
 const ROLLUP_ROOT_KEY =
   "if(ParentSessionId != '', ParentSessionId, if(SessionId != '', SessionId, TraceId))";
@@ -418,9 +251,18 @@ export function buildTopicsService(client: ClickHouseClient): TopicsService {
 
 export class TopicsService {
   private readonly fetchFn: typeof fetch;
+  private readonly reader: ObservabilityTopicsService;
 
   constructor(private readonly deps: TopicsServiceDeps) {
     this.fetchFn = deps.fetchFn ?? fetch;
+    // `@clickhouse/client`'s `json()` is typed to also allow the (unused with
+    // format: 'JSONEachRow') ResponseJSON/Record overloads, which is wider
+    // than IClickHouseQuery's `Promise<T[]>` — every call this service makes
+    // passes 'JSONEachRow', so the array shape holds at runtime.
+    this.reader = new ObservabilityTopicsService(deps.client as IClickHouseQuery, {
+      modelEnv: readTopicsModelEnv(),
+      minSummariesOverride: resolveMinSummariesOverride(),
+    });
   }
 
   private async query<T>(sql: string, params: Record<string, unknown>): Promise<T[]> {
@@ -433,193 +275,7 @@ export class TopicsService {
   }
 
   async listTopics(scope: TopicsScope, facet: TopicFacet): Promise<TopicsList> {
-    const mapRows = await this.query<{
-      TopicId: string;
-      Name: string;
-      Description: string;
-      MapVersion: number;
-      GeneratedAt: string;
-      AvgLatencyMs: number;
-      AvgCostUsd: number;
-    }>(
-      `
-      SELECT TopicId, Name, Description, MapVersion, GeneratedAt,
-             AvgLatencyMs, AvgCostUsd
-      FROM trace_topic_maps FINAL
-      WHERE TenantId = {tenantId:String}
-        AND AppId = {appId:String}
-        AND Environment = {environment:String}
-        AND Facet = {facet:String}
-        AND IsDeleted = 0
-        AND MapVersion = (
-          SELECT max(MapVersion)
-          FROM trace_topic_maps FINAL
-          WHERE TenantId = {tenantId:String}
-            AND AppId = {appId:String}
-            AND Environment = {environment:String}
-            AND Facet = {facet:String}
-            AND IsDeleted = 0
-        )
-      ORDER BY TopicId
-      `,
-      { ...scopeParams(scope), facet },
-    );
-
-    if (mapRows.length === 0) {
-      const samplable = await this.countSamplableRows(scope, facet);
-      return {
-        facet,
-        mapVersion: 0,
-        generatedAt: null,
-        topics: [],
-        noMatchCount: 0,
-        samplableCount: samplable,
-        required: resolveGenerationFloor(facet),
-        trendDays: [],
-        noMatchTrend: [],
-        trendBucket: 'hour',
-      };
-    }
-
-    const mapVersion = mapRows[0]!.MapVersion;
-    // Every live-count read shares the same shape: the map's facet rows,
-    // attributed to root sessions via the rollup (LEFT JOIN, so plain OTLP
-    // traces with no session row still count as themselves), task facet
-    // restricted to top-level transcripts. trace_facets carries the env
-    // scope; the rollup has no Environment column, so the join inherits env
-    // from the facet side.
-    const activeFacetRowsSql = `
-      FROM trace_facets AS f FINAL
-      LEFT JOIN (${SESSION_ROLLUP_SUBQUERY}
-      ) AS s ON f.TraceId = s.TraceId
-      WHERE f.TenantId = {tenantId:String}
-        AND f.AppId = {appId:String}
-        AND ${facetsEnvClause(scope)}
-        AND f.Facet = {facet:String}
-        AND f.IsDeleted = 0
-        AND f.MapVersion = {mapVersion:UInt32}
-        ${facetRowScopeClause(facet)}
-        ${agentOriginScopeClause(facet)}`;
-    const countParams = { ...scopeParams(scope), facet, mapVersion };
-
-    // Three aggregates over that row set, fired concurrently:
-    // per-topic distinct sessions; the share denominator (distinct sessions
-    // across ALL classified rows — per-topic counts can't just be summed,
-    // because one session's transcripts may land in several issues topics);
-    // and the topics-over-time trend, which buckets each root session ONCE
-    // per topic by its earliest transcript start (INNER join on StartedAt —
-    // a facet trace with no rollup row has no start time to bucket by, same
-    // as before). buildTopicTrend anchors the axis to the data's own span
-    // (no now()-relative window, so a backfill still charts) and downsamples
-    // hourly→daily when the span is wide. The fourth read is the samplable
-    // count gating Regenerate — generation's own predicate over ALL map
-    // versions, not an aggregate of this map's row set.
-    const [countRows, denominatorRows, trendRows, samplableCount] = await Promise.all([
-      this.query<{ TopicId: string; c: string }>(
-        `
-      SELECT f.TopicId AS TopicId, toString(uniqExact(${ROOT_SESSION_KEY})) AS c
-      ${activeFacetRowsSql}
-      GROUP BY f.TopicId
-      `,
-        countParams,
-      ),
-      this.query<{ c: string }>(
-        `
-      SELECT toString(uniqExact(${ROOT_SESSION_KEY})) AS c
-      ${activeFacetRowsSql}
-      `,
-        countParams,
-      ),
-      this.query<{ TopicId: string; bucket: string; c: string }>(
-        `
-      SELECT TopicId, toString(toStartOfHour(t)) AS bucket, toString(count()) AS c
-      FROM (
-        SELECT f.TopicId AS TopicId,
-               ${ROOT_SESSION_KEY} AS rootKey,
-               min(s.StartedAt) AS t
-        FROM trace_facets AS f FINAL
-        INNER JOIN (${SESSION_ROLLUP_SUBQUERY}
-        ) AS s ON f.TraceId = s.TraceId
-        WHERE f.TenantId = {tenantId:String}
-          AND f.AppId = {appId:String}
-          AND ${facetsEnvClause(scope)}
-          AND f.Facet = {facet:String}
-          AND f.IsDeleted = 0
-          AND f.MapVersion = {mapVersion:UInt32}
-          ${facetRowScopeClause(facet)}
-          ${agentOriginScopeClause(facet)}
-        GROUP BY f.TopicId, rootKey
-      )
-      GROUP BY TopicId, bucket
-      `,
-        countParams,
-      ),
-      this.countSamplableRows(scope, facet),
-    ]);
-    const countByTopic = new Map(countRows.map((r) => [r.TopicId, Number(r.c)]));
-    const noMatchCount = countByTopic.get(NO_MATCH_TOPIC_ID) ?? 0;
-    const totalClassified = Number(denominatorRows[0]?.c ?? 0);
-    const { trendDays, trendByTopic, noMatchTrend, trendBucket } = buildTopicTrend(trendRows);
-
-    const topics = mapRows
-      .map((row) => {
-        const sessionCount = countByTopic.get(row.TopicId) ?? 0;
-        return {
-          topicId: row.TopicId,
-          name: row.Name,
-          description: row.Description,
-          sessionCount,
-          share: totalClassified > 0 ? sessionCount / totalClassified : 0,
-          // Snapshot columns written by generateTopics (as of GeneratedAt);
-          // maps generated before migration 24 carry the DEFAULT 0s.
-          avgLatencyMs: Number(row.AvgLatencyMs),
-          avgCostUsd: Number(row.AvgCostUsd),
-          trend: trendByTopic.get(row.TopicId) ?? new Array(trendDays.length).fill(0),
-        };
-      })
-      .sort((a, b) => b.sessionCount - a.sessionCount || a.topicId.localeCompare(b.topicId));
-
-    return {
-      facet,
-      mapVersion,
-      generatedAt: mapRows[0]!.GeneratedAt,
-      topics,
-      noMatchCount,
-      samplableCount,
-      required: resolveGenerationFloor(facet),
-      trendDays,
-      noMatchTrend,
-      trendBucket,
-    };
-  }
-
-  /**
-   * Counts the rows generateTopics would sample right now — compiled from the
-   * SAME samplableRowsClause as the sample query, so the progress the page
-   * renders is the floor generation enforces. A looser predicate here (bare
-   * Status='ok', any embedding length, no origin exclusion) counts rows
-   * generation can never cluster — checked-but-clean markers, embeddings from
-   * a previous provider's dimension, subagent/agent-origin transcripts — and
-   * each one promises maps the floor can't deliver.
-   */
-  private async countSamplableRows(
-    scope: TopicsScope,
-    facet: TopicFacet,
-  ): Promise<number> {
-    const rows = await this.query<{ c: string }>(
-      `
-      SELECT toString(count()) AS c
-      FROM trace_facets FINAL
-      WHERE ${samplableRowsClause(scope, facet)}
-      `,
-      {
-        ...scopeParams(scope),
-        facet,
-        dimension: resolveCountDimension(),
-        minExtractorVersion: minExtractorVersionForFacet(facet),
-      },
-    );
-    return Number(rows[0]?.c ?? 0);
+    return this.reader.listTopics(scope, facet);
   }
 
   async generateTopics(scope: TopicsScope, facet: TopicFacet): Promise<GenerateOutcome> {
@@ -649,7 +305,7 @@ export class TopicsService {
       },
     );
 
-    const floor = resolveGenerationFloor(facet);
+    const floor = resolveGenerationFloor(facet, resolveMinSummariesOverride());
     if (rows.length < floor) {
       return {
         status: 'not_enough_data',
@@ -1174,13 +830,6 @@ function scopeParams(scope: TopicsScope): Record<string, string> {
   };
 }
 
-/** trace_facets env predicate — default env sweeps in legacy '' rows. */
-function facetsEnvClause(scope: TopicsScope): string {
-  return scope.environmentIsDefault
-    ? "(Environment = {environment:String} OR Environment = '')"
-    : 'Environment = {environment:String}';
-}
-
 /**
  * Snapshot metrics for one topic: averages over the member TRACES found in
  * otel_traces. Member ids are facet unit ids and several can share one trace
@@ -1191,14 +840,15 @@ function facetsEnvClause(scope: TopicsScope): string {
  * no surviving traces gets zeros.
  */
 /**
- * `errorRate` is stored but deliberately NOT surfaced. It counts a session as
- * errored when ANY of its spans carries an error status, so it measures
- * session LENGTH rather than quality: error spans hold flat near 1.6% of all
- * spans at every session size, yet the share of sessions tripping the flag
- * climbs from 3.7% (6-20 spans) to 97.7% (500+). A 3,158-span session with two
- * transient failures scores identically to one that failed outright. Surfacing
- * it read as "86% of these sessions went wrong" when almost none had. Judging
- * whether a session achieved its goal needs the transcript, not span statuses.
+ * `errorRate` counts a session as errored when ANY of its spans carries an
+ * error status, so it measures session LENGTH rather than quality: error
+ * spans hold flat near 1.6% of all spans at every session size, yet the
+ * share of sessions tripping the flag climbs from 3.7% (6-20 spans) to 97.7%
+ * (500+ spans). A 3,158-span session with two transient failures scores
+ * identically to one that failed outright. The dashboard Topics card does
+ * not render it for that reason; the value still ships on the stored row and
+ * the REST/MCP surfaces so callers who want it get the figure with this
+ * caveat documented on the route, not a silently missing field.
  */
 function topicOutcomeMetrics(
   memberIds: string[],
@@ -1285,62 +935,4 @@ function sleep(ms: number): Promise<void> {
 /** ClickHouse DateTime64(3)-compatible "now" (UTC, millisecond precision). */
 function clickhouseNow(): string {
   return new Date().toISOString().replace('T', ' ').replace('Z', '');
-}
-
-/**
- * Fold per-topic-per-hour trend rows onto a data-anchored axis: the span from
- * the earliest to the latest bucket actually present (oldest→newest), zero-
- * filling gaps so every topic's series is the same length as {@link trendDays}.
- * Granularity adapts to that span — hourly while it fits within
- * {@link TREND_HOURLY_MAX_HOURS}, daily once it's wider (a backfill) — and the
- * axis keeps its most recent {@link TREND_MAX_BUCKETS} buckets. Anchoring to the
- * data rather than now() is what lets a corpus that ended weeks ago still chart.
- * Bucket keys match ClickHouse toStartOfHour()/toStartOfDay() → "YYYY-MM-DD
- * HH:00:00" (UTC).
- */
-function buildTopicTrend(rows: { TopicId: string; bucket: string; c: string }[]): {
-  trendDays: string[];
-  trendByTopic: Map<string, number[]>;
-  noMatchTrend: number[];
-  trendBucket: 'hour' | 'day';
-} {
-  if (rows.length === 0) {
-    return { trendDays: [], trendByTopic: new Map(), noMatchTrend: [], trendBucket: 'hour' };
-  }
-
-  const HOUR_MS = 3_600_000;
-  const DAY_MS = 86_400_000;
-  const parse = (b: string) => new Date(`${b.replace(' ', 'T')}Z`).getTime();
-  const fmt = (ms: number) => `${new Date(ms).toISOString().slice(0, 13).replace('T', ' ')}:00:00`;
-
-  const times = rows.map((r) => parse(r.bucket));
-  const spanHours = (Math.max(...times) - Math.min(...times)) / HOUR_MS;
-  const trendBucket: 'hour' | 'day' = spanHours <= TREND_HOURLY_MAX_HOURS ? 'hour' : 'day';
-
-  // Epoch is UTC midnight, so flooring by the step lands on an hour/day grid.
-  const step = trendBucket === 'hour' ? HOUR_MS : DAY_MS;
-  const snap = (ms: number) => Math.floor(ms / step) * step;
-
-  const axis: string[] = [];
-  for (let ms = snap(Math.min(...times)); ms <= snap(Math.max(...times)); ms += step) {
-    axis.push(fmt(ms));
-  }
-  const trendDays = axis.length > TREND_MAX_BUCKETS ? axis.slice(-TREND_MAX_BUCKETS) : axis;
-  const bucketIndex = new Map(trendDays.map((b, i) => [b, i]));
-
-  const byTopic = new Map<string, number[]>();
-  for (const r of rows) {
-    const i = bucketIndex.get(fmt(snap(parse(r.bucket))));
-    if (i === undefined) continue; // trimmed off the front of a capped axis
-    let series = byTopic.get(r.TopicId);
-    if (!series) {
-      series = new Array<number>(trendDays.length).fill(0);
-      byTopic.set(r.TopicId, series);
-    }
-    // += folds multiple hourly rows into one daily bucket.
-    series[i] = (series[i] ?? 0) + Number(r.c);
-  }
-  const noMatchTrend =
-    byTopic.get(NO_MATCH_TOPIC_ID) ?? new Array<number>(trendDays.length).fill(0);
-  return { trendDays, trendByTopic: byTopic, noMatchTrend, trendBucket };
 }

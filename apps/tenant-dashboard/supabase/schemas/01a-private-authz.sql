@@ -474,6 +474,40 @@ $function$
 ;
 
 -- -----------------------------------------------------------------------------
+-- Connector-token predicate — RLS confinement for OAuth-issued bearer tokens
+-- -----------------------------------------------------------------------------
+-- True when the querying JWT carries a `client_id` claim: a token Supabase's
+-- OAuth 2.1 server issued to an MCP connector client (claude.ai, ChatGPT, or
+-- any RFC-compliant client that completed DCR + authorize + token), as
+-- opposed to the dashboard's own sign-in flow. Supabase does not enforce
+-- OAuth scopes on these tokens — they are otherwise ordinary
+-- `role: authenticated` user sessions, indistinguishable from a normal
+-- dashboard session except for this claim. `98a-connector-token-
+-- confinement.sql` applies this as a RESTRICTIVE policy (ANDed with every
+-- table's existing permissive policies) across almost every table
+-- `authenticated` can reach, so a connector token replayed directly against
+-- PostgREST — outside the gateway's own MCP tool handlers, which never
+-- forward the caller's raw JWT for anything but a short, explicitly named
+-- exemption list — gets zero rows everywhere else.
+--
+-- Reads only the JWT claim, no table access, so SECURITY INVOKER is
+-- sufficient — nothing here needs an elevated privilege to evaluate.
+CREATE OR REPLACE FUNCTION private.is_connector_token()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY INVOKER
+ SET search_path TO 'pg_temp'
+AS $function$
+  SELECT COALESCE(auth.jwt() ->> 'client_id', '') <> '';
+$function$
+;
+
+-- Evaluated by RESTRICTIVE policies as the querying role, so authenticated
+-- needs EXECUTE back, mirroring every other RLS-reachable helper above.
+REVOKE EXECUTE ON FUNCTION private.is_connector_token() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.is_connector_token() TO authenticated, service_role;
+
+-- -----------------------------------------------------------------------------
 -- Grants on the private bodies
 -- -----------------------------------------------------------------------------
 -- Postgres default-grants EXECUTE to PUBLIC on creation; a REVOKE from a named

@@ -55,7 +55,7 @@ const ORG_CUSTOM_PERMS = [
   'environment.read',
 ] as const;
 
-const APP_CUSTOM_PERMS = ['app.read', 'worker_run.insert', 'environment.promote'] as const;
+const APP_CUSTOM_PERMS = ['app.read', 'worker_run.insert'] as const;
 
 interface ActorSpec {
   label: string;
@@ -321,7 +321,7 @@ async function evaluateMatrix(fx: Fixture, perms: string[]): Promise<string> {
   lines.push('#');
   lines.push('# App scopes (app_authorize / set columns), in order:');
   lines.push('#   override_builtin : home-tenant app, per-app built-in role override = read');
-  lines.push('#   override_custom  : home-tenant app, per-app custom-role override (app.read, worker_run.insert, environment.promote)');
+  lines.push('#   override_custom  : home-tenant app, per-app custom-role override (app.read, worker_run.insert)');
   lines.push('#   org_fallback     : home-tenant app, NO per-app row → org-level fallback');
   lines.push('#   other_tenant     : app in a DIFFERENT tenant → expected deny');
   lines.push('#');
@@ -357,11 +357,10 @@ async function evaluateMatrix(fx: Fixture, perms: string[]): Promise<string> {
   lines.push('#       override has nothing to attach to (state gate).');
   lines.push('#   (c) owner BOOL↔SET consistency — owner ignores per-app overrides (I3), so its');
   lines.push('#       answers come from the org owner set, not from an override. environment.');
-  lines.push('#       promote is seeded to owner/admin/write in role_permissions, so those roles');
+  lines.push('#       insert is seeded to owner/admin/write in role_permissions, so those roles');
   lines.push('#       hold it via the org role: it appears in the owner/admin/write org sets, in');
   lines.push('#       owner\'s app sets at every in-tenant scope, and for admin/write at');
-  lines.push('#       org_fallback. read does not hold it. The app custom-role override already');
-  lines.push('#       carries environment.promote, so the override_custom answers are unchanged.');
+  lines.push('#       org_fallback. read does not hold it.');
   lines.push('#');
 
   // ---- Org-level permission sets (get_org_permission_set) ----

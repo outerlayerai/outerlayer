@@ -172,6 +172,44 @@ On `SIGTERM`/`SIGINT` the process stops the cron, closes broker WebSockets, stop
 accepting connections, and drains in-flight requests within a 10s budget before
 exiting.
 
+## MCP server
+
+`POST /v1/mcp` serves the same JSON-RPC 2.0 MCP endpoint as the hosted
+gateway — `@repo/gateway-core`'s dispatcher (`packages/gateway-core/src/openapi/mcp/`)
+is runtime-agnostic, so this Node entrypoint mounts it identically: the full
+ten-tool catalog (`list_topics`, `list_sessions`, `get_session`,
+`get_model_costs`, `get_fleet_overview`, `list_context_changes`,
+`compare_windows`, `get_breakdown`, `get_trends`, `get_pr_outcomes`) plus the
+`outerlayer://guide` resource; `GET`/`DELETE` answer `405`.
+
+`SelfHostAuthResolver` (the auth adapter this runtime composes) resolves the
+tenant from an app id there is no key store to carry, so every `/v1/mcp`
+request needs `X-Outerlayer-App-Id` alongside the bearer token — omitting it
+401s with "Missing app id" regardless of which posture below secures the
+bearer side.
+
+Point a client at it with the CLI:
+
+```sh
+npx outerlayer mcp install --url http://127.0.0.1:9001/v1/mcp --app-id <your-app-id>
+```
+
+This writes an `mcpServers` entry to `.mcp.json` referencing
+`${OUTERLAYER_API_KEY}` and the app id you passed as `X-Outerlayer-App-Id` —
+set `OUTERLAYER_API_KEY` to whichever key your posture above authenticates
+with (`SELF_HOST_GATEWAY_SECRET`'s value under Option A, or any non-empty
+bearer value under Option B's trust-perimeter mode; either way the value
+goes in your shell/client environment, never into `.mcp.json`).
+
+Endpoints/tools behave identically to hosted, with two differences documented
+here rather than surfaced as a runtime quirk: rate limiting is a no-op (see
+"Known limitations" below — the self-host runtime enforces no request rate
+limits, MCP included), and the OAuth 2.1 connector flow (dynamic client
+registration, `/oauth/consent`) requires Supabase-backed auth and is
+unavailable when `SELF_HOST_TRUST_PERIMETER=true` — that mode has no user
+session to bind a grant to. Use `SELF_HOST_GATEWAY_SECRET` (or a hosted key)
+with a client that supports a static bearer token instead.
+
 ## Connection broker (dispatch / observe)
 
 The gateway's stateful connection broker — job dispatch to a deployed agent and

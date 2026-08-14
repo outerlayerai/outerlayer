@@ -1,5 +1,6 @@
-import { AnalyticsService, createAnalyticsService, withReadScope } from '@repo/observability-service';
+import { AnalyticsService, createAnalyticsService, withReadScope, buildTopicsService, TopicsService, AgentSessionsService, type TopicsRuntimeConfig } from '@repo/observability-service';
 import type { IClickHouseQuery, QueryResult, ReadScope } from '@repo/observability-service';
+import type { TopicsModelEnv } from '@repo/trace-topics';
 import { createClient } from '@clickhouse/client-web';
 import { clickHouseWriteAuth } from '../stores/clickhouse/write-identity';
 import { parseEnvBoolean } from '@repo/adapter-config';
@@ -79,7 +80,13 @@ let _warnedUnscopedIdentity = false;
  * per-request objects. `scope.tenantId`/`scope.appId` MUST come from the auth
  * middleware (`c.get('user')`) — never from request input.
  */
-export function getGatewayAnalyticsService(env: AnalyticsEnv, scope: ReadScope): AnalyticsService | null {
+/**
+ * Resolve (and cache) the base read adapter — the CLICKHOUSE_READ_USER /
+ * writer-identity fallback logic shared by every gateway analytics service
+ * factory. Extracted so `getGatewayTopicsService` doesn't duplicate the
+ * fail-closed-in-production guard.
+ */
+function resolveBaseAdapter(env: AnalyticsEnv): IClickHouseQuery | null {
   if (!env.CLICKHOUSE_HOST) return null;
   if (!_baseAdapter) {
     if (env.CLICKHOUSE_READ_USER) {
@@ -114,7 +121,96 @@ export function getGatewayAnalyticsService(env: AnalyticsEnv, scope: ReadScope):
       );
     }
   }
-  return createAnalyticsService(withReadScope(_baseAdapter, scope));
+  return _baseAdapter;
+}
+
+export function getGatewayAnalyticsService(env: AnalyticsEnv, scope: ReadScope): AnalyticsService | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return createAnalyticsService(withReadScope(adapter, scope));
+}
+
+/**
+ * Env slice `GET /v1/topics` reads to build the {@link TopicsRuntimeConfig}
+ * the lifted `TopicsService` needs. Mirrors the enrichment cron's `TopicsEnv`
+ * (`apps/gateway/src/services/topics-enrichment-service.ts`) and the
+ * dashboard's `readTopicsModelEnv` — same env names, so a tenant's active
+ * topic map resolves the same embedding dimension everywhere it's read.
+ */
+export type TopicsAnalyticsEnv = AnalyticsEnv & TopicsModelEnv & { TOPICS_MIN_SUMMARIES?: string };
+
+function resolveTopicsRuntimeConfig(env: TopicsAnalyticsEnv): TopicsRuntimeConfig {
+  const parsed = Number.parseInt(env.TOPICS_MIN_SUMMARIES ?? '', 10);
+  return {
+    modelEnv: {
+      TOPICS_MODEL_PROVIDER: env.TOPICS_MODEL_PROVIDER,
+      TOPICS_MODEL_API_KEY: env.TOPICS_MODEL_API_KEY,
+      TOPICS_MODEL_BASE_URL: env.TOPICS_MODEL_BASE_URL,
+      TOPICS_FACET_MODEL: env.TOPICS_FACET_MODEL,
+      TOPICS_EMBEDDING_MODEL: env.TOPICS_EMBEDDING_MODEL,
+      TOPICS_NAMING_MODEL: env.TOPICS_NAMING_MODEL,
+      TOPICS_EMBEDDING_DIMENSION: env.TOPICS_EMBEDDING_DIMENSION,
+      GEMINI_API_KEY: env.GEMINI_API_KEY,
+      TOPICS_MOCK_MODEL: env.TOPICS_MOCK_MODEL,
+    },
+    minSummariesOverride: Number.isFinite(parsed) ? parsed : undefined,
+  };
+}
+
+/**
+ * Per-request `TopicsService`, scoped the same way `getGatewayAnalyticsService`
+ * scopes `AnalyticsService` — same base adapter, same row-policy settings.
+ * Read-only: generation stays dashboard-side (needs the clustering service
+ * and a writable ClickHouse identity, neither of which the gateway route has).
+ */
+export function getGatewayTopicsService(env: TopicsAnalyticsEnv, scope: ReadScope): TopicsService | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return buildTopicsService(withReadScope(adapter, scope), resolveTopicsRuntimeConfig(env));
+}
+
+/**
+ * Per-request `AgentSessionsService`, scoped the same way `getGatewayAnalyticsService`
+ * scopes `AnalyticsService` — same base adapter, same row-policy settings.
+ */
+export function getGatewaySessionsService(env: AnalyticsEnv, scope: ReadScope): AgentSessionsService | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return new AgentSessionsService(withReadScope(adapter, scope));
+}
+
+/**
+ * Per-request, tenant/app-scoped {@link IClickHouseQuery}, same base adapter
+ * every other gateway analytics factory shares. For a caller that needs the
+ * raw client interface a shared `observability-service` function expects
+ * (`getTopicMixDeltas`) rather than a service facade or the `(sql, params)`
+ * seam {@link getGatewayChQuery} returns.
+ */
+export function getGatewayChClient(env: AnalyticsEnv, scope: ReadScope): IClickHouseQuery | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  return withReadScope(adapter, scope);
+}
+
+/** One parameterized query returning JSON rows — the minimal ClickHouse seam
+ * the PR-outcome reader needs (mirrors the dashboard's `ChQueryFn`). */
+export type ChQueryFn = (sql: string, params: Record<string, unknown>) => Promise<Record<string, unknown>[]>;
+
+/**
+ * Tenant/app-scoped raw-query function over the same base adapter every other
+ * gateway analytics factory shares. Used where a caller needs a plain
+ * `(sql, params) => rows` seam rather than a service facade — currently the
+ * sessions route's PR-outcome reader, which queries the `scores` table
+ * directly (mirrors the dashboard's `tenantChQuery`).
+ */
+export function getGatewayChQuery(env: AnalyticsEnv, scope: ReadScope): ChQueryFn | null {
+  const adapter = resolveBaseAdapter(env);
+  if (!adapter) return null;
+  const scoped = withReadScope(adapter, scope);
+  return async (sql, params) => {
+    const result = await scoped.query({ query: sql, query_params: params, format: 'JSONEachRow' });
+    return result.json<Record<string, unknown>>();
+  };
 }
 
 export function resetGatewayAnalyticsService(): void {

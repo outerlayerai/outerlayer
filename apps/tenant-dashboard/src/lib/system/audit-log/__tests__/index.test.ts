@@ -25,6 +25,8 @@ it('classifies a permission by its verb suffix', () => {
   expect(isAuditedPermission('api_key.update')).toBe(true);
   expect(isAuditedPermission('api_key.delete')).toBe(true);
   expect(isAuditedPermission('api_key.read')).toBe(false);
-  expect(isAuditedPermission('environment.promote')).toBe(true);
   expect(isAuditedPermission('worker_run.run')).toBe(true);
+  // Classification is by verb suffix alone — it doesn't require the
+  // permission to be a live app_permission enum member.
+  expect(isAuditedPermission('resource.promote')).toBe(true);
 });

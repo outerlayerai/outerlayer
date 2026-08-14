@@ -249,15 +249,29 @@ export function mapStatusToCode(name: string): string | undefined {
 
 export { statusCodeEquivalents } from '../../services/span-converter';
 
+/** `TenantContext.dataRetentionDays` sentinel meaning "no clamp" —
+ * `AgentFleetService.clampToRetention` treats it as unlimited. The public
+ * /v1/* API surface never resolves a tenant's plan retention, so every
+ * gateway API read is retention-unclamped; the clamp binds only dashboard
+ * reads, which resolve the tenant's plan retention via
+ * `entitlementService.getLimit(tenantId, 'data_retention_days')` before
+ * building their TenantContext (see apps/tenant-dashboard/src/lib/api/with-api.ts
+ * and apps/tenant-dashboard/src/app/api/analytics/with-auth.ts). */
+const API_UNCLAMPED_RETENTION_DAYS = -1;
+
 /**
  * Builds a TenantContext from the gateway auth middleware user.
  * Centralizes the construction so all gateway handlers use the same pattern.
  * Gateway API keys don't have a userId concept — defaults to empty string.
- * dataRetentionDays is -1 (unlimited) for API consumers.
  */
 export function buildTenantContext(c: AppContext): TenantContext {
   const user = c.get('user');
-  return { userId: '', tenantId: user.tenantId, appId: user.appId, dataRetentionDays: -1 };
+  return {
+    userId: '',
+    tenantId: user.tenantId,
+    appId: user.appId,
+    dataRetentionDays: API_UNCLAMPED_RETENTION_DAYS,
+  };
 }
 
 /**

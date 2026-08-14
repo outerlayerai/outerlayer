@@ -64,23 +64,23 @@ export const GATEWAY_PERMISSIONS = [
   'span.read',
   'session.read',
   'metrics.read',
-  'experiment.read',
+  // Controls actor identity visibility on session reads for machine keys:
+  // a key without this permission still lists sessions, but actor names
+  // are anonymized and `actorId` filters are rejected.
+  'agents.sessions.team.read',
   // API key management. Names mirror the SQL enum
   // (`api_key.read|insert|delete`) — the OpenAPI doc-level aliases
   // `api_key.create` / `api_key.revoke` map to `insert` / `delete` here.
   'api_key.read',
   'api_key.insert',
   'api_key.delete',
-  // Environments & Promotion. All 5 env permissions are gateway-
-  // facing because both CLI (API key auth) and dashboard (bearer JWT auth)
-  // hit the same `/v1/environments/*` routes.
-  // `environment.promote` gates both forward promote and rollback: both
-  // replace what is running in an environment.
+  // Environments. All 4 env permissions are gateway-facing because both
+  // CLI (API key auth) and dashboard (bearer JWT auth) hit the same
+  // `/v1/environments/*` routes.
   'environment.read',
   'environment.insert',
   'environment.update',
   'environment.delete',
-  'environment.promote',
   // App CRUD — the public /v1/apps/* surface. A headless agent with these
   // four permissions can provision a Cloud app without the dashboard,
   // which is the prerequisite for the rest of the headless onboarding
@@ -175,6 +175,19 @@ export function getRoutePermission(
  */
 export function _resetRoutePermissions(): void {
   routePermissions.clear();
+}
+
+/**
+ * All route path patterns currently registered via `setRoutePermission()`
+ * (one entry per (method, path) pair — a path with multiple methods
+ * appears once per method). Backs capability derivation
+ * (`routes/capabilities.ts`): a capability is available iff at least one
+ * registered path falls under its prefix. Callers must invoke this at
+ * request time, not module-eval time — the registry only reflects
+ * registrations that have already run.
+ */
+export function getRegisteredRoutePaths(): readonly string[] {
+  return Array.from(routePermissions.keys(), (key) => key.slice(key.indexOf(' ') + 1));
 }
 
 // ---------------------------------------------------------------------------

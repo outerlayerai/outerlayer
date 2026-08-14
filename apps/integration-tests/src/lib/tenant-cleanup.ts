@@ -37,7 +37,7 @@ export class TenantCleanupError extends Error {
 }
 
 // Structural rather than the concrete `SupabaseAdminClient` type: a couple of
-// callers hold an `as unknown as SupabaseClient` cast for tables codegen
+// callers hold a client cast to `SupabaseClient` for tables codegen
 // hasn't caught up to yet, and this function only needs `.rpc` + auth admin.
 // `fn` is narrowed to the exact RPC name this module calls (rather than
 // `string`) because the generated `SupabaseAdminClient.rpc` only accepts its

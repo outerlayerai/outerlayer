@@ -61,6 +61,13 @@ async function mintUserJwt(opts: {
   tenantId?: string;
   role?: string;
   ttlSeconds?: number;
+  /** When set, mints a token shaped like Supabase's OAuth server output
+   * (a connector token) — same claims otherwise, since that's the point:
+   * it must be indistinguishable except for this one claim. */
+  clientId?: string;
+  /** Override the `aud` claim (Supabase mints `'authenticated'`). `null`
+   * omits the claim entirely. */
+  aud?: string | string[] | null;
 } = {}): Promise<string> {
   const sub = opts.sub ?? TEST_USER_ID;
   const tenantId = opts.tenantId;
@@ -69,13 +76,15 @@ async function mintUserJwt(opts: {
 
   const header = { alg: 'HS256', typ: 'JWT' };
   const iat = Math.floor(Date.now() / 1000);
+  const aud = opts.aud === undefined ? 'authenticated' : opts.aud;
   const payload = {
     sub,
     role,
-    aud: 'authenticated',
+    ...(aud !== null ? { aud } : {}),
     iat,
     exp: iat + ttl,
     ...(tenantId !== undefined ? { app_metadata: { tenant_id: tenantId } } : {}),
+    ...(opts.clientId !== undefined ? { client_id: opts.clientId } : {}),
   };
 
   const enc = new TextEncoder();
@@ -128,6 +137,28 @@ describe('verifyBearerJwt', () => {
     expect(result!.sub).toBe(TEST_USER_ID);
     expect(result!.role).toBe('authenticated');
     expect(result!.app_metadata?.tenant_id).toBe(TEST_TENANT_ID);
+  });
+
+  it("rejects a token whose aud does not include 'authenticated'", async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: 'some-other-resource' });
+    expect(await verifyBearerJwt(FAKE_ENV, token)).toBeNull();
+  });
+
+  it("rejects a token whose aud ARRAY omits 'authenticated'", async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: ['other-a', 'other-b'] });
+    expect(await verifyBearerJwt(FAKE_ENV, token)).toBeNull();
+  });
+
+  it("accepts an aud array that includes 'authenticated'", async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: ['authenticated', 'other'] });
+    const result = await verifyBearerJwt(FAKE_ENV, token);
+    expect(result?.sub).toBe(TEST_USER_ID);
+  });
+
+  it('accepts a token with no aud claim at all (older GoTrue shapes)', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: null });
+    const result = await verifyBearerJwt(FAKE_ENV, token);
+    expect(result?.sub).toBe(TEST_USER_ID);
   });
 
   it('returns null for a token signed with a different secret', async () => {
@@ -339,6 +370,45 @@ describe('resolveBearerUser', () => {
     expect(result.userJwt).toBe(token);
   });
 
+  it("carries the tenant's Stripe ids so the rate limiter tiers a bearer caller as paid", async () => {
+    seedGatewaySupabaseMswState({
+      billings: [{
+        tenant_id: TEST_TENANT_ID,
+        tier_id: 'team',
+        stripe_customer_id: 'cus_123',
+        stripe_subscription_id: 'sub_456',
+      }],
+    });
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.stripeCustomerId).toBe('cus_123');
+    expect(result.user.stripeSubscriptionId).toBe('sub_456');
+  });
+
+  it('degrades the Stripe ids to empty strings (free tier) when the tenant has no billing row', async () => {
+    seedGatewaySupabaseMswState({
+      billings: [{
+        tenant_id: 'some-other-tenant',
+        tier_id: 'team',
+        stripe_subscription_id: 'sub_456',
+      }],
+    });
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+
+    // The stricter tier, not a failed auth: billing is a rate-limit input,
+    // never an authentication input.
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.stripeSubscriptionId).toBe('');
+    expect(result.user.stripeCustomerId).toBe('');
+  });
+
   it('rejects a token signed with a different secret (401) with the OPAQUE message', async () => {
     const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
     const result = await resolveBearerUser({
@@ -480,6 +550,96 @@ describe('resolveBearerUser', () => {
 });
 
 // ============================================================================
+// resolveBearerUser — connector (OAuth) token confinement
+//
+// A connector token is a normal `role: authenticated` JWT plus a
+// `client_id` claim. `allowConnectorToken` defaults to false, so any bearer
+// surface that doesn't explicitly opt in (every REST route) rejects it;
+// only the MCP mounts pass `allowConnectorToken: true`.
+// ============================================================================
+describe('resolveBearerUser — connector token confinement', () => {
+  it('rejects a connector token (401, opaque) when allowConnectorToken is unset', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: 'connector-abc' });
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+    expect(result.message).toBe('Not authorized');
+  });
+
+  it('rejects a connector token (401) when allowConnectorToken is explicitly false', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: 'connector-abc' });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: false,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('accepts a connector token when allowConnectorToken is true (the MCP-mount case)', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: 'connector-abc' });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.appId).toBe(TEST_APP_ID);
+    expect(result.user.gatewayUserId).toBe(TEST_USER_ID);
+  });
+
+  it('still accepts an ordinary (non-connector) token when allowConnectorToken is true', async () => {
+    // allowConnectorToken widens what's ACCEPTED, it never narrows —
+    // dashboard-session tokens on an MCP mount must keep working.
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a connector token with an empty-string client_id claim (forged/degenerate shape)', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, clientId: '' });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    // An empty client_id is not a valid connector marker (isConnectorToken
+    // requires non-empty), so this is just an ordinary authenticated token
+    // — it must still succeed, not be treated as "connector, rejected".
+    expect(result.ok).toBe(true);
+  });
+
+  it('still enforces role != authenticated on a connector-shaped token', async () => {
+    const forged = await mintUserJwt({
+      tenantId: TEST_TENANT_ID,
+      role: 'service_role',
+      clientId: 'connector-abc',
+    });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token: forged,
+      appId: TEST_APP_ID,
+      allowConnectorToken: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+});
+
+// ============================================================================
 // resolveBearerUser — explicit request tenant (X-Tenant-Id)
 // ============================================================================
 
@@ -595,6 +755,153 @@ describe('resolveBearerUser — explicit request tenant', () => {
       token,
       appId: TEST_APP_ID, // lives in A, not B
       requestTenantId: TENANT_B,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+});
+
+// ============================================================================
+// resolveBearerUser — app-scoped tenant fallback (per-app MCP mount)
+// ============================================================================
+
+describe('resolveBearerUser — app-scoped tenant fallback', () => {
+  it('derives the tenant from the app row when fallback is enabled and neither header nor claim resolves one', async () => {
+    const token = await mintUserJwt({ /* no tenantId claim */ });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.tenantId).toBe(TEST_TENANT_ID);
+    expect(result.user.appId).toBe(TEST_APP_ID);
+  });
+
+  it('still 401s when the user has no active membership in the derived tenant', async () => {
+    seedGatewaySupabaseMswState({ memberships: [] });
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+    expect(result.message).toBe('Not authorized');
+  });
+
+  it('401s when the fallback appId does not exist', async () => {
+    seedGatewaySupabaseMswState({ apps: [] });
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('the X-Tenant-Id header still wins over the fallback when both are available', async () => {
+    const TENANT_B = 'd0e6f2c4-7a8b-9c0d-1e2f-3a4b5c6d7e8f';
+    const APP_IN_B = 'e1f7a3d5-8b9c-0d1e-2f3a-4b5c6d7e8f90';
+    seedGatewaySupabaseMswState({
+      apps: [
+        { id: TEST_APP_ID, tenant_id: TEST_TENANT_ID, name: 'App A' },
+        { id: APP_IN_B, tenant_id: TENANT_B, name: 'App B' },
+      ],
+      memberships: [
+        { id: 'm-a', user_id: TEST_USER_ID, tenant_id: TEST_TENANT_ID, status: 'active' },
+        { id: 'm-b', user_id: TEST_USER_ID, tenant_id: TENANT_B, status: 'active' },
+      ],
+    });
+    // No claim, but an explicit header naming tenant B. The fallback would
+    // derive A from the app row — the header must win instead.
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      requestTenantId: TENANT_B,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false); // TEST_APP_ID lives in tenant A, not B
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('the JWT claim still wins over the fallback when the claim is populated', async () => {
+    // The requested app lives in TENANT_B, but the claim names TENANT_A —
+    // the user is a member of both. If the claim correctly wins, the
+    // resolved tenant is A, and the app-ownership cross-check (app is in B,
+    // not A) then denies. If the fallback wrongly overrode the claim, it
+    // would derive B straight from the app row — trivially matching its own
+    // app and succeeding. Denial here proves the claim, not the fallback,
+    // decided the tenant.
+    const TENANT_B = 'd0e6f2c4-7a8b-9c0d-1e2f-3a4b5c6d7e8f';
+    const APP_IN_B = 'e1f7a3d5-8b9c-0d1e-2f3a-4b5c6d7e8f90';
+    seedGatewaySupabaseMswState({
+      apps: [
+        { id: TEST_APP_ID, tenant_id: TEST_TENANT_ID, name: 'App A' },
+        { id: APP_IN_B, tenant_id: TENANT_B, name: 'App B' },
+      ],
+      memberships: [
+        { id: 'm-a', user_id: TEST_USER_ID, tenant_id: TEST_TENANT_ID, status: 'active' },
+        { id: 'm-b', user_id: TEST_USER_ID, tenant_id: TENANT_B, status: 'active' },
+      ],
+    });
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: APP_IN_B,
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('an empty-string X-Tenant-Id header still 401s without trying the fallback', async () => {
+    // A present-but-empty header is a deliberate bad signal, not "nothing
+    // sent" — it must not degrade into the fallback lookup.
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: TEST_APP_ID,
+      requestTenantId: '',
+      appScopedTenantFallback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+  });
+
+  it('fallback DISABLED (default) preserves the exact current 401 — no header, no claim, no fallback', async () => {
+    const token = await mintUserJwt({ /* no tenantId claim */ });
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.status).toBe(401);
+    expect(result.message).toBe('Not authorized');
+  });
+
+  it('fallback has no effect when appId is null (tenant-scoped routes never enable it in practice, but pin the behavior anyway)', async () => {
+    const token = await mintUserJwt({});
+    const result = await resolveBearerUser({
+      env: FAKE_ENV,
+      token,
+      appId: null,
+      appScopedTenantFallback: true,
     });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected failure');

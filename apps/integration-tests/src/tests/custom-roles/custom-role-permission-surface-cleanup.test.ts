@@ -135,16 +135,6 @@ describe('Custom-role permission-surface cleanup', () => {
       expect(pairs.has('admin:billing.insert')).toBe(false);
       expect(pairs.has('admin:billing.update')).toBe(false);
     });
-
-    it('keeps experiment.read seeded to all four roles', async () => {
-      const { data, error } = await supabaseAdmin
-        .from('role_permissions')
-        .select('role, permission')
-        .eq('permission', 'experiment.read');
-
-      expect(error).toBeNull();
-      expect(data!.map((r) => r.role).sort()).toEqual(['admin', 'owner', 'read', 'write']);
-    });
   });
 
   describe('a write member holds no destructive org grant; tenant.update is untouched', () => {

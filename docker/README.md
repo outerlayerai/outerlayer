@@ -170,6 +170,61 @@ OUTERLAYER_APP_ID=<the app id from the dashboard>
 
 Those three variables (`OUTERLAYER_URL`, `OUTERLAYER_API_KEY`, `OUTERLAYER_APP_ID`) are everything the CLI needs.
 
+## MCP connector auth (OAuth)
+
+Consumer chat clients that only take a URL — claude.ai and ChatGPT custom
+connectors — authenticate over OAuth 2.1 against Supabase Auth's built-in
+authorization server, not against the gateway's own key posture above.
+Postgres + Auth here runs via the Supabase CLI on the host (see
+[What you get](#what-you-get)), so this is enabled the same way as on
+hosted: `[auth.oauth_server]` in `apps/tenant-dashboard/supabase/config.toml`
+(`enabled`, `allow_dynamic_registration`, `authorization_url_path`). There is
+no separate Docker Compose service for it — the CLI applies the setting to
+the Postgres + Auth containers it manages when you run `supabase start`.
+
+Three constraints carry over, adjusted, or apply only here:
+
+- **Dynamic client registration (DCR) defaults OFF.** `allow_dynamic_registration`
+  in config.toml is `true` — the connector flow (claude.ai/ChatGPT) requires
+  it, and that's what a fresh `supabase start` outside this script gets. But
+  `./docker/selfhost-up.sh` patches it to `false` before starting Supabase,
+  unless `OUTERLAYER_ALLOW_DYNAMIC_CLIENT_REGISTRATION=true` is set in your
+  shell when you run the script. A load-bearing GoTrue instance on your own
+  host has no business letting any caller that can reach the API port
+  self-register an OAuth client with no pre-shared credentials by default —
+  that's what DCR is. Set the env var if you specifically want that (e.g.
+  you're setting up claude.ai/ChatGPT connectors against this instance and
+  accept the tradeoff). Otherwise, pre-register a client with the admin API
+  instead, using your `SUPABASE_SECRET_KEY` from `docker/.env.selfhost`:
+
+  ```sh
+  set -a; . docker/.env.selfhost; set +a
+  curl -X POST "$SUPABASE_API_URL_FROM_HOST/auth/v1/admin/oauth/clients" \
+    -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"client_name":"My MCP client","redirect_uris":["https://my-client.example.com/callback"],"client_type":"confidential"}'
+  ```
+
+  This registers the client server-side (`registration_type: manual` in
+  Supabase Auth's terms) so it can complete the authorize + token flow
+  without ever hitting the DCR endpoint. Toggling the flag on an
+  already-running instance needs a restart — `supabase stop` (from
+  `apps/tenant-dashboard`) before the next `selfhost-up.sh` run — since
+  GoTrue reads `[auth.oauth_server]` at container boot, not live.
+
+- **Requires Supabase-backed auth.** The `Perimeter trust` posture
+  (`SELF_HOST_TRUST_PERIMETER=true`) has no user session for a connector
+  grant to bind to, so the OAuth flow is unavailable in that mode — use
+  `SELF_HOST_GATEWAY_SECRET` (or a hosted key) with a client that accepts a
+  static bearer token instead. See `apps/gateway-node/README.md`'s MCP
+  section for the exact behavior difference.
+- **Exact-string redirect URI matching.** Supabase's OAuth server (beta)
+  matches the registered redirect URI exactly — it does not implement
+  RFC 8252's allowance for a random loopback port. claude.ai and ChatGPT
+  are unaffected (fixed redirect URIs). A future native/CLI client doing
+  `mcp login` must register the exact port it listens on at dynamic
+  client registration time, not a wildcard loopback pattern.
+
 ## Operating the stack
 
 ```sh

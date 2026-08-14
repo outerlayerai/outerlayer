@@ -20,7 +20,7 @@ const breakThreshold = floors['packages/observability-service'];
 const config = {
   testRunner: 'vitest',
   vitest: {
-    configFile: 'vitest.config.ts',
+    configFile: 'vitest.stryker.config.ts',
     related: false,
   },
   inPlace: true,

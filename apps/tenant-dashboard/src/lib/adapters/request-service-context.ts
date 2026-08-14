@@ -67,6 +67,33 @@ export async function loadPreTenantActor(): Promise<PreTenantActor | null> {
 }
 
 /**
+ * The authenticated identity PLUS the raw session access token, for the rare
+ * caller that needs to forward the user's own bearer token to a Supabase Auth
+ * REST endpoint directly (`supabase-js` has no typed wrapper for the OAuth
+ * server's `/auth/v1/oauth/*` routes — see `features/oauth-consent`). Every
+ * other `preTenantAction` handler should use `loadPreTenantActor` instead;
+ * this exists only for that one crossing.
+ */
+export async function loadPreTenantActorSession(): Promise<
+  { actor: PreTenantActor; accessToken: string } | null
+> {
+  const db = await createSupabaseServerClient();
+
+  const {
+    data: { session },
+    error,
+  } = await db.auth.getSession();
+  if (error || !session?.user) {
+    return null;
+  }
+
+  return {
+    actor: { userId: session.user.id, email: session.user.email ?? null, raw: session.user },
+    accessToken: session.access_token,
+  };
+}
+
+/**
  * The caller's own membership id for the request tenant, or null if they have
  * none (fail-closed for callers that pin a scope to it). RLS lets a user read
  * their own membership row, so the header-scoped client is enough here — no

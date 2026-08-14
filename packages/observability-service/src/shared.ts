@@ -55,21 +55,39 @@ export function formatRetentionCutoffDate(dataRetentionDays: number): string {
 // ============================================================================
 
 /**
+ * Server-side timeout matching VALIDATION_LIMITS.queryTimeoutSeconds, with
+ * no FINAL optimization. This is the correct base for queries against
+ * `trace_facets` / `trace_topic_maps`: both partition by
+ * `toYYYYMM(CreatedAt)` while `CreatedAt` is NOT in their ORDER BY key, so
+ * a re-written row version (a re-extraction, a map tombstone) can land in a
+ * different month than the version it replaces —
+ * `do_not_merge_across_partitions_select_final` would then dedupe each
+ * month independently and return BOTH versions (and an `IsDeleted = 0`
+ * filter would resurrect tombstoned rows).
+ */
+export const QUERY_TIMEOUT_ONLY_SETTINGS = {
+  max_execution_time: 30,
+} as const;
+
+/**
  * Shared ClickHouse query settings for filtered queries.
  * max_execution_time enforces a server-side timeout matching VALIDATION_LIMITS.queryTimeoutSeconds.
  *
  * do_not_merge_across_partitions_select_final cuts the cost of the heavy
  * `FROM ... FINAL` reads: FINAL then deduplicates each partition
  * independently (and in parallel) instead of merging every selected part
- * across partitions. Safe for our tables by construction — rows that FINAL
- * would collapse share the full ORDER BY key, and both ReplacingMergeTree
- * tables partition by a function of a column in that key (otel_traces:
- * Timestamp; scores: CreatedAt, which update/tombstone writers preserve —
- * see apps/gateway/src/openapi/routes/scores.ts), so duplicates can never
- * land in different partitions. Harmless no-op on non-FINAL queries.
+ * across partitions. Safe ONLY for tables where duplicates can never land
+ * in different partitions — rows that FINAL would collapse share the full
+ * ORDER BY key, and the table partitions by a function of a column in that
+ * key (otel_traces: Timestamp; scores: CreatedAt, which update/tombstone
+ * writers preserve — see apps/gateway/src/openapi/routes/scores.ts).
+ * Harmless no-op on non-FINAL queries. For `trace_facets` /
+ * `trace_topic_maps` reads use {@link QUERY_TIMEOUT_ONLY_SETTINGS} — their
+ * partition key is not pinned by the dedup key, so this flag is NOT safe
+ * there.
  */
 export const QUERY_TIMEOUT_SETTINGS = {
-  max_execution_time: 30,
+  ...QUERY_TIMEOUT_ONLY_SETTINGS,
   do_not_merge_across_partitions_select_final: 1,
 } as const;
 

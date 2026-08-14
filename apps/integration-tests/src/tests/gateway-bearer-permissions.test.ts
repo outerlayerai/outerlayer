@@ -48,13 +48,12 @@ const GATEWAY_PERMISSIONS = [
   'span.read',
   'session.read',
   'metrics.read',
-  'experiment.read',
 ] as const;
 
 /**
  * Expected permission grants per built-in role. Mirrors the seed in
  * migrations `20260420090309_seed_gateway_permissions_in_role_permissions.sql`
- * + the pre-existing seeds for trace.read/experiment.read.
+ * + the pre-existing seed for trace.read.
  */
 const EXPECTED_READ_ROLE: ReadonlySet<string> = new Set([
   'trace.read',
@@ -62,7 +61,6 @@ const EXPECTED_READ_ROLE: ReadonlySet<string> = new Set([
   'span.read',
   'session.read',
   'metrics.read',
-  'experiment.read',
 ]);
 
 describe('app_authorize round-trip for every GatewayPermission', () => {

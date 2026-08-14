@@ -26,6 +26,8 @@
  */
 
 import { z, BaseRoute, type AppContext, structuredError, errorResponse, parseJsonBody } from './_shared';
+import { verifyAgentBlobToken } from '../../lib/agent-blob-token';
+import { sessionPolicy, blobTokenKeyId } from './sessions';
 import type { GatewayPermission } from '../../lib/permissions';
 import { createClient } from '@clickhouse/client-web';
 import { clickHouseWriteAuth } from '../../stores/clickhouse/write-identity';
@@ -688,6 +690,77 @@ export class GetAgentBlob extends BaseRoute {
         // metadata; octet-stream is safe for <img> with a correct sniff.
         'Content-Type': 'application/octet-stream',
         'Cache-Control': 'private, max-age=31536000, immutable',
+      },
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/agents/blob-token/:token
+//
+// Serves the same content-addressed bytes as GetAgentBlob, but authorized by
+// a signed capability token (see lib/agent-blob-token.ts) instead of the
+// `trace.read` permission GetAgentBlob requires. Session-detail responses
+// carry ONLY these signed URLs — a `session.read`-only key lacks `trace.read`,
+// so this is the sole way such a key can fetch an image its own transcript
+// references. GetAgentBlob's raw-sha256 contract is untouched by this route.
+// ---------------------------------------------------------------------------
+
+export class GetAgentBlobByToken extends BaseRoute {
+  static requiredPermission: GatewayPermission = 'session.read';
+  schema = {
+    tags: ['Agents'],
+    summary: 'Fetch an agent session image blob via a signed token',
+    operationId: 'get-agent-blob-by-token',
+    description:
+      'Returns the raw bytes of a content-addressed agent-session image, authorized by a signed, expiring token minted on a session-detail response. ' +
+      'Never accepts a raw sha256 — the token is the only capability.',
+    request: {
+      params: z.object({ token: z.string().min(1) }),
+    },
+    responses: {
+      200: { description: 'Raw blob bytes (Content-Type = stored media type).' },
+      401: errorResponse('Missing or invalid API key.'),
+      403: errorResponse('Missing, altered, or expired image token.'),
+      404: errorResponse('Blob not found.'),
+    },
+  };
+
+  async handle(c: AppContext) {
+    const data = await this.getValidatedData();
+    const user = c.get('user');
+    const { token } = data.params as { token: string };
+
+    const verified = await verifyAgentBlobToken({ secret: c.env.OAUTH_STATE_SECRET, token });
+    // Resolving the policy costs a Supabase round-trip on the bearer path —
+    // skip it once the token is already known bad, so a malformed/expired
+    // token doesn't pay for a membership lookup its keyId check can't use.
+    const keyIdMatches =
+      verified.ok &&
+      verified.claims.tenantId === user.tenantId &&
+      verified.claims.appId === user.appId &&
+      verified.claims.keyId === blobTokenKeyId(user, await sessionPolicy(c));
+    if (!keyIdMatches) {
+      return c.json(structuredError('forbidden', 'Image link is invalid or has expired'), 403);
+    }
+
+    let bytes: Uint8Array | null = null;
+    try {
+      bytes = await createBlobStorage(c.env).get(
+        agentBlobKey(verified.claims.tenantId, verified.claims.appId, verified.claims.sha256),
+      );
+    } catch (e) {
+      console.warn('[agents/blob-token] storage unavailable:', e);
+    }
+    if (!bytes) {
+      return c.json(structuredError('blob_not_found', 'Blob not found'), 404);
+    }
+    const maxAge = Math.max(0, verified.claims.exp - Math.floor(Date.now() / 1000));
+    return new Response(bytes as unknown as BodyInit, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Cache-Control': `private, max-age=${maxAge}, immutable`,
       },
     });
   }

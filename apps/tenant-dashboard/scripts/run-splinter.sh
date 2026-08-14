@@ -63,6 +63,32 @@ WHERE level IN ('WARN', 'ERROR')
   --    own tenant audit trail" (tenant-scoped, gated by audit_log.read). Same
   --    service_role + specific-policy stack as annotation_queue above.
   AND NOT (name = 'multiple_permissive_policies' AND detail LIKE '%public.audit_log%')
+  -- 10. multiple_permissive_policies for membership/profile, role gateway only -
+  --    intentional design: 95-gateway-rls.sql's gateway_tenant_read_membership /
+  --    gateway_tenant_read_profile stack with the pre-existing "Users can read
+  --    memberships" / "Users can read profiles" policies (no TO clause, so PUBLIC,
+  --    so the gateway role inherits them too). Those pre-existing policies gate on
+  --    auth.uid() matching a real membership.user_id (directly, or via
+  --    private.authorize()'s active-membership lookup) — but the gateway Postgres
+  --    role only serves API-key/machine callers, whose minted JWT `sub` claim is
+  --    the tenant id itself (verify-key.ts's user has no gatewayUserId — "machine
+  --    path, no human profile" — so getScopedSupabase's `user.gatewayUserId ??
+  --    user.tenantId` fallback fires), never a real auth.users id. auth.uid() can
+  --    therefore never match a real membership.user_id for this role, so neither
+  --    branch of the pre-existing policies is ever satisfiable under it — the OR
+  --    is inert for gateway, not merely tenant-scoped: the ONLY rows the gateway
+  --    role ever reads through these tables come from its own new tenant-scoped
+  --    policy. This inertness depends on 95-gateway-rls.sql's
+  --    `GRANT EXECUTE ON FUNCTION private.authorize TO gateway` — without it,
+  --    the pre-existing policies' OR-arm doesn't evaluate to false, it ERRORS
+  --    (42501, no EXECUTE privilege) before Postgres ever reaches the
+  --    tenant-scoped policy, so the grant is load-bearing for this exclusion,
+  --    not just for read correctness. Role-scoped (not table-only, unlike the
+  --    alert/environment/deployment entries above) because the live finding is
+  --    role-specific — confirmed no other role has a multiple_permissive
+  --    finding on these two tables.
+  AND NOT (name = 'multiple_permissive_policies' AND detail LIKE '%public.membership%' AND detail LIKE '%gateway%')
+  AND NOT (name = 'multiple_permissive_policies' AND detail LIKE '%public.profile%' AND detail LIKE '%gateway%')
   -- 5. pg_graphql_*_table_exposed - the splinter SQL is fetched from upstream main, and the GraphQL-exposure
   --    rules added in mid-2026 flag every public table that grants SELECT to anon/authenticated. Tenant
   --    isolation here is enforced by RLS, not by GraphQL schema visibility — every table in the schema

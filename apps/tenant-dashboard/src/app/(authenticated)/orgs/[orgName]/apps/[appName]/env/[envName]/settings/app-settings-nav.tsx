@@ -26,6 +26,12 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: "General", path: "general", icon: "solar:settings-bold-duotone", requiredPermissions: [] },
   { label: "API Keys", path: "api-keys", icon: "solar:key-bold-duotone", requiredPermissions: ["api_key.read"] },
+  // Connector grants are scoped to the signed-in user, not this app — the
+  // tab lives here for discoverability next to API Keys (same settings
+  // surface a developer already checks for programmatic access), always
+  // visible since there's no app-scoped permission to gate a user-owned
+  // resource on.
+  { label: "Connected Apps", path: "grants", icon: "solar:link-bold-duotone", requiredPermissions: [] },
   { label: "Environment Variables", path: "env-vars", icon: "solar:lock-password-bold-duotone", requiredPermissions: ["env_var.read"] },
 ];
 

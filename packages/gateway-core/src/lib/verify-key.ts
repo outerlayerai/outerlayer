@@ -106,7 +106,14 @@ export async function buildUserMetaCacheKey(appId: string, authHeader: string): 
  */
 export async function verifyKey(params: {
   authHeader: string;
-  appId: string;
+  /**
+   * The caller-supplied app id, or `null` to derive it from the verified key
+   * row instead of cross-checking it. Only `/v1/mcp` passes `null` (the
+   * `X-Outerlayer-App-Id` header is optional there for API-key auth) — every
+   * other route always supplies a header-derived appId, so the mismatch
+   * guard below still runs for them exactly as before.
+   */
+  appId: string | null;
   env: Env;
   cache?: GatewayCache;
   cacheKey?: string;
@@ -167,8 +174,12 @@ export async function verifyKey(params: {
 
     // The appId cross-check ensures the verified key's bound app matches the
     // app the request targets — without it, a valid key for one app could
-    // authenticate requests to another.
-    if (!parsed.success || appId !== parsed.data.appId) {
+    // authenticate requests to another. `appId === null` is the derive mode
+    // (no header was sent): there is nothing to cross-check against, so the
+    // key's own app — the only thing it can attest to — becomes the
+    // authority. This never weakens the check for a caller who DID send a
+    // header: that branch still rejects any mismatch exactly as before.
+    if (!parsed.success || (appId !== null && appId !== parsed.data.appId)) {
       console.warn('[keystore] auth failed', {
         zodOk: parsed.success,
         appId,

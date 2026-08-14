@@ -3110,6 +3110,17 @@ export type Database = {
         Returns: string
       }
       is_claims_admin: { Args: never; Returns: boolean }
+      list_current_user_oauth_grants: {
+        Args: { p_user_id: string }
+        Returns: {
+          client_id: string
+          client_name: string
+          created_at: string
+          refreshed_at: string
+          scopes: string
+          session_id: string
+        }[]
+      }
       platform_admin_delete_tenant: {
         Args: { p_tenant_id: string }
         Returns: undefined
@@ -3125,6 +3136,10 @@ export type Database = {
           p_user_agent?: string
         }
         Returns: Json
+      }
+      revoke_current_user_oauth_grant: {
+        Args: { p_user_id: string; target_session_id: string }
+        Returns: boolean
       }
       set_api_key_secret: {
         Args: {
@@ -3196,7 +3211,6 @@ export type Database = {
         | "custom_role.update"
         | "custom_role.delete"
         | "trace.read"
-        | "experiment.read"
         | "env_var.read"
         | "env_var.insert"
         | "env_var.update"
@@ -3212,7 +3226,6 @@ export type Database = {
         | "environment.insert"
         | "environment.update"
         | "environment.delete"
-        | "environment.promote"
         | "app_policy.update"
         | "audit_log.read"
         | "context.read"
@@ -4070,7 +4083,6 @@ export const Constants = {
         "custom_role.update",
         "custom_role.delete",
         "trace.read",
-        "experiment.read",
         "env_var.read",
         "env_var.insert",
         "env_var.update",
@@ -4086,7 +4098,6 @@ export const Constants = {
         "environment.insert",
         "environment.update",
         "environment.delete",
-        "environment.promote",
         "app_policy.update",
         "audit_log.read",
         "context.read",
