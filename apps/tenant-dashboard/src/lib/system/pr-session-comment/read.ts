@@ -7,9 +7,10 @@ import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
 
 /**
- * Read layer behind the PR session comment: every CONFIRMED session linked
+ * Read layer behind the PR evidence comment: every CONFIRMED session linked
  * to a `(tenant, repository, pr_number)`, with the display fields the
- * renderer needs. No I/O beyond the three reads below — this module owns
+ * renderer needs, plus the count of still-PENDING candidate links (the
+ * waiting state's input). No I/O beyond the reads below — this module owns
  * tenancy, the renderer stays pure.
  *
  * The RLS-bypassing admin client is constructed HERE, in the service layer,
@@ -87,6 +88,21 @@ export interface LinkedSessionRow {
   models: string[];
   apiErrorCount: number;
   errorCount: number;
+  /** Rollup `AgentType` ("claude-code", …); empty string when uncaptured. */
+  agentType: string;
+  /** Every commit sha this session recorded producing (`OutcomeCommitShas`)
+   * — the session's half of the commit-provenance fact. The env HEAD sha
+   * (`CommitSha`) is deliberately NOT included: it names where the session
+   * started, not what it produced. */
+  recordedCommitShas: string[];
+}
+
+/** What `readLinkedSessions` hands the orchestrator: the confirmed sessions
+ * to render, and how many candidate links are still pending confirmation
+ * (distinct traces with no confirmed link — the waiting state's input). */
+interface LinkedSessionReads {
+  sessions: LinkedSessionRow[];
+  pendingLinkCount: number;
 }
 
 /**
@@ -105,6 +121,8 @@ interface ChSessionRow {
   ApiErrorCount: number;
   ErrorCount: number;
   AppId: string;
+  AgentType: string;
+  OutcomeCommitShas: string[];
 }
 
 type AdminClient = ReturnType<typeof getAdminDataClient>;
@@ -139,7 +157,8 @@ async function resolveDefaultEnvNames(
 /**
  * Every CONFIRMED session linked to `(tenantId, repository, prNumber)`,
  * OLDEST-first by `StartedAt` (see the sort at the bottom — the comment
- * reads as a narrative, unlike the newest-first dashboard list).
+ * reads as a narrative, unlike the newest-first dashboard list), plus the
+ * count of candidate links still PENDING confirmation.
  *
  * Returns `null` when the feature is off for this repo — zero
  * `git_connection` rows have `pr_comments_enabled = true` — which the caller
@@ -148,10 +167,12 @@ async function resolveDefaultEnvNames(
  * place. We do not go back and rewrite every comment we've ever made in
  * someone's repository on a settings change; the toggle's description copy
  * states this explicitly ("Turning this off only stops future comments"),
- * so a stale table is disclosed rather than surprising. Returns `[]` when the
- * feature is on but no session has a CONFIRMED link yet — the caller renders
- * the "No agent sessions linked yet" state, which is the true empty state
- * and needs no ClickHouse round-trip at all.
+ * so a stale table is disclosed rather than surprising. Returns zero
+ * sessions when the feature is on but no link has CONFIRMED yet — with
+ * `pendingLinkCount` telling the caller whether that means "sessions are
+ * still syncing" (render the waiting state) or "no candidate links at all"
+ * (a human-only PR — post nothing). Neither needs a ClickHouse round-trip.
+ * Unmatched links (aged-out ghosts) count as no candidate.
  *
  * THROWS a {@link LinksUnreadableError} when confirmed links exist but no
  * ClickHouse client resolves (unconfigured deployment, or an explicit `null`
@@ -176,7 +197,7 @@ async function resolveDefaultEnvNames(
 export async function readLinkedSessions(
   params: { tenantId: string; repository: string; prNumber: number },
   deps: { chQuery?: ChQueryFn | null } = {},
-): Promise<LinkedSessionRow[] | null> {
+): Promise<LinkedSessionReads | null> {
   const { tenantId, repository, prNumber } = params;
   const admin = getAdminDataClient();
 
@@ -213,19 +234,34 @@ export async function readLinkedSessions(
   // exactly one tenant. It is sent anyway so this query is self-evidently
   // tenant-scoped in isolation, without the reader having to reconstruct that
   // argument from the query above it.
+  // One read for both states: `confirmed` renders, `pending` only counts
+  // (the waiting state). `unmatched` — a claim no PR row ever appeared for
+  // within the grace window — is deliberately excluded: a ghost link is not
+  // a candidate, and counting it would hold the comment in "waiting" forever.
   const { data: links, error: linksError } = await admin
     .from("pull_request_session")
-    .select("app_id, trace_id, session_id, method")
+    .select("app_id, trace_id, session_id, method, verification")
     .eq("tenant_id", tenantId)
     .in("app_id", appIds)
     .eq("pr_number", prNumber)
-    .eq("verification", "confirmed")
+    .in("verification", ["pending", "confirmed"])
     .limit(MAX_LINKS);
   if (linksError) {
     throw new Error(`pull_request_session read failed: ${linksError.message}`);
   }
-  const confirmed = links ?? [];
-  if (confirmed.length === 0) return [];
+  const candidates = links ?? [];
+  const confirmed = candidates.filter((l) => l.verification === "confirmed");
+  const confirmedTraceIds = new Set(confirmed.map((l) => l.trace_id));
+  // Distinct traces, and only traces with NO confirmed link anywhere: the
+  // link table is fanned out per app, so one trace can be confirmed under
+  // one app and pending under another — that session already renders, and
+  // counting it as pending too would show "waiting" next to its own row.
+  const pendingLinkCount = new Set(
+    candidates
+      .filter((l) => l.verification === "pending" && !confirmedTraceIds.has(l.trace_id))
+      .map((l) => l.trace_id),
+  ).size;
+  if (confirmed.length === 0) return { sessions: [], pendingLinkCount };
 
   // Fold, never `new Map(pairs)`: `confirmed` is fanned out over every
   // enabled app for this repo, so ONE trace can carry a row per app — a
@@ -256,11 +292,11 @@ export async function readLinkedSessions(
   // and silently diverge if the two calls ever behaved differently.
   const chQuery = "chQuery" in deps ? deps.chQuery : tenantChQuery({ tenantId });
   if (!chQuery) {
-    // Confirmed links are real; rendering the empty state over them would
-    // overwrite a populated comment with "No agent sessions linked yet."
-    // Zero confirmed links is the genuine empty state and needs no
-    // ClickHouse round-trip at all — that case returns [] above, before this
-    // point is ever reached.
+    // Confirmed links are real; degrading them to zero sessions would
+    // overwrite a populated comment with the waiting state. Zero confirmed
+    // links is the genuine no-evidence case and needs no ClickHouse
+    // round-trip at all — that case returns above, before this point is
+    // ever reached.
     throw new LinksUnreadableError(confirmed.length);
   }
 
@@ -268,7 +304,7 @@ export async function readLinkedSessions(
   for (let i = 0; i < traceIds.length; i += QUERY_CHUNK) {
     const chunk = traceIds.slice(i, i + QUERY_CHUNK);
     const rows = await chQuery(
-      `SELECT TraceId, Title, StartedAt, EndedAt, CostUsd, Models, ApiErrorCount, ErrorCount, AppId
+      `SELECT TraceId, Title, StartedAt, EndedAt, CostUsd, Models, ApiErrorCount, ErrorCount, AppId, AgentType, OutcomeCommitShas
 FROM agent_session_summary FINAL
 WHERE TenantId = {tenantId:String}
   AND TraceId IN {traceIds:Array(String)}`,
@@ -285,6 +321,10 @@ WHERE TenantId = {tenantId:String}
         ApiErrorCount: Number(row.ApiErrorCount ?? 0),
         ErrorCount: Number(row.ErrorCount ?? 0),
         AppId: String(row.AppId),
+        AgentType: String(row.AgentType ?? ""),
+        OutcomeCommitShas: Array.isArray(row.OutcomeCommitShas)
+          ? row.OutcomeCommitShas.map(String)
+          : [],
       });
     }
   }
@@ -314,6 +354,8 @@ WHERE TenantId = {tenantId:String}
       models: r.Models,
       apiErrorCount: r.ApiErrorCount,
       errorCount: r.ErrorCount,
+      agentType: r.AgentType,
+      recordedCommitShas: r.OutcomeCommitShas,
     }));
 
   // OLDEST-FIRST, deliberately not the sessions list's newest-first
@@ -322,5 +364,5 @@ WHERE TenantId = {tenantId:String}
   // only reads in order. The dashboard list stays newest-first; these two
   // surfaces answer different questions.
   rows.sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
-  return rows;
+  return { sessions: rows, pendingLinkCount };
 }
