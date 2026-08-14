@@ -1731,7 +1731,7 @@ require:
     const githubClient = {
       ...fakeGithubClient(),
       ...policyMethods({
-        ".outerlayer/policy.yaml": "extends: someone-else:strict@v9\n",
+        ".outerlayer/policy.yaml": "extends: someone-else:strict@v9\nvalidators:\n  ghost: warn\n",
       }),
     };
     githubClient.createIssueComment.mockResolvedValue(okComment(7300));
@@ -1742,7 +1742,34 @@ require:
     );
 
     const body = githubClient.createIssueComment.mock.calls[0]![2];
-    expect(body).toContain("⚠ **The policy file has an error** — `.outerlayer/policy.yaml` — unknown preset");
+    expect(body).toContain(
+      '⚠ **The policy file has an error** — `.outerlayer/policy.yaml` — unknown preset "someone-else:strict@v9" — this engine ships outerlayer:recommended@v1 (and 1 more)',
+    );
     expect(body).toContain("| Session | Topics |");
+  });
+
+  it("renders a single-error policy without a remainder count", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...policyMethods({
+        ".outerlayer/validators/broken.yaml": "id: Bad_Slug\nrow: r\n",
+      }),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(7400));
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      "⚠ **The policy file has an error** — `.outerlayer/validators/broken.yaml` — `id` must be a lowercase-dashed slug",
+    );
+    expect(body).not.toContain("more)");
   });
 });

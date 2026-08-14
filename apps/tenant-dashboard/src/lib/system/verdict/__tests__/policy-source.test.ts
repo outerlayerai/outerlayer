@@ -52,6 +52,13 @@ describe("readPolicySource", () => {
     const noReads = client({ getFileContent: undefined });
     await expect(readPolicySource(noReads, REPO, 42)).resolves.toEqual(null);
     expect(noReads.getPullRequestBaseBranch).not.toHaveBeenCalled();
+    const throwingBase = client({
+      getPullRequestBaseBranch: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+    await expect(readPolicySource(throwingBase, REPO, 42)).resolves.toEqual(null);
+    expect(throwingBase.getFileContent).not.toHaveBeenCalled();
     await expect(
       readPolicySource(client({ getPullRequestBaseBranch: vi.fn(async () => null) }), REPO, 42),
     ).resolves.toEqual(null);
