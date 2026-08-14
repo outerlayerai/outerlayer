@@ -33,6 +33,13 @@ export interface BlobStorage {
   put(key: string, body: Uint8Array, contentType: string): Promise<void>;
   /** Fetch full bytes (server-side rehydration). Null when the object is absent. */
   get(key: string): Promise<Uint8Array | null>;
+  /**
+   * Delete the object under `key`. Deleting an absent object is an idempotent
+   * no-op on both backends (R2 resolves; S3 answers 204 either way), so a
+   * sweep that re-runs after a partial failure never errors on the half it
+   * already finished.
+   */
+  delete(key: string): Promise<void>;
 }
 
 /** Raised when a blob key is not a plain, tenant-prefixed object path. */
@@ -124,6 +131,10 @@ export function createR2BlobStorage(env: Env): BlobStorage {
       if (!obj) return null;
       return new Uint8Array(await obj.arrayBuffer());
     },
+    delete: async (key) => {
+      assertSafeBlobKey(key);
+      await bucket.delete(key);
+    },
   };
 }
 
@@ -182,6 +193,16 @@ export function createS3BlobStorage(conn: S3Connection): BlobStorage {
         throw new Error(`blob-offload: S3 get ${key} failed (${res.status})`);
       }
       return new Uint8Array(await res.arrayBuffer());
+    },
+    delete: async (key) => {
+      assertSafeBlobKey(key);
+      const res = await client.fetch(s3ObjectUrl(conn, key), { method: 'DELETE' });
+      // S3 answers 204 for present and absent keys alike; a 404 from a
+      // less-faithful S3 gateway still means "not there" — both are the
+      // idempotent no-op this surface promises.
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`blob-offload: S3 delete ${key} failed (${res.status})`);
+      }
     },
   };
 }

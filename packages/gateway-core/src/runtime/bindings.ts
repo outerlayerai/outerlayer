@@ -26,6 +26,9 @@ export interface BlobBucket {
     options?: { httpMetadata?: { contentType?: string } },
   ): Promise<unknown>;
   get(key: string): Promise<BlobObject | null>;
+  /** Delete `key`. Resolves for an already-absent object (R2 semantics), so a
+   * retried delete is an idempotent no-op. */
+  delete(key: string): Promise<unknown>;
 }
 
 /** The cron trigger the scheduled entry fires with. `cron` tags the fired
