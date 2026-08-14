@@ -236,4 +236,32 @@ describe("refreshPrSessionComment — evidence", () => {
     expect(body).toContain("[log · gate.log](");
     expect(body).not.toContain("Waiting for session evidence");
   });
+
+  it("fetches the changed-file list only when a consumer needs it — never for an artifact-only PR without a content reader", async () => {
+    seedPullRequestSessionMswState({ pullRequests: [], links: [] });
+    seedArtifactMswRows([
+      artifactRow({ id: "ci-only-2", provenance: "ci", filename: "gate.log", kind: "log" }),
+    ]);
+    // No sessions (the facts consumer is off) and no getFileContent (the
+    // criteria consumer is off): the one remaining method must stay uncalled.
+    const githubClient = {
+      createIssueComment: vi.fn<(repo: string, issueNumber: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9005)),
+      updateIssueComment: vi.fn<(repo: string, commentId: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9005)),
+      listPullRequestFiles: vi.fn(async () => ({
+        status: "ok" as const,
+        files: [{ filename: "acceptance/082-artifacts.md", changeStatus: "added" }],
+      })),
+    };
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery, githubClient },
+    );
+
+    expect(result.status).toBe("created");
+    expect(githubClient.listPullRequestFiles).not.toHaveBeenCalled();
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("**Evidence** · 1 artifact");
+    expect(body).not.toContain("| Criterion | Proof |");
+  });
 });
