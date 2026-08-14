@@ -1,10 +1,14 @@
 /**
  * readPrArtifacts — the comment's artifact read: exact PR scoping (unmatched
- * rows never surface), emit-time-then-id base ordering, and the app/env name
- * resolution the deep links depend on, fallbacks included.
+ * rows never surface, pending rows only from an app connected to this repo),
+ * emit-time-then-id base ordering, kind/provenance vocabulary enforcement,
+ * and the app/env name resolution the deep links depend on, fallbacks
+ * included.
  */
+import { http, HttpResponse } from "msw";
 import { describe, it, expect } from "vitest";
 
+import { server } from "@/test-helpers/msw-server";
 import {
   seedArtifactMswRows,
   seedSupabaseMswState,
@@ -12,6 +16,14 @@ import {
 } from "@/test-helpers/msw-handlers";
 
 import { readPrArtifacts } from "../artifacts-read";
+
+const SUPABASE_URL = "http://localhost:54321";
+
+function seedGitConnections(rows: { app_id: string; repository: string }[]) {
+  server.use(
+    http.get(`${SUPABASE_URL}/rest/v1/git_connection`, () => HttpResponse.json(rows)),
+  );
+}
 
 const TENANT = "tenant-1";
 const REPO = "acme/api";
@@ -82,5 +94,54 @@ describe("readPrArtifacts", () => {
     expect(
       await readPrArtifacts({ tenantId: TENANT, repository: REPO, prNumber: PR }),
     ).toEqual([]);
+  });
+
+  it("degrades an unknown kind to 'file' and an unknown provenance to 'local' — stored text never upgrades a claim", async () => {
+    seedSupabaseMswState({ apps: [{ id: "app-1", tenant_id: TENANT, name: "api" }] });
+    seedArtifactMswRows([
+      row({
+        id: "weird",
+        kind: "hologram](x)|",
+        provenance: "verified-by-god" as ArtifactMswRow["provenance"],
+      }),
+      row({ id: "normal", kind: "video", provenance: "ci" }),
+    ]);
+
+    const rows = await readPrArtifacts({ tenantId: TENANT, repository: REPO, prNumber: PR });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    expect(byId.get("weird")).toMatchObject({ kind: "file", provenance: "local" });
+    expect(byId.get("normal")).toMatchObject({ kind: "video", provenance: "ci" });
+  });
+
+  it("surfaces a pending row only when its app's own GitHub connection names this repository", async () => {
+    seedSupabaseMswState({
+      apps: [
+        { id: "app-1", tenant_id: TENANT, name: "api" },
+        { id: "app-other", tenant_id: TENANT, name: "other" },
+        { id: "app-loose", tenant_id: TENANT, name: "loose" },
+      ],
+    });
+    seedGitConnections([
+      // Connection spelling differs from the canonical key on purpose.
+      { app_id: "app-1", repository: "https://github.com/Acme/API" },
+      { app_id: "app-other", repository: "github.com/acme/web" },
+    ]);
+    seedArtifactMswRows([
+      // The legitimate pre-webhook case: pending, direct anchor, emitting
+      // app connected to this repo.
+      row({ id: "pre-webhook", verification: "pending" }),
+      // The forgery shape: pending anchor claiming this repo from an app
+      // connected elsewhere — never renders here.
+      row({ id: "cross-app", app_id: "app-other", verification: "pending" }),
+      // No connection at all: the claim is unvettable — dropped.
+      row({ id: "no-connection", app_id: "app-loose", verification: "pending" }),
+      // Confirmed rows carry a vetted anchor and are unaffected.
+      row({ id: "vetted", app_id: "app-other", verification: "confirmed" }),
+    ]);
+
+    const rows = await readPrArtifacts({ tenantId: TENANT, repository: REPO, prNumber: PR });
+
+    expect(rows.map((r) => r.id).sort()).toEqual(["pre-webhook", "vetted"]);
   });
 });

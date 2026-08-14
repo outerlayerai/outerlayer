@@ -54,7 +54,9 @@ export function getArtifactMswRows(): ArtifactMswRow[] {
 
 /** PostgREST-style filter match for the operators the production queries
  * use: `eq.`, `neq.`, `is.`, and `in.(a,b)`. Unknown params (select, order,
- * limit) are handled by the caller. */
+ * limit) are handled by the caller. Any other operator THROWS: a silently
+ * matched-everything filter would let a production query change (a new
+ * `gt.`/`like.` clause) pass tests while asserting nothing. */
 function matchesFilters(row: ArtifactMswRow, params: URLSearchParams): boolean {
   for (const [key, raw] of params.entries()) {
     if (key === "select" || key === "order" || key === "limit" || key === "offset") continue;
@@ -71,6 +73,8 @@ function matchesFilters(row: ArtifactMswRow, params: URLSearchParams): boolean {
     } else if (value.startsWith("in.(")) {
       const options = value.slice(4, -1).split(",").map((s) => s.replace(/^"|"$/g, ""));
       if (!options.includes(String(field))) return false;
+    } else {
+      throw new Error(`artifact msw handler: unsupported filter "${key}=${value}"`);
     }
   }
   return true;

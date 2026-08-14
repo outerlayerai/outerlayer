@@ -30,6 +30,23 @@ describe("parseProofCriteria", () => {
 
     expect(parseProofCriteria(md)).toEqual([{ id: "AC-084-02", proofKind: "log" }]);
   });
+
+  it("caps a stuffed file at 100 distinct declarations, first declarations in document order winning", () => {
+    // 150 distinct annotations, descending ids so the cap provably keeps
+    // document order (the first 150..51), not the sorted head.
+    const md = Array.from(
+      { length: 150 },
+      (_, i) => `\`AC-${String(999 - Math.floor(i / 100))}-${String(99 - (i % 100)).padStart(2, "0")}\` (proof: log) x`,
+    ).join("\n");
+
+    const parsed = parseProofCriteria(md);
+
+    expect(parsed).toHaveLength(100);
+    // The first 100 annotations in document order are AC-999-99 … AC-999-00.
+    expect(parsed[0]).toEqual({ id: "AC-999-00", proofKind: "log" });
+    expect(parsed[99]).toEqual({ id: "AC-999-99", proofKind: "log" });
+    expect(parsed.some((c) => c.id.startsWith("AC-998-"))).toBe(false);
+  });
 });
 
 describe("fetchPrProofCriteria", () => {

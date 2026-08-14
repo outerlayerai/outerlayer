@@ -170,6 +170,99 @@ describe("reconcileArtifacts", () => {
   });
 });
 
+describe("reconcileArtifacts — claimed-repository agreement", () => {
+  const claimedPrSeed = () =>
+    seedPullRequestSessionMswState({
+      pullRequests: [
+        {
+          pr_number: 7,
+          app_id: APP,
+          head_branch: "feat/x",
+          opened_at: "2026-08-10T00:00:00.000Z",
+          closed_at: null,
+          merged_at: null,
+        },
+      ],
+      links: [],
+    });
+
+  it("never confirms a claimed PR whose claimed repository names a different repo — the cross-repo forgery", async () => {
+    claimedPrSeed();
+    // The app's connection is acme/api; the emit claims acme/web (a repo the
+    // caller's CI env can name freely) with a PR number that exists in THIS
+    // app. Confirming would stamp the artifact as acme/web#7 evidence.
+    seedArtifactMswRows([
+      pendingArtifact({ id: "forged", pr_number: 7, repository: "acme/web", provenance: "ci" }),
+      pendingArtifact({
+        id: "garbage-claim",
+        pr_number: 7,
+        repository: "not a repo at all",
+        provenance: "ci",
+      }),
+    ]);
+
+    const result = await reconcileArtifacts(getAdminDataClient(), NOW);
+
+    expect(result.counts).toEqual({ pending: 2, confirmed: 0, unmatched: 0 });
+    expect(result.changed).toEqual([]);
+    const rows = new Map(getArtifactMswRows().map((r) => [r.id, r]));
+    expect(rows.get("forged")).toMatchObject({ verification: "pending", pr_number: 7 });
+    expect(rows.get("garbage-claim")).toMatchObject({ verification: "pending" });
+  });
+
+  it("confirms an agreeing claim in any accepted spelling and stamps the connection's canonical repo, never the claim verbatim", async () => {
+    claimedPrSeed();
+    seedArtifactMswRows([
+      pendingArtifact({
+        id: "spelled",
+        pr_number: 7,
+        repository: "https://github.com/Acme/API.git",
+        provenance: "ci",
+      }),
+      pendingArtifact({ id: "unclaimed-repo", pr_number: 7, repository: "", provenance: "ci" }),
+    ]);
+
+    const result = await reconcileArtifacts(getAdminDataClient(), NOW);
+
+    expect(result.counts).toEqual({ pending: 2, confirmed: 2, unmatched: 0 });
+    const rows = new Map(getArtifactMswRows().map((r) => [r.id, r]));
+    expect(rows.get("spelled")).toMatchObject({
+      verification: "confirmed",
+      pr_number: 7,
+      repository: "acme/api",
+    });
+    expect(rows.get("unclaimed-repo")).toMatchObject({
+      verification: "confirmed",
+      pr_number: 7,
+      repository: "acme/api",
+    });
+  });
+
+  it("nominates a comment refresh when a directly PR-anchored artifact ages out to unmatched", async () => {
+    claimedPrSeed();
+    // A pending artifact with a direct PR anchor renders on the comment, so
+    // aging out must nominate the refresh that removes its dead link.
+    seedArtifactMswRows([
+      pendingArtifact({
+        id: "stale-claim",
+        pr_number: 99,
+        repository: "acme/api",
+        provenance: "ci",
+        emitted_at: "2026-07-01T00:00:00.000Z",
+      }),
+    ]);
+
+    const result = await reconcileArtifacts(getAdminDataClient(), NOW);
+
+    expect(result.counts).toEqual({ pending: 1, confirmed: 0, unmatched: 1 });
+    expect(result.changed).toEqual([{ appId: APP, prNumber: 99 }]);
+    expect(getArtifactMswRows()[0]).toMatchObject({
+      id: "stale-claim",
+      verification: "unmatched",
+    });
+  });
+});
+
 describe("reconcileArtifacts — matching boundaries", () => {
   it("respects the activity window: too-early and after-close emits stay pending, lookback-padded emits bind", async () => {
     seedPullRequestSessionMswState({
@@ -338,7 +431,86 @@ describe("reconcileArtifacts — matching boundaries", () => {
   });
 });
 
+describe("reconcileArtifacts — grace windows", () => {
+  it("gives a session-anchored artifact the extended grace covering the session link window", async () => {
+    seedPullRequestSessionMswState({ pullRequests: [], links: [] });
+    seedArtifactMswRows([
+      // 20 days old: past the base grace, inside the session-anchored one —
+      // its PR could still open and confirm through the session link.
+      pendingArtifact({
+        id: "session-waiting",
+        trace_id: "trace-late",
+        emitted_at: "2026-07-25T00:00:00.000Z",
+      }),
+      // 29 days old: past base grace + link lookback; nothing can bind now.
+      pendingArtifact({
+        id: "session-expired",
+        trace_id: "trace-gone",
+        emitted_at: "2026-07-16T00:00:00.000Z",
+      }),
+      // Same 20-day age with no session anchor: only the base grace applies.
+      pendingArtifact({
+        id: "branch-expired",
+        git_branch: "gone-branch",
+        emitted_at: "2026-07-25T00:00:00.000Z",
+      }),
+    ]);
+
+    const result = await reconcileArtifacts(getAdminDataClient(), NOW);
+
+    expect(result.counts).toEqual({ pending: 3, confirmed: 0, unmatched: 2 });
+    const rows = new Map(getArtifactMswRows().map((r) => [r.id, r]));
+    expect(rows.get("session-waiting")).toMatchObject({ verification: "pending" });
+    expect(rows.get("session-expired")).toMatchObject({ verification: "unmatched" });
+    expect(rows.get("branch-expired")).toMatchObject({ verification: "unmatched" });
+  });
+});
+
 describe("reconcileArtifacts — edges", () => {
+  it("finds a claimed PR even when the app's pull_request table dwarfs any scan bound", async () => {
+    // 2,500 rows on other branches; the claimed number sits past any
+    // arbitrary 2,000-row subset a bare limited scan would return. The
+    // claimed lookup must query the number itself, or the artifact
+    // false-negatives into terminal unmatch although its PR exists.
+    seedPullRequestSessionMswState({
+      pullRequests: Array.from({ length: 2_500 }, (_, i) => ({
+        pr_number: i + 1,
+        app_id: APP,
+        head_branch: `feat/other-${i + 1}`,
+        opened_at: "2026-08-01T00:00:00.000Z",
+        closed_at: null,
+        merged_at: null,
+      })),
+      links: [],
+    });
+    seedArtifactMswRows([
+      pendingArtifact({
+        id: "claimed-high",
+        pr_number: 2_500,
+        repository: "acme/api",
+        provenance: "ci",
+        emitted_at: "2026-07-01T00:00:00.000Z",
+      }),
+      // A branch-tier artifact in the same batch, so the read cannot fall
+      // back to a single narrowed-by-number query shape by accident.
+      pendingArtifact({
+        id: "branch-too",
+        git_repo: "github.com/acme/api",
+        git_branch: "feat/other-2500",
+      }),
+    ]);
+
+    const result = await reconcileArtifacts(getAdminDataClient(), NOW);
+
+    expect(result.counts).toEqual({ pending: 2, confirmed: 2, unmatched: 0 });
+    const rows = new Map(getArtifactMswRows().map((r) => [r.id, r]));
+    expect(rows.get("claimed-high")).toMatchObject({
+      verification: "confirmed",
+      pr_number: 2_500,
+    });
+    expect(rows.get("branch-too")).toMatchObject({ verification: "confirmed", pr_number: 2_500 });
+  });
+
   it("returns exact zero counts and no changes when nothing is pending", async () => {
     seedPullRequestSessionMswState({ pullRequests: [], links: [] });
 

@@ -27,12 +27,21 @@ const PROOF_KINDS = new Set(["video", "screenshot", "report", "log", "file"]);
 
 const PROOF_ANNOTATION = /`(AC-\d{3}-\d{2})`\s*\(proof:\s*([a-z]+)\)/g;
 
+/** Hard cap on distinct proof declarations a parse yields. The source is
+ * the PR's own head content — attacker-influenceable — and every parsed
+ * criterion becomes a comment table row, so an unbounded parse lets a
+ * stuffed acceptance file grow the comment without limit. First
+ * declarations in document order win, matching the duplicate rule. */
+const MAX_PROOF_CRITERIA = 100;
+
 /** Every `` `AC-NNN-NN` (proof: <kind>) `` declaration in an acceptance
- * file's markdown, first declaration winning on a duplicated id, sorted by id
- * so downstream rendering is order-independent of file layout. */
+ * file's markdown (capped at {@link MAX_PROOF_CRITERIA} distinct ids), first
+ * declaration winning on a duplicated id, sorted by id so downstream
+ * rendering is order-independent of file layout. */
 export function parseProofCriteria(markdown: string): CriterionRequirement[] {
   const byId = new Map<string, string>();
   for (const match of markdown.matchAll(PROOF_ANNOTATION)) {
+    if (byId.size >= MAX_PROOF_CRITERIA) break;
     const [, id, kind] = match;
     if (!id || !kind || !PROOF_KINDS.has(kind)) continue;
     if (!byId.has(id)) byId.set(id, kind);
@@ -81,6 +90,9 @@ export async function fetchPrProofCriteria(
   }
   const byId = new Map<string, string>();
   for (const { id, proofKind } of requirements) {
+    // The same cap the per-file parse enforces, applied across files —
+    // earlier files win, deterministically.
+    if (byId.size >= MAX_PROOF_CRITERIA) break;
     if (!byId.has(id)) byId.set(id, proofKind);
   }
   return [...byId.entries()]

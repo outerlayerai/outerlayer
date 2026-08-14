@@ -8,10 +8,17 @@ import "server-only";
  * GitHub carries only the page URL; the capability to the bytes is minted
  * here, per viewer, at view time.
  */
+import { ARTIFACT_PROVENANCES } from "@outerlayer/session-schema";
+
 import { OAUTH_STATE_SECRET } from "@/config-global.server";
 
 import { signAgentBlobToken } from "./blob-url";
 import type { AgentSessionsContext } from "./service";
+
+/** `provenance` is a plain text column; validated here so the typed union
+ * the component renders is a fact, not a cast. An unknown value degrades to
+ * the weakest claim rather than passing through. */
+const KNOWN_PROVENANCES = new Set<string>(ARTIFACT_PROVENANCES);
 
 export interface ArtifactExhibit {
   id: string;
@@ -69,7 +76,9 @@ export async function getArtifactExhibit(
     kind: data.kind,
     caption: data.caption,
     criterionId: data.criterion_id,
-    provenance: data.provenance as ArtifactExhibit["provenance"],
+    provenance: KNOWN_PROVENANCES.has(data.provenance)
+      ? (data.provenance as ArtifactExhibit["provenance"])
+      : "local",
     prNumber: data.pr_number === null ? null : Number(data.pr_number),
     repository: data.repository,
     traceId: data.trace_id,
