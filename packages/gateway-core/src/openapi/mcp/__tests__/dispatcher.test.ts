@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ValidationError, ServiceUnavailableError } from '@repo/observability-service';
 import type { AppContext } from '../../routes/_shared';
+import { RATE_LIMITS } from '../../../rate-limits';
 
 vi.mock('../tools', async () => {
   const { z } = await import('zod');
@@ -401,6 +402,54 @@ describe('handleMcpRequest — JSON-RPC envelope', () => {
     const result = (await handleMcpRequest(c)) as unknown as { body: { error: { code: number } } };
     expect(result.body.error.code).toBe(-32003);
     expect(FAKE_TOOL.execute).not.toHaveBeenCalled();
+  });
+
+  it("a rate-limited denial forwards the 429's backoff headers as error.data", async () => {
+    // A real Response, as the live guard returns — the JSON-RPC error body
+    // is the only channel an MCP client sees, so the headers must survive
+    // the translation.
+    enforceRateLimit.mockImplementation(() => async () =>
+      new Response('{}', {
+        status: 429,
+        headers: { 'Retry-After': '42', 'X-RateLimit-Limit': '100' },
+      }),
+    );
+    const c = buildContext({ jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'fake_tool', arguments: {} } });
+
+    const result = (await handleMcpRequest(c)) as unknown as {
+      body: { error: { code: number; data: { retryAfterSeconds: number; limit: number } } };
+    };
+
+    expect(result.body.error.code).toBe(-32003);
+    expect(result.body.error.data).toEqual({ retryAfterSeconds: 42, limit: 100 });
+  });
+
+  it.each(['initialize', 'tools/list', 'resources/list'] as const)(
+    '%s is metered by the mcp-protocol rate limit',
+    async (method) => {
+      enforceRateLimit.mockImplementation((config: unknown) => async () =>
+        config === RATE_LIMITS.mcpProtocol
+          ? new Response('{}', { status: 429, headers: { 'Retry-After': '7' } })
+          : undefined,
+      );
+      const c = buildContext({ jsonrpc: '2.0', id: 31, method });
+
+      const result = (await handleMcpRequest(c)) as unknown as {
+        body: { error: { code: number; data: { retryAfterSeconds: number } } };
+      };
+
+      expect(result.body.error.code).toBe(-32003);
+      expect(result.body.error.data).toEqual({ retryAfterSeconds: 7 });
+    },
+  );
+
+  it('ping is not rate limited', async () => {
+    enforceRateLimit.mockImplementation(denyWith({ error: { code: 'rate_limited', message: 'slow down' } }, 429));
+    const c = buildContext({ jsonrpc: '2.0', id: 32, method: 'ping' });
+
+    const result = (await handleMcpRequest(c)) as unknown as { body: { result: unknown } };
+
+    expect(result.body.result).toEqual({});
   });
 
   // A domain error thrown by the shared service code must surface as the

@@ -147,12 +147,20 @@ async function getSessionExecute(c: AppContext, input: z.infer<typeof GetSession
 
   // Drop spans from the tail (keep the FIRST spans, matching the SQL-layer
   // cap's own "first, not last" truncation semantics) until under budget.
-  const spans = [...result.spans];
-  while (spans.length > 0 && JSON.stringify({ data: { ...result, spans, truncated: true } }).length > MAX_SESSION_TOOL_OUTPUT_CHARS) {
-    spans.pop();
+  // Sized arithmetically in one pass — re-serializing the whole multi-MB
+  // body per dropped span would be O(spans × body) of CPU inside a Worker.
+  const envelopeLen = JSON.stringify({ data: { ...result, spans: [], truncated: true } }).length;
+  let kept = 0;
+  let totalLen = envelopeLen;
+  for (const span of result.spans) {
+    // +1 per element after the first: the array comma.
+    const spanLen = JSON.stringify(span).length + (kept > 0 ? 1 : 0);
+    if (totalLen + spanLen > MAX_SESSION_TOOL_OUTPUT_CHARS) break;
+    totalLen += spanLen;
+    kept++;
   }
   return {
-    data: { ...result, spans, truncated: true },
+    data: { ...result, spans: result.spans.slice(0, kept), truncated: true },
     note: 'Output exceeded the MCP size cap and was truncated to the first spans. Fetch the full transcript via GET /v1/sessions/{traceId} over REST.',
   };
 }

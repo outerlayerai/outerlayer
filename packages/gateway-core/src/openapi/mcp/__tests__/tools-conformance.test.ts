@@ -24,11 +24,23 @@ import {
   MetricsTrendsSchema,
   PrOutcomesSchema,
 } from '@repo/api-schemas';
-import { GATEWAY_PERMISSIONS } from '../../../lib/permissions';
+import { GATEWAY_PERMISSIONS, type GatewayPermission } from '../../../lib/permissions';
+import type { RouteRateLimit } from '../../../rate-limits';
 import type { ZodObject, ZodRawShape } from 'zod';
 import { MCP_TOOLS } from '../tools';
 import { toolToMcpTool } from '../dispatcher';
 import { GUIDE_RESOURCE_URI } from '../resources';
+import { GetTopics } from '../../routes/topics';
+import { ListSessions, GetSessionDetail } from '../../routes/sessions';
+import {
+  GetModelStats,
+  GetFleetOverview,
+  GetMetricsCompare,
+  GetMetricsBreakdown,
+  GetMetricsTrends,
+} from '../../routes/metrics';
+import { ListContextChanges } from '../../routes/context';
+import { GetPrOutcomes } from '../../routes/prs';
 
 const toolNames = MCP_TOOLS.map((t) => t.name);
 
@@ -160,5 +172,34 @@ describe('tool schemas match their REST counterparts exactly', () => {
   it.each(['list_topics', 'compare_windows'])('%s is gated on topics_enabled', (name) => {
     const tool = MCP_TOOLS.find((t) => t.name === name)!;
     expect(tool.entitlement).toBe('topics_enabled');
+  });
+
+  // Guard parity is asserted against the REST classes' own statics, not
+  // against re-stated literals — re-stated literals would keep this suite
+  // green while a tool quietly diverged to a laxer permission or dropped
+  // its rate limit.
+  const REST_TWIN_GUARDS: ReadonlyArray<
+    [toolName: string, twin: { requiredPermission: GatewayPermission; rateLimit: RouteRateLimit }]
+  > = [
+    ['list_topics', GetTopics],
+    ['list_sessions', ListSessions],
+    ['get_session', GetSessionDetail],
+    ['get_model_costs', GetModelStats],
+    ['get_fleet_overview', GetFleetOverview],
+    ['compare_windows', GetMetricsCompare],
+    ['get_breakdown', GetMetricsBreakdown],
+    ['get_trends', GetMetricsTrends],
+    ['list_context_changes', ListContextChanges],
+    ['get_pr_outcomes', GetPrOutcomes],
+  ];
+
+  it('covers every registered tool with a REST-twin guard assertion', () => {
+    expect(REST_TWIN_GUARDS.map(([name]) => name).sort()).toEqual([...toolNames].sort());
+  });
+
+  it.each(REST_TWIN_GUARDS)("%s carries its REST twin's permission and rate limit", (name, twin) => {
+    const tool = MCP_TOOLS.find((t) => t.name === name)!;
+    expect(tool.requiredPermission).toBe(twin.requiredPermission);
+    expect(tool.rateLimit).toBe(twin.rateLimit);
   });
 });

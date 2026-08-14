@@ -19,3 +19,22 @@ describe('RATE_LIMITS.sessionDetail', () => {
     });
   });
 });
+
+describe('RATE_LIMITS.mcpProtocol', () => {
+  it('registers generous per-tier ceilings for the store-free MCP protocol methods', () => {
+    expect(RATE_LIMITS.mcpProtocol).toEqual({
+      free: {
+        namespace: 'mcp-protocol',
+        limit: 300,
+        durationMs: 60_000,
+        cost: 1,
+      },
+      paid: {
+        namespace: 'mcp-protocol',
+        limit: 1_000,
+        durationMs: 60_000,
+        cost: 1,
+      },
+    });
+  });
+});

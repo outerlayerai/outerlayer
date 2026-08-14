@@ -34,6 +34,7 @@ import type { AppContext } from '../routes/_shared';
 import { enforcePermission } from '../../lib/permissions';
 import { enforceEntitlement } from '../../lib/entitlements';
 import { enforceRateLimit } from '../../lib/rate-limit';
+import { RATE_LIMITS } from '../../rate-limits';
 import { MCP_TOOLS, findTool, type McpToolDefinition } from './tools';
 import { GUIDE_RESOURCE_TEXT, GUIDE_RESOURCE_URI } from './resources';
 
@@ -79,29 +80,19 @@ function jsonRpcError(id: JsonRpcId | undefined, code: number, message: string, 
 const NO_OP_NEXT: Next = async () => undefined;
 
 /**
- * Run a REST-shaped Hono guard (`enforcePermission(...)`, `enforceEntitlement(...)`,
- * `enforceRateLimit(...)`) outside route registration. The guard calls
- * `next()` (returns `undefined`) on success or returns a `Response` on
- * denial — this reads that outcome as a boolean without ever installing the
- * guard on Hono's router.
- */
-async function guardPasses(
-  c: AppContext,
-  guard: (c: AppContext, next: Next) => Promise<Response | void>,
-): Promise<boolean> {
-  const outcome = await guard(c, NO_OP_NEXT);
-  return outcome === undefined;
-}
-
-/**
- * Same guard-running mechanics as {@link guardPasses}, but reports the
- * denying Response's HTTP status instead of collapsing it to a boolean —
- * `enforcePermission`/`enforceEntitlement` deny two structurally different
+ * Run a REST-shaped Hono guard (`enforcePermission(...)`,
+ * `enforceEntitlement(...)`) outside route registration, reporting the
+ * denying Response's HTTP status. The guard calls `next()` (returns
+ * `undefined`) on success or returns a `Response` on denial — this reads
+ * that outcome without ever installing the guard on Hono's router. The
+ * status matters because these guards deny two structurally different
  * ways: a real decision (403/402) the caller can act on, or an
  * infrastructure fault (5xx, e.g. the entitlement Supabase lookup throwing)
  * neither upgrading nor re-authing fixes. Only the status distinguishes
  * them, so a caller that needs to report the right JSON-RPC error must see
- * it rather than a plain pass/fail.
+ * it rather than a plain pass/fail. (`enforceRateLimit` denials are read
+ * off the raw Response instead — see {@link rateLimitedError}, which needs
+ * the 429's headers, not just its status.)
  */
 async function guardStatus(
   c: AppContext,
@@ -200,9 +191,27 @@ class McpAppError extends Error {
   constructor(
     public readonly code: number,
     message: string,
+    /** Machine-readable detail attached as the JSON-RPC `error.data`. */
+    public readonly data?: Record<string, unknown>,
   ) {
     super(message);
   }
+}
+
+/**
+ * The rate-limit denial as an {@link McpAppError}, carrying the backoff
+ * detail a REST caller would read off the 429's `Retry-After` /
+ * `X-RateLimit-*` headers — a JSON-RPC error body is the only channel an
+ * MCP client sees, so without this the denial gives no clue when retrying
+ * becomes worthwhile.
+ */
+function rateLimitedError(denial: Response): McpAppError {
+  const retryAfter = Number(denial.headers?.get('Retry-After'));
+  const limit = Number(denial.headers?.get('X-RateLimit-Limit'));
+  return new McpAppError(APP_ERROR_CODE.RateLimited, 'Rate limit exceeded. Please retry later.', {
+    ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
+    ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+  });
 }
 
 /**
@@ -248,8 +257,9 @@ async function handleToolsCall(c: AppContext, params: unknown): Promise<CallTool
       throw mapGuardDenial(entitlementResult.status, `Tenant tier does not include '${tool.entitlement}'`);
     }
   }
-  if (tool.rateLimit && !(await guardPasses(c, enforceRateLimit(tool.rateLimit)))) {
-    throw new McpAppError(APP_ERROR_CODE.RateLimited, 'Rate limit exceeded. Please retry later.');
+  if (tool.rateLimit) {
+    const denial = await enforceRateLimit(tool.rateLimit)(c, NO_OP_NEXT);
+    if (denial !== undefined) throw rateLimitedError(denial);
   }
 
   // Tool executors run the same service code as their REST twins and throw
@@ -273,27 +283,43 @@ async function handleToolsCall(c: AppContext, params: unknown): Promise<CallTool
   };
 }
 
+/**
+ * Meter the store-free protocol methods (everything except `tools/call`,
+ * whose per-tool limits already apply, and `ping`, the health probe clients
+ * poll on their own cadence). Static responses cost no storage read, but an
+ * authenticated caller in a tight loop shouldn't get an unmetered endpoint
+ * out of that.
+ */
+async function enforceProtocolRateLimit(c: AppContext): Promise<void> {
+  const denial = await enforceRateLimit(RATE_LIMITS.mcpProtocol)(c, NO_OP_NEXT);
+  if (denial !== undefined) throw rateLimitedError(denial);
+}
+
 async function dispatchOne(c: AppContext, request: JsonRpcRequest) {
   try {
     switch (request.method) {
       case 'initialize':
+        await enforceProtocolRateLimit(c);
         return jsonRpcResult(request.id, await handleInitialize(request.params));
       case 'ping':
         return jsonRpcResult(request.id, {});
       case 'tools/list':
+        await enforceProtocolRateLimit(c);
         return jsonRpcResult(request.id, handleToolsList());
       case 'tools/call':
         return jsonRpcResult(request.id, await handleToolsCall(c, request.params));
       case 'resources/list':
+        await enforceProtocolRateLimit(c);
         return jsonRpcResult(request.id, handleResourcesList());
       case 'resources/read':
+        await enforceProtocolRateLimit(c);
         return jsonRpcResult(request.id, handleResourcesRead(request.params));
       default:
         return jsonRpcError(request.id, ErrorCode.MethodNotFound, `Unknown method: ${request.method}`);
     }
   } catch (err) {
     if (err instanceof McpProtocolError) return jsonRpcError(request.id, err.code, err.message);
-    if (err instanceof McpAppError) return jsonRpcError(request.id, err.code, err.message);
+    if (err instanceof McpAppError) return jsonRpcError(request.id, err.code, err.message, err.data);
     console.error('[mcp] tools/call handler threw', err);
     return jsonRpcError(request.id, ErrorCode.InternalError, 'An unexpected error occurred');
   }
