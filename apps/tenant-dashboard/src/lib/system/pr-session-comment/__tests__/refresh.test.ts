@@ -1993,3 +1993,127 @@ describe("refreshPrSessionComment under a policy", () => {
     );
   });
 });
+
+describe("refreshPrSessionComment policy degradations", () => {
+  function confirmedSessionRow() {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+  }
+
+  it("skips the policy read entirely when the client cannot list the validators directory", async () => {
+    confirmedSessionRow();
+    const githubClient = { ...fakeGithubClient(), listDirectory: undefined };
+    githubClient.createIssueComment.mockResolvedValue(okComment(9101));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 9101 });
+    expect(githubClient.getPullRequestBaseRef).not.toHaveBeenCalled();
+    expect(githubClient.getFileContent).not.toHaveBeenCalled();
+  });
+
+  it("applies the recommended defaults when the base ref is not resolvable", async () => {
+    confirmedSessionRow();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9102));
+    githubClient.getPullRequestBaseRef.mockResolvedValue({ status: "not_permitted" });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 9102 });
+    expect(githubClient.getFileContent).not.toHaveBeenCalled();
+    expect(githubClient.createIssueComment.mock.calls[0]![2]).not.toContain("policy file has an error");
+  });
+
+  it("logs the policy_unreadable event and renders the defaults when the read throws", async () => {
+    confirmedSessionRow();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9103));
+    githubClient.getPullRequestBaseRef.mockRejectedValue(new Error("rate limited"));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 9103 });
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "rate limited" }),
+      expect.objectContaining({
+        event: "pr_session_comment.policy_unreadable",
+        tenantId: TENANT,
+        repository: REPO,
+        prNumber: PR,
+      }),
+    );
+    expect(githubClient.createIssueComment.mock.calls[0]![2]).toContain("Everything checks out");
+  });
+
+  it("never queries emitted results for a policy with no emitted requirements", async () => {
+    confirmedSessionRow();
+    let emittedReads = 0;
+    server.use(
+      http.get("http://localhost:54321/rest/v1/emitted_result", () => {
+        emittedReads += 1;
+        return HttpResponse.json([]);
+      }),
+    );
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9104));
+    seedBasePolicy(githubClient, {
+      ".outerlayer/validators/migration-must-run.yaml": [
+        "id: migration-must-run",
+        "kind: validation",
+        'row: "Migrations ran against a local database"',
+        "require:",
+        '  session.ran: { command: "supabase migration up", status: ok }',
+      ].join("\n"),
+    });
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "supabase/migrations/x.sql", changeStatus: "added" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(emittedReads).toBe(0);
+  });
+
+  it("surfaces the validator-file cap overflow on the policy-error row", async () => {
+    confirmedSessionRow();
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 21; i += 1) {
+      const name = String(i).padStart(2, "0");
+      files[`.outerlayer/validators/v${name}.yaml`] = [
+        `id: check-${name}`,
+        "kind: validation",
+        `row: "Check ${name}"`,
+        "require:",
+        '  session.ran: { command: "vitest run", status: ok }',
+      ].join("\n");
+    }
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9105));
+    seedBasePolicy(githubClient, files);
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("⚠ **The policy file has an error** — `.outerlayer/validators`:");
+    expect(body).toContain("21 validator files found — only the first 20 by name load");
+  });
+});

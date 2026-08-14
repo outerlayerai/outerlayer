@@ -62,9 +62,6 @@ CREATE TABLE IF NOT EXISTS public.emitted_result (
 -- The PR comment's evidence read: every emitted result anchored to one PR.
 CREATE INDEX IF NOT EXISTS idx_emitted_result_pr
     ON public.emitted_result (tenant_id, repository, pr_number);
--- Backs the ON DELETE CASCADE tenant_id foreign key.
-CREATE INDEX IF NOT EXISTS idx_emitted_result_tenant_id
-    ON public.emitted_result (tenant_id);
 
 ALTER TABLE public.emitted_result ENABLE ROW LEVEL SECURITY;
 

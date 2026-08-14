@@ -483,3 +483,121 @@ describe("parsePolicy — custom validator files", () => {
     expect(reversed).toEqual(forward);
   });
 });
+
+describe("parsePolicy — requirement shapes fail loudly, branch by branch", () => {
+  function requireProblem(requireYaml: string[], problem: string) {
+    const loaded = parsePolicy(null, [
+      validatorFile(
+        "shape.yaml",
+        ["id: shape-check", "kind: validation", 'row: "Shape"', ...requireYaml].join("\n"),
+      ),
+    ]);
+    expect(loaded.customs).toEqual([]);
+    expect(loaded.problems).toEqual([{ file: ".outerlayer/validators/shape.yaml", problem }]);
+  }
+
+  it("rejects a session.ran that is not a mapping", () => {
+    requireProblem(
+      ["require:", "  session.ran: run-it"],
+      '"session.ran" must be a mapping with a "command"',
+    );
+  });
+
+  it("rejects a session.ran with an unknown key", () => {
+    requireProblem(
+      ["require:", '  session.ran: { command: "x", after: last-edit }'],
+      '"session.ran" has unknown key "after"',
+    );
+  });
+
+  it("rejects a session.ran without a non-empty command", () => {
+    requireProblem(
+      ["require:", '  session.ran: { command: "  " }'],
+      '"session.ran" needs a non-empty "command"',
+    );
+  });
+
+  it("rejects a session.ran status outside ok and error", () => {
+    requireProblem(
+      ["require:", '  session.ran: { command: "x", status: passed }'],
+      '"session.ran" status must be ok or error',
+    );
+  });
+
+  it("rejects a requirement that is not a mapping", () => {
+    requireProblem(["require:", "  any:", "    - just-a-string"], "each requirement must be a single-key mapping");
+  });
+
+  it("rejects a requirement carrying two keys", () => {
+    requireProblem(
+      ["require:", '  any:', '    - { validator: red-then-green, emitted: x.y }'],
+      "a requirement names exactly one of session.ran, validator, emitted",
+    );
+  });
+
+  it("rejects a validator reference that is not an id", () => {
+    requireProblem(["require:", "  validator: 42"], '"validator" must name a validator id');
+  });
+
+  it("rejects an emitted reference outside the id vocabulary", () => {
+    requireProblem(["require:", '  emitted: "Not A Name"'], '"emitted" must name an emit (id characters only)');
+  });
+
+  it("rejects an unknown requirement key", () => {
+    requireProblem(["require:", "  ran: { command: x }"], 'unknown requirement "ran"');
+  });
+
+  it("rejects an empty or key-polluted require.any", () => {
+    requireProblem(["require:", "  any: []"], '"require.any" must be a non-empty list of requirements');
+    requireProblem(
+      ["require:", "  any:", '    - emitted: x.y', "  all: []"],
+      '"require.any" must be a non-empty list of requirements',
+    );
+  });
+
+  it("rejects a non-list needs and an unknown fact family", () => {
+    requireProblem(
+      ["require:", '  session.ran: { command: "x" }', "needs: commands"],
+      '"needs" must be a list of fact families',
+    );
+    requireProblem(
+      ["require:", '  session.ran: { command: "x" }', "needs: [tool-calls.files]"],
+      'unknown fact family "tool-calls.files" in "needs"',
+    );
+  });
+});
+
+describe("parsePolicy — level overrides land on the definition", () => {
+  it("propagates a policy-file override onto the custom the evaluator reads", () => {
+    const loaded = parsePolicy(
+      policyFile(
+        ["extends: outerlayer:recommended@v1", "validators:", "  migration-must-run: off"].join("\n"),
+      ),
+      [MIGRATION_VALIDATOR],
+    );
+    expect(loaded.problems).toEqual([]);
+    expect(loaded.levels["migration-must-run"]).toBe("off");
+    expect(loaded.customs.map((c) => ({ id: c.id, level: c.level }))).toEqual([
+      { id: "migration-must-run", level: "off" },
+    ]);
+  });
+
+  it("keeps a matching level untouched and leaves a signal's entry inert", () => {
+    const loaded = parsePolicy(
+      policyFile(
+        [
+          "extends: outerlayer:recommended@v1",
+          "validators:",
+          "  migration-must-run: warn",
+          "  big-diff-hunch: off",
+        ].join("\n"),
+      ),
+      [MIGRATION_VALIDATOR, validatorFile("hunch.yaml", "id: big-diff-hunch\nkind: signal")],
+    );
+    expect(loaded.problems).toEqual([]);
+    expect(loaded.customs.map((c) => ({ id: c.id, level: c.level }))).toEqual([
+      { id: "migration-must-run", level: "warn" },
+    ]);
+    expect("big-diff-hunch" in loaded.levels).toBe(false);
+  });
+});

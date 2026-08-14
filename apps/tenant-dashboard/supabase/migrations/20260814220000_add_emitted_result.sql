@@ -36,8 +36,6 @@ CREATE TABLE IF NOT EXISTS public.emitted_result (
 
 CREATE INDEX IF NOT EXISTS idx_emitted_result_pr
     ON public.emitted_result (tenant_id, repository, pr_number);
-CREATE INDEX IF NOT EXISTS idx_emitted_result_tenant_id
-    ON public.emitted_result (tenant_id);
 
 ALTER TABLE public.emitted_result ENABLE ROW LEVEL SECURITY;
 
@@ -60,3 +58,7 @@ CREATE POLICY "gateway_tenant_read_emitted_result" ON public.emitted_result
 CREATE POLICY "gateway_tenant_insert_emitted_result" ON public.emitted_result
     FOR INSERT TO gateway
     WITH CHECK (tenant_id = public.tenant_id());
+
+CREATE POLICY connector_token_confinement ON public.emitted_result
+    AS RESTRICTIVE FOR ALL TO authenticated
+    USING (NOT private.is_connector_token());
