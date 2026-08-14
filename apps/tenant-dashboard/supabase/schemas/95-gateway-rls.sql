@@ -75,6 +75,9 @@ GRANT SELECT, INSERT, UPDATE ON public.worker_workspace    TO gateway;
 -- ingest inserts with ON CONFLICT DO NOTHING, and the sweeps that mutate
 -- rows (verification aging, blob_deleted stamping) run under service_role.
 GRANT SELECT, INSERT ON public.artifact                    TO gateway;
+-- Emitted results: /v1/emitted-results ingests CI check outcomes (INSERT)
+-- and re-reads the winner after an idempotency race (SELECT).
+GRANT SELECT, INSERT ON public.emitted_result              TO gateway;
 -- Anchor resolution at ingest confirms a claimed PR number against the
 -- webhook-fed pull_request record; read-only.
 GRANT SELECT ON public.pull_request                        TO gateway;
@@ -266,6 +269,15 @@ CREATE POLICY "gateway_tenant_read_artifact" ON public.artifact
 CREATE POLICY "gateway_tenant_insert_artifact" ON public.artifact
     FOR INSERT TO gateway
     WITH CHECK (tenant_id = public.tenant_id());
+
+CREATE POLICY "gateway_tenant_read_emitted_result" ON public.emitted_result
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+CREATE POLICY "gateway_tenant_insert_emitted_result" ON public.emitted_result
+    FOR INSERT TO gateway
+    WITH CHECK (tenant_id = public.tenant_id());
+
 
 CREATE POLICY "gateway_tenant_read_pull_request" ON public.pull_request
     FOR SELECT TO gateway

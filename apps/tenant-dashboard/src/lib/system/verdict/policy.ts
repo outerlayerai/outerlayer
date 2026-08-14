@@ -1,404 +1,608 @@
-import { parse } from "yaml";
+import { parse as parseYaml } from "yaml";
+
 import type { FactFamily } from "./types";
 
 /**
- * The evidence policy: which validators run on a repo's PRs and at what
- * level, plus the repo's own custom validators — parsed from versioned
- * files in the customer's repository (`.outerlayer/policy.yaml` and
- * `.outerlayer/validators/*.yaml`).
+ * The policy layer's contracts and parser: `.outerlayer/policy.yaml` adopts
+ * and levels the built-in registry, and `.outerlayer/validators/*.yaml` files
+ * declare custom validators as conditions over facts the engine already
+ * computed. Everything here is pure string-and-data work — parsing a
+ * validator never executes anything, reads no filesystem, and never touches
+ * the network, which is what keeps verdicts deterministic and recomputable
+ * by anyone from the same files.
  *
- * Definitions are DATA. Parsing a policy never executes anything, and every
- * custom is a condition over facts the engine already computed — which is
- * what keeps verdicts deterministic and recomputable by anyone.
- *
- * Errors are collected, never thrown: a broken file surfaces as a visible
- * config-error row on the comment (fail loudly at load), while the intact
- * remainder of the policy still applies. Dangling names — a `validator:`
- * reference nothing defines, an `emitted:` name no validator declares, an
- * unknown preset — are load errors, not silent no-ops at check time.
+ * Failure posture: broken config fails loudly at load, never silently at
+ * check time. Every problem is collected with the file it came from; a file
+ * (or a cross-reference) with a problem contributes no validator, and the
+ * caller renders a visible error row instead of quietly checking less.
  */
 
-/** `off` removes the row entirely (the validator is not evaluated for
- * display); `info` renders the row but its flag never counts toward the
- * verdict; `warn` is full participation. */
 type PolicyLevel = "warn" | "info" | "off";
 
-/** The one preset this engine ships. A policy naming anything else is
- * broken loudly rather than silently treated as empty. */
-const RECOMMENDED_PRESET = "outerlayer:recommended@v1";
-
-/** Built-in validator ids a policy may level and a custom may require.
- * These are the registry entries of the recommended preset; every id here
- * has an implementation in `validators.ts` / `evaluate.ts`. */
-const BUILTIN_VALIDATOR_IDS = [
-  "red-then-green",
-  "no-test-tampering",
-  "commits-from-sessions",
-] as const;
-
-const BUILTIN_ID_SET: ReadonlySet<string> = new Set(BUILTIN_VALIDATOR_IDS);
-
-interface SessionRanCondition {
-  kind: "session-ran";
-  /** Matched against the classified runs' normalized command (exact or
-   * word-prefix), after the same normalization the classifier applies. */
-  command: string;
+/** One load-time config problem, attributed to the file that carries it. */
+export interface PolicyProblem {
+  file: string;
+  problem: string;
 }
 
-/** Built-ins a custom may `require:` — the session-fact validators only.
- * Commit provenance is computed from GitHub data the custom evaluator never
- * sees, and custom-to-custom composition needs an evaluation order that
- * does not exist yet; both are load errors, not silent unknowns. */
-const REQUIRABLE_VALIDATOR_IDS = ["red-then-green", "no-test-tampering"] as const;
+/** A single provable condition — one alternative of a `require:`. */
+export type RequirementAlt =
+  /** A classified command run matching `command` (normalized-prefix) with
+   * the given span exit status. */
+  | { type: "session-ran"; command: string; status: "ok" | "error" }
+  /** Another validator's result by id — built-in or custom. */
+  | { type: "validator"; id: string }
+  /** An emitted result recorded for this PR under a declared name. */
+  | { type: "emitted"; name: string };
 
-type RequirableValidatorId = (typeof REQUIRABLE_VALIDATOR_IDS)[number];
-
-const REQUIRABLE_ID_SET: ReadonlySet<string> = new Set(REQUIRABLE_VALIDATOR_IDS);
-
-interface ValidatorCondition {
-  kind: "validator";
-  id: RequirableValidatorId;
-}
-
-interface EmittedCondition {
-  kind: "emitted";
-  /** A name some validator in this policy declares via `run.emit`. The
-   * delivery channel is not wired yet, so this condition evaluates as
-   * unknown (suppressing the row) rather than unmet — never a false fail
-   * for a result that had no way to arrive. */
-  name: string;
-}
-
-export type RequireCondition = SessionRanCondition | ValidatorCondition | EmittedCondition;
-
-interface RequireClause {
-  /** `any` passes on the first satisfied condition; `all` needs every one. */
-  mode: "any" | "all";
-  conditions: RequireCondition[];
-}
-
-export interface CustomValidator {
+export interface CustomValidatorDef {
   id: string;
-  /** `signal` customs parse but never render — signals rank attention and
-   * can never appear as a validation row (they ship in a later story). */
-  kind: "validation" | "signal";
-  /** The row copy, rendered verbatim on pass; a flag appends "— not
-   * proven". A row may only claim what its matcher proves. */
+  /** The row copy, rendered verbatim (escaped) — it may only claim what the
+   * matcher proves, so the parser caps and single-lines it but never
+   * rewrites it. */
   row: string;
   level: PolicyLevel;
-  /** Path globs (`*`, `**`) against the PR's changed files. Absent means
-   * the validator applies to every PR. */
-  whenPaths: string[] | null;
-  require: RequireClause;
-  /** Fact families the conditions read — auto-derived from the conditions
-   * and unioned with an explicit `needs:` list. Missing families make the
-   * validator not checkable, never a false fail. */
-  needs: FactFamily[];
+  /** Path globs scoping the validator to PRs whose diff touches them; null
+   * means the validator applies to every PR. */
+  whenPaths: readonly string[] | null;
+  /** Alternatives — the requirement is satisfied when ANY alternative is. */
+  requireAny: readonly RequirementAlt[];
+  /** Fact families the author declares the rule reads. A family the capture
+   * didn't cover makes the validator not checkable; a `session.ran`
+   * alternative is additionally guarded per-alternative at evaluation, so an
+   * uncaptured command channel can never silently pass even undeclared. */
+  needs: readonly FactFamily[];
+  /** The emit name this validator declares (`run: {where: ci, emit: …}`);
+   * names are declarations, never vocabulary — an `emitted:` requirement
+   * anywhere in the policy must reference one of these. */
+  declaresEmit: string | null;
 }
 
-interface PolicyError {
-  file: string;
-  message: string;
+export interface LoadedPolicy {
+  /** Effective level per validator id — registry defaults, then file-declared
+   * custom levels, then policy-file overrides, in that order. */
+  levels: Readonly<Record<string, PolicyLevel>>;
+  /** Surviving custom validators, sorted by id so downstream evaluation and
+   * rendering are order-independent of file layout. */
+  customs: readonly CustomValidatorDef[];
+  problems: readonly PolicyProblem[];
 }
 
-interface EvidencePolicy {
-  /** Final display level per validator id — built-in defaults, then each
-   * custom's own level, then the policy file's `validators:` overrides. */
-  levels: Map<string, PolicyLevel>;
-  customs: CustomValidator[];
-  errors: PolicyError[];
+/** The one registry a policy may extend. Its members are the checks the
+ * comment renders with no policy file at all, so "no policy" and
+ * "extends: recommended, no overrides" are the same behavior by
+ * construction. */
+const RECOMMENDED_EXTENDS = "outerlayer:recommended@v1";
+
+export const RECOMMENDED_LEVELS: Readonly<Record<string, PolicyLevel>> = {
+  "commits-from-sessions": "warn",
+  "red-then-green": "warn",
+  "no-test-tampering": "warn",
+};
+
+/** Built-ins a custom's `require.validator` may reference: the fact-layer
+ * validators, including the silent one (silent means "renders no row", not
+ * "feeds no composition"). Commit provenance computes outside the fact
+ * layer, so referencing it is a load error rather than a runtime unknown. */
+const REFERENCEABLE_BUILTINS: ReadonlySet<string> = new Set([
+  "red-then-green",
+  "no-test-tampering",
+  "tests-after-last-edit",
+]);
+
+/** Ids and emit names share the artifact id vocabulary — id characters only,
+ * so a stored value can never carry markdown, spaces, or HTML into a
+ * rendered surface. */
+const SLUG_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
+
+/** Row copy ceiling — a row is one sentence, not a paragraph, and the
+ * comment renderer must never inherit an unbounded tenant-authored string. */
+const MAX_ROW_LENGTH = 200;
+
+/** `when.paths` bounds. Each glob compiles to a regex that runs against
+ * every changed path in the PR, and stacked `*` segments backtrack — an
+ * unbounded tenant-authored pattern is a CPU sink in the refresh worker, so
+ * both the pattern length and the pattern count are capped at parse time. */
+const MAX_GLOB_LENGTH = 200;
+const MAX_WHEN_PATHS = 20;
+
+/** Fact-family spellings accepted in `needs:`. The namespaced forms are the
+ * validator format's own vocabulary; the bare forms are the engine's. */
+const NEEDS_ALIASES: Readonly<Record<string, FactFamily>> = {
+  "tool-calls.commands": "commands",
+  "tool-calls.edits": "edits",
+  commands: "commands",
+  edits: "edits",
+};
+
+export function defaultPolicy(): LoadedPolicy {
+  return { levels: { ...RECOMMENDED_LEVELS }, customs: [], problems: [] };
 }
 
-export interface PolicyFile {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseLevel(value: unknown): PolicyLevel | null {
+  return value === "warn" || value === "info" || value === "off" ? value : null;
+}
+
+interface ParsedFile {
   path: string;
   content: string;
 }
 
-export interface PolicySource {
-  policyYaml: PolicyFile | null;
-  validatorFiles: PolicyFile[];
-}
-
-const LEVELS: ReadonlySet<string> = new Set(["warn", "info", "off"]);
-const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
-const EMIT_NAME_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
-const MAX_ROW_LENGTH = 140;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Parses one custom-validator file. Returns the custom plus the emit names
- * it declares, or an error message; a file either contributes wholly or not
- * at all — no partially-applied validators. Emitted-name resolution happens
- * in a second pass, once every file's declarations are known. */
-function parseCustomFile(
-  file: PolicyFile,
-): { custom: CustomValidator; declaredEmits: string[]; emittedRefs: string[] } | { error: string } {
-  let doc: unknown;
-  try {
-    doc = parse(file.content);
-  } catch (parseError) {
-    return { error: `not valid YAML (${(parseError as Error).message.split("\n")[0]})` };
-  }
-  if (!isRecord(doc)) return { error: "expected a YAML mapping at the top level" };
-
-  const id = doc["id"];
-  if (typeof id !== "string" || !ID_PATTERN.test(id)) {
-    return { error: "`id` must be a lowercase-dashed slug" };
-  }
-  const kind = doc["kind"] ?? "validation";
-  if (kind !== "validation" && kind !== "signal") {
-    return { error: `\`kind\` must be "validation" or "signal", got "${String(kind)}"` };
-  }
-  const row = doc["row"];
-  if (typeof row !== "string" || row.trim().length === 0) {
-    return { error: "`row` is required — it is the sentence the comment renders" };
-  }
-  if (row.length > MAX_ROW_LENGTH) {
-    return { error: `\`row\` is longer than ${MAX_ROW_LENGTH} characters` };
-  }
-  const level = doc["level"] ?? "warn";
-  if (typeof level !== "string" || !LEVELS.has(level)) {
-    return { error: `\`level\` must be warn, info, or off — got "${String(level)}"` };
-  }
-
-  let whenPaths: string[] | null = null;
-  if (doc["when"] !== undefined) {
-    const when = doc["when"];
-    if (!isRecord(when)) return { error: "`when` must be a mapping" };
-    const paths = when["paths"];
-    if (paths !== undefined) {
-      if (!Array.isArray(paths) || paths.some((p) => typeof p !== "string" || p.length === 0)) {
-        return { error: "`when.paths` must be a list of non-empty path globs" };
-      }
-      whenPaths = paths as string[];
-    }
-    const unknownKey = Object.keys(when).find((key) => key !== "paths");
-    if (unknownKey) {
-      return { error: `\`when.${unknownKey}\` is not supported yet — only \`when.paths\`` };
-    }
-  }
-
-  const declaredEmits: string[] = [];
-  if (doc["run"] !== undefined) {
-    const run = doc["run"];
-    if (!isRecord(run) || run["where"] !== "ci" || typeof run["emit"] !== "string") {
-      return { error: "`run` must be `{ where: ci, emit: <name> }`" };
-    }
-    if (!EMIT_NAME_PATTERN.test(run["emit"])) {
-      return { error: "`run.emit` must be a dotted lowercase name (like `smoke.pass`)" };
-    }
-    declaredEmits.push(run["emit"]);
-  }
-
-  const requireParsed = parseRequire(doc["require"]);
-  if ("error" in requireParsed) return { error: requireParsed.error };
-
-  const needs = new Set<FactFamily>();
-  for (const condition of requireParsed.clause.conditions) {
-    if (condition.kind === "session-ran") needs.add("commands");
-  }
-  if (doc["needs"] !== undefined) {
-    if (!Array.isArray(doc["needs"])) return { error: "`needs` must be a list" };
-    for (const entry of doc["needs"]) {
-      const family = normalizeFactFamily(entry);
-      if (family === null) return { error: `\`needs\` entry "${String(entry)}" is not a fact family` };
-      needs.add(family);
-    }
-  }
-
-  return {
-    custom: {
-      id,
-      kind,
-      row: row.trim(),
-      level: level as PolicyLevel,
-      whenPaths,
-      require: requireParsed.clause,
-      needs: [...needs],
-    },
-    declaredEmits,
-    emittedRefs: requireParsed.clause.conditions
-      .filter((condition): condition is EmittedCondition => condition.kind === "emitted")
-      .map((condition) => condition.name),
-  };
-}
-
-function normalizeFactFamily(entry: unknown): FactFamily | null {
-  if (entry === "commands" || entry === "tool-calls.commands") return "commands";
-  if (entry === "edits" || entry === "tool-calls.edits") return "edits";
-  return null;
-}
-
-function parseRequire(raw: unknown): { clause: RequireClause } | { error: string } {
-  if (raw === undefined) return { error: "`require` is required for a validation" };
-  if (!isRecord(raw)) return { error: "`require` must be a mapping" };
-
-  const hasAny = raw["any"] !== undefined;
-  const hasAll = raw["all"] !== undefined;
-  if (hasAny && hasAll) return { error: "`require` may use `any` or `all`, not both" };
-
-  const mode: RequireClause["mode"] = hasAll ? "all" : "any";
-  const rawConditions = hasAny || hasAll ? raw[mode] : [raw];
-  if (!Array.isArray(rawConditions) || rawConditions.length === 0) {
-    return { error: `\`require.${mode}\` must be a non-empty list of conditions` };
-  }
-
-  const conditions: RequireCondition[] = [];
-  for (const rawCondition of rawConditions) {
-    const condition = parseCondition(rawCondition);
-    if ("error" in condition) return condition;
-    conditions.push(condition.condition);
-  }
-  return { clause: { mode, conditions } };
-}
-
-function parseCondition(raw: unknown): { condition: RequireCondition } | { error: string } {
-  if (!isRecord(raw)) return { error: "each condition must be a mapping with one key" };
-  const keys = Object.keys(raw);
-  if (keys.length !== 1) {
-    return { error: `a condition takes exactly one of session.ran / validator / emitted` };
-  }
-  const key = keys[0]!;
-  const value = raw[key];
-  if (key === "session.ran") {
-    if (!isRecord(value) || typeof value["command"] !== "string" || !value["command"].trim()) {
-      return { error: "`session.ran` needs a `command`" };
-    }
-    const status = value["status"] ?? "ok";
-    if (status !== "ok") {
-      return { error: `\`session.ran.status\` supports only "ok" — got "${String(status)}"` };
-    }
-    const unknownKey = Object.keys(value).find((k) => k !== "command" && k !== "status");
-    if (unknownKey) return { error: `\`session.ran.${unknownKey}\` is not supported yet` };
-    return { condition: { kind: "session-ran", command: value["command"].trim() } };
-  }
-  if (key === "validator") {
-    if (typeof value !== "string" || !REQUIRABLE_ID_SET.has(value)) {
-      return {
-        error: `\`validator: ${String(value)}\` cannot be required — only red-then-green and no-test-tampering can, for now`,
-      };
-    }
-    return { condition: { kind: "validator", id: value as RequirableValidatorId } };
-  }
-  if (key === "emitted") {
-    if (typeof value !== "string" || !EMIT_NAME_PATTERN.test(value)) {
-      return { error: "`emitted` must be a dotted lowercase name (like `smoke.pass`)" };
-    }
-    return { condition: { kind: "emitted", name: value } };
-  }
-  return { error: `"${key}" is not a condition — use session.ran, validator, or emitted` };
+interface PolicyFileResult {
+  extendsOk: boolean;
+  /** id → level overrides, applied only when the file as a whole parsed. */
+  overrides: Record<string, PolicyLevel>;
+  problems: PolicyProblem[];
 }
 
 /**
- * Parses the whole policy source. Always returns a usable policy: files
- * that fail to parse are excluded and reported in `errors`; the built-in
- * defaults apply wherever nothing overrides them.
+ * Parses `.outerlayer/policy.yaml`. Any problem voids the file's overrides
+ * wholesale — a policy that half-applied would be harder to reason about
+ * than one that visibly failed — but never the recommended defaults, so the
+ * comment still renders today's checks alongside the error row.
  */
-export function parseEvidencePolicy(source: PolicySource): EvidencePolicy {
-  const errors: PolicyError[] = [];
-  let customs: CustomValidator[] = [];
-  const declaredEmits = new Set<string>();
-  const emittedRefsByFile: Array<{ file: string; customId: string; names: string[] }> = [];
+function parsePolicyFile(file: ParsedFile): PolicyFileResult {
+  const problems: PolicyProblem[] = [];
+  const fail = (problem: string): PolicyFileResult => {
+    problems.push({ file: file.path, problem });
+    return { extendsOk: false, overrides: {}, problems };
+  };
 
-  for (const file of source.validatorFiles) {
-    const parsed = parseCustomFile(file);
-    if ("error" in parsed) {
-      errors.push({ file: file.path, message: parsed.error });
-      continue;
-    }
-    if (
-      BUILTIN_ID_SET.has(parsed.custom.id) ||
-      customs.some((existing) => existing.id === parsed.custom.id)
-    ) {
-      errors.push({ file: file.path, message: `id "${parsed.custom.id}" is already taken` });
-      continue;
-    }
-    customs.push(parsed.custom);
-    for (const name of parsed.declaredEmits) declaredEmits.add(name);
-    if (parsed.emittedRefs.length > 0) {
-      emittedRefsByFile.push({ file: file.path, customId: parsed.custom.id, names: parsed.emittedRefs });
+  let root: unknown;
+  try {
+    root = parseYaml(file.content);
+  } catch (error) {
+    return fail(`not valid YAML — ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isRecord(root)) return fail("must be a YAML mapping");
+
+  for (const key of Object.keys(root)) {
+    if (key !== "extends" && key !== "validators") {
+      return fail(`unknown key "${key}"`);
     }
   }
 
-  // Emitted names resolve against the whole policy's declarations, so the
-  // check runs after every file has contributed its `run.emit` — and a
-  // custom whose reference dangles is dropped wholly, matching the
-  // file-contributes-wholly-or-not-at-all rule above.
-  const droppedIds = new Set<string>();
-  for (const { file, customId, names } of emittedRefsByFile) {
-    for (const name of names) {
-      if (!declaredEmits.has(name)) {
-        errors.push({
-          file,
-          message: `\`emitted: ${name}\` — no validator declares \`run.emit: ${name}\``,
-        });
-        droppedIds.add(customId);
+  if (root["extends"] === undefined) {
+    return fail(`missing "extends" — adopt the registry with extends: ${RECOMMENDED_EXTENDS}`);
+  }
+  if (root["extends"] !== RECOMMENDED_EXTENDS) {
+    return fail(
+      `unknown extends "${String(root["extends"])}" — the only supported registry is ${RECOMMENDED_EXTENDS}`,
+    );
+  }
+
+  const overrides: Record<string, PolicyLevel> = {};
+  const validators = root["validators"];
+  if (validators !== undefined) {
+    if (!isRecord(validators)) return fail(`"validators" must be a mapping of id to level`);
+    for (const [id, rawLevel] of Object.entries(validators)) {
+      const level = parseLevel(rawLevel);
+      if (level === null) {
+        return fail(`validator "${id}" has level "${String(rawLevel)}" — use warn, info, or off`);
       }
+      overrides[id] = level;
     }
   }
-  customs = customs.filter((custom) => !droppedIds.has(custom.id));
 
-  const levels = new Map<string, PolicyLevel>();
-  for (const id of BUILTIN_VALIDATOR_IDS) levels.set(id, "warn");
-  for (const custom of customs) levels.set(custom.id, custom.level);
-
-  if (source.policyYaml !== null) {
-    applyPolicyFile(source.policyYaml, levels, customs, errors);
-  }
-
-  return { levels, customs, errors };
+  return { extendsOk: true, overrides, problems };
 }
 
-function applyPolicyFile(
-  file: PolicyFile,
-  levels: Map<string, PolicyLevel>,
-  customs: readonly CustomValidator[],
-  errors: PolicyError[],
-): void {
-  let doc: unknown;
-  try {
-    doc = parse(file.content);
-  } catch (parseError) {
-    errors.push({
-      file: file.path,
-      message: `not valid YAML (${(parseError as Error).message.split("\n")[0]})`,
-    });
-    return;
-  }
-  if (doc === null || doc === undefined) return;
-  if (!isRecord(doc)) {
-    errors.push({ file: file.path, message: "expected a YAML mapping at the top level" });
-    return;
-  }
+interface ParsedCustom {
+  def: CustomValidatorDef;
+  file: string;
+  /** Kept out of `requireAny` until cross-file resolution proves the names —
+   * a dangling reference drops the whole validator, loudly. */
+  validatorRefs: string[];
+  emittedRefs: string[];
+}
 
-  if (doc["extends"] !== undefined && doc["extends"] !== RECOMMENDED_PRESET) {
-    errors.push({
-      file: file.path,
-      message: `unknown preset "${String(doc["extends"])}" — this engine ships ${RECOMMENDED_PRESET}`,
-    });
+function parseSessionRan(
+  value: unknown,
+  file: string,
+  problems: PolicyProblem[],
+): RequirementAlt | null {
+  if (!isRecord(value)) {
+    problems.push({ file, problem: `"session.ran" must be a mapping with a "command"` });
+    return null;
   }
-
-  const overrides = doc["validators"];
-  if (overrides === undefined) return;
-  if (!isRecord(overrides)) {
-    errors.push({ file: file.path, message: "`validators` must map validator ids to levels" });
-    return;
-  }
-  const knownIds = new Set<string>([...BUILTIN_VALIDATOR_IDS, ...customs.map((c) => c.id)]);
-  for (const [id, level] of Object.entries(overrides)) {
-    if (!knownIds.has(id)) {
-      errors.push({ file: file.path, message: `\`validators.${id}\` does not name a validator` });
-      continue;
+  for (const key of Object.keys(value)) {
+    if (key !== "command" && key !== "status") {
+      problems.push({ file, problem: `"session.ran" has unknown key "${key}"` });
+      return null;
     }
-    if (typeof level !== "string" || !LEVELS.has(level)) {
-      errors.push({
+  }
+  const command = value["command"];
+  if (typeof command !== "string" || command.trim() === "") {
+    problems.push({ file, problem: `"session.ran" needs a non-empty "command"` });
+    return null;
+  }
+  const status = value["status"] ?? "ok";
+  if (status !== "ok" && status !== "error") {
+    problems.push({ file, problem: `"session.ran" status must be ok or error` });
+    return null;
+  }
+  return { type: "session-ran", command: command.trim(), status };
+}
+
+/** One `require:` alternative — a single-key mapping naming the condition. */
+function parseRequirementAlt(
+  value: unknown,
+  file: string,
+  problems: PolicyProblem[],
+): RequirementAlt | null {
+  if (!isRecord(value)) {
+    problems.push({ file, problem: `each requirement must be a single-key mapping` });
+    return null;
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== 1) {
+    problems.push({
+      file,
+      problem: `a requirement names exactly one of session.ran, validator, emitted`,
+    });
+    return null;
+  }
+  const key = keys[0]!;
+  if (key === "session.ran") return parseSessionRan(value[key], file, problems);
+  if (key === "validator") {
+    const id = value[key];
+    if (typeof id !== "string" || !SLUG_PATTERN.test(id)) {
+      problems.push({ file, problem: `"validator" must name a validator id` });
+      return null;
+    }
+    return { type: "validator", id };
+  }
+  if (key === "emitted") {
+    const name = value[key];
+    if (typeof name !== "string" || !SLUG_PATTERN.test(name)) {
+      problems.push({ file, problem: `"emitted" must name an emit (id characters only)` });
+      return null;
+    }
+    return { type: "emitted", name };
+  }
+  problems.push({ file, problem: `unknown requirement "${key}"` });
+  return null;
+}
+
+function parseRequire(
+  value: unknown,
+  file: string,
+  problems: PolicyProblem[],
+): RequirementAlt[] | null {
+  if (isRecord(value) && "any" in value) {
+    if (Object.keys(value).length !== 1 || !Array.isArray(value["any"]) || value["any"].length === 0) {
+      problems.push({ file, problem: `"require.any" must be a non-empty list of requirements` });
+      return null;
+    }
+    const alts: RequirementAlt[] = [];
+    for (const entry of value["any"]) {
+      const alt = parseRequirementAlt(entry, file, problems);
+      if (alt === null) return null;
+      alts.push(alt);
+    }
+    return alts;
+  }
+  const single = parseRequirementAlt(value, file, problems);
+  return single === null ? null : [single];
+}
+
+function parseNeeds(value: unknown, file: string, problems: PolicyProblem[]): FactFamily[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    problems.push({ file, problem: `"needs" must be a list of fact families` });
+    return null;
+  }
+  const families: FactFamily[] = [];
+  for (const entry of value) {
+    const family = typeof entry === "string" ? NEEDS_ALIASES[entry] : undefined;
+    if (family === undefined) {
+      problems.push({ file, problem: `unknown fact family "${String(entry)}" in "needs"` });
+      return null;
+    }
+    families.push(family);
+  }
+  return families;
+}
+
+const CUSTOM_KEYS = new Set(["id", "kind", "row", "level", "when", "require", "run", "needs"]);
+
+/**
+ * Parses one `.outerlayer/validators/*.yaml` file. Returns null (with
+ * problems recorded) when anything about it is off — a validator either
+ * loads whole or not at all.
+ *
+ * `kind:` is enforced here at the earliest possible moment: a `signal` is
+ * accepted as a file (its id still occupies the namespace) but yields no
+ * definition, so nothing downstream can ever render it as a validation row.
+ */
+function parseCustomFile(
+  file: ParsedFile,
+  problems: PolicyProblem[],
+): ParsedCustom | { signalId: string } | null {
+  const fail = (problem: string): null => {
+    problems.push({ file: file.path, problem });
+    return null;
+  };
+
+  let root: unknown;
+  try {
+    root = parseYaml(file.content);
+  } catch (error) {
+    return fail(`not valid YAML — ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isRecord(root)) return fail("must be a YAML mapping");
+
+  for (const key of Object.keys(root)) {
+    if (!CUSTOM_KEYS.has(key)) return fail(`unknown key "${key}"`);
+  }
+
+  const id = root["id"];
+  if (typeof id !== "string" || !SLUG_PATTERN.test(id)) {
+    return fail(`"id" must be lowercase id characters (got ${JSON.stringify(root["id"])})`);
+  }
+
+  const kind = root["kind"];
+  if (kind !== "validation" && kind !== "signal") {
+    return fail(`"${id}" has kind "${String(kind)}" — use validation or signal`);
+  }
+  if (kind === "signal") return { signalId: id };
+
+  const row = root["row"];
+  if (typeof row !== "string" || row.trim() === "") {
+    return fail(`"${id}" needs a "row" — the sentence its result renders as`);
+  }
+  if (row.includes("\n") || row.length > MAX_ROW_LENGTH) {
+    return fail(`"${id}" row must be a single line of at most ${MAX_ROW_LENGTH} characters`);
+  }
+
+  const level = root["level"] === undefined ? "warn" : parseLevel(root["level"]);
+  if (level === null) {
+    return fail(`"${id}" has level "${String(root["level"])}" — use warn, info, or off`);
+  }
+
+  let whenPaths: string[] | null = null;
+  if (root["when"] !== undefined) {
+    const when = root["when"];
+    if (!isRecord(when) || Object.keys(when).some((key) => key !== "paths")) {
+      return fail(`"${id}" when: only "paths" scoping is supported`);
+    }
+    const paths = when["paths"];
+    if (
+      !Array.isArray(paths) ||
+      paths.length === 0 ||
+      paths.some((p) => typeof p !== "string" || p.trim() === "")
+    ) {
+      return fail(`"${id}" when.paths must be a non-empty list of path globs`);
+    }
+    if (paths.length > MAX_WHEN_PATHS) {
+      return fail(`"${id}" when.paths lists ${paths.length} globs — the cap is ${MAX_WHEN_PATHS}`);
+    }
+    const oversized = paths.find((p: string) => p.length > MAX_GLOB_LENGTH);
+    if (oversized !== undefined) {
+      return fail(
+        `"${id}" when.paths has a ${oversized.length}-character glob — the cap is ${MAX_GLOB_LENGTH}`,
+      );
+    }
+    whenPaths = paths.map((p: string) => p.trim());
+  }
+
+  const hasRequire = root["require"] !== undefined;
+  const hasRun = root["run"] !== undefined;
+  if (hasRequire === hasRun) {
+    return fail(`"${id}" must declare exactly one of "require" or "run"`);
+  }
+
+  let requireAny: RequirementAlt[];
+  let declaresEmit: string | null = null;
+  if (hasRun) {
+    const run = root["run"];
+    if (!isRecord(run) || Object.keys(run).some((key) => key !== "where" && key !== "emit")) {
+      return fail(`"${id}" run: must be a mapping of "where" and "emit"`);
+    }
+    if (run["where"] !== "ci") {
+      return fail(`"${id}" run.where must be ci — the engine never executes customer code`);
+    }
+    const emit = run["emit"];
+    if (typeof emit !== "string" || !SLUG_PATTERN.test(emit)) {
+      return fail(`"${id}" run.emit must name the emit (id characters only)`);
+    }
+    declaresEmit = emit;
+    requireAny = [{ type: "emitted", name: emit }];
+  } else {
+    const parsed = parseRequire(root["require"], file.path, problems);
+    if (parsed === null) return null;
+    requireAny = parsed;
+  }
+
+  const declaredNeeds = parseNeeds(root["needs"], file.path, problems);
+  if (declaredNeeds === null) return null;
+
+  return {
+    def: {
+      id,
+      row: row.trim(),
+      level,
+      whenPaths,
+      requireAny,
+      // Declared needs only — the author's own statement of what the rule
+      // reads. A session.ran alternative is guarded per-alternative at
+      // evaluation regardless, so an uncaptured command channel can never
+      // silently pass; deriving it here would additionally blind an `any:`
+      // whose OTHER alternative (an emitted result) could still answer.
+      needs: [...new Set<FactFamily>(declaredNeeds)].sort(),
+      declaresEmit,
+    },
+    file: file.path,
+    validatorRefs: requireAny.flatMap((alt) => (alt.type === "validator" ? [alt.id] : [])),
+    emittedRefs: requireAny.flatMap((alt) => (alt.type === "emitted" ? [alt.name] : [])),
+  };
+}
+
+/**
+ * Drops every custom whose references don't resolve, to fixpoint: a dropped
+ * validator takes its emit declaration with it, which can invalidate a
+ * requiring validator in turn. Cycles among `validator:` references starve
+ * (neither member ever resolves) and are reported as unresolvable.
+ */
+function resolveReferences(
+  parsed: ParsedCustom[],
+  signalIds: ReadonlySet<string>,
+  problems: PolicyProblem[],
+): ParsedCustom[] {
+  let surviving = parsed;
+  for (;;) {
+    const ids = new Set([...REFERENCEABLE_BUILTINS, ...surviving.map((p) => p.def.id)]);
+    const emits = new Set(
+      surviving.flatMap((p) => (p.def.declaresEmit === null ? [] : [p.def.declaresEmit])),
+    );
+    const next = surviving.filter((candidate) => {
+      for (const ref of candidate.validatorRefs) {
+        // Self-reference can never resolve; it would otherwise survive the
+        // fixpoint (its own id is in `ids`) and evaluate as a cycle of one.
+        if (ref === candidate.def.id || !ids.has(ref) || signalIds.has(ref)) {
+          problems.push({
+            file: candidate.file,
+            problem: `"${candidate.def.id}" requires validator "${ref}" — ${
+              signalIds.has(ref)
+                ? "a signal can never satisfy a validation"
+                : ref in RECOMMENDED_LEVELS
+                  ? "that built-in cannot be referenced"
+                  : "no such validator exists"
+            }`,
+          });
+          return false;
+        }
+      }
+      for (const name of candidate.emittedRefs) {
+        if (!emits.has(name)) {
+          problems.push({
+            file: candidate.file,
+            problem: `"${candidate.def.id}" requires emitted "${name}" but no validator declares emit: ${name}`,
+          });
+          return false;
+        }
+      }
+      return true;
+    });
+    if (next.length === surviving.length) return dropCycles(next, problems);
+    surviving = next;
+  }
+}
+
+/** Validator-reference cycles can't be evaluated (neither result exists
+ * first), so every member of one is dropped with a problem naming it. */
+function dropCycles(parsed: ParsedCustom[], problems: PolicyProblem[]): ParsedCustom[] {
+  const byId = new Map(parsed.map((p) => [p.def.id, p]));
+  const state = new Map<string, "visiting" | "done">();
+  const cyclic = new Set<string>();
+
+  const visit = (id: string, stack: string[]): void => {
+    const entry = byId.get(id);
+    if (!entry || state.get(id) === "done") return;
+    if (state.get(id) === "visiting") {
+      for (const member of stack.slice(stack.indexOf(id))) cyclic.add(member);
+      return;
+    }
+    state.set(id, "visiting");
+    for (const ref of entry.validatorRefs) visit(ref, [...stack, id]);
+    state.set(id, "done");
+  };
+  for (const p of parsed) visit(p.def.id, []);
+
+  return parsed.filter((p) => {
+    if (!cyclic.has(p.def.id)) return true;
+    problems.push({
+      file: p.file,
+      problem: `"${p.def.id}" is part of a validator-reference cycle and cannot be evaluated`,
+    });
+    return false;
+  });
+}
+
+/**
+ * Parses the whole policy: the policy file (or null when the repo has none)
+ * plus every validator file, cross-checked. Deterministic: files process in
+ * sorted-path order and customs come back sorted by id, so identical inputs
+ * load an identical policy regardless of directory listing order.
+ */
+export function parsePolicy(
+  policyFile: ParsedFile | null,
+  validatorFiles: readonly ParsedFile[],
+): LoadedPolicy {
+  const problems: PolicyProblem[] = [];
+
+  const policy = policyFile
+    ? parsePolicyFile(policyFile)
+    : { extendsOk: true, overrides: {}, problems: [] as PolicyProblem[] };
+  problems.push(...policy.problems);
+
+  const parsed: ParsedCustom[] = [];
+  const signalIds = new Set<string>();
+  const seenIds = new Set<string>();
+  for (const file of [...validatorFiles].sort((a, b) => (a.path < b.path ? -1 : 1))) {
+    const result = parseCustomFile(file, problems);
+    if (result === null) continue;
+    const id = "signalId" in result ? result.signalId : result.def.id;
+    const collidesWithBuiltin = id in RECOMMENDED_LEVELS || REFERENCEABLE_BUILTINS.has(id);
+    if (seenIds.has(id) || collidesWithBuiltin) {
+      problems.push({
         file: file.path,
-        message: `\`validators.${id}\` must be warn, info, or off — got "${String(level)}"`,
+        problem: collidesWithBuiltin
+          ? `"${id}" collides with a built-in validator id`
+          : `duplicate validator id "${id}"`,
       });
       continue;
     }
-    levels.set(id, level as PolicyLevel);
+    seenIds.add(id);
+    if ("signalId" in result) signalIds.add(id);
+    else parsed.push(result);
   }
+
+  // Two validators declaring one emit name would make "which check does this
+  // emit satisfy" ambiguous; first (by sorted path) wins, later ones drop.
+  const emitOwners = new Map<string, string>();
+  const deduped = parsed.filter((p) => {
+    if (p.def.declaresEmit === null) return true;
+    const owner = emitOwners.get(p.def.declaresEmit);
+    if (owner === undefined) {
+      emitOwners.set(p.def.declaresEmit, p.def.id);
+      return true;
+    }
+    problems.push({
+      file: p.file,
+      problem: `"${p.def.id}" declares emit "${p.def.declaresEmit}" already declared by "${owner}"`,
+    });
+    return false;
+  });
+
+  const resolved = resolveReferences(deduped, signalIds, problems);
+  const sorted = resolved.map((p) => p.def).sort((a, b) => (a.id < b.id ? -1 : 1));
+
+  const levels: Record<string, PolicyLevel> = { ...RECOMMENDED_LEVELS };
+  for (const custom of sorted) levels[custom.id] = custom.level;
+  for (const [id, level] of Object.entries(policy.overrides)) {
+    if (!(id in levels) && !signalIds.has(id)) {
+      problems.push({
+        file: policyFile?.path ?? ".outerlayer/policy.yaml",
+        problem: `policy levels unknown validator "${id}"`,
+      });
+      continue;
+    }
+    // A signal has no row to level; the entry is inert but not an error —
+    // the file that declared the signal already established it exists.
+    if (!signalIds.has(id)) levels[id] = level;
+  }
+
+  // The effective level lives on the definition too: the evaluator reads
+  // `def.level` (an `off` custom produces no result at all), so a policy-file
+  // override must land there, not only in the `levels` map the built-ins use.
+  const customs = sorted.map((def) =>
+    levels[def.id] === def.level ? def : { ...def, level: levels[def.id]! },
+  );
+
+  return { levels, customs, problems };
 }

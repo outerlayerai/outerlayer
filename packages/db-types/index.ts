@@ -1151,6 +1151,76 @@ export type Database = {
           },
         ]
       }
+      emitted_result: {
+        Row: {
+          app_id: string
+          client_emit_id: string
+          created_at: string
+          emitted_at: string
+          id: string
+          link: string
+          name: string
+          pr_number: number
+          provenance: string
+          repository: string
+          result: string
+          tenant_id: string
+          verification: string
+        }
+        Insert: {
+          app_id: string
+          client_emit_id: string
+          created_at?: string
+          emitted_at: string
+          id?: string
+          link?: string
+          name: string
+          pr_number: number
+          provenance: string
+          repository: string
+          result: string
+          tenant_id: string
+          verification?: string
+        }
+        Update: {
+          app_id?: string
+          client_emit_id?: string
+          created_at?: string
+          emitted_at?: string
+          id?: string
+          link?: string
+          name?: string
+          pr_number?: number
+          provenance?: string
+          repository?: string
+          result?: string
+          tenant_id?: string
+          verification?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "emitted_result_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "app"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "emitted_result_tenant_app_fk"
+            columns: ["tenant_id", "app_id"]
+            isOneToOne: false
+            referencedRelation: "app"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "emitted_result_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["tenant_id"]
+          },
+        ]
+      }
       env_var: {
         Row: {
           app_id: string

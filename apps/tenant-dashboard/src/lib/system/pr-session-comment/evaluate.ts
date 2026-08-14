@@ -35,12 +35,61 @@ type EvidenceVerdict = "pass" | "flag" | "unverifiable" | "waiting";
  * member, not a refactor — which is exactly how the verification facts
  * landed: computed by the span fact layer (`lib/system/verdict`), passed in
  * already evaluated, appended to the same list the verdict derives from.
+ * The policy-era members carry a `type` discriminant because their ids are
+ * tenant-authored (any string), not a closed literal set.
  */
 export type EvidenceFact =
   | CommitProvenanceFact
   | VerificationFact
   | CustomValidationFact
   | PolicyErrorFact;
+
+/** Levels a policy may assign to a rendered fact. `off` never reaches a
+ * fact — an off validator is filtered before its fact exists. Absent means
+ * `warn` (facts recorded before policies existed carry no level). */
+type FactLevel = "warn" | "info";
+
+/**
+ * A custom validator's displayed result — evaluated by the verdict layer
+ * (`verdict/custom.ts`) from tenant-authored definitions, over the same
+ * facts the built-ins read. `class` is structurally `"amber"`: no custom
+ * validator can produce the red "can't verify" verdict, which stays
+ * reserved for the tamper-class built-ins.
+ */
+export interface CustomValidationFact {
+  type: "custom-validation";
+  /** The definition's id — tenant-authored, id characters only. */
+  id: string;
+  /** `not_checkable` renders as a row (unlike built-ins, whose absence is
+   * honest silence): a policy REQUIRES this check, so "could not check"
+   * must be visible — never a silent pass, never a false fail. */
+  status: "pass" | "flag" | "not_checkable";
+  class: "amber";
+  level: FactLevel;
+  /** The definition's `row:` copy, verbatim. Escaped by the renderer — it
+   * is tenant-authored and lands in a world-readable comment. */
+  sentence: string;
+  refs: Array<{ traceId: string; turnIndex: number | null }>;
+  /** Present when an emitted result decided the outcome — where the check
+   * ran and the run it links. */
+  source: { provenance: "ci" | "local"; link: string } | null;
+}
+
+/**
+ * The single "policy file has an error" row: broken config fails loudly at
+ * load. One fact regardless of how many problems loaded — the row names the
+ * first and counts the rest — and it flags at warn so a broken policy is
+ * always worth a look, while the rest of the comment still renders under
+ * the recommended defaults.
+ */
+export interface PolicyErrorFact {
+  type: "policy-error";
+  status: "flag";
+  class: "amber";
+  file: string;
+  problem: string;
+  additionalProblemCount: number;
+}
 
 /**
  * A verification validator's displayed result, produced by
@@ -55,42 +104,13 @@ export interface VerificationFact {
   /** `red` only for the check-bypass flag — the one verification failure
    * that makes the PR unverifiable rather than merely worth a look. */
   class: "amber" | "red";
+  /** Policy-assigned level; absent means `warn`. */
+  level?: FactLevel;
   /** The design's row copy, verbatim from the validator. */
   sentence: string;
   /** Timeline positions backing the result — turn numbers within the trace
    * they belong to, for "· turn N" suffixes and future deep links. */
   refs: Array<{ traceId: string; turnIndex: number | null }>;
-}
-
-/**
- * A user-authored validator's displayed result, produced by
- * `verdict/custom.ts` from the repo's own policy files. Amber by
- * construction: no custom can make a PR unverifiable — the red class stays
- * reserved for the engine's tamper checks.
- */
-export interface CustomValidationFact {
-  id: "custom";
-  /** The custom's own id from its policy file — the display-level key. */
-  validatorId: string;
-  status: "pass" | "flag";
-  class: "amber";
-  /** The custom's `row:` copy verbatim; a flag carries "— not proven". */
-  sentence: string;
-  refs: Array<{ traceId: string; turnIndex: number | null }>;
-}
-
-/**
- * A policy that exists but is broken — fail loudly at load, not silently at
- * check time. One row for the whole policy: the first problem by file
- * order, with the remainder counted. Never leveled: a policy cannot turn
- * off the row that reports the policy is broken.
- */
-export interface PolicyErrorFact {
-  id: "policy-error";
-  status: "flag";
-  class: "amber";
-  /** Pre-composed "file — problem" text; the renderer shows it verbatim. */
-  message: string;
 }
 
 interface CommitProvenanceFact {
@@ -101,6 +121,8 @@ interface CommitProvenanceFact {
    * "unverifiable" (reachable since the verification facts landed — a
    * check-bypass is red; provenance stays amber by design). */
   class: "amber" | "red";
+  /** Policy-assigned level; absent means `warn`. */
+  level?: FactLevel;
   /** k — PR commits matched to a recorded session commit. */
   matchedCommitCount: number;
   /** n — commits on the PR. */
@@ -136,22 +158,18 @@ interface EvaluateEvidenceInput {
    * displayed facts unchanged. Empty when spans could not be read — same
    * omission contract as an unreadable commit list. */
   verificationFacts?: readonly VerificationFact[];
-  /** User-authored validator results from the repo's policy (`verdict/custom.ts`). */
+  /** Effective per-validator levels from the base-branch policy. Applied
+   * here — `off` removes the fact entirely, `info` stamps it — so the
+   * recorded evaluation stores exactly what the policy made visible. Absent
+   * (or an id with no entry) means `warn`, today's behavior. */
+  factLevels?: Readonly<Record<string, "warn" | "info" | "off">>;
+  /** Custom validators' displayed results, already evaluated and leveled
+   * (an `off` custom never produced a result). Appended after the built-in
+   * facts, in the id order the evaluator established. */
   customFacts?: readonly CustomValidationFact[];
-  /** The policy's load failure, if any — appended after every other fact. */
+  /** The single policy-load error, when config was broken. Appended last so
+   * it never displaces a real check's row. */
   policyError?: PolicyErrorFact | null;
-  /** Display levels from the repo's policy, keyed by validator id
-   * (`validatorId` for customs). `off` drops the fact before display;
-   * `info` keeps the row but excludes its flag from the verdict; absent
-   * ids default to full participation. The policy-error fact is exempt —
-   * a policy cannot silence the row that reports it is broken. */
-  factLevels?: ReadonlyMap<string, "warn" | "info" | "off">;
-}
-
-/** The level key: built-ins by fact id, customs by their policy id. */
-function levelKeyOf(fact: EvidenceFact): string | null {
-  if (fact.id === "policy-error") return null;
-  return fact.id === "custom" ? fact.validatorId : fact.id;
 }
 
 function normalizeSha(sha: string): string {
@@ -213,6 +231,23 @@ function commitProvenanceFact(
  * The caller decides whether to render at all: a PR with no confirmed and
  * no pending links never reaches this function.
  */
+/** A fact's effective level. Policy-era facts carry it; stored pre-policy
+ * facts (and the policy-error row itself) default to `warn`. */
+function levelOf(fact: EvidenceFact): FactLevel {
+  return "level" in fact && fact.level !== undefined ? fact.level : "warn";
+}
+
+/** Applies the policy's level to one built-in fact: `off` removes it,
+ * `info` stamps it, `warn` (or no entry) leaves it untouched. */
+function leveled<F extends CommitProvenanceFact | VerificationFact>(
+  fact: F,
+  factLevels: EvaluateEvidenceInput["factLevels"],
+): F | null {
+  const level = factLevels?.[fact.id] ?? "warn";
+  if (level === "off") return null;
+  return level === "info" ? { ...fact, level } : fact;
+}
+
 export function evaluateEvidence(input: EvaluateEvidenceInput): EvidenceEvaluation {
   const { sessions, pendingLinkCount, prCommitShas } = input;
 
@@ -220,32 +255,27 @@ export function evaluateEvidence(input: EvaluateEvidenceInput): EvidenceEvaluati
     return { verdict: "waiting", facts: [], flaggedCount: 0, pendingLinkCount };
   }
 
-  const assembled: EvidenceFact[] = [];
+  const facts: EvidenceFact[] = [];
   // An empty commit list (n = 0) states nothing worth a row; an unreadable
   // one (null) must not pretend to. Both omit the fact.
   if (prCommitShas !== null && prCommitShas.length > 0) {
-    assembled.push(commitProvenanceFact(sessions, prCommitShas));
+    const provenance = leveled(commitProvenanceFact(sessions, prCommitShas), input.factLevels);
+    if (provenance !== null) facts.push(provenance);
   }
-  assembled.push(...(input.verificationFacts ?? []));
-  assembled.push(...(input.customFacts ?? []));
-
-  const levels = input.factLevels;
-  const facts = levels
-    ? assembled.filter((fact) => {
-        const key = levelKeyOf(fact);
-        return key === null || levels.get(key) !== "off";
-      })
-    : assembled;
+  for (const fact of input.verificationFacts ?? []) {
+    const applied = leveled(fact, input.factLevels);
+    if (applied !== null) facts.push(applied);
+  }
+  facts.push(...(input.customFacts ?? []));
   if (input.policyError) facts.push(input.policyError);
 
-  const flagged = facts.filter((f) => {
-    if (f.status !== "flag") return false;
-    const key = levelKeyOf(f);
-    return key === null || levels?.get(key) !== "info";
-  });
+  // Info-level facts render but never move the verdict — the level exists
+  // exactly so a team can keep a check visible without it gating anything.
+  const flagged = facts.filter((f) => f.status === "flag" && levelOf(f) !== "info");
   // The promotion rule the first slice reserved: a flagged red-class fact —
   // today, only a check-bypass — makes the PR unverifiable. Amber flags can
-  // only ever ask for a look.
+  // only ever ask for a look; custom facts are amber structurally, so no
+  // user check can reach "unverifiable".
   const verdict: EvidenceVerdict = flagged.some((f) => f.class === "red")
     ? "unverifiable"
     : flagged.length > 0

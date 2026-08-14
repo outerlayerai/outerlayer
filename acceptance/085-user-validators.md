@@ -1,9 +1,11 @@
-# User-authored validators: policy file and declarative customs
+# User-Authored Validators — Acceptance Criteria
 
-The repo-owned evidence policy behind the PR comment: which validators
-display and at what level, plus the repo's own custom validators —
-selected, leveled, and written as versioned files in the customer's
-repository, evaluated by the same fact layer as the built-ins.
+Teams choose which checks run on their PRs and write their own, as plain
+files in their repo: a policy file adopts and levels the built-in registry,
+declarative custom validators state conditions over facts the engine already
+computed, and checks that need compute run in the customer's CI and report
+in with `outerlayer emit`. The judge executes no customer code — definitions
+are data, and verdicts stay deterministic and recomputable.
 
 Each criterion below carries a stable id. The test that proves a criterion
 cites its id in a comment above the test, and
@@ -12,23 +14,40 @@ directions. Ids are written, never derived from position; never renumber.
 
 ## The policy file
 
-1. `AC-085-01` **Given** a policy file leveling validators, **When** the evaluation applies it, **Then** `off` removes the row entirely, overrides beat defaults and custom levels, and an absent policy leaves the built-in defaults unchanged.
-2. `AC-085-02` **Given** a PR, **When** its policy is read, **Then** every file comes from the PR's BASE branch — a PR editing the policy is judged under the policy it started from.
+1. `AC-085-01` **Given** a repo whose `.outerlayer/policy.yaml` extends the recommended registry and sets a built-in validator to `off`, **When** the evidence comment renders, **Then** that validator's row is absent entirely while the other enabled validators still render.
+2. `AC-085-02` **Given** a repo with no `.outerlayer/policy.yaml`, **When** the evidence comment renders, **Then** the recommended defaults apply unchanged — the same rows as before policy existed.
+3. `AC-085-03` **Given** a policy that sets a validator's level to `info`, **When** that validator flags, **Then** its row renders but the flag neither counts toward "look at N things" nor changes the verdict.
 
-## Custom validators
+## A PR cannot loosen its own evaluation
 
-3. `AC-085-03` **Given** a custom requiring `session.ran`, **When** the required command ran (through wrappers and prefixes), **Then** the row passes with the matched run's turn as its proof and the `row:` copy verbatim.
-4. `AC-085-04` **Given** a scoped custom whose required proof does not exist, **When** it evaluates, **Then** the row flags with the copy plus "not proven" — claiming only that the proof was not found.
-5. `AC-085-05` **Given** a custom scoped by `when.paths`, **When** the PR's changed files do not match — or could not be read — **Then** no row renders.
-6. `AC-085-06` **Given** a session whose capture lacks a custom's needed fact families, **When** it evaluates, **Then** no row renders — never a silent pass, never a false fail.
+4. `AC-085-04` **Given** a PR whose head sets a validator to `off` in the policy file, **When** that PR is evaluated, **Then** the policy is read from the PR's base branch and the validator's row still renders on this PR.
 
-## Load-time honesty
+## Declarative custom validators
 
-7. `AC-085-07` **Given** a policy that exists but is broken (bad YAML, an unknown preset, a dangling name), **When** the comment renders, **Then** exactly one error row names the file and the problem, the broken file contributes nothing, and the rest of the comment renders.
-8. `AC-085-08` **Given** any custom validator, **When** it flags, **Then** the flag is amber — a custom can never produce the "can't verify" verdict — and a `kind: signal` custom never renders as a validation row.
+5. `AC-085-05` **Given** a custom validator whose `when.paths` matches the PR's diff and whose `require.session.ran` matches no classified command run, **When** it evaluates, **Then** it flags — and the row copy is its `row:` field verbatim.
+6. `AC-085-06` **Given** a matching classified run for the custom's `require.session.ran` matcher, **When** it evaluates, **Then** it passes with the matched run's turn as its proof ref.
+7. `AC-085-07` **Given** a custom validator whose `when.paths` matches nothing in the PR's diff, **When** the comment renders, **Then** the validator produces no row at all.
+8. `AC-085-08` **Given** a `require.session.ran` matcher, **When** it is held against command runs, **Then** matching uses the same normalization as classification — wrapper prefixes and argument tails do not defeat a match, and the declared `status` must agree.
 
-## Levels and doctrine
+## Doctrine inherited, not re-implemented
 
-9. `AC-085-09` **Given** a validator leveled `info`, **When** it flags, **Then** the row still renders but the flag is excluded from the verdict and its count.
-10. `AC-085-10` **Given** an `emitted:` requirement, **When** its name is declared but no delivery channel exists, **Then** an unknown suppresses the row rather than flagging it — and an undeclared name is a load error, not a silent no-op.
-11. `AC-085-11` **Given** identical policy sources and sessions, **When** evaluation runs twice, **Then** the results are deeply equal.
+9. `AC-085-09` **Given** a custom validator whose `needs:` fact families were not captured for the PR's sessions, **When** it evaluates, **Then** its row states it was not checkable — never a silent pass and never a false fail.
+
+## Emitted results
+
+10. `AC-085-10` **Given** a CI step ending in `outerlayer emit <name> --link <url>`, **When** a validator declaring that emit name evaluates, **Then** the requirement is satisfied and the row carries the CI provenance and links the run.
+11. `AC-085-11` **Given** an emitted result whose name no validator declares, **When** the comment renders, **Then** the emit surfaces nothing.
+12. `AC-085-12` **Given** an `outerlayer emit <name> --link <url>` invocation from CI, **When** the emit is recorded, **Then** the stored record carries the name, the result, the link, and where it came from, anchored to the PR under evaluation.
+
+## Broken config fails loudly
+
+13. `AC-085-13` **Given** a policy or validator file with a dangling `require.validator` id, an `emitted:` name no validator declares, or an unknown `extends:`, **When** the comment renders, **Then** a single row states the policy file has an error, naming the file and the problem — and the rest of the comment still renders.
+
+## The rails
+
+14. `AC-085-14` **Given** any combination of custom validator results, **When** the verdict derives, **Then** no custom validator produces the red "can't verify" verdict — user checks cap at amber.
+15. `AC-085-15` **Given** a validator file with `kind: signal`, **When** the comment renders, **Then** it never renders as a validation row.
+
+## Determinism
+
+16. `AC-085-16` **Given** an unchanged PR under an unchanged policy, **When** the evaluation runs twice, **Then** the comment bodies are byte-identical.

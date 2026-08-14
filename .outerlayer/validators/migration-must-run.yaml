@@ -1,8 +1,10 @@
-# A schema change must be proven by an actual migration run in the session —
-# either applied directly or via a full local reset.
+# A PR that touches migrations must show the migration actually ran —
+# proven by a classified run in a recorded session, either applied
+# directly or via a full local reset. The row may only claim what the
+# matcher proves: the command ran with exit 0, nothing more.
 id: migration-must-run
 kind: validation
-row: "The migration was actually run"
+row: "Migrations ran against a local database"
 level: warn
 when:
   paths: ["apps/tenant-dashboard/supabase/migrations/**"]
@@ -10,3 +12,4 @@ require:
   any:
     - session.ran: { command: "supabase migration up", status: ok }
     - session.ran: { command: "supabase db reset", status: ok }
+needs: [tool-calls.commands]

@@ -1,163 +1,225 @@
-import type { CustomValidationFact } from "@/lib/system/pr-session-comment/evaluate";
-import { toTraceRefs } from "./evidence";
-import { extractFacts } from "./facts";
 import { normalizeCommand } from "./classify";
-import { noTestTampering, redThenGreen } from "./validators";
-import type { CustomValidator, RequireCondition } from "./policy";
-import type { Facts, RuleResult, TimelineSpan } from "./types";
+import type { CustomValidatorDef, RequirementAlt } from "./policy";
+import type { CommandRun, Facts, RuleResult } from "./types";
 
 /**
- * Evaluates a policy's custom validators against the same fact layer the
- * built-ins read. Pure and deterministic — a custom is a condition over
- * computed facts, so identical inputs always produce identical facts.
+ * Evaluates custom validators over the same fact layer the built-ins read.
+ * Pure and deterministic — same definitions, facts, diff, emitted records,
+ * and built-in results in, same results out — because a custom is only ever
+ * a condition over things the engine already proved; nothing here executes,
+ * reads clocks, or touches I/O.
  *
- * Display doctrine, inherited not reimplemented:
- *  - a custom whose `when.paths` did not match the PR produces no row;
- *  - a custom whose needed fact families were not captured produces no row
- *    (not checkable — never a silent pass, never a false fail), exactly as
- *    the built-ins omit their not-checkable results;
- *  - an `emitted:` condition evaluates as UNKNOWN while the delivery
- *    channel is unwired, and an unknown can suppress a row but never flag
- *    one — a result that had no way to arrive is not a failure;
- *  - a flag renders the row's own copy plus "not proven", claiming only
- *    that the required proof was not found.
+ * Display doctrine, inherited rather than re-implemented:
+ *  - a `when:` scope that didn't match produces NO result at all;
+ *  - a validator whose `needs` families weren't captured is `not_checkable`
+ *    — never a silent pass and never a false fail;
+ *  - a satisfied requirement passes with the proof that satisfied it (the
+ *    matched run's position, or the emitted record's source);
+ *  - user checks cap at amber structurally: no code path here can mark a
+ *    result red-class.
  */
 
-type ConditionOutcome =
-  | { state: "met"; refs: Array<{ sessionIndex: number; turnIndex: number | null }> }
-  | { state: "unmet" }
-  | { state: "unknown" };
-
-export function customValidationFacts(
-  customs: readonly CustomValidator[],
-  spans: readonly TimelineSpan[],
-  traceIds: readonly string[],
-  prFilePaths: readonly string[] | null,
-  diffAddsTests: boolean | null,
-): CustomValidationFact[] {
-  const validations = customs.filter((custom) => custom.kind === "validation");
-  if (validations.length === 0) return [];
-
-  const facts = extractFacts(spans);
-  const ctx = { diffAddsTests: diffAddsTests === true };
-  // Built-in results computed once for `require.validator` references.
-  const builtinResults = new Map<string, RuleResult>([
-    ["red-then-green", redThenGreen.evaluate(facts, ctx)],
-    ["no-test-tampering", noTestTampering.evaluate(facts, ctx)],
-  ]);
-
-  const out: CustomValidationFact[] = [];
-  for (const custom of validations) {
-    if (custom.whenPaths !== null) {
-      // An unreadable file list means the scope cannot be proven either way,
-      // so a path-scoped validator stays quiet rather than guessing.
-      if (prFilePaths === null) continue;
-      const globs = custom.whenPaths.map(globToRegExp);
-      if (!prFilePaths.some((path) => globs.some((glob) => glob.test(path)))) continue;
-    }
-    if (!custom.needs.every((family) => facts.coverage.has(family))) continue;
-
-    const outcomes = custom.require.conditions.map((condition) =>
-      evaluateCondition(condition, facts, builtinResults),
-    );
-    const met = outcomes.filter(
-      (outcome): outcome is Extract<ConditionOutcome, { state: "met" }> => outcome.state === "met",
-    );
-    const hasUnknown = outcomes.some((outcome) => outcome.state === "unknown");
-    const hasUnmet = outcomes.some((outcome) => outcome.state === "unmet");
-
-    let status: "pass" | "flag" | null;
-    let refs: Array<{ sessionIndex: number; turnIndex: number | null }>;
-    if (custom.require.mode === "any") {
-      if (met.length > 0) {
-        status = "pass";
-        refs = met[0]!.refs;
-      } else if (hasUnknown) {
-        status = null;
-        refs = [];
-      } else {
-        status = "flag";
-        refs = [];
-      }
-    } else {
-      if (hasUnmet) {
-        status = "flag";
-        refs = [];
-      } else if (hasUnknown) {
-        status = null;
-        refs = [];
-      } else {
-        status = "pass";
-        refs = met.flatMap((outcome) => outcome.refs);
-      }
-    }
-    if (status === null) continue;
-
-    out.push({
-      id: "custom",
-      validatorId: custom.id,
-      status,
-      class: "amber",
-      sentence: status === "pass" ? custom.row : `${custom.row} — not proven`,
-      refs: toTraceRefs({ refs }, traceIds),
-    });
-  }
-  return out;
+/** The latest emitted result recorded for a PR under one declared name. */
+export interface EmittedResultRecord {
+  name: string;
+  result: "pass" | "fail";
+  link: string;
+  provenance: "ci" | "local";
 }
 
-function evaluateCondition(
-  condition: RequireCondition,
-  facts: Facts,
-  builtinResults: ReadonlyMap<string, RuleResult>,
-): ConditionOutcome {
-  switch (condition.kind) {
+export interface CustomRuleResult {
+  id: string;
+  status: "pass" | "flag" | "not_checkable";
+  /** The definition's row copy, verbatim. */
+  row: string;
+  level: "warn" | "info";
+  /** Timeline positions backing the result — same shape as built-in refs. */
+  refs: Array<{ sessionIndex: number; turnIndex: number | null }>;
+  /** Present when an emitted result decided the outcome — where it came
+   * from and the run it links. */
+  source: { provenance: "ci" | "local"; link: string } | null;
+}
+
+interface EvaluateCustomsInput {
+  defs: readonly CustomValidatorDef[];
+  facts: Facts;
+  /** The PR's changed file paths; null means the list could not be read,
+   * which conservatively suppresses every path-scoped validator — the same
+   * "never approximate the diff" posture as red-then-green. */
+  changedPaths: readonly string[] | null;
+  emitted: ReadonlyMap<string, EmittedResultRecord>;
+  builtinResults: ReadonlyMap<string, Pick<RuleResult, "status" | "refs">>;
+}
+
+/**
+ * Glob → regex for `when.paths`. Supports `**` (any depth), `*` (within one
+ * segment), and `?`; everything else matches literally. Anchored both ends —
+ * a glob names paths, not substrings.
+ */
+export function pathGlobToRegExp(glob: string): RegExp {
+  let out = "^";
+  for (let i = 0; i < glob.length; i += 1) {
+    const char = glob[i]!;
+    if (char === "*") {
+      if (glob[i + 1] === "*") {
+        out += ".*";
+        i += 1;
+      } else {
+        out += "[^/]*";
+      }
+    } else if (char === "?") {
+      out += "[^/]";
+    } else {
+      out += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`${out}$`);
+}
+
+/**
+ * Whether a matcher's command names this run. Both sides go through the same
+ * normalization the classifier applies, so wrapper prefixes (`cd x &&`,
+ * `npx`, env assignments) never defeat a match — and the match is
+ * whole-word-prefix, so `command: "playwright"` matches `playwright test e2e`
+ * while never matching `playwright-report-server`.
+ */
+function commandMatchesRun(matcherCommand: string, run: CommandRun): boolean {
+  const wanted = normalizeCommand(matcherCommand);
+  if (wanted === "") return false;
+  return run.normalized === wanted || run.normalized.startsWith(`${wanted} `);
+}
+
+type AltOutcome =
+  | { kind: "pass"; refs: CustomRuleResult["refs"]; source: CustomRuleResult["source"] }
+  | { kind: "fail"; source: CustomRuleResult["source"] }
+  | { kind: "not_checkable" };
+
+function evaluateAlt(
+  alt: RequirementAlt,
+  input: EvaluateCustomsInput,
+  customResults: ReadonlyMap<string, CustomRuleResult>,
+): AltOutcome {
+  switch (alt.type) {
     case "session-ran": {
-      const wanted = normalizeCommand(condition.command);
-      const run = facts.runs.find(
-        (candidate) =>
-          candidate.status === "ok" &&
-          candidate.testResult !== "fail" &&
-          (candidate.normalized === wanted || candidate.normalized.startsWith(`${wanted} `)),
+      if (!input.facts.coverage.has("commands")) return { kind: "not_checkable" };
+      const match = input.facts.runs.find(
+        (run) => run.status === alt.status && commandMatchesRun(alt.command, run),
       );
-      if (!run) return { state: "unmet" };
-      return { state: "met", refs: [{ sessionIndex: run.sessionIndex, turnIndex: run.turnIndex }] };
+      if (!match) return { kind: "fail", source: null };
+      return {
+        kind: "pass",
+        refs: [{ sessionIndex: match.sessionIndex, turnIndex: match.turnIndex }],
+        source: null,
+      };
     }
     case "validator": {
-      const result = builtinResults.get(condition.id);
-      if (!result || result.status === "not_checkable") return { state: "unknown" };
-      // A required validator that is merely absent is an ask without its
-      // proof — unmet, exactly like a command that never ran.
-      if (result.status === "pass") return { state: "met", refs: result.refs };
-      return { state: "unmet" };
+      // Parse-time resolution guarantees the id names a loaded validator and
+      // the reference graph is acyclic, so DFS evaluation order has already
+      // VISITED the referenced validator — but a visit may have produced no
+      // result (its `when:` scope missed this PR, or it is leveled off).
+      // With the referenced check not running, this requirement can be
+      // answered in neither direction: not checkable, not a failure.
+      const referenced =
+        input.builtinResults.get(alt.id) ??
+        (customResults.has(alt.id)
+          ? { status: customResults.get(alt.id)!.status, refs: customResults.get(alt.id)!.refs }
+          : undefined);
+      if (referenced === undefined || referenced.status === "not_checkable") {
+        return { kind: "not_checkable" };
+      }
+      // Requiring a validator converts its absence into a failure: "absent"
+      // is honest silence for an opportunistic check, but a policy that
+      // REQUIRES the proof is exactly a demand that it exist.
+      if (referenced.status !== "pass") return { kind: "fail", source: null };
+      return { kind: "pass", refs: [...referenced.refs], source: null };
     }
-    case "emitted":
-      return { state: "unknown" };
+    case "emitted": {
+      const record = input.emitted.get(alt.name);
+      // The emitted-record channel is always checkable — the store was read;
+      // an empty answer means the check never reported, which is a failure
+      // of the requirement, not an unknown.
+      if (record === undefined) return { kind: "fail", source: null };
+      const source = { provenance: record.provenance, link: record.link };
+      if (record.result !== "pass") return { kind: "fail", source };
+      return { kind: "pass", refs: [], source };
+    }
     default: {
-      const exhaustive: never = condition;
+      const exhaustive: never = alt;
       void exhaustive;
-      return { state: "unknown" };
+      return { kind: "not_checkable" };
     }
   }
 }
 
-const REGEXP_SPECIALS = /[.+?^${}()|[\]\\]/g;
+function evaluateDef(
+  def: CustomValidatorDef,
+  input: EvaluateCustomsInput,
+  customResults: ReadonlyMap<string, CustomRuleResult>,
+): CustomRuleResult | null {
+  if (def.level === "off") return null;
 
-function escapeSegment(segment: string): string {
-  return segment
-    .split("*")
-    .map((part) => part.replace(REGEXP_SPECIALS, "\\$&"))
-    .join("[^/]*");
+  if (def.whenPaths !== null) {
+    // An unreadable diff suppresses rather than guesses; a non-matching diff
+    // means the validator simply doesn't apply to this PR.
+    if (input.changedPaths === null) return null;
+    const patterns = def.whenPaths.map(pathGlobToRegExp);
+    const applies = input.changedPaths.some((path) =>
+      patterns.some((pattern) => pattern.test(path)),
+    );
+    if (!applies) return null;
+  }
+
+  const base = { id: def.id, row: def.row, level: def.level };
+
+  if (!def.needs.every((family) => input.facts.coverage.has(family))) {
+    return { ...base, status: "not_checkable", refs: [], source: null };
+  }
+
+  // Any-of: the first passing alternative carries the proof. No pass and
+  // every alternative blind → not checkable; no pass with at least one
+  // checkable alternative → flag (the requirement was checkable and unmet).
+  const outcomes = def.requireAny.map((alt) => evaluateAlt(alt, input, customResults));
+  const pass = outcomes.find((outcome) => outcome.kind === "pass");
+  if (pass && pass.kind === "pass") {
+    return { ...base, status: "pass", refs: pass.refs, source: pass.source };
+  }
+  if (outcomes.every((outcome) => outcome.kind === "not_checkable")) {
+    return { ...base, status: "not_checkable", refs: [], source: null };
+  }
+  const failWithSource = outcomes.find(
+    (outcome) => outcome.kind === "fail" && outcome.source !== null,
+  );
+  return {
+    ...base,
+    status: "flag",
+    refs: [],
+    source: failWithSource?.kind === "fail" ? failWithSource.source : null,
+  };
 }
 
-/** `*` matches within a path segment, `**` matches across segments. The
- * subset the design's examples use — anything fancier belongs to a real
- * glob engine, adopted deliberately. */
-export function globToRegExp(glob: string): RegExp {
-  const segments = glob.split("/");
-  const pieces = segments.map((segment, index) => {
-    const isLast = index === segments.length - 1;
-    if (segment === "**") return isLast ? ".*" : "(?:[^/]+/)*";
-    return isLast ? escapeSegment(segment) : `${escapeSegment(segment)}/`;
-  });
-  return new RegExp(`^${pieces.join("")}$`);
+/**
+ * Evaluates every definition, in dependency order (a validator that
+ * references another evaluates after it — parse-time resolution guarantees
+ * the reference graph is acyclic). Results come back sorted by id, matching
+ * the definitions' own order, so rendering is deterministic.
+ */
+export function evaluateCustomValidators(input: EvaluateCustomsInput): CustomRuleResult[] {
+  const byId = new Map(input.defs.map((def) => [def.id, def]));
+  const results = new Map<string, CustomRuleResult>();
+  const evaluated = new Set<string>();
+
+  const visit = (def: CustomValidatorDef): void => {
+    if (evaluated.has(def.id)) return;
+    evaluated.add(def.id);
+    for (const alt of def.requireAny) {
+      if (alt.type !== "validator") continue;
+      const dep = byId.get(alt.id);
+      if (dep) visit(dep);
+    }
+    const result = evaluateDef(def, input, results);
+    if (result !== null) results.set(def.id, result);
+  };
+  for (const def of input.defs) visit(def);
+
+  return [...results.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
 }

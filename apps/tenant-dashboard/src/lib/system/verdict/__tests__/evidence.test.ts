@@ -5,10 +5,25 @@
  * red-then-green rather than approximating its diff gate.
  */
 import { describe, expect, it } from "vitest";
-import { verificationFacts } from "../evidence";
+import { builtinRuleResults, verificationFacts } from "../evidence";
+import { extractFacts } from "../facts";
 import type { TimelineSpan } from "../types";
 
 const TRACES = ["trace-a", "trace-b"] as const;
+
+/** Spans → displayed facts, through the same two stages the orchestrator
+ * composes: extraction, built-in evaluation, then the display bridge. An
+ * unreadable PR file list (null) arrives as ctx `diffAddsTests: false`. */
+function factsFor(
+  spans: readonly TimelineSpan[],
+  traceIds: readonly string[],
+  diffAddsTests: boolean | null,
+) {
+  const results = builtinRuleResults(extractFacts(spans), {
+    diffAddsTests: diffAddsTests === true,
+  });
+  return verificationFacts(results, traceIds);
+}
 
 function run(
   command: string,
@@ -39,7 +54,7 @@ describe("verificationFacts", () => {
       edit("src/signup/service.ts", 62, 0),
       run("vitest run", "ok", 63, 1),
     ];
-    expect(verificationFacts(spans, TRACES, true)).toEqual([
+    expect(factsFor(spans, TRACES, true)).toEqual([
       {
         id: "red-then-green",
         status: "pass",
@@ -56,7 +71,7 @@ describe("verificationFacts", () => {
   // AC-083-12
   it("carries a check-bypass through as a red-class flag", () => {
     const spans = [edit("src/a.test.ts", 1), run("git push --no-verify", "ok", 88)];
-    expect(verificationFacts(spans, TRACES, true)).toEqual([
+    expect(factsFor(spans, TRACES, true)).toEqual([
       {
         id: "no-test-tampering",
         status: "flag",
@@ -72,10 +87,10 @@ describe("verificationFacts", () => {
     const noCommands: TimelineSpan[] = [
       { sessionIndex: 0, turnIndex: 1, toolName: "Bash", status: "ok", isEdit: false },
     ];
-    expect(verificationFacts(noCommands, TRACES, true)).toEqual([]);
+    expect(factsFor(noCommands, TRACES, true)).toEqual([]);
     // Tests born green and no test files touched: both validators absent.
     const bornGreen = [edit("src/a.ts", 1), run("vitest run", "ok", 2)];
-    expect(verificationFacts(bornGreen, TRACES, true)).toEqual([]);
+    expect(factsFor(bornGreen, TRACES, true)).toEqual([]);
   });
 
   it("suppresses red-then-green when the PR file list was unreadable, without muting tampering", () => {
@@ -84,7 +99,7 @@ describe("verificationFacts", () => {
       edit("src/a.test.ts", 11),
       run("vitest run", "ok", 12),
     ];
-    const facts = verificationFacts(spans, TRACES, null);
+    const facts = factsFor(spans, TRACES, null);
     // red-then-green would pass with diffAddsTests=true; with null it must
     // not appear at all. The tampering flag (fail → test-only edit → pass)
     // needs no diff and still surfaces.
@@ -108,7 +123,7 @@ describe("verificationFacts", () => {
       edit("src/a.ts", 6, 1),
       run("vitest run", "ok", 7, 1),
     ];
-    const facts = verificationFacts(spans, ["only-trace"], true);
+    const facts = factsFor(spans, ["only-trace"], true);
     expect(facts).toEqual([
       {
         id: "red-then-green",

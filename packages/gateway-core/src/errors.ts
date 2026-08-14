@@ -53,11 +53,13 @@ export type GatewayErrorCode =
   | 'repo_branch_already_linked'
   | 'unsupported_git_provider'
   | 'webhook_registration_failed'
-  // Artifacts: emit-time failures. `session_not_found` (400) rejects
-  // a session binding whose session never synced; `nothing_to_attach` (400)
-  // rejects an emit with no anchor at all (no session, PR, or git context);
-  // `artifact_content_conflict` (409) rejects a clientArtifactId retry whose
-  // content differs from the stored artifact instead of silently dropping it.
+  // Evidence emits (artifacts + emitted results): emit-time failures.
+  // `session_not_found` (400) rejects a session binding whose session never
+  // synced; `nothing_to_attach` (400) rejects an emit with no anchor (for
+  // artifacts: no session, PR, or git context; for emitted results: no
+  // resolvable repository); `artifact_content_conflict` (409) rejects a
+  // clientArtifactId retry whose content differs from the stored artifact
+  // instead of silently dropping it.
   | 'session_not_found'
   | 'nothing_to_attach'
   | 'artifact_content_conflict'

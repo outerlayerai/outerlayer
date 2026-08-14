@@ -10,6 +10,7 @@ import {
   GitHubProvider,
   type IssueCommentListResult,
   type IssueCommentResult,
+  type PullRequestBaseRefResult,
   type PullRequestCommitListResult,
   type PullRequestFileListResult,
 } from "@/lib/system/git/github/client";
@@ -21,18 +22,23 @@ import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-k
 import {
   evaluateEvidence,
   type CustomValidationFact,
-  type PolicyErrorFact,
   type VerificationFact,
 } from "./evaluate";
-import { customValidationFacts } from "@/lib/system/verdict/custom";
-import { parseEvidencePolicy } from "@/lib/system/verdict/policy";
-import { readPolicySource } from "@/lib/system/verdict/policy-source";
-import type { TimelineSpan } from "@/lib/system/verdict/types";
 import { isTestFilePath } from "@/lib/system/verdict/classify";
-import { verificationFacts } from "@/lib/system/verdict/evidence";
+import { evaluateCustomValidators, type EmittedResultRecord } from "@/lib/system/verdict/custom";
+import {
+  builtinRuleResults,
+  customValidationFacts,
+  policyErrorFact,
+  verificationFacts,
+} from "@/lib/system/verdict/evidence";
+import { extractFacts } from "@/lib/system/verdict/facts";
+import { defaultPolicy, parsePolicy, type LoadedPolicy } from "@/lib/system/verdict/policy";
 import { readVerificationSpans } from "@/lib/system/verdict/span-source";
 import { LinksUnreadableError, LINKS_UNREADABLE_REASON, readLinkedSessions } from "./read";
 import { readPrArtifacts } from "./artifacts-read";
+import { readPrEmittedResults } from "./emitted-read";
+import { fetchPrPolicyFiles } from "./policy-read";
 import { fetchPrProofCriteria, type CriterionRequirement } from "./criteria";
 import { recordEvidenceEvaluation } from "./record";
 import { readTopicLabels } from "./topics";
@@ -160,15 +166,18 @@ interface PrSessionCommentGithubClient {
    * PR has artifacts. Optional so a test fake can omit it; when absent, the
    * Evidence block renders artifacts without criterion proof rows. */
   getFileContent?(repo: string, path: string, ref: string): Promise<{ content: string }>;
-  /** The evidence policy is read at the PR's BASE branch (a PR must not be
-   * judged under its own policy edits). Optional with `listDirectory`: a
-   * fake omitting either simply gets the built-in defaults. */
-  getPullRequestBaseBranch?(repo: string, prNumber: number): Promise<string | null>;
+  /** The PR's base branch — the policy read's anchor (`policy-read.ts`): a
+   * PR must not be able to loosen its own evaluation, so policy files load
+   * from the base, never the head. Optional so a test fake can omit it;
+   * when absent (or not `ok`), the recommended defaults apply. */
+  getPullRequestBaseRef?(repo: string, prNumber: number): Promise<PullRequestBaseRefResult>;
+  /** Validators-directory listing for the policy read. Same optionality
+   * contract as `getPullRequestBaseRef`. */
   listDirectory?(
     repo: string,
     path: string,
     ref: string,
-  ): Promise<Array<{ path: string; name: string; type: string }>>;
+  ): Promise<Array<{ path: string; name: string; type: "file" | "dir" }>>;
 }
 
 interface RefreshPrSessionCommentDeps {
@@ -700,61 +709,92 @@ export async function refreshPrSessionComment(
       }
     }
 
+    // The policy under which this PR is judged, read from its BASE branch —
+    // a PR that edits the policy is evaluated under the policy it started
+    // from, so no PR can waive its own checks. Absent files mean the
+    // recommended defaults; a transient read failure degrades to the same
+    // defaults (checking the usual set beats failing the comment), while a
+    // BROKEN policy parses into problems and renders a loud error row.
+    let policy: LoadedPolicy = defaultPolicy();
+    if (
+      rows.length > 0 &&
+      githubClient.getPullRequestBaseRef &&
+      githubClient.getFileContent &&
+      githubClient.listDirectory
+    ) {
+      try {
+        const base = await githubClient.getPullRequestBaseRef(repository, prNumber);
+        if (base.status === "ok") {
+          const files = await fetchPrPolicyFiles(
+            {
+              getFileContent: githubClient.getFileContent.bind(githubClient),
+              listDirectory: githubClient.listDirectory.bind(githubClient),
+            },
+            repository,
+            base.baseRef,
+          );
+          policy = parsePolicy(files.policyFile, files.validatorFiles);
+          if (files.problems.length > 0) {
+            policy = { ...policy, problems: [...files.problems, ...policy.problems] };
+          }
+        }
+      } catch (error) {
+        // Fail-open by design for the BUILT-INS (defaults mean more checks,
+        // not fewer) — but a repo's custom checks silently stop running for
+        // this refresh, so the degradation must at least be visible in logs.
+        await serverLogger.error(error instanceof Error ? error : new Error(String(error)), {
+          context:
+            "[pr-session-comment] policy read failed — recommended defaults apply this refresh",
+          event: "pr_session_comment.policy_unreadable",
+          tenantId,
+          repository,
+          prNumber,
+        });
+        policy = defaultPolicy();
+      }
+    }
+
+    // Emitted results are read only when some custom validator can consume
+    // one — an emit no validator declares surfaces nothing, and the cheapest
+    // way to honor that is to never fetch for a policy with no emitted
+    // requirements.
+    let emitted: ReadonlyMap<string, EmittedResultRecord> = new Map();
+    const wantsEmitted = policy.customs.some((custom) =>
+      custom.requireAny.some((alt) => alt.type === "emitted"),
+    );
+    if (wantsEmitted) {
+      emitted = await readPrEmittedResults({ tenantId, repository, prNumber });
+    }
+
     // Verification facts: session tool-call timelines through the span fact
-    // layer. Reuses the same ClickHouse seam as the reads above; when it is
+    // layer, plus the policy's custom validators over the same extracted
+    // facts. Reuses the same ClickHouse seam as the reads above; when it is
     // unavailable the facts are simply absent — the same omission contract
     // as an unreadable commit list.
     let verification: VerificationFact[] = [];
-    let spans: TimelineSpan[] = [];
-    const diffAddsTests =
-      prFiles === null
-        ? null
-        : prFiles.some(
-            (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
-          );
-    if (rows.length > 0 && chQuery) {
-      spans = await readVerificationSpans(chQuery, traceIds);
-      verification = verificationFacts(spans, traceIds, diffAddsTests);
-    }
-
-    // The repo's own evidence policy: which validators display and at what
-    // level, plus its custom validators. Read at the BASE branch; any
-    // failure to read degrades to the built-in defaults — a config-error
-    // row is reserved for a policy that exists but is broken.
     let customFacts: CustomValidationFact[] = [];
-    let policyError: PolicyErrorFact | null = null;
-    let factLevels: ReadonlyMap<string, "warn" | "info" | "off"> | undefined;
-    if (rows.length > 0) {
-      try {
-        const policySource = await readPolicySource(githubClient, repository, prNumber);
-        if (policySource) {
-          const policy = parseEvidencePolicy(policySource);
-          factLevels = policy.levels;
-          customFacts = customValidationFacts(
-            policy.customs,
-            spans,
-            traceIds,
-            prFiles === null ? null : prFiles.map((file) => file.filename),
-            diffAddsTests,
-          );
-          if (policy.errors.length > 0) {
-            const first = policy.errors[0]!;
-            const remainder = policy.errors.length - 1;
-            policyError = {
-              id: "policy-error",
-              status: "flag",
-              class: "amber",
-              message:
-                `\`${first.file}\` — ${first.message}` +
-                (remainder > 0 ? ` (and ${remainder} more)` : ""),
-            };
-          }
-        }
-      } catch {
-        customFacts = [];
-        policyError = null;
-        factLevels = undefined;
-      }
+    if (rows.length > 0 && chQuery) {
+      const diffAddsTests =
+        prFiles === null
+          ? null
+          : prFiles.some(
+              (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
+            );
+      const spans = await readVerificationSpans(chQuery, traceIds);
+      const facts = extractFacts(spans);
+      const builtins = builtinRuleResults(facts, { diffAddsTests: diffAddsTests === true });
+      verification = verificationFacts(builtins, traceIds);
+      // The scope filter sees every changed path regardless of change kind —
+      // deleting a migration touches migrations exactly as adding one does.
+      const changedPaths = prFiles === null ? null : prFiles.map((file) => file.filename);
+      const customResults = evaluateCustomValidators({
+        defs: policy.customs,
+        facts,
+        changedPaths,
+        emitted,
+        builtinResults: builtins,
+      });
+      customFacts = customValidationFacts(customResults, traceIds);
     }
 
     // Criterion proof requirements come from the PR's own changed acceptance
@@ -779,9 +819,9 @@ export async function refreshPrSessionComment(
       pendingLinkCount,
       prCommitShas,
       verificationFacts: verification,
+      factLevels: policy.levels,
       customFacts,
-      policyError,
-      ...(factLevels ? { factLevels } : {}),
+      policyError: policyErrorFact(policy.problems),
     });
     // Recorded at evaluation time, before the GitHub write and regardless of
     // its outcome — a verdict on a not-yet-permitted installation is still a
