@@ -31,18 +31,40 @@ const MIN_SHA_PREFIX_LENGTH = 7;
 type EvidenceVerdict = "pass" | "flag" | "unverifiable" | "waiting";
 
 /**
- * The one fact this slice computes. A discriminated union from day one so
- * the next validator lands as a new member, not a refactor.
+ * A discriminated union from day one so the next validator lands as a new
+ * member, not a refactor — which is exactly how the verification facts
+ * landed: computed by the span fact layer (`lib/system/verdict`), passed in
+ * already evaluated, appended to the same list the verdict derives from.
  */
-export type EvidenceFact = CommitProvenanceFact;
+export type EvidenceFact = CommitProvenanceFact | VerificationFact;
+
+/**
+ * A verification validator's displayed result, produced by
+ * `verdict/evidence.ts` from session tool-call timelines. Only pass/flag
+ * results become facts: an `absent` result (nothing proven, nothing wrong)
+ * and a `not_checkable` one (capture lacked command content) are omitted
+ * rather than rendered as claims either way.
+ */
+export interface VerificationFact {
+  id: "red-then-green" | "no-test-tampering";
+  status: "pass" | "flag";
+  /** `red` only for the check-bypass flag — the one verification failure
+   * that makes the PR unverifiable rather than merely worth a look. */
+  class: "amber" | "red";
+  /** The design's row copy, verbatim from the validator. */
+  sentence: string;
+  /** Timeline positions backing the result — turn numbers within the trace
+   * they belong to, for "· turn N" suffixes and future deep links. */
+  refs: Array<{ traceId: string; turnIndex: number | null }>;
+}
 
 interface CommitProvenanceFact {
   id: "commits-from-sessions";
   /** `flag` when any PR commit matched no recorded session commit. */
   status: "pass" | "flag";
   /** Amber can flag the verdict; only a red-class fact may ever produce
-   * "unverifiable". No red-class fact exists in this slice, so that verdict
-   * is currently unreachable — deliberately, per the story. */
+   * "unverifiable" (reachable since the verification facts landed — a
+   * check-bypass is red; provenance stays amber by design). */
   class: "amber" | "red";
   /** k — PR commits matched to a recorded session commit. */
   matchedCommitCount: number;
@@ -74,6 +96,11 @@ interface EvaluateEvidenceInput {
    * unreadable commit list omits the fact rather than asserting a pass or a
    * flag it cannot know. */
   prCommitShas: readonly string[] | null;
+  /** Verification results computed from session timelines by the span fact
+   * layer. Already pure and deterministic; evaluation appends them to the
+   * displayed facts unchanged. Empty when spans could not be read — same
+   * omission contract as an unreadable commit list. */
+  verificationFacts?: readonly VerificationFact[];
 }
 
 function normalizeSha(sha: string): string {
@@ -125,8 +152,8 @@ function commitProvenanceFact(
  * Verdict derivation, in precedence order:
  *   - zero confirmed sessions with pending links ⇒ `waiting` — there is
  *     nothing to judge yet, and saying so beats judging on no evidence;
- *   - any red-class fact flagged ⇒ `unverifiable` (unreachable in this
- *     slice — commit provenance is amber, and it is the only fact);
+ *   - any red-class fact flagged ⇒ `unverifiable` — today only a
+ *     verification check-bypass is red; commit provenance stays amber;
  *   - any fact flagged ⇒ `flag`;
  *   - otherwise ⇒ `pass`, meaning every DISPLAYED fact passed — never a
  *     claim about checks that could not run (an unreadable commit list
@@ -148,14 +175,17 @@ export function evaluateEvidence(input: EvaluateEvidenceInput): EvidenceEvaluati
   if (prCommitShas !== null && prCommitShas.length > 0) {
     facts.push(commitProvenanceFact(sessions, prCommitShas));
   }
+  facts.push(...(input.verificationFacts ?? []));
 
   const flagged = facts.filter((f) => f.status === "flag");
-  // No red-class fact exists in this slice, so "unverifiable" is never
-  // DERIVED here — deliberately not a dead `class === "red"` branch that no
-  // input can reach. The verdict type and the renderer's red copy stay ahead
-  // of it, so the first red-class fact lands as a promotion rule beside the
-  // fact itself, not as a copy change.
-  const verdict: EvidenceVerdict = flagged.length > 0 ? "flag" : "pass";
+  // The promotion rule the first slice reserved: a flagged red-class fact —
+  // today, only a check-bypass — makes the PR unverifiable. Amber flags can
+  // only ever ask for a look.
+  const verdict: EvidenceVerdict = flagged.some((f) => f.class === "red")
+    ? "unverifiable"
+    : flagged.length > 0
+      ? "flag"
+      : "pass";
 
   return { verdict, facts, flaggedCount: flagged.length, pendingLinkCount };
 }
