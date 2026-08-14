@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS public.pr_evidence_evaluation (
     facts JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- Candidate links still pending at evaluation time — what the waiting
     -- verdict was waiting on.
-    pending_link_count INTEGER NOT NULL DEFAULT 0,
+    pending_link_count BIGINT NOT NULL DEFAULT 0,
     evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

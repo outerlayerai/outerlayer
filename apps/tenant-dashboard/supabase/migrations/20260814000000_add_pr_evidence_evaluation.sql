@@ -10,7 +10,7 @@
     "pr_number" bigint not null,
     "verdict" text not null,
     "facts" jsonb not null default '[]'::jsonb,
-    "pending_link_count" integer not null default 0,
+    "pending_link_count" bigint not null default 0,
     "evaluated_at" timestamp with time zone not null default now()
       );
 
