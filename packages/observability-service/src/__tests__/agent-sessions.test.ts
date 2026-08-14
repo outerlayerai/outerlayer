@@ -6,6 +6,7 @@ import {
   type AgentSessionsPorts,
   type SessionAccessPolicy,
 } from '../services/agent-sessions';
+import { BATCHED_EXTRACTOR_VERSION, STEERING_EXTRACTOR_VERSION } from '@repo/trace-topics';
 import type { IClickHouseQuery } from '../client';
 import { ValidationError } from '../errors';
 import { TENANT_ID_PATTERN, TENANT_TABLE_PATTERN } from './tenant-id-guard';
@@ -431,6 +432,77 @@ describe('AgentSessionsService.getSessionDetail', () => {
         expect(call.clickhouse_settings).toEqual(AGENT_SESSIONS_QUERY_SETTINGS);
       }
     }
+  });
+
+  test('facet summaries come back in canonical facet order with a custom facet after every built-in', async () => {
+    const { client } = fakeClient({
+      byNeedle: [
+        {
+          needle: 'FROM trace_facets',
+          rows: [
+            { facet: 'churn_risk', summary: 'Customer threatened to cancel.' },
+            { facet: 'issues', summary: 'Build kept failing on a stale lockfile.' },
+            { facet: 'task', summary: 'Wire the widget into the settings page.' },
+            { facet: 'steering', summary: 'Prefer named exports over default exports.' },
+            { facet: 'sentiment', summary: 'Frustrated after three failed retries.' },
+          ],
+        },
+      ],
+      queue: [[], [rootSpan()], []],
+    });
+    const service = new AgentSessionsService(client);
+    const result = await service.getSessionDetail(
+      SCOPE,
+      'trace-1',
+      { kind: 'machine-key', canSeeTeamActors: true },
+      noopPorts(),
+    );
+    expect(result?.facetSummaries).toEqual([
+      { facet: 'task', summary: 'Wire the widget into the settings page.' },
+      { facet: 'sentiment', summary: 'Frustrated after three failed retries.' },
+      { facet: 'issues', summary: 'Build kept failing on a stale lockfile.' },
+      { facet: 'steering', summary: 'Prefer named exports over default exports.' },
+      { facet: 'churn_risk', summary: 'Customer threatened to cancel.' },
+    ]);
+  });
+
+  test('a failed facet read yields empty facetSummaries without failing the detail read', async () => {
+    const client: IClickHouseQuery = {
+      query: async (params) => {
+        if (params.query.includes('FROM trace_facets')) throw new Error('facet boom');
+        if (params.query.includes('FROM otel_traces FINAL')) return { json: async <T>() => [rootSpan()] as T[] };
+        return { json: async <T>() => [] as T[] };
+      },
+    };
+    const service = new AgentSessionsService(client);
+    const result = await service.getSessionDetail(
+      SCOPE,
+      'trace-1',
+      { kind: 'machine-key', canSeeTeamActors: true },
+      noopPorts(),
+    );
+    expect(result?.session.traceId).toBe('trace-1');
+    expect(result?.facetSummaries).toEqual([]);
+  });
+
+  test('the facet read version-pins the built-in facets and rides the resolved trace time bound', async () => {
+    const { client, calls } = fakeClient({
+      queue: [[{ start: '2026-01-01 00:00:00.000000000', end: '2026-01-01 01:00:00.000000000' }], [rootSpan()], []],
+    });
+    const service = new AgentSessionsService(client);
+    await service.getSessionDetail(
+      SCOPE,
+      'trace-1',
+      { kind: 'machine-key', canSeeTeamActors: true },
+      noopPorts(),
+    );
+    const facetCall = calls.find((c) => c.query.includes('FROM trace_facets'))!;
+    expect(facetCall.query).toContain("Facet = 'steering', {steeringExtractorVersion:UInt32}");
+    expect(facetCall.query).toContain("Facet IN ('task', 'sentiment', 'issues'), {batchedExtractorVersion:UInt32}");
+    expect(facetCall.query).toContain('AND CreatedAt >= {tsRangeStart:DateTime64(9)}');
+    expect(facetCall.query_params?.steeringExtractorVersion).toBe(STEERING_EXTRACTOR_VERSION);
+    expect(facetCall.query_params?.batchedExtractorVersion).toBe(BATCHED_EXTRACTOR_VERSION);
+    expect(facetCall.query_params?.traceId).toBe('trace-1');
   });
 
   test('a resolved trace time range with only one bound present leaves the scan unbounded', async () => {
