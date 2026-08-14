@@ -1855,7 +1855,14 @@ require:
 `,
       }),
       ...closingIssues([
-        { number: 91, title: "Fix the flaky signup", body: "", labels: [], typeName: "Bug" },
+        {
+          number: 91,
+          title: "Fix the flaky signup",
+          body: "### Validation required\n- [ ] bugs-need-repro\n",
+          labels: [],
+          typeName: "Bug",
+        },
+        { number: 92, title: "Track the cleanup", body: "", labels: [], typeName: null },
       ]),
     };
     githubClient.createIssueComment.mockResolvedValue(okComment(8200));
@@ -1871,6 +1878,12 @@ require:
 
     const body = githubClient.createIssueComment.mock.calls[0]![2];
     expect(body).toContain("✓ **The bug was reproduced before the fix** — turns 61 → 63");
+    // The ask resolves against the policy's own registry: the custom id is
+    // known, so the ask row renders proven — never a dangling-name error.
+    expect(body).toContain(
+      "✓ **The issue asked for `bugs-need-repro` — proven** · asked in #91 — turns 61 → 63",
+    );
+    expect(body).not.toContain("asks have an error");
   });
 
   // AC-086-09: a refresh re-reads the issue — an edited block is reflected
@@ -1929,7 +1942,9 @@ require:
     );
     expect(githubClient.createIssueComment.mock.calls[0]![2]).not.toMatch(/^for /m);
 
-    // A waiting PR (no confirmed rows) spends no closing-issues read.
+    // A waiting PR (no confirmed rows) spends no closing-issues read —
+    // same enabled repo, so it is the row gate short-circuiting, not the
+    // feature gate.
     seedPullRequestSessionMswState({
       links: [link({ id: "l2", app_id: "app-1", trace_id: "t2", method: "pr_link", verification: "pending" })],
     });
@@ -1938,8 +1953,9 @@ require:
       ...closingIssues([]),
     };
     waitingClient.createIssueComment.mockResolvedValue(okComment(8401));
+    waitingClient.updateIssueComment.mockResolvedValue(okComment(8401));
     await refreshPrSessionComment(
-      { tenantId: TENANT, repository: "acme/waiting", prNumber: 999 },
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
       { chQuery: fakeChQuery([]), githubClient: waitingClient },
     );
     expect(waitingClient.getPullRequestClosingIssues).not.toHaveBeenCalled();
