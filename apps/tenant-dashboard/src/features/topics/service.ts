@@ -259,7 +259,7 @@ export class TopicsService {
     // format: 'JSONEachRow') ResponseJSON/Record overloads, which is wider
     // than IClickHouseQuery's `Promise<T[]>` — every call this service makes
     // passes 'JSONEachRow', so the array shape holds at runtime.
-    this.reader = new ObservabilityTopicsService(deps.client as unknown as IClickHouseQuery, {
+    this.reader = new ObservabilityTopicsService(deps.client as IClickHouseQuery, {
       modelEnv: readTopicsModelEnv(),
       minSummariesOverride: resolveMinSummariesOverride(),
     });

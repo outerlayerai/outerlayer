@@ -74,7 +74,7 @@ const unitId = (r: { TraceId: string; ItemIndex: number }) => `${r.TraceId}:${r.
 function stubbedClusteringFetch(rows: ReturnType<typeof facetRow>[]) {
   const refundIds = rows.slice(0, 60).map(unitId);
   const loginIds = rows.slice(60, 120).map(unitId);
-  return vi.fn().mockResolvedValue(
+  return vi.fn<typeof fetch>().mockResolvedValue(
     new Response(
       JSON.stringify({
         clusters: [
@@ -126,7 +126,7 @@ describe('topic clustering writes a named map back to real ClickHouse', () => {
           embeddingDimension: 8,
         },
       }),
-      fetchFn: fetchFn as unknown as typeof fetch,
+      fetchFn,
     });
 
     const outcome = await service.generateTopics(SCOPE, 'task');
