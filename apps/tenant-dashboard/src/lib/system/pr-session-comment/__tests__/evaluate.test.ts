@@ -96,6 +96,40 @@ describe("evaluateEvidence", () => {
     expect(result.facts[0]).toMatchObject({ status: "flag", matchedCommitCount: 0 });
   });
 
+  // The guard cuts both ways: a PR-side sha below seven characters must not
+  // match either, even when a full recorded sha starts with it — without
+  // the guard, "abc12" would prefix-match into any recorded sha that
+  // happens to begin with it. Exactly seven is the floor and must match.
+  it("never matches a PR commit sha shorter than seven characters, and matches at exactly seven", () => {
+    const recorded = ["1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d"];
+
+    const tooShort = evaluateEvidence({
+      sessions: [session(recorded)],
+      pendingLinkCount: 0,
+      prCommitShas: ["1a2b3c"],
+    });
+    expect(tooShort.facts[0]).toMatchObject({ status: "flag", matchedCommitCount: 0 });
+
+    const atFloor = evaluateEvidence({
+      sessions: [session(recorded)],
+      pendingLinkCount: 0,
+      prCommitShas: ["1a2b3c4"],
+    });
+    expect(atFloor.facts[0]).toMatchObject({ status: "pass", matchedCommitCount: 1 });
+  });
+
+  // Recorded shas are transcript-derived and arrive sanitized at no hop, so
+  // stray whitespace must not defeat the match.
+  it("trims recorded shas before matching", () => {
+    const result = evaluateEvidence({
+      sessions: [session(["  1a2b3c4d  "])],
+      pendingLinkCount: 0,
+      prCommitShas: ["1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d"],
+    });
+
+    expect(result.facts[0]).toMatchObject({ status: "pass", matchedCommitCount: 1 });
+  });
+
   it("matches case-insensitively — git shas are hex, spellings vary by source", () => {
     const result = evaluateEvidence({
       sessions: [session(["1A2B3C4D"])],

@@ -29,23 +29,33 @@ interface RecordEvaluationParams {
 }
 
 /**
- * JSON with recursively sorted object keys — a canonical spelling for
- * change detection. Postgres jsonb re-orders keys at rest, so comparing
+ * Structural JSON equality, insensitive to object key ORDER but sensitive to
+ * array order. Postgres jsonb re-orders keys at rest, so comparing
  * `JSON.stringify` of a stored row against a fresh evaluation would see a
- * "change" in every key permutation and defeat the gate.
+ * "change" in every key permutation and defeat the gate — while array order
+ * is meaning (unrecorded commits are listed in PR order) and must compare
+ * strictly.
  */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
+function sameJson(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((value, i) => sameJson(value, b[i]))
+    );
   }
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`);
-    return `{${entries.join(",")}}`;
+  if (a !== null && typeof a === "object" && b !== null && typeof b === "object") {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    return (
+      aKeys.length === bKeys.length &&
+      aKeys.every((key) =>
+        sameJson((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+      )
+    );
   }
-  return JSON.stringify(value);
+  return a === b;
 }
 
 /**
@@ -81,7 +91,7 @@ export async function recordEvidenceEvaluation(
       latest !== null &&
       latest.verdict === evaluation.verdict &&
       latest.pending_link_count === evaluation.pendingLinkCount &&
-      canonicalJson(latest.facts) === canonicalJson(evaluation.facts);
+      sameJson(latest.facts, evaluation.facts);
     if (unchanged) return;
 
     const { error: insertError } = await admin.from("pr_evidence_evaluation").insert({

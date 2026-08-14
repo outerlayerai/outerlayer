@@ -163,6 +163,27 @@ describe("readLinkedSessions", () => {
     expect(result!.pendingLinkCount).toBe(1);
   });
 
+  // The candidate filter must be IN THE QUERY, not applied after the fact: a
+  // read without it walks unmatched ghosts (and anything a future state
+  // adds) into memory on every refresh. Asserted on the request URL, so a
+  // lenient fake can't make a dropped filter pass.
+  it("sends the pending+confirmed verification filter in the pull_request_session query", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    let verificationParam: string | null = null;
+    server.use(
+      http.get(`${SUPABASE_URL}/rest/v1/pull_request_session`, ({ request }) => {
+        verificationParam = new URL(request.url).searchParams.get("verification");
+        return HttpResponse.json([]);
+      }),
+    );
+
+    await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery: vi.fn() });
+
+    expect(verificationParam).toBe("in.(pending,confirmed)");
+  });
+
   it("counts pending-only links without touching ClickHouse, and never counts unmatched ones", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },

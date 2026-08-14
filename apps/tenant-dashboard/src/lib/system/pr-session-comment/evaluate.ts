@@ -150,12 +150,12 @@ export function evaluateEvidence(input: EvaluateEvidenceInput): EvidenceEvaluati
   }
 
   const flagged = facts.filter((f) => f.status === "flag");
-  const redFlagged = flagged.some((f) => f.class === "red");
-  const verdict: EvidenceVerdict = redFlagged
-    ? "unverifiable"
-    : flagged.length > 0
-      ? "flag"
-      : "pass";
+  // No red-class fact exists in this slice, so "unverifiable" is never
+  // DERIVED here — deliberately not a dead `class === "red"` branch that no
+  // input can reach. The verdict type and the renderer's red copy stay ahead
+  // of it, so the first red-class fact lands as a promotion rule beside the
+  // fact itself, not as a copy change.
+  const verdict: EvidenceVerdict = flagged.length > 0 ? "flag" : "pass";
 
   return { verdict, facts, flaggedCount: flagged.length, pendingLinkCount };
 }
