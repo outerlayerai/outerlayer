@@ -11,13 +11,17 @@ import {
   type IssueCommentListResult,
   type IssueCommentResult,
   type PullRequestCommitListResult,
+  type PullRequestFileListResult,
 } from "@/lib/system/git/github/client";
 import { tenantChQuery } from "@/lib/system/pr-session-reconciler/ch-query";
 import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 
 import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
 
-import { evaluateEvidence } from "./evaluate";
+import { evaluateEvidence, type VerificationFact } from "./evaluate";
+import { isTestFilePath } from "@/lib/system/verdict/classify";
+import { verificationFacts } from "@/lib/system/verdict/evidence";
+import { readVerificationSpans } from "@/lib/system/verdict/span-source";
 import { LinksUnreadableError, LINKS_UNREADABLE_REASON, readLinkedSessions } from "./read";
 import { recordEvidenceEvaluation } from "./record";
 import { readTopicLabels } from "./topics";
@@ -136,6 +140,10 @@ interface PrSessionCommentGithubClient {
    * a test fake can omit it; when absent (or not `ok`), the fact is omitted
    * from the evaluation rather than asserted either way. */
   listPullRequestCommits?(repo: string, prNumber: number): Promise<PullRequestCommitListResult>;
+  /** The PR's changed files — red-then-green's "does the diff add tests"
+   * input. Same optionality contract: absent or not `ok` means the rule is
+   * conservatively suppressed, never approximated. */
+  listPullRequestFiles?(repo: string, prNumber: number): Promise<PullRequestFileListResult>;
 }
 
 interface RefreshPrSessionCommentDeps {
@@ -647,7 +655,31 @@ export async function refreshPrSessionComment(
       }
     }
 
-    const evaluation = evaluateEvidence({ sessions: rows, pendingLinkCount, prCommitShas });
+    // Verification facts: session tool-call timelines through the span fact
+    // layer. Reuses the same ClickHouse seam as the reads above; when it is
+    // unavailable the facts are simply absent — the same omission contract
+    // as an unreadable commit list.
+    let verification: VerificationFact[] = [];
+    if (rows.length > 0 && chQuery) {
+      let diffAddsTests: boolean | null = null;
+      if (githubClient.listPullRequestFiles) {
+        const filesResult = await githubClient.listPullRequestFiles(repository, prNumber);
+        if (filesResult.status === "ok") {
+          diffAddsTests = filesResult.files.some(
+            (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
+          );
+        }
+      }
+      const spans = await readVerificationSpans(chQuery, traceIds);
+      verification = verificationFacts(spans, traceIds, diffAddsTests);
+    }
+
+    const evaluation = evaluateEvidence({
+      sessions: rows,
+      pendingLinkCount,
+      prCommitShas,
+      verificationFacts: verification,
+    });
     // Recorded at evaluation time, before the GitHub write and regardless of
     // its outcome — a verdict on a not-yet-permitted installation is still a
     // verdict, and the outcomes measurement needs those too. Best-effort:

@@ -30,3 +30,8 @@ directions. Ids are written, never derived from position; never renumber.
 
 9. `AC-083-09` **Given** identical inputs, **When** a validator evaluates twice, **Then** the results are deeply equal.
 10. `AC-083-10` **Given** a last test run whose scope is not provably the full suite, **When** tests-after-last-edit summarizes, **Then** the summary names the actual command instead of claiming totality.
+
+## Comment wiring
+
+11. `AC-083-11` **Given** a verification validator result of pass or flag, **When** the evidence comment renders, **Then** the result appears as a fact row using the validator's sentence verbatim with its turn refs — and absent/not_checkable results produce no row.
+12. `AC-083-12` **Given** a red-class verification flag (a check-bypass), **When** the evidence verdict derives, **Then** the verdict is "unverifiable" — while amber verification flags only ever produce "look at N things".

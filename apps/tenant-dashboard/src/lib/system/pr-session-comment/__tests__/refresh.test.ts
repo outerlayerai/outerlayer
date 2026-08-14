@@ -61,6 +61,7 @@ import type {
   IssueCommentListResult,
   IssueCommentResult,
   PullRequestCommitListResult,
+  PullRequestFileListResult,
 } from "@/lib/system/git/github/client";
 import { PR_SESSION_COMMENT_MARKER } from "../render";
 
@@ -151,12 +152,43 @@ function chRow(over: Record<string, unknown>) {
  * and the topics query (`trace_facets`) from separate row sets, dispatched
  * by a substring check on the SQL — the same seam `readLinkedSessions` and
  * `readTopicLabels` are independently tested against. */
-function fakeChQuery(sessionRows: Record<string, unknown>[], topicRows: Record<string, unknown>[] = []) {
+function fakeChQuery(
+  sessionRows: Record<string, unknown>[],
+  topicRows: Record<string, unknown>[] = [],
+  spanRows: Record<string, unknown>[] = [],
+) {
   return vi.fn(async (sql: string) => {
     if (sql.includes("agent_session_summary")) return sessionRows;
     if (sql.includes("trace_facets")) return topicRows;
+    if (sql.includes("otel_traces")) return spanRows;
     return [];
   });
+}
+
+/** A tool-call span row as `readVerificationSpans` reads it — Input carries
+ * the ingest envelope whose content is the agent's own tool input (for Bash,
+ * itself JSON with a `command` key). */
+function spanRow(
+  traceId: string,
+  turnIndex: number,
+  tool: { command?: string; file?: string; status?: string; output?: string },
+) {
+  const metadata: Record<string, string> = {
+    turnIndex: String(turnIndex),
+    toolName: tool.file ? "Edit" : "Bash",
+    toolStatus: tool.status ?? "ok",
+    ...(tool.file ? { isEdit: "1", file: tool.file } : {}),
+  };
+  return {
+    TraceId: traceId,
+    SpanName: `agent.tool.${metadata["toolName"]}`,
+    StatusMessage: tool.status === "error" ? "assertion failed" : "",
+    Input: tool.command
+      ? JSON.stringify([{ role: "user", content: JSON.stringify({ command: tool.command }) }])
+      : "",
+    Output: tool.output ?? "",
+    Metadata: metadata,
+  };
 }
 
 function fakeGithubClient() {
@@ -176,6 +208,13 @@ function fakeGithubClient() {
     listPullRequestCommits:
       vi.fn<(repo: string, prNumber: number) => Promise<PullRequestCommitListResult>>(
         async () => ({ status: "ok", commits: [] }),
+      ),
+    /** Red-then-green's diff gate. Defaults to an empty file list — no test
+     * files added, so the rule stays conservatively quiet unless a test
+     * seeds real files. */
+    listPullRequestFiles:
+      vi.fn<(repo: string, prNumber: number) => Promise<PullRequestFileListResult>>(
+        async () => ({ status: "ok", files: [] }),
       ),
   };
 }
@@ -1418,5 +1457,76 @@ describe("refreshPrSessionComment", () => {
       claimed_at: null,
       needs_refresh: false,
     });
+  });
+
+  // AC-083-11: the full production path — span rows read back through the
+  // ClickHouse seam, evaluated by the fact layer, rendered as comment rows
+  // with the validator's sentence verbatim and the backing turns.
+  it("renders verification rows from session tool-call spans", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [
+        { filename: "src/lib/system/verdict/__tests__/evidence.test.ts", changeStatus: "added" },
+        { filename: "src/lib/system/verdict/evidence.ts", changeStatus: "modified" },
+      ],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [
+            spanRow("t1", 61, { command: "vitest run", status: "error" }),
+            spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+            spanRow("t1", 63, { command: "vitest run" }),
+          ],
+        ),
+        githubClient,
+      },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("Everything checks out");
+    expect(body).toContain("✓ **New tests failed first, then passed** — turns 61 → 63");
+  });
+
+  // AC-083-12: a bypassed git command in the session voids the verdict —
+  // the comment opens with the red "can't verify" copy, not an amber ask.
+  it("derives the unverifiable verdict from a check-bypass span", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [
+            spanRow("t1", 12, { file: "src/lib/a.test.ts" }),
+            spanRow("t1", 88, { command: "git push --no-verify" }),
+          ],
+        ),
+        githubClient,
+      },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("We can't verify this PR");
+    expect(body).toContain("✕ **A git command skipped the repo's checks** — turn 88");
   });
 });

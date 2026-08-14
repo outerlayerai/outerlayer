@@ -310,8 +310,23 @@ function factLine(fact: EvidenceFact): string {
       const list = remainder > 0 ? `${named.join(", ")} …and ${remainder} more` : named.join(", ");
       return `⚠ ${sentence} — unrecorded: ${list}`;
     }
+    case "red-then-green":
+    case "no-test-tampering": {
+      // The sentence is the validator's summary verbatim — the row may only
+      // claim what the matcher proved, so no copy is added here. ✕ is
+      // reserved for red-class facts (the ones that void the verdict).
+      const mark = fact.status === "pass" ? "✓" : fact.class === "red" ? "✕" : "⚠";
+      const turns = fact.refs
+        .map((ref) => ref.turnIndex)
+        .filter((turn): turn is number => turn !== null);
+      const suffix =
+        turns.length === 0
+          ? ""
+          : ` — ${turns.length === 1 ? `turn ${turns[0]}` : `turns ${turns.join(" → ")}`}`;
+      return `${mark} **${fact.sentence}**${suffix}`;
+    }
     default: {
-      const exhaustive: never = fact.id;
+      const exhaustive: never = fact;
       void exhaustive;
       return "";
     }
