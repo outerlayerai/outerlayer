@@ -317,14 +317,16 @@ CREATE POLICY "gateway_tenant_read_context_snapshot" ON public.context_snapshot
 
 -- -----------------------------------------------------------------------------
 -- PR outcomes + actor names (public.membership, public.profile,
--- public.pull_request, public.pull_request_session) — read-only, for the
--- `prOutcomes` and `actorNames` ports an API-key caller's session reads build
+-- public.pull_request_session) — read-only, for the `prOutcomes` and
+-- `actorNames` ports an API-key caller's session reads build
 -- (packages/gateway-core/src/lib/pr-outcomes.ts,
 -- packages/gateway-core/src/openapi/routes/sessions.ts). Without these, every
 -- query under the `gateway` role fails RLS and the caller silently gets
 -- "no PR outcome" / "no actor name" for every session — permission
 -- enforcement (session.read) happens at the Hono middleware layer, matching
--- every other table in this file.
+-- every other table in this file. public.pull_request, which these ports also
+-- read, already carries its gateway grant + gateway_tenant_read_pull_request
+-- policy in the artifact block above.
 -- -----------------------------------------------------------------------------
 GRANT SELECT ON public.membership TO gateway;
 
@@ -350,12 +352,6 @@ CREATE POLICY "gateway_tenant_read_profile" ON public.profile
           AND (m.status)::text = 'active'::text
       )
     );
-
-GRANT SELECT ON public.pull_request TO gateway;
-
-CREATE POLICY "gateway_tenant_read_pull_request" ON public.pull_request
-    FOR SELECT TO gateway
-    USING (tenant_id = public.tenant_id());
 
 GRANT SELECT ON public.pull_request_session TO gateway;
 
