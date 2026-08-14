@@ -74,6 +74,8 @@ validators:
         row: "The migration was actually run",
         level: "warn",
         whenPaths: ["supabase/migrations/**"],
+        whenIssueType: null,
+        whenIssueLabels: null,
         require: {
           mode: "any",
           conditions: [{ kind: "session-ran", command: "supabase migration up" }],
@@ -203,7 +205,6 @@ require:
       [`id: x\nrow: "r"\nwhen: 5\n${REQUIRE}`, "`when` must be a mapping"],
       [`id: x\nrow: "r"\nwhen:\n  paths: "x"\n${REQUIRE}`, "`when.paths` must be a list of non-empty path globs"],
       [`id: x\nrow: "r"\nwhen:\n  paths: [""]\n${REQUIRE}`, "`when.paths` must be a list of non-empty path globs"],
-      [`id: x\nrow: "r"\nwhen:\n  issue.type: bug\n${REQUIRE}`, "`when.issue.type` is not supported yet — only `when.paths`"],
       [`id: x\nrow: "r"\nrun: { where: local, emit: a }\n${REQUIRE}`, "`run` must be `{ where: ci, emit: <name> }`"],
       [`id: x\nrow: "r"\nrun: { where: ci, emit: "Bad Name" }\n${REQUIRE}`, "`run.emit` must be a dotted lowercase name (like `smoke.pass`)"],
       [`id: x\nrow: "r"\nneeds: commands\n${REQUIRE}`, "`needs` must be a list"],
@@ -289,6 +290,8 @@ require:
         row: "Proven twice",
         level: "off",
         whenPaths: null,
+        whenIssueType: null,
+        whenIssueLabels: null,
         require: {
           mode: "all",
           conditions: [
@@ -300,6 +303,39 @@ require:
       },
     ]);
     expect(policy.levels.get("x")).toEqual("off");
+  });
+
+  // AC-086-05
+  it("parses issue-context scopes and rejects malformed ones exactly", () => {
+    const policy = parseEvidencePolicy({
+      policyYaml: null,
+      validatorFiles: [
+        file(
+          "v.yaml",
+          `id: bugs-need-repro
+row: "The bug was reproduced before the fix"
+when:
+  issue.type: Bug
+  issue.labels: [regression, incident]
+require:
+  validator: red-then-green
+`,
+        ),
+      ],
+    });
+    expect(policy.errors).toEqual([]);
+    expect(policy.customs[0]!.whenIssueType).toEqual("Bug");
+    expect(policy.customs[0]!.whenIssueLabels).toEqual(["regression", "incident"]);
+
+    const bad: Array<[string, string]> = [
+      [`id: x\nrow: "r"\nwhen:\n  issue.type: ""\nrequire:\n  session.ran: { command: "t" }`, "`when.issue.type` must be a non-empty string"],
+      [`id: x\nrow: "r"\nwhen:\n  issue.labels: []\nrequire:\n  session.ran: { command: "t" }`, "`when.issue.labels` must be a non-empty list of label names"],
+      [`id: x\nrow: "r"\nwhen:\n  branch: main\nrequire:\n  session.ran: { command: "t" }`, "`when.branch` is not supported yet — only `when.paths`, `when.issue.type`, and `when.issue.labels`"],
+    ];
+    for (const [content, expected] of bad) {
+      const parsed = parseEvidencePolicy({ policyYaml: null, validatorFiles: [file("v.yaml", content)] });
+      expect(parsed.errors).toEqual([{ file: "v.yaml", message: expected }]);
+    }
   });
 
   // AC-085-11

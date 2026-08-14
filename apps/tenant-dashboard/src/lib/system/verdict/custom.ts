@@ -28,12 +28,21 @@ type ConditionOutcome =
   | { state: "unmet" }
   | { state: "unknown" };
 
+/** The PR's linked-issue context for `when.issue.*` scoping — the union
+ * across every linked issue (the PR is the unit). `null` means no linked
+ * issue (or the read was unavailable): scoped validators do not apply. */
+export interface IssueScopeContext {
+  typeNames: readonly string[];
+  labels: readonly string[];
+}
+
 export function customValidationFacts(
   customs: readonly CustomValidator[],
   spans: readonly TimelineSpan[],
   traceIds: readonly string[],
   prFilePaths: readonly string[] | null,
   diffAddsTests: boolean | null,
+  issueContext: IssueScopeContext | null = null,
 ): CustomValidationFact[] {
   const validations = customs.filter((custom) => custom.kind === "validation");
   if (validations.length === 0) return [];
@@ -48,6 +57,23 @@ export function customValidationFacts(
 
   const out: CustomValidationFact[] = [];
   for (const custom of validations) {
+    if (custom.whenIssueType !== null || custom.whenIssueLabels !== null) {
+      if (issueContext === null) continue;
+      if (
+        custom.whenIssueType !== null &&
+        !issueContext.typeNames.some(
+          (name) => name.toLowerCase() === custom.whenIssueType!.toLowerCase(),
+        )
+      ) {
+        continue;
+      }
+      if (
+        custom.whenIssueLabels !== null &&
+        !custom.whenIssueLabels.some((wanted) => issueContext.labels.includes(wanted))
+      ) {
+        continue;
+      }
+    }
     if (custom.whenPaths !== null) {
       // An unreadable file list means the scope cannot be proven either way,
       // so a path-scoped validator stays quiet rather than guessing.

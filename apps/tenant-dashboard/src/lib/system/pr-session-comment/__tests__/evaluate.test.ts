@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import {
   evaluateEvidence,
   type CustomValidationFact,
+  type IssueAskFact,
   type PolicyErrorFact,
   type VerificationFact,
 } from "../evaluate";
@@ -414,5 +415,53 @@ describe("evaluateEvidence with policy facts and levels", () => {
     });
     expect(result.facts).toEqual([]);
     expect(result.verdict).toBe("pass");
+  });
+});
+
+describe("evaluateEvidence with issue asks", () => {
+  const ask = (status: IssueAskFact["status"]): IssueAskFact => ({
+    id: "issue-ask",
+    status,
+    class: "amber",
+    sentence: "The issue asked for `red-then-green` — not proven",
+    issueNumber: 91,
+    refs: [],
+  });
+
+  // AC-086-03: an unmet ask asks for a look; it can never void the verdict.
+  it("counts an unmet ask as an amber flag, never unverifiable", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      issueAskFacts: [ask("flag")],
+    });
+    expect(result.verdict).toBe("flag");
+    expect(result.flaggedCount).toBe(1);
+    expect(result.facts).toEqual([ask("flag")]);
+  });
+
+  // AC-086-04: asks are exempt from leveling — issues tighten, policy
+  // cannot mute what an issue demanded.
+  it("never levels an ask off or down", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      issueAskFacts: [ask("flag")],
+      issueAskError: {
+        id: "issue-ask-error",
+        status: "flag",
+        class: "amber",
+        message: '#91 "ghost" — "ghost" does not name a validator',
+      },
+      factLevels: new Map([
+        ["issue-ask", "off"],
+        ["issue-ask-error", "off"],
+      ]),
+    });
+    expect(result.facts).toHaveLength(2);
+    expect(result.flaggedCount).toBe(2);
+    expect(result.verdict).toBe("flag");
   });
 });

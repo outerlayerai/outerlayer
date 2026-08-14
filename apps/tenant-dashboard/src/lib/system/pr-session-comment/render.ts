@@ -108,6 +108,12 @@ const DEFAULT_SOURCE_TAG = "pr-comment";
 export interface RenderEvidence {
   artifacts: PrArtifactRow[];
   criteria: CriterionRequirement[];
+  /** The PR's declared closing issues — the spec the comment names in its
+   * header. Absent or empty renders no issue line, never a guess. */
+  issues?: Array<{ number: number; title: string }>;
+  /** `proof: test` citations: criterion id → the changed test file at the
+   * PR head that cites it. */
+  testCitations?: ReadonlyMap<string, string>;
 }
 
 /** Artifacts rendered before the overflow line takes over. A PR with more
@@ -353,6 +359,12 @@ function factLine(fact: EvidenceFact): string {
     }
     case "policy-error":
       return `⚠ **The policy file has an error** — ${fact.message}`;
+    case "issue-ask": {
+      const mark = fact.status === "pass" ? "✓" : "⚠";
+      return `${mark} **${fact.sentence}** · asked in #${fact.issueNumber}${turnsSuffix(fact.refs)}`;
+    }
+    case "issue-ask-error":
+      return `⚠ **The issue's asks have an error** — ${fact.message}`;
     default: {
       const exhaustive: never = fact;
       void exhaustive;
@@ -409,7 +421,10 @@ export function renderComment(
 
   // Verdict first, metadata second, facts third — the design's reading
   // order: conclusion, context, evidence.
-  const prelude: string[] = [verdictLine(evaluation), metadataBlock(rows, links)];
+  const prelude: string[] = [verdictLine(evaluation)];
+  const issueLine = renderIssueLine(evidence?.issues ?? []);
+  if (issueLine !== null) prelude.push(issueLine);
+  prelude.push(metadataBlock(rows, links));
   const factLines = evaluation.facts.map(factLine).filter((line) => line !== "");
   if (factLines.length > 0) prelude.push(factLines.join("\n"));
 
@@ -559,7 +574,16 @@ function renderProofCell(
   criterion: CriterionRequirement,
   artifacts: PrArtifactRow[],
   links: RenderLinks,
+  testCitations?: ReadonlyMap<string, string>,
 ): string {
+  // A `test` proof binds spec to code: satisfied only by a changed test
+  // file at the PR head citing the id — never by an artifact. The cell
+  // claims existence of the citation, nothing about the test having run.
+  if (criterion.proofKind === "test") {
+    const citingPath = testCitations?.get(criterion.id);
+    if (citingPath !== undefined) return `cited by \`${citingPath}\``;
+    return `test required · none cites ${criterion.id}`;
+  }
   const bound = artifacts.filter((a) => a.criterionId === criterion.id);
   const matching = bound.filter((a) => a.kind === criterion.proofKind);
   if (matching.length > 0) {
@@ -633,6 +657,16 @@ function fitEvidenceTable(params: {
  * always POST, because a 422 on a byte-identical re-render is permanent for
  * that PR.
  */
+/** "for #86 — Artifacts v0" — the spec this PR answers to. GitHub
+ * autolinks the number, so no URL plumbing is needed. Multiple closing
+ * issues list number+title each; none renders nothing (never a guess). */
+function renderIssueLine(issues: ReadonlyArray<{ number: number; title: string }>): string | null {
+  if (issues.length === 0) return null;
+  const parts = issues.slice(0, 3).map((issue) => `#${issue.number} — ${issue.title.trim()}`);
+  const remainder = issues.length - parts.length;
+  return `for ${parts.join(" · ")}${remainder > 0 ? ` · and ${remainder} more` : ""}`;
+}
+
 function renderEvidence(
   evidence: RenderEvidence,
   links: RenderLinks,
@@ -658,7 +692,8 @@ function renderEvidence(
     const fittedCriteria = fitEvidenceTable({
       header: "| Criterion | Proof |\n| --------- | ----- |",
       rows: criteria.map(
-        (c) => `| ${criterionSpan(c.id)} | ${renderProofCell(c, artifacts, links)} |`,
+        (c) =>
+          `| ${criterionSpan(c.id)} | ${renderProofCell(c, artifacts, links, evidence.testCitations)} |`,
       ),
       budget: remaining - separators,
       extraOmitted: 0,

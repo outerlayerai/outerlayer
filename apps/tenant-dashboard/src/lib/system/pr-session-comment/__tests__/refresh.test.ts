@@ -1772,4 +1772,143 @@ require:
     );
     expect(body).not.toContain("more)");
   });
+
+  function closingIssues(
+    issues: Array<{
+      number: number;
+      title: string;
+      body: string;
+      labels: string[];
+      typeName: string | null;
+    }>,
+  ) {
+    return {
+      getPullRequestClosingIssues: vi.fn(async () => ({ status: "ok" as const, issues })),
+    };
+  }
+
+  const RED_GREEN_SPANS = [
+    spanRow("t1", 61, { command: "vitest run", status: "error" }),
+    spanRow("t1", 62, { file: "src/lib/a.ts" }),
+    spanRow("t1", 63, { command: "vitest run" }),
+  ];
+
+  // AC-086-01 + AC-086-02: the comment names its spec and renders the
+  // issue's asks as rows, proven by the validators' own results.
+  it("names the closing issue and proves its asks end to end", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...closingIssues([
+        {
+          number: 91,
+          title: "Fix the flaky signup",
+          body: "### Validation required\n- [ ] red-then-green\n- [ ] screenshot: Settings page renders\n",
+          labels: [],
+          typeName: null,
+        },
+      ]),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(8100));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "src/lib/a.test.ts", changeStatus: "added" }],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], RED_GREEN_SPANS), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 8100 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("for #91 — Fix the flaky signup");
+    expect(body).toContain(
+      "✓ **The issue asked for `red-then-green` — proven** · asked in #91 — turns 61 → 63",
+    );
+    expect(body).toContain(
+      "⚠ **Settings page renders — screenshot required, none attached** · asked in #91",
+    );
+    expect(body).toContain("Look at 1 thing");
+  });
+
+  // AC-086-05: an issue-type-scoped custom applies only through the linked
+  // issue's context.
+  it("applies an issue-scoped custom through the linked issue's type", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...policyMethods({
+        ".outerlayer/validators/bugs-need-repro.yaml": `id: bugs-need-repro
+kind: validation
+row: "The bug was reproduced before the fix"
+when:
+  issue.type: Bug
+require:
+  validator: red-then-green
+`,
+      }),
+      ...closingIssues([
+        { number: 91, title: "Fix the flaky signup", body: "", labels: [], typeName: "Bug" },
+      ]),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(8200));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "src/lib/a.test.ts", changeStatus: "added" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], RED_GREEN_SPANS), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("✓ **The bug was reproduced before the fix** — turns 61 → 63");
+  });
+
+  // AC-086-09: a refresh re-reads the issue — an edited block is reflected
+  // on the next render.
+  it("tracks the issue's current asks across refreshes", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const issue = {
+      number: 91,
+      title: "Fix the flaky signup",
+      body: "### Validation required\n- [ ] screenshot: Settings page renders\n",
+      labels: [] as string[],
+      typeName: null,
+    };
+    const githubClient = {
+      ...fakeGithubClient(),
+      getPullRequestClosingIssues: vi.fn(async () => ({ status: "ok" as const, issues: [issue] })),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(8300));
+    githubClient.updateIssueComment.mockResolvedValue(okComment(8300));
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+    expect(githubClient.createIssueComment.mock.calls[0]![2]).toContain(
+      "Settings page renders — screenshot required, none attached",
+    );
+
+    issue.body = "### Validation required\n- [ ] video: Full signup flow\n";
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+    const updated = githubClient.updateIssueComment.mock.calls[0]![2];
+    expect(updated).toContain("Full signup flow — video required, none attached");
+    expect(updated).not.toContain("Settings page renders");
+  });
 });
