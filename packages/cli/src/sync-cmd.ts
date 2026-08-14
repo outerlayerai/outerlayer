@@ -972,10 +972,12 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
     // -----------------------------------------------------------------------
     // spooled artifacts → POST /v1/artifacts, one per record, AFTER the
     // session batches (the gateway validates the session an artifact claims,
-    // so that session must land first). Failures never fail the sync: a
-    // record that can't upload holds the artifact watermark at its offset
+    // so that session must land first). A transient failure never fails the
+    // sync: the record holds the artifact watermark at its offset
     // (min-offset rule, like hook-exec's) and retries next run, until it is
-    // older than ARTIFACT_RETRY_MAX_AGE_MS.
+    // older than ARTIFACT_RETRY_MAX_AGE_MS. Only 401 fails the run — a bad
+    // key fails everything identically — and permanent 4xx rejects consume
+    // the record instead of retrying what cannot succeed.
     // -----------------------------------------------------------------------
     let artifactWatermarkOffset = artifactPlan.fullyConsumedOffset;
     if (artifactPlan.records.length > 0) {
