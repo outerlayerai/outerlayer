@@ -154,7 +154,7 @@ beforeEach(() => {
 });
 
 describe('sweepUnmatchedArtifactBlobs', () => {
-  // proves AC-082-08
+  // proves AC-083-08
   it('deletes an unmatched row\'s blob from both stores and stamps the row', async () => {
     batchRows = [unmatchedRow()];
 

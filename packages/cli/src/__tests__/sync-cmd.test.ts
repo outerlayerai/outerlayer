@@ -989,7 +989,7 @@ function artifactRecord(over: Record<string, unknown> = {}): Record<string, unkn
     bytes: ART_BYTES.length,
     sha256: ART_SHA,
     caption: "checkout works end to end",
-    criterionId: "AC-082-02",
+    criterionId: "AC-083-02",
     ...over,
   };
 }
@@ -1039,7 +1039,7 @@ function transcriptWithEmitCall(id: string, filename: string): void {
 }
 
 describe("runSync — artifact upload", () => {
-  // proves AC-082-02 — a spooled artifact whose session is in this run's
+  // proves AC-083-02 — a spooled artifact whose session is in this run's
   // scan uploads bound to that session with the emitting turn resolved from
   // the tool-call text; success advances the artifact watermark and removes
   // the spooled blob bytes.
@@ -1074,7 +1074,7 @@ describe("runSync — artifact upload", () => {
       bytes: ART_BYTES.length,
       sha256: ART_SHA,
       caption: "checkout works end to end",
-      criterionId: "AC-082-02",
+      criterionId: "AC-083-02",
       emittedAt: record.t,
       prNumber: 61,
       gitRepo: "github.com/x/acme",

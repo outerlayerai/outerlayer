@@ -10,25 +10,25 @@ describe("parseProofCriteria", () => {
   it("extracts id → kind pairs from proof annotations, sorted by id", () => {
     const md = [
       "# Artifacts — Acceptance Criteria",
-      "2. `AC-082-14` (proof: video) **Given** a thing, **Then** it proves.",
-      "1. `AC-082-11` (proof: screenshot) **Given** a thing, **Then** it renders.",
-      "3. `AC-082-12` **Given** no annotation, **Then** no requirement.",
+      "2. `AC-083-14` (proof: video) **Given** a thing, **Then** it proves.",
+      "1. `AC-083-11` (proof: screenshot) **Given** a thing, **Then** it renders.",
+      "3. `AC-083-12` **Given** no annotation, **Then** no requirement.",
     ].join("\n");
 
     expect(parseProofCriteria(md)).toEqual([
-      { id: "AC-082-11", proofKind: "screenshot" },
-      { id: "AC-082-14", proofKind: "video" },
+      { id: "AC-083-11", proofKind: "screenshot" },
+      { id: "AC-083-14", proofKind: "video" },
     ]);
   });
 
   it("ignores unknown kinds and keeps the first declaration of a duplicated id", () => {
     const md = [
-      "1. `AC-082-01` (proof: hologram) **Given** x, **Then** y.",
-      "2. `AC-082-02` (proof: log) **Given** x, **Then** y.",
-      "3. `AC-082-02` (proof: video) **Given** x, **Then** y.",
+      "1. `AC-083-01` (proof: hologram) **Given** x, **Then** y.",
+      "2. `AC-083-02` (proof: log) **Given** x, **Then** y.",
+      "3. `AC-083-02` (proof: video) **Given** x, **Then** y.",
     ].join("\n");
 
-    expect(parseProofCriteria(md)).toEqual([{ id: "AC-082-02", proofKind: "log" }]);
+    expect(parseProofCriteria(md)).toEqual([{ id: "AC-083-02", proofKind: "log" }]);
   });
 });
 
@@ -45,7 +45,7 @@ describe("fetchPrProofCriteria", () => {
     });
     const getFileContent = vi.fn().mockResolvedValue({
       path: "acceptance/082-artifacts.md",
-      content: "1. `AC-082-11` (proof: screenshot) **Given** x, **Then** y.",
+      content: "1. `AC-083-11` (proof: screenshot) **Given** x, **Then** y.",
       sha: "s",
       size: 1,
       encoding: "utf-8" as const,
@@ -57,7 +57,7 @@ describe("fetchPrProofCriteria", () => {
       61,
     );
 
-    expect(criteria).toEqual([{ id: "AC-082-11", proofKind: "screenshot" }]);
+    expect(criteria).toEqual([{ id: "AC-083-11", proofKind: "screenshot" }]);
     expect(getFileContent).toHaveBeenCalledTimes(1);
     expect(getFileContent).toHaveBeenCalledWith(
       "acme/app",

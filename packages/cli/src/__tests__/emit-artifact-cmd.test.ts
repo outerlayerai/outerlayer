@@ -62,7 +62,7 @@ function writeSpoolEvent(record: Record<string, unknown>): void {
 }
 
 describe("runEmitArtifact — direct upload", () => {
-  // proves AC-082-01 — the wire payload carries the client-computed identity
+  // proves AC-083-01 — the wire payload carries the client-computed identity
   // fields (sha256 of the actual bytes, media type from the extension, the
   // caption and criterion id) and NEITHER kind NOR provenance: the server
   // derives both, so a caller can never claim a stronger kind or origin.
@@ -76,7 +76,7 @@ describe("runEmitArtifact — direct upload", () => {
       quiet: true,
       env: {},
       caption: "checkout flow passes",
-      criterionId: "AC-082-01",
+      criterionId: "AC-083-01",
       pr: 7,
       ...CREDS,
       fetchImpl: acceptingFetch(calls),
@@ -101,7 +101,7 @@ describe("runEmitArtifact — direct upload", () => {
       bytes: PNG_BYTES.length,
       sha256: PNG_SHA,
       caption: "checkout flow passes",
-      criterionId: "AC-082-01",
+      criterionId: "AC-083-01",
       emittedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
       ci: false,
       prNumber: 7,
@@ -120,7 +120,7 @@ describe("runEmitArtifact — direct upload", () => {
     expect(result.output).toContain("pr #7");
   });
 
-  // proves AC-082-03 — in CI the payload self-identifies: ci true, the
+  // proves AC-083-03 — in CI the payload self-identifies: ci true, the
   // repository from the Actions env, and the PR number parsed from
   // GITHUB_REF's refs/pull/<n>/ shape.
   it("carries ci, repository, and the GITHUB_REF PR number from the CI env", async () => {
@@ -161,7 +161,7 @@ describe("runEmitArtifact — direct upload", () => {
     expect(payload.artifact.prNumber).toBe(88);
   });
 
-  // proves AC-082-04 — a plain developer machine outside any session or CI
+  // proves AC-083-04 — a plain developer machine outside any session or CI
   // still anchors to the git checkout: repo identity rides along, ci is
   // false, and there is no session (and no CI repository) field at all.
   it("anchors to the git checkout with ci false and no session", async () => {
@@ -192,7 +192,7 @@ describe("runEmitArtifact — direct upload", () => {
     }
   });
 
-  // proves AC-082-06 — with no anchor at all (no session, no CI PR context,
+  // proves AC-083-06 — with no anchor at all (no session, no CI PR context,
   // no git checkout, no --pr) the command refuses outright: nothing spools,
   // nothing uploads, and the message names every way to provide an anchor.
   it("refuses with 'nothing to attach this to' and touches nothing", async () => {
@@ -295,7 +295,7 @@ describe("runEmitArtifact — direct upload", () => {
 });
 
 describe("runEmitArtifact — spool path (inside a recorded session)", () => {
-  // proves AC-082-02 — inside a live recorded session (CLAUDECODE set and a
+  // proves AC-083-02 — inside a live recorded session (CLAUDECODE set and a
   // fresh matching events.jsonl record) the bytes spool locally, content-
   // addressed, for the next sync — and NOTHING goes over the wire.
   it("writes the spool record and the content-addressed blob, and never fetches", async () => {

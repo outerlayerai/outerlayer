@@ -2,7 +2,7 @@
  * Criterion proof requirements for the comment's Evidence section.
  *
  * The spec is the source: a criterion in `acceptance/NNN-*.md` declares the
- * form its proof must take by annotating its id — ``` `AC-082-11`
+ * form its proof must take by annotating its id — ``` `AC-083-11`
  * (proof: screenshot) ``` — and this module reads those declarations from the
  * PR's own changed acceptance files at the PR head. The renderer then holds
  * bound artifacts against them: right kind → proof link; wrong kind →

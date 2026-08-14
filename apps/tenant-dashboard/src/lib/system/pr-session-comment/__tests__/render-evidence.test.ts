@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 
 import { renderComment, type RenderLinks, type RenderEvidence } from "../render";
+import type { EvidenceEvaluation } from "../evaluate";
 import type { LinkedSessionRow } from "../read";
 import type { PrArtifactRow } from "../artifacts-read";
 
@@ -16,12 +17,21 @@ const LINKS: RenderLinks = {
   prNumber: 61,
 };
 
+const PASS_EVAL: EvidenceEvaluation = {
+  verdict: "pass",
+  facts: [],
+  flaggedCount: 0,
+  pendingLinkCount: 0,
+};
+
 const sessionRow = (traceId: string): LinkedSessionRow => ({
   traceId,
   sessionId: `s-${traceId}`,
   appId: "app-1",
   appName: "api",
   envName: "production",
+  agentType: "claude-code",
+  recordedCommitShas: [],
   method: "pr_link",
   title: "Fix flaky auth test",
   startedAt: "2026-07-10T09:00:00.000Z",
@@ -45,7 +55,7 @@ const artifact = (
 });
 
 describe("renderComment — evidence", () => {
-  // proves AC-082-11
+  // proves AC-083-11
   it("renders artifacts as links with kind, name, caption, provenance labels, and a counted summary line", () => {
     const evidence: RenderEvidence = {
       criteria: [],
@@ -75,7 +85,7 @@ describe("renderComment — evidence", () => {
       ],
     };
 
-    const body = renderComment([sessionRow("t1")], new Map(), LINKS, evidence);
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, evidence);
 
     expect(body).toContain("**Evidence** · 3 artifacts");
     expect(body).toContain(
@@ -92,10 +102,10 @@ describe("renderComment — evidence", () => {
     expect(body).toContain(") `local` | — |");
   });
 
-  // proves AC-082-12
+  // proves AC-083-12
   it("renders no Artifacts subgroup and no count when the PR has no artifacts", () => {
-    const withoutEvidence = renderComment([sessionRow("t1")], new Map(), LINKS);
-    const withEmptyEvidence = renderComment([sessionRow("t1")], new Map(), LINKS, {
+    const withoutEvidence = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL);
+    const withEmptyEvidence = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
       artifacts: [],
       criteria: [],
     });
@@ -108,9 +118,9 @@ describe("renderComment — evidence", () => {
     expect(withEmptyEvidence).toBe(withoutEvidence);
   });
 
-  // proves AC-082-13
+  // proves AC-083-13
   it("renders links only — image kinds never render inline media markup", () => {
-    const body = renderComment([], new Map(), LINKS, {
+    const body = renderComment([], new Map(), LINKS, PASS_EVAL, {
       criteria: [],
       artifacts: [
         artifact({ id: "a1", filename: "shot.png", kind: "screenshot" }),
@@ -124,16 +134,16 @@ describe("renderComment — evidence", () => {
     expect(body).toContain("[screenshot · shot.png](");
   });
 
-  // proves AC-082-14
+  // proves AC-083-14
   it("renders a kind-matching bound artifact as the criterion's proof link", () => {
-    const body = renderComment([sessionRow("t1")], new Map(), LINKS, {
-      criteria: [{ id: "AC-082-11", proofKind: "screenshot" }],
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+      criteria: [{ id: "AC-083-11", proofKind: "screenshot" }],
       artifacts: [
         artifact({
           id: "a1",
           filename: "evidence.png",
           kind: "screenshot",
-          criterionId: "AC-082-11",
+          criterionId: "AC-083-11",
           caption: "Comment with artifacts rendered",
         }),
       ],
@@ -141,13 +151,13 @@ describe("renderComment — evidence", () => {
 
     expect(body).toContain("| Criterion | Proof |");
     expect(body).toContain(
-      "| `AC-082-11` | [screenshot · evidence.png](https://app.outerlayer.example/orgs/acme/apps/api/env/production/agents/artifacts/a1?src=pr-comment) |",
+      "| `AC-083-11` | [screenshot · evidence.png](https://app.outerlayer.example/orgs/acme/apps/api/env/production/agents/artifacts/a1?src=pr-comment) |",
     );
   });
 
-  // proves AC-082-15
+  // proves AC-083-15
   it("never upgrades the wrong kind: mismatches and absences render as unmet requirements", () => {
-    const body = renderComment([sessionRow("t1")], new Map(), LINKS, {
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
       criteria: [
         { id: "REQ-video-a", proofKind: "video" },
         { id: "REQ-video-b", proofKind: "video" },
@@ -174,7 +184,7 @@ describe("renderComment — evidence", () => {
     }
   });
 
-  // proves AC-082-16
+  // proves AC-083-16
   it("escapes captions so they cannot break rows, links, or inject markup, and never renders actor-shaped fields", () => {
     const hostile = {
       ...artifact({
@@ -188,7 +198,7 @@ describe("renderComment — evidence", () => {
       transcriptSummary: "the user asked about secrets",
     } as unknown as PrArtifactRow;
 
-    const body = renderComment([sessionRow("t1")], new Map(), LINKS, {
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
       criteria: [],
       artifacts: [hostile],
     });
@@ -204,10 +214,10 @@ describe("renderComment — evidence", () => {
     expect(body).not.toContain("the user asked about secrets");
   });
 
-  // proves AC-082-17
+  // proves AC-083-17
   it("re-renders byte-identically and orders bound-to-criteria first, then by emit time", () => {
     const evidence: RenderEvidence = {
-      criteria: [{ id: "AC-082-11", proofKind: "screenshot" }],
+      criteria: [{ id: "AC-083-11", proofKind: "screenshot" }],
       artifacts: [
         artifact({
           id: "c-late-unbound",
@@ -225,14 +235,14 @@ describe("renderComment — evidence", () => {
           id: "a-bound",
           filename: "proof.png",
           kind: "screenshot",
-          criterionId: "AC-082-11",
+          criterionId: "AC-083-11",
           emittedAt: "2026-07-10T11:00:00.000Z",
         }),
       ],
     };
 
-    const first = renderComment([sessionRow("t1")], new Map(), LINKS, evidence);
-    const second = renderComment([sessionRow("t1")], new Map(), LINKS, {
+    const first = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, evidence);
+    const second = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
       criteria: [...evidence.criteria],
       artifacts: [...evidence.artifacts],
     });
@@ -246,16 +256,30 @@ describe("renderComment — evidence", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it("renders evidence beneath the empty-session state so CI-only artifacts still surface", () => {
-    const body = renderComment([], new Map(), LINKS, {
+  it("renders CI-only artifacts with no session rows, and beneath the waiting line when links are pending", () => {
+    const ciOnly = renderComment([], new Map(), LINKS, PASS_EVAL, {
       criteria: [],
       artifacts: [
         artifact({ id: "a1", filename: "ci-shot.png", kind: "screenshot", provenance: "ci" }),
       ],
     });
+    expect(ciOnly).toContain("**Evidence** · 1 artifact");
+    expect(ciOnly).toContain("[screenshot · ci-shot.png](");
+    expect(ciOnly).not.toContain("Waiting for session evidence");
 
-    expect(body).toContain("No agent sessions linked yet.");
-    expect(body).toContain("**Evidence** · 1 artifact");
-    expect(body).toContain("[screenshot · ci-shot.png](");
+    const waiting = renderComment(
+      [],
+      new Map(),
+      LINKS,
+      { verdict: "waiting", facts: [], flaggedCount: 0, pendingLinkCount: 1 },
+      {
+        criteria: [],
+        artifacts: [
+          artifact({ id: "a1", filename: "ci-shot.png", kind: "screenshot", provenance: "ci" }),
+        ],
+      },
+    );
+    expect(waiting).toContain("**⏳ Waiting for session evidence**");
+    expect(waiting).toContain("**Evidence** · 1 artifact");
   });
 });

@@ -1805,6 +1805,47 @@ export type Database = {
           },
         ]
       }
+      pr_evidence_evaluation: {
+        Row: {
+          evaluated_at: string
+          facts: Json
+          id: string
+          pending_link_count: number
+          pr_number: number
+          repository: string
+          tenant_id: string
+          verdict: string
+        }
+        Insert: {
+          evaluated_at?: string
+          facts?: Json
+          id?: string
+          pending_link_count?: number
+          pr_number: number
+          repository: string
+          tenant_id: string
+          verdict: string
+        }
+        Update: {
+          evaluated_at?: string
+          facts?: Json
+          id?: string
+          pending_link_count?: number
+          pr_number?: number
+          repository?: string
+          tenant_id?: string
+          verdict?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pr_evidence_evaluation_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["tenant_id"]
+          },
+        ]
+      }
       pr_session_comment: {
         Row: {
           claimed_at: string | null

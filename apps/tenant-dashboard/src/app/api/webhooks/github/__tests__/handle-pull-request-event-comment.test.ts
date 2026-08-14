@@ -1,10 +1,11 @@
 /**
  * handlePullRequestEvent → PR session comment refresh wiring.
  *
- * The `pull_request` webhook is the trigger that puts the "No agent sessions
- * linked yet" empty-state comment on every PR of a connected repo from the
- * moment it opens — that consistent empty slot is what makes a *missing*
- * comment mean "app not connected". Pins:
+ * The `pull_request` webhook is the trigger that gets the evidence comment
+ * onto a PR of a connected repo from the moment it opens — the waiting
+ * state while links are pending, the verdict once one confirms; a PR with
+ * no candidate links resolves to `skipped-no-links` inside the refresh and
+ * gets no comment. Pins:
  * fires on opened/reopened/synchronize only, runs AFTER reconciliation
  * (so the render picks up the links reconciliation just materialized), and
  * an unexpected rejection out of `refreshPrSessionComment` is caught and

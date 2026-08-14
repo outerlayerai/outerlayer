@@ -54,6 +54,7 @@ const chQuery = vi.fn(async (sql: string) => {
       {
         TraceId: "t1",
         Title: "Fix signup allowlist",
+        AgentType: "claude-code",
         StartedAt: "2026-07-10 09:00:00.000",
         EndedAt: "2026-07-10 09:41:00.000",
         CostUsd: 3.12,
@@ -113,10 +114,10 @@ beforeEach(() => {
 });
 
 describe("refreshPrSessionComment — evidence", () => {
-  // proves AC-082-11
+  // proves AC-083-11
   it("posts a body whose Evidence block lists the PR's artifacts and criterion proofs", async () => {
     seedArtifactMswRows([
-      artifactRow({ id: "a1", criterion_id: "AC-082-11" }),
+      artifactRow({ id: "a1", criterion_id: "AC-083-11" }),
       artifactRow({
         id: "a2",
         filename: "run.log",
@@ -134,7 +135,7 @@ describe("refreshPrSessionComment — evidence", () => {
         files: [{ path: "acceptance/082-artifacts.md", status: "added" }],
       })),
       getFileContent: vi.fn(async () => ({
-        content: "1. `AC-082-11` (proof: screenshot) **Given** x, **Then** y.",
+        content: "1. `AC-083-11` (proof: screenshot) **Given** x, **Then** y.",
       })),
     };
 
@@ -152,7 +153,7 @@ describe("refreshPrSessionComment — evidence", () => {
     );
     const body = githubClient.createIssueComment.mock.calls[0]![2];
     expect(body).toContain("**Evidence** · 2 artifacts");
-    expect(body).toContain("| `AC-082-11` | [screenshot · evidence.png](");
+    expect(body).toContain("| `AC-083-11` | [screenshot · evidence.png](");
     expect(body).toContain("[log · run.log](");
     expect(body).toContain("`ci`");
     expect(body).toContain("gate output");

@@ -10,7 +10,7 @@ import {
 } from "../artifact.js";
 
 describe("inferArtifactKind", () => {
-  // proves AC-082-09
+  // proves AC-083-09
   it("maps each recognized media type to its exact kind", () => {
     expect(inferArtifactKind("video/webm")).toBe("video");
     expect(inferArtifactKind("video/mp4")).toBe("video");
@@ -26,7 +26,7 @@ describe("inferArtifactKind", () => {
     expect(inferArtifactKind("IMAGE/PNG")).toBe("screenshot");
   });
 
-  // proves AC-082-10
+  // proves AC-083-10
   it("returns file for anything off the allowlist — never a stronger kind", () => {
     expect(inferArtifactKind("video/quicktime")).toBe("file");
     expect(inferArtifactKind("image/svg+xml")).toBe("file");
@@ -51,7 +51,7 @@ describe("mediaTypeForArtifactPath", () => {
 
 describe("ArtifactCriterionIdSchema", () => {
   it("accepts id-shaped values and rejects anything renderable as markup", () => {
-    expect(ArtifactCriterionIdSchema.safeParse("AC-082-04").success).toBe(true);
+    expect(ArtifactCriterionIdSchema.safeParse("AC-083-04").success).toBe(true);
     expect(ArtifactCriterionIdSchema.safeParse("issue:82.3").success).toBe(true);
     expect(ArtifactCriterionIdSchema.safeParse("AC 082").success).toBe(false);
     expect(ArtifactCriterionIdSchema.safeParse("[x](y)").success).toBe(false);
@@ -77,7 +77,7 @@ describe("ArtifactSpoolRecordSchema", () => {
       bytes: 1024,
       sha256: "b".repeat(64),
       caption: "Login page after fix",
-      criterionId: "AC-082-01",
+      criterionId: "AC-083-01",
     };
     const parsed = ArtifactSpoolRecordSchema.parse(record);
     expect(parsed).toEqual(record);

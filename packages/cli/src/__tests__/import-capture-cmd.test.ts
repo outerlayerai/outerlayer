@@ -31,7 +31,7 @@ function write(relPath: string, content: string): void {
 }
 
 describe("runImportCapture", () => {
-  // proves AC-082-18 — installing the capture pack in a fresh repo writes
+  // proves AC-083-18 — installing the capture pack in a fresh repo writes
   // the emitting-evidence skill (carrying the full capture contract: when
   // to capture, per-kind mechanics, captions, criterion binding, and the
   // noise rule) plus the AGENTS.md snippet reference — and never invents a

@@ -297,7 +297,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
       "Emit a proof artifact (screenshot, recording, report, log) — spooled into the active recorded session, or uploaded anchored to a PR / git checkout",
     )
     .requiredOption("--caption <text>", "what this artifact shows/proves")
-    .option("--for <criterion-id>", "acceptance-criterion id this artifact proves (e.g. AC-082-04)")
+    .option("--for <criterion-id>", "acceptance-criterion id this artifact proves (e.g. AC-083-04)")
     .option("--pr <number>", "pull request number to anchor to", (v) => parseInt(v, 10))
     .option("--json", "machine-readable JSON output")
     .option("--url <url>", "cloud base URL (or OUTERLAYER_URL / config)")
