@@ -49,6 +49,9 @@ describe("readPolicySource", () => {
 
   it("returns null when the client cannot answer or nothing is adopted", async () => {
     await expect(readPolicySource({}, REPO, 42)).resolves.toEqual(null);
+    const noReads = client({ getFileContent: undefined });
+    await expect(readPolicySource(noReads, REPO, 42)).resolves.toEqual(null);
+    expect(noReads.getPullRequestBaseBranch).not.toHaveBeenCalled();
     await expect(
       readPolicySource(client({ getPullRequestBaseBranch: vi.fn(async () => null) }), REPO, 42),
     ).resolves.toEqual(null);

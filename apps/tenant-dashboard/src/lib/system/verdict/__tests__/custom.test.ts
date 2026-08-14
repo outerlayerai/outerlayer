@@ -214,6 +214,92 @@ describe("customValidationFacts", () => {
   });
 });
 
+describe("matcher discipline", () => {
+  it("never matches a longer command that merely shares the prefix string", () => {
+    const spans = [run("supabase migration upgrade", 5)];
+    expect(customValidationFacts([custom()], spans, TRACES, MIGRATION_FILES, null)).toEqual([
+      {
+        id: "custom",
+        validatorId: "migration-must-run",
+        status: "flag",
+        class: "amber",
+        sentence: "The migration was actually run — not proven",
+        refs: [],
+      },
+    ]);
+  });
+
+  it("refuses failed runs as proof: error status and output-detected failures", () => {
+    const errored = [run("supabase migration up", 5, "error")];
+    expect(
+      customValidationFacts([custom()], errored, TRACES, MIGRATION_FILES, null)[0]!.status,
+    ).toEqual("flag");
+    const testCustom = custom({
+      id: "suite-ran",
+      row: "The suite ran",
+      whenPaths: null,
+      require: { mode: "any", conditions: [{ kind: "session-ran", command: "vitest run" }] },
+    });
+    const maskedFail: TimelineSpan[] = [
+      {
+        sessionIndex: 0,
+        turnIndex: 8,
+        toolName: "Bash",
+        status: "ok",
+        isEdit: false,
+        command: JSON.stringify({ command: "vitest run | tail -5" }),
+        output: " Tests  1 failed | 19 passed",
+      },
+    ];
+    expect(customValidationFacts([testCustom], maskedFail, TRACES, null, null)[0]!.status).toEqual(
+      "flag",
+    );
+  });
+
+  it("suppresses a validator requirement the capture cannot answer", () => {
+    const needsRepro = custom({
+      id: "bugs-need-repro",
+      row: "The bug was reproduced before the fix",
+      whenPaths: null,
+      require: { mode: "any", conditions: [{ kind: "validator", id: "red-then-green" }] },
+      needs: [],
+    });
+    // No command content captured: red-then-green is not checkable, so the
+    // requirement is unknown and the row stays quiet.
+    const noContent: TimelineSpan[] = [
+      { sessionIndex: 0, turnIndex: 1, toolName: "Bash", status: "ok", isEdit: false },
+    ];
+    expect(customValidationFacts([needsRepro], noContent, TRACES, null, true)).toEqual([]);
+  });
+
+  it("passes require.all with every proof's refs, in condition order", () => {
+    const both = custom({
+      whenPaths: null,
+      require: {
+        mode: "all",
+        conditions: [
+          { kind: "session-ran", command: "supabase migration up" },
+          { kind: "session-ran", command: "yarn ci:unit" },
+        ],
+      },
+    });
+    const spans = [run("supabase migration up", 4), run("yarn ci:unit", 9)];
+    expect(customValidationFacts([both], spans, TRACES, null, null)).toEqual([
+      {
+        id: "custom",
+        validatorId: "migration-must-run",
+        status: "pass",
+        class: "amber",
+        sentence: "The migration was actually run",
+        refs: [
+          { traceId: "trace-a", turnIndex: 4 },
+          { traceId: "trace-a", turnIndex: 9 },
+        ],
+      },
+    ]);
+  });
+});
+
 describe("globToRegExp", () => {
   it("matches within segments with * and across segments with **", () => {
     expect(globToRegExp("supabase/migrations/**").test("supabase/migrations/2026/a.sql")).toEqual(true);

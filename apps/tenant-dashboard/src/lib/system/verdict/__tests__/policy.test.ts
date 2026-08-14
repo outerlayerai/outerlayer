@@ -191,14 +191,46 @@ require:
     ]);
   });
 
-  it("rejects unsupported condition shapes with messages that name the problem", () => {
-    const cases: Array<[string, RegExp]> = [
-      [`id: x\nrow: "r"\nrequire:\n  session.ran: { command: "t", status: error }`, /supports only "ok"/],
-      [`id: x\nrow: "r"\nrequire:\n  wished: hard`, /is not a condition/],
-      [`id: x\nrow: "r"\nrequire:\n  any: []`, /non-empty list/],
-      [`id: x\nrow: "r"\nwhen:\n  issue.type: bug\nrequire:\n  session.ran: { command: "t" }`, /not supported yet/],
-      [`id: x\nrow: "r"`, /`require` is required/],
-      [`id: x\nrequire:\n  session.ran: { command: "t" }`, /`row` is required/],
+  it("rejects every malformed shape with the exact message that names the problem", () => {
+    const REQUIRE = `require:\n  session.ran: { command: "t" }`;
+    const cases: Array<[string, string]> = [
+      [`row: "r"\n${REQUIRE}`, "`id` must be a lowercase-dashed slug"],
+      [`id: Bad_Slug\nrow: "r"\n${REQUIRE}`, "`id` must be a lowercase-dashed slug"],
+      [`id: x\nkind: gate\nrow: "r"\n${REQUIRE}`, '`kind` must be "validation" or "signal", got "gate"'],
+      [`id: x\n${REQUIRE}`, "`row` is required — it is the sentence the comment renders"],
+      [`id: x\nrow: "${"y".repeat(141)}"\n${REQUIRE}`, "`row` is longer than 140 characters"],
+      [`id: x\nrow: "r"\nlevel: blocking\n${REQUIRE}`, '`level` must be warn, info, or off — got "blocking"'],
+      [`id: x\nrow: "r"\nwhen: 5\n${REQUIRE}`, "`when` must be a mapping"],
+      [`id: x\nrow: "r"\nwhen:\n  paths: "x"\n${REQUIRE}`, "`when.paths` must be a list of non-empty path globs"],
+      [`id: x\nrow: "r"\nwhen:\n  paths: [""]\n${REQUIRE}`, "`when.paths` must be a list of non-empty path globs"],
+      [`id: x\nrow: "r"\nwhen:\n  issue.type: bug\n${REQUIRE}`, "`when.issue.type` is not supported yet — only `when.paths`"],
+      [`id: x\nrow: "r"\nrun: { where: local, emit: a }\n${REQUIRE}`, "`run` must be `{ where: ci, emit: <name> }`"],
+      [`id: x\nrow: "r"\nrun: { where: ci, emit: "Bad Name" }\n${REQUIRE}`, "`run.emit` must be a dotted lowercase name (like `smoke.pass`)"],
+      [`id: x\nrow: "r"\nneeds: commands\n${REQUIRE}`, "`needs` must be a list"],
+      [`id: x\nrow: "r"\nneeds: [wishes]\n${REQUIRE}`, '`needs` entry "wishes" is not a fact family'],
+      [`id: x\nrow: "r"`, "`require` is required for a validation"],
+      [`id: x\nrow: "r"\nrequire: 5`, "`require` must be a mapping"],
+      [
+        `id: x\nrow: "r"\nrequire:\n  any: [{ session.ran: { command: "t" } }]\n  all: [{ session.ran: { command: "t" } }]`,
+        "`require` may use `any` or `all`, not both",
+      ],
+      [`id: x\nrow: "r"\nrequire:\n  all: "x"`, "`require.all` must be a non-empty list of conditions"],
+      [`id: x\nrow: "r"\nrequire:\n  any: []`, "`require.any` must be a non-empty list of conditions"],
+      [`id: x\nrow: "r"\nrequire:\n  any: [5]`, "each condition must be a mapping with one key"],
+      [
+        `id: x\nrow: "r"\nrequire:\n  any: [{ session.ran: { command: "t" }, emitted: a.b }]`,
+        "a condition takes exactly one of session.ran / validator / emitted",
+      ],
+      [`id: x\nrow: "r"\nrequire:\n  session.ran: { status: ok }`, "`session.ran` needs a `command`"],
+      [`id: x\nrow: "r"\nrequire:\n  session.ran: { command: "  " }`, "`session.ran` needs a `command`"],
+      [
+        `id: x\nrow: "r"\nrequire:\n  session.ran: { command: "t", status: error }`,
+        '`session.ran.status` supports only "ok" — got "error"',
+      ],
+      [`id: x\nrow: "r"\nrequire:\n  session.ran: { command: "t", shell: bash }`, "`session.ran.shell` is not supported yet"],
+      [`id: x\nrow: "r"\nrequire:\n  wished: hard`, '"wished" is not a condition — use session.ran, validator, or emitted'],
+      [`id: x\nrow: "r"\nrequire:\n  emitted: "Bad!"`, "`emitted` must be a dotted lowercase name (like `smoke.pass`)"],
+      [`- a\n- b`, "expected a YAML mapping at the top level"],
     ];
     for (const [content, expected] of cases) {
       const policy = parseEvidencePolicy({
@@ -206,9 +238,68 @@ require:
         validatorFiles: [file("v.yaml", content)],
       });
       expect(policy.customs).toEqual([]);
-      expect(policy.errors).toHaveLength(1);
-      expect(policy.errors[0]!.message).toMatch(expected);
+      expect(policy.errors).toEqual([{ file: "v.yaml", message: expected }]);
     }
+  });
+
+  it("rejects malformed policy files with exact messages, and accepts empty ones", () => {
+    const policyCases: Array<[string, string]> = [
+      [`- a`, "expected a YAML mapping at the top level"],
+      [`validators: [a, b]`, "`validators` must map validator ids to levels"],
+      [`validators:\n  red-then-green: 5`, '`validators.red-then-green` must be warn, info, or off — got "5"'],
+    ];
+    for (const [content, expected] of policyCases) {
+      const policy = parseEvidencePolicy({
+        policyYaml: file(".outerlayer/policy.yaml", content),
+        validatorFiles: [],
+      });
+      expect(policy.errors).toEqual([{ file: ".outerlayer/policy.yaml", message: expected }]);
+    }
+    const empty = parseEvidencePolicy({
+      policyYaml: file(".outerlayer/policy.yaml", "# nothing adopted yet\n"),
+      validatorFiles: [],
+    });
+    expect(empty.errors).toEqual([]);
+    expect(empty.levels.get("red-then-green")).toEqual("warn");
+  });
+
+  it("parses require.all, unions explicit needs, and trims row and command", () => {
+    const policy = parseEvidencePolicy({
+      policyYaml: null,
+      validatorFiles: [
+        file(
+          "v.yaml",
+          `id: x
+row: "  Proven twice  "
+level: off
+needs: [tool-calls.edits, commands]
+require:
+  all:
+    - session.ran: { command: "  supabase migration up  " }
+    - session.ran: { command: "yarn ci:unit" }
+`,
+        ),
+      ],
+    });
+    expect(policy.errors).toEqual([]);
+    expect(policy.customs).toEqual([
+      {
+        id: "x",
+        kind: "validation",
+        row: "Proven twice",
+        level: "off",
+        whenPaths: null,
+        require: {
+          mode: "all",
+          conditions: [
+            { kind: "session-ran", command: "supabase migration up" },
+            { kind: "session-ran", command: "yarn ci:unit" },
+          ],
+        },
+        needs: ["commands", "edits"],
+      },
+    ]);
+    expect(policy.levels.get("x")).toEqual("off");
   });
 
   // AC-085-11
