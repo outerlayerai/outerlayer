@@ -47,9 +47,9 @@ describe("ArtifactExhibitView", () => {
     );
     expect(getByTestId("artifact-kind-chip").textContent).toBe("screenshot");
     expect(getByTestId("artifact-provenance-chip").textContent).toBe("session");
-    expect(getByText("Login page after fix")).toBeTruthy();
-    expect(getByText("AC-083-01")).toBeTruthy();
-    expect(getByText(/acme\/api\s*#61/)).toBeTruthy();
+    expect(container.textContent).toContain("Login page after fix");
+    expect(getByText("AC-083-01").tagName).toBe("CODE");
+    expect(container.textContent).toMatch(/acme\/api\s*#61/);
     // The session link goes to the existing session detail page.
     expect(getByText("1b247b75").getAttribute("href")).toBe(
       "/orgs/acme/apps/api/env/production/agents/sessions/1b247b75d3481b247b75d3481b247b75",
@@ -85,7 +85,9 @@ describe("ArtifactExhibitView", () => {
       <ArtifactExhibitView {...props} artifact={exhibit({})} />,
     );
     fireEvent.error(container.querySelector("img")!);
-    expect(getByText("Link expired — reload to view")).toBeTruthy();
+    expect(getByText("Link expired — reload to view").textContent).toBe(
+      "Link expired — reload to view",
+    );
     expect(container.querySelector("img")).toBeNull();
   });
 });

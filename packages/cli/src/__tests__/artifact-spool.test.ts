@@ -147,7 +147,9 @@ describe("appendArtifactRecord + readArtifactRecordsSince", () => {
     // A FILE where the home directory should be makes every mkdir fail.
     const notADir = join(home, "not-a-dir");
     writeFileSync(notADir, "x");
-    expect(() => appendArtifactRecord(record(), notADir)).not.toThrow();
+    // A throw would fail the test on its own; the concrete contract is that
+    // nothing was recorded.
+    appendArtifactRecord(record(), notADir);
     expect(readArtifactRecordsSince(notADir, 0)).toEqual({ records: [], fileLength: 0 });
   });
 });
