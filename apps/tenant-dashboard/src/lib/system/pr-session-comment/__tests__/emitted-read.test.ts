@@ -80,4 +80,11 @@ describe("readPrEmittedResults", () => {
     seedEmittedResultMswRows([]);
     expect((await readPrEmittedResults(ANCHOR)).size).toBe(0);
   });
+
+  it("clamps an out-of-vocabulary result and provenance toward the weaker claim", async () => {
+    seedEmittedResultMswRows([row({ result: "mystery", provenance: "mystery" })]);
+    const record = (await readPrEmittedResults(ANCHOR)).get("smoke.pass")!;
+    expect(record.result).toBe("fail");
+    expect(record.provenance).toBe("local");
+  });
 });

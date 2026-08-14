@@ -53,12 +53,27 @@ function git(cwd: string, args: string[]): string | undefined {
   }
 }
 
+/** The remote URL that identifies the repo: `origin` when present (the
+ * conventional default), else `upstream` (the fork convention), else the
+ * first remote git lists — a checkout whose only remote carries a custom
+ * name still resolves to an app instead of "(unassigned)". */
+function remoteUrl(cwd: string): string | undefined {
+  const origin = git(cwd, ["remote", "get-url", "origin"]);
+  if (origin) return origin;
+  const names = (git(cwd, ["remote"]) ?? "")
+    .split("\n")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  const name = names.includes("upstream") ? "upstream" : names[0];
+  return name === undefined ? undefined : git(cwd, ["remote", "get-url", name]);
+}
+
 /** Resolve repo identity from a directory. Memoized; never throws. */
 export function resolveRepoIdentity(cwd: string | undefined): RepoIdentity {
   if (!cwd) return {};
   const cached = cache.get(cwd);
   if (cached) return cached;
-  const remote = git(cwd, ["remote", "get-url", "origin"]);
+  const remote = remoteUrl(cwd);
   const identity: RepoIdentity = {};
   if (remote) {
     const norm = normalizeRemote(remote);

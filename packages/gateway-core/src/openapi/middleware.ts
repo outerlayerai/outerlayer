@@ -6,6 +6,11 @@ import { buildUserMetaCacheKey } from '../lib/verify-key';
 import { extractBearerToken, resolveBearerUser } from '../lib/verify-bearer';
 import { initCache } from '../utils';
 import { memory } from '../cache-store';
+import {
+  buildOAuthProtectedResourceMetadataUrl,
+  buildAppScopedOAuthProtectedResourceMetadataUrl,
+  requestOrigin,
+} from '../lib/oauth-metadata';
 
 /** How the caller authenticated. Used by downstream helpers that pick the
  * right Supabase client (gateway-role for api-key, authenticated-role for
@@ -95,6 +100,78 @@ function isTenantScopedRoute(c: Context): boolean {
   return TENANT_SCOPED_V1_ROUTES.has(`${c.req.method} ${path}`);
 }
 
+/**
+ * The MCP mount path. Keyed off the path string, not a route registration,
+ * because `/v1/mcp` isn't a chanfana route — it's mounted separately and
+ * this middleware runs before that mount exists in the request chain. API
+ * keys are bound to exactly one app, so the key row is the authority here;
+ * see `headerOptional` below.
+ */
+const MCP_ROUTE_PATH = '/v1/mcp';
+
+function isMcpRoute(c: Context): boolean {
+  const path = c.req.path.replace(/\/$/, '');
+  return path === MCP_ROUTE_PATH;
+}
+
+/**
+ * Per-app MCP mount for OAuth-connected clients (claude.ai/ChatGPT custom
+ * connectors) that paste a single URL and cannot send a custom
+ * `X-Outerlayer-App-Id` header — the app id travels in the path instead.
+ * Bearer-only: API keys already have `/v1/mcp` with header-or-derive
+ * resolution; this mount exists specifically for the case that has no
+ * header to derive from or supply.
+ *
+ * The capture is constrained to UUID shape: the segment is echoed into the
+ * `WWW-Authenticate: Bearer resource_metadata="…"` challenge on 401s, where
+ * an unconstrained value (a `"`, a space) could corrupt the quoted header
+ * value. No real app id is non-UUID, so a non-matching segment simply makes
+ * this a normal (non-MCP) route: connector tokens are rejected and no
+ * caller-controlled bytes reach a response header.
+ */
+const APP_SCOPED_MCP_ROUTE_RE =
+  /^\/v1\/apps\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/mcp$/;
+
+/** Returns the `{appId}` path segment when the request targets the
+ * per-app MCP mount, or null otherwise. */
+function extractAppScopedMcpAppId(c: Context): string | null {
+  const path = c.req.path.replace(/\/$/, '');
+  const match = APP_SCOPED_MCP_ROUTE_RE.exec(path);
+  return match ? (match[1] as string) : null;
+}
+
+/**
+ * `c.json` for an auth failure, adding the RFC 9728 `WWW-Authenticate`
+ * challenge on MCP-route 401s so an unauthenticated client can discover
+ * protected-resource metadata (and, from there, the authorization server)
+ * without out-of-band configuration. Every other case — non-MCP routes,
+ * non-401 statuses — calls `c.json` with exactly the two arguments it
+ * always took, unchanged.
+ *
+ * The per-app mount (`appScopedMcpAppId` set) advertises ITS OWN metadata
+ * document (`resource` = this app's mount, not the bare `/v1/mcp`) — a
+ * client that already resolved the bare mount's metadata and validates the
+ * audience strictly must not be pointed back at a `resource` value it never
+ * connected to.
+ */
+function jsonAuthError(
+  c: Context,
+  body: unknown,
+  status: 401 | 500 | 502,
+  mcpRoute: boolean,
+  appScopedMcpAppId: string | null = null,
+): Response {
+  if (!mcpRoute || status !== 401) return c.json(body, status);
+  const origin = requestOrigin(c.req);
+  const resourceMetadataUrl =
+    appScopedMcpAppId !== null
+      ? buildAppScopedOAuthProtectedResourceMetadataUrl(origin, appScopedMcpAppId)
+      : buildOAuthProtectedResourceMetadataUrl(origin);
+  return c.json(body, status, {
+    'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl}"`,
+  });
+}
+
 export async function authMiddleware(c: Context<{ Bindings: Env; Variables: OpenAPIVariables }>, next: Next): Promise<Response | void> {
   const authHeader = c.req.header('Authorization');
   const appId = c.req.header('X-Outerlayer-App-Id');
@@ -104,9 +181,17 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   // on a tenant they don't belong to. Absent ⇒ the claim serves, as today.
   const requestTenantId = c.req.header('X-Tenant-Id');
   const tenantScoped = isTenantScopedRoute(c);
+  const appScopedMcpAppId = extractAppScopedMcpAppId(c);
+  const mcpRoute = isMcpRoute(c) || appScopedMcpAppId !== null;
 
   if (!authHeader) {
-    return c.json({ error: { code: 'unauthorized', message: 'Missing auth header' } }, 401);
+    return jsonAuthError(
+      c,
+      { error: { code: 'unauthorized', message: 'Missing auth header' } },
+      401,
+      mcpRoute,
+      appScopedMcpAppId,
+    );
   }
 
   // Bearer path — check first so a valid JWT is never routed through the
@@ -126,26 +211,83 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   // still requires the header — current api keys are bound to a
   // specific app (api_key.app_id NOT NULL) so they always have one to
   // send. Headless onboarding without an existing api key is GAP-0005C.
-  const headerOptional = tenantScoped && bearerToken !== null;
-  if (!appId && !headerOptional) {
-    return c.json({ error: { code: 'unauthorized', message: 'Missing app id' } }, 401);
+  //
+  // `/v1/mcp` + api-key auth: the header is ALSO optional. A key is bound
+  // to exactly one app, so the resolver can derive it from the key row
+  // instead — this is what lets single-bearer-token clients (no custom
+  // header support) authenticate. Bearer-JWT auth on `/v1/mcp` keeps
+  // requiring the header: JWTs are tenant-scoped, not app-bound, so there
+  // is nothing on the token to derive an app from.
+  //
+  // `/v1/apps/:appId/mcp` + bearer auth: the header is optional too — the
+  // app id is the path segment itself. This mount is bearer-only (see the
+  // API-key rejection below); a key resolving the same way it does on
+  // `/v1/mcp` would make two mounts do the same derivation two ways.
+  if (appScopedMcpAppId !== null && bearerToken === null) {
+    // API keys already have /v1/mcp (header-or-derive resolution above);
+    // this mount exists for bearer/OAuth clients that have no header to
+    // send. Accepting an API key here too would give the same credential
+    // two different app-resolution paths for no benefit. Checked before
+    // the generic "missing app id" guard below so a caller gets this
+    // specific diagnostic instead of a misleading header complaint.
+    return jsonAuthError(
+      c,
+      {
+        error: {
+          code: 'unauthorized',
+          message: 'This endpoint requires a user or OAuth bearer token; API keys use /v1/mcp.',
+        },
+      },
+      401,
+      mcpRoute,
+      appScopedMcpAppId,
+    );
   }
 
+  const headerOptional =
+    (tenantScoped && bearerToken !== null) ||
+    (isMcpRoute(c) && bearerToken === null) ||
+    (appScopedMcpAppId !== null && bearerToken !== null);
+  if (!appId && !headerOptional) {
+    return jsonAuthError(
+      c,
+      { error: { code: 'unauthorized', message: 'Missing app id' } },
+      401,
+      mcpRoute,
+      appScopedMcpAppId,
+    );
+  }
 
   if (bearerToken) {
     // For tenant-scoped routes pass `appId: null` so resolveBearerUser
     // skips the app row lookup, which the first-create flow needs: there
-    // is no app row to look up yet.
+    // is no app row to look up yet. For the per-app MCP mount, the path
+    // segment IS the app id — it overrides any (irrelevant) header.
+    const effectiveAppId =
+      appScopedMcpAppId !== null ? appScopedMcpAppId : tenantScoped ? null : appId ?? null;
     const result = await resolveBearerUser({
       env: c.env,
       token: bearerToken,
-      appId: tenantScoped ? null : appId ?? null,
+      appId: effectiveAppId,
       requestTenantId,
+      // Connector (OAuth) tokens carry a `client_id` claim. They're full
+      // user sessions everywhere else on the bearer surface — Supabase
+      // does not enforce scopes — so this confinement is the security
+      // seam: only MCP paths accept one. See verify-bearer.ts.
+      allowConnectorToken: mcpRoute,
+      // Only the per-app mount has callers with no tenant-bearing header
+      // or claim to send (single-bearer-token connector clients) and an
+      // app id that's already authoritative (path segment, not a header).
+      // Plain /v1/mcp and every REST route keep requiring a header/claim.
+      appScopedTenantFallback: appScopedMcpAppId !== null,
     });
     if (!result.ok) {
-      return c.json(
+      return jsonAuthError(
+        c,
         { error: { code: 'unauthorized', message: result.message } },
         result.status as 401 | 500,
+        mcpRoute,
+        appScopedMcpAppId,
       );
     }
     // Audit-log every successful authentication. Constitution IX.
@@ -168,30 +310,46 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Open
   }
 
   // API-key path.
-  // `appId` is guaranteed non-null here: `headerOptional` is true only
-  // when `bearerToken !== null` (i.e. bearer auth), and bearer auth
-  // returned above. So by the time we reach the api-key path, the
-  // `!appId && !headerOptional` guard has already rejected requests
-  // without an app id.
-  const apiKeyAppId = appId!;
+  // `appId` is non-null here except on `/v1/mcp`, the one route where
+  // `headerOptional` can be true for an api-key caller (`bearerToken ===
+  // null`, checked above) — everywhere else the `!appId && !headerOptional`
+  // guard has already rejected requests without an app id.
+  const apiKeyAppId = appId ?? null;
   const gtx = c.get('gtx');
   const cache = initCache(gtx.cacheL2Store, gtx.execCtx, memory);
 
   // The API-key → identity resolution is the runtime-specific auth seam: Unkey on
   // hosted, Supabase app-row lookup on node self-host. The composition root
   // injects which; the bearer/JWT path already returned above, unchanged.
-  const result = await gtx.auth.resolveApiKey({
-    authHeader,
-    appId: apiKeyAppId,
-    env: c.env,
-    cache,
-    cacheKey: await buildUserMetaCacheKey(apiKeyAppId, authHeader),
-  });
+  //
+  // With a header, the cache key is known upfront and resolveApiKey does its
+  // own cache read/write internally, as before. Without one (derive mode),
+  // there's no appId to build a cache key from until AFTER resolution, so
+  // the lookup is skipped and the cache is populated afterward, keyed on the
+  // resolved app id — a header-bearing request from the same key later hits
+  // that entry; the cache key is never built from a null.
+  const result = apiKeyAppId !== null
+    ? await gtx.auth.resolveApiKey({
+        authHeader,
+        appId: apiKeyAppId,
+        env: c.env,
+        cache,
+        cacheKey: await buildUserMetaCacheKey(apiKeyAppId, authHeader),
+      })
+    : await gtx.auth.resolveApiKey({ authHeader, appId: null, env: c.env });
+
+  if (result.ok && apiKeyAppId === null) {
+    const derivedCacheKey = await buildUserMetaCacheKey(result.user.appId, authHeader);
+    await cache.userMeta.set(derivedCacheKey, result.user);
+  }
 
   if (!result.ok) {
-    return c.json(
+    return jsonAuthError(
+      c,
       { error: { code: result.code, message: result.message } },
       result.status as 401 | 500 | 502,
+      mcpRoute,
+      appScopedMcpAppId,
     );
   }
 

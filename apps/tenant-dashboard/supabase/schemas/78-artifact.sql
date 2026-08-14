@@ -103,6 +103,12 @@ CREATE INDEX IF NOT EXISTS idx_artifact_pending
 CREATE INDEX IF NOT EXISTS idx_artifact_unmatched_blob
     ON public.artifact (verification)
     WHERE verification = 'unmatched' AND NOT blob_deleted;
+-- The blob sweep's shared-sha liveness count: blobs are content-addressed and
+-- shared, so before deleting bytes the sweep counts other live claims on the
+-- same (tenant, app, sha). app_id determines tenant_id (composite FK), so a
+-- tenant_id prefix would add no selectivity here.
+CREATE INDEX IF NOT EXISTS idx_artifact_app_sha
+    ON public.artifact (app_id, sha256);
 
 ALTER TABLE public.artifact ENABLE ROW LEVEL SECURITY;
 

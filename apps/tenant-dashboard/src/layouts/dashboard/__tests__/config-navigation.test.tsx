@@ -83,7 +83,7 @@ describe('useNavData — permission filtering', () => {
           perm('trace.read'), perm('app.read'),
           perm('dashboard.read'),
           perm('worker_run.read'),
-          perm('experiment.read'), perm('context.read'),
+          perm('context.read'),
         ],
       },
     });
@@ -119,7 +119,6 @@ describe('useNavData — permission filtering', () => {
         permissions: [
           perm('trace.read'), perm('app.read'),
           perm('dashboard.read'),
-          perm('experiment.read'),
         ],
       },
     });

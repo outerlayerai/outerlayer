@@ -1161,6 +1161,161 @@ describe("runSync — artifact upload", () => {
     expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
   });
 
+  it("a blob re-referenced by a record emitted DURING the sync survives the post-upload cleanup", async () => {
+    // The record a concurrent `emit artifact` appends after the sync's spool
+    // snapshot references the same content-addressed blob; deleting it after
+    // the snapshot's upload would silently lose that new artifact.
+    spoolArtifact(artifactRecord(), ART_BYTES);
+    const preRunLength = readFileSync(artifactsSpoolPath(home)).length;
+    const concurrent = (async (url: URL | RequestInfo) => {
+      if (String(url).endsWith("/v1/artifacts")) {
+        appendFileSync(
+          artifactsSpoolPath(home),
+          JSON.stringify(artifactRecord({ artifactId: "22222222-3333-4444-8555-666666666666" })) + "\n",
+        );
+        return new Response(JSON.stringify({ data: { artifactId: "a", provenance: "session" } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: { accepted: [], rejected: [], blobsStored: 0 } }), { status: 200 });
+    }) as typeof fetch;
+
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: concurrent });
+
+    // Watermark passed the snapshot only; the shared blob stayed for the
+    // record appended past it.
+    expect(readArtifactsWatermark(home)).toBe(preRunLength);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(true);
+
+    // The next sync uploads the concurrent record and only THEN reclaims.
+    const retryCalls: FetchCall[] = [];
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(retryCalls) });
+    expect(retryCalls.map((c) => c.url)).toEqual(["https://gw.outerlayer.test/v1/artifacts"]);
+    const retried = JSON.parse(String(retryCalls[0]!.init.body)) as { artifact: { clientArtifactId: string } };
+    expect(retried.artifact.clientArtifactId).toBe("22222222-3333-4444-8555-666666666666");
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(false);
+  });
+
+  it("a record that uploaded while an EARLIER one held the watermark is not re-POSTed or reported lost", async () => {
+    const otherBytes = Buffer.from("different-proof-bytes");
+    const otherSha = createHash("sha256").update(otherBytes).digest("hex");
+    spoolArtifact(artifactRecord({ artifactId: "11111111-2222-4333-8444-555555555551" }), ART_BYTES);
+    spoolArtifact(
+      artifactRecord({ artifactId: "11111111-2222-4333-8444-555555555552", sha256: otherSha, bytes: otherBytes.length, filename: "other.png" }),
+    );
+    writeFileSync(join(artifactBlobsDir(home), otherSha), otherBytes);
+
+    // First run: record 1 fails (holds the watermark at offset 0), record 2
+    // uploads and its blob is reclaimed.
+    let posts = 0;
+    const firstFails = (async (url: URL | RequestInfo) => {
+      if (String(url).endsWith("/v1/artifacts")) {
+        posts += 1;
+        return posts === 1
+          ? new Response("{}", { status: 500 })
+          : new Response(JSON.stringify({ data: { artifactId: "a", provenance: "session" } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: { accepted: [], rejected: [], blobsStored: 0 } }), { status: 200 });
+    }) as typeof fetch;
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: firstFails });
+    expect(readArtifactsWatermark(home)).toBe(0);
+    expect(existsSync(join(artifactBlobsDir(home), otherSha))).toBe(false);
+
+    // Second run re-reads BOTH records: only record 1 POSTs again; record
+    // 2's missing blob raises NO loss warning because it already uploaded.
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const retryCalls: FetchCall[] = [];
+    try {
+      await runSync({ ...CREDS, root, home, ...hermetic, env: {}, fetchImpl: fetchWithArtifacts(retryCalls) });
+    } finally {
+      out.mockRestore();
+    }
+    const artifactPosts = retryCalls.filter((c) => c.url.endsWith("/v1/artifacts"));
+    expect(artifactPosts).toHaveLength(1);
+    const retried = JSON.parse(String(artifactPosts[0]!.init.body)) as { artifact: { clientArtifactId: string } };
+    expect(retried.artifact.clientArtifactId).toBe("11111111-2222-4333-8444-555555555551");
+    const stderrText = err.mock.calls.map((c) => String(c[0])).join("");
+    expect(stderrText).not.toContain("dropping the record");
+    err.mockRestore();
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+  });
+
+  it("a 401 on an artifact upload aborts the run, holds every remaining record, and POSTs nothing further", async () => {
+    spoolArtifact(artifactRecord({ artifactId: "11111111-2222-4333-8444-555555555551" }), ART_BYTES);
+    spoolArtifact(artifactRecord({ artifactId: "11111111-2222-4333-8444-555555555552" }));
+    let artifactPosts = 0;
+    const revokedKey = (async (url: URL | RequestInfo) => {
+      if (String(url).endsWith("/v1/artifacts")) {
+        artifactPosts += 1;
+        return new Response("{}", { status: 401 });
+      }
+      return new Response(JSON.stringify({ data: { accepted: [], rejected: [], blobsStored: 0 } }), { status: 200 });
+    }) as typeof fetch;
+
+    const err = await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: revokedKey }).catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(SyncTransportError);
+    expect((err as SyncTransportError).status).toBe(401);
+    expect((err as Error).message).toContain("not authorized");
+    // Short-circuit: one probe, not one failed POST per pending artifact.
+    expect(artifactPosts).toBe(1);
+    // Everything holds for the retry after the key is fixed.
+    expect(readArtifactsWatermark(home)).toBe(0);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(true);
+  });
+
+  it("a permanent 4xx reject marks the record dead — consumed now, never re-POSTed", async () => {
+    spoolArtifact(artifactRecord(), ART_BYTES);
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const calls: FetchCall[] = [];
+    try {
+      await runSync({ ...CREDS, root, home, ...hermetic, env: {}, fetchImpl: fetchWithArtifacts(calls, 400) });
+    } finally {
+      out.mockRestore();
+    }
+    expect(calls.filter((c) => c.url.endsWith("/v1/artifacts"))).toHaveLength(1);
+    const stderrText = err.mock.calls.map((c) => String(c[0])).join("");
+    err.mockRestore();
+    expect(stderrText).toContain("rejected permanently (HTTP 400)");
+    // Consumed: the watermark passes it and its blob is reclaimed.
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(false);
+
+    const retryCalls: FetchCall[] = [];
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(retryCalls) });
+    expect(retryCalls).toEqual([]);
+  });
+
+  it("strips terminal control bytes from spool-record strings before printing them", async () => {
+    // ESC ] 0 ; … BEL is an OSC title-set sequence; a filename carrying it
+    // would drive the operator's terminal when echoed raw.
+    const evilName = "evil\u001b]0;pwned\u0007.png";
+    spoolArtifact(artifactRecord({ filename: evilName, sessionId: "s\u001b[31mred" }), ART_BYTES);
+
+    const dry = await runSync({ ...CREDS, dryRun: true, root, home, ...hermetic, quiet: true, env: {} });
+    expect(dry.output).not.toContain("\u001b]0;");
+    expect(dry.output).not.toContain("\u0007");
+    expect(dry.output).toContain("evil]0;pwned.png");
+
+    // The warn path sanitizes too — a tampered filename cannot escape via a
+    // failed-upload warning either.
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await runSync({ ...CREDS, root, home, ...hermetic, env: {}, fetchImpl: fetchWithArtifacts([], 500) });
+    } finally {
+      out.mockRestore();
+    }
+    const warned = err.mock.calls.map((c) => String(c[0])).join("");
+    err.mockRestore();
+    expect(warned).toContain("evil]0;pwned.png upload failed");
+    expect(warned).not.toContain("\u001b]0;");
+    expect(warned).not.toContain("\u0007");
+  });
+
   it("a blob shared by an uploaded and a held record survives for the retry", async () => {
     // Two records, same sha; the artifact endpoint accepts the first and
     // rejects the second — the shared blob must NOT be deleted.

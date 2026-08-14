@@ -12,8 +12,10 @@
     "test:mutate": "stryker run"
   },
   "dependencies": {
+    "@repo/api-schemas": "workspace:*",
     "@repo/api-types": "workspace:*",
-    "@repo/shared-utils": "workspace:*"
+    "@repo/shared-utils": "workspace:*",
+    "@repo/trace-topics": "workspace:*"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",

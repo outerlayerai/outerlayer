@@ -73,6 +73,21 @@ export const ArtifactCriterionIdSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,64
 export const ARTIFACT_MAX_CAPTION_LENGTH = 500;
 export const ARTIFACT_MAX_FILENAME_LENGTH = 120;
 
+/**
+ * Ceilings for the free-text context fields, shared by the spool schema and
+ * the gateway's request validation. An emit request admits megabytes of body
+ * for the blob; without per-field caps that budget could be spent storing
+ * multi-megabyte strings in row columns instead. Each ceiling sits well above
+ * every legitimate producer: GitHub owner + repo is at most 140 chars, a git
+ * ref name is practically bounded by 255, a commit sha is 40 (or 64) hex
+ * chars, and session ids are UUID-sized.
+ */
+export const ARTIFACT_MAX_REPOSITORY_LENGTH = 200;
+export const ARTIFACT_MAX_GIT_REPO_LENGTH = 300;
+export const ARTIFACT_MAX_GIT_BRANCH_LENGTH = 255;
+export const ARTIFACT_MAX_COMMIT_SHA_LENGTH = 64;
+export const ARTIFACT_MAX_SESSION_ID_LENGTH = 128;
+
 const Sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 
 /** One line of `~/.outerlayer/spool/artifacts.jsonl` — written by
@@ -84,11 +99,11 @@ export const ArtifactSpoolRecordSchema = z.looseObject({
   rec: z.literal("artifact"),
   artifactId: z.string().min(1).max(64),
   t: z.string(),
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).max(ARTIFACT_MAX_SESSION_ID_LENGTH),
   cwd: z.string(),
-  gitRepo: z.string().optional(),
-  gitBranch: z.string().optional(),
-  commitSha: z.string().optional(),
+  gitRepo: z.string().max(ARTIFACT_MAX_GIT_REPO_LENGTH).optional(),
+  gitBranch: z.string().max(ARTIFACT_MAX_GIT_BRANCH_LENGTH).optional(),
+  commitSha: z.string().max(ARTIFACT_MAX_COMMIT_SHA_LENGTH).optional(),
   prNumber: z.number().int().positive().optional(),
   filename: z.string().min(1).max(ARTIFACT_MAX_FILENAME_LENGTH),
   mediaType: z.string().min(1).max(100),

@@ -16,7 +16,7 @@
  * stronger kind or origin than it has.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, statSync, writeFileSync, type Stats } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
@@ -29,7 +29,7 @@ import {
   type EmitArtifactRequest,
 } from "@outerlayer/session-schema";
 import { resolveRepoIdentity } from "@outerlayer/capture";
-import { appendArtifactRecord, artifactBlobsDir } from "./artifact-spool.js";
+import { appendArtifactRecord, artifactBlobsDir, artifactsSpoolPath } from "./artifact-spool.js";
 import { detectActiveSession } from "./session-detect.js";
 import { cloudConfigPath, detectCi, readCloudConfig } from "./sync-cmd.js";
 
@@ -79,7 +79,6 @@ export interface EmitArtifactCommandResult {
   /** The response body's `data` object (direct-upload path only). */
   data?: Record<string, unknown>;
   output: string;
-  exitCode: 0 | 1;
 }
 
 /** PR number from the GitHub Actions environment: `GITHUB_REF`
@@ -149,7 +148,7 @@ export async function runEmitArtifact(opts: EmitArtifactCommandOptions): Promise
   const bytes = readFileSync(filePath);
   if (bytes.length > ARTIFACT_MAX_BYTES) {
     throw new EmitArtifactError(
-      `artifact exceeds 8 MiB (${(bytes.length / (1024 * 1024)).toFixed(1)} MB) — the gateway refuses larger uploads`,
+      `artifact exceeds 8 MiB (${(bytes.length / (1024 * 1024)).toFixed(1)} MiB) — the gateway refuses larger uploads`,
     );
   }
   const filename = basename(filePath);
@@ -177,9 +176,17 @@ export async function runEmitArtifact(opts: EmitArtifactCommandOptions): Promise
   // ---------------------------------------------------------------------
   if (sessionId !== undefined) {
     mkdirSync(artifactBlobsDir(home), { recursive: true });
-    // Content-addressed by sha: a double emit of the same bytes rewrites the
-    // same blob file and simply adds a second (deduped-by-sha) record.
-    writeFileSync(join(artifactBlobsDir(home), sha256), bytes);
+    // Content-addressed by sha: a double emit of the same bytes needs no
+    // second write — the existing blob already holds these exact bytes. A
+    // fresh sha lands via tmp + rename so a concurrent sync can never read
+    // a half-written blob.
+    const blobPath = join(artifactBlobsDir(home), sha256);
+    const blobExisted = existsSync(blobPath);
+    if (!blobExisted) {
+      const tmpPath = join(artifactBlobsDir(home), `.tmp-${randomUUID()}`);
+      writeFileSync(tmpPath, bytes);
+      renameSync(tmpPath, blobPath);
+    }
     const record: ArtifactSpoolRecord = {
       rec: "artifact",
       artifactId: randomUUID(),
@@ -197,12 +204,28 @@ export async function runEmitArtifact(opts: EmitArtifactCommandOptions): Promise
       caption,
       ...(criterionId !== undefined ? { criterionId } : {}),
     };
-    appendArtifactRecord(record, home);
+    // The spool record IS the deliverable on this path — a failed append
+    // means the artifact will never upload, so it must be a command error,
+    // never a swallowed one behind a "✓ spooled" line.
+    try {
+      appendArtifactRecord(record, home);
+    } catch (err) {
+      if (!blobExisted) {
+        try {
+          unlinkSync(blobPath);
+        } catch {
+          // the orphaned blob stays; harmless — sync only reads recorded shas
+        }
+      }
+      throw new EmitArtifactError(
+        `failed to record the artifact in the spool (${artifactsSpoolPath(home)}): ${String(err)} — the artifact was NOT captured; fix the spool path and re-run`,
+      );
+    }
     const output = opts.json
       ? JSON.stringify({ spooled: true, record })
       : `${GREEN}✓${RESET} artifact spooled ${DIM}·${RESET} ${kind} ${filename} ${DIM}·${RESET} session ${sessionId.slice(0, 8)} ${DIM}·${RESET} uploads on the next ${YELLOW}outerlayer sync${RESET}`;
     if (!opts.quiet) process.stdout.write(output + "\n");
-    return { spooled: true, record, output, exitCode: 0 };
+    return { spooled: true, record, output };
   }
 
   // ---------------------------------------------------------------------
@@ -215,6 +238,15 @@ export async function runEmitArtifact(opts: EmitArtifactCommandOptions): Promise
   const repository = env.GITHUB_REPOSITORY;
   prNumber ??= prNumberFromCiEnv(env);
   if (prNumber === undefined && identity.gitRepo === undefined) {
+    // A checkout with no resolvable remote is a different failure from no
+    // repo at all — the message must name the actual cause, not claim "no
+    // git repo" inside one.
+    if (identity.repoRoot !== undefined) {
+      throw new EmitArtifactError(
+        "nothing to attach this to — this checkout has no git remote to identify the repo (and no recorded session or PR). " +
+          "Add a remote (git remote add origin <url>), pass --pr <number>, or run inside a recorded Claude Code session.",
+      );
+    }
     throw new EmitArtifactError(
       "nothing to attach this to — no recorded session, no PR, and no git repo. " +
         "Run inside a recorded Claude Code session, from a git checkout, in CI with PR context, or pass --pr <number>.",
@@ -296,5 +328,5 @@ export async function runEmitArtifact(opts: EmitArtifactCommandOptions): Promise
     : `${GREEN}✓${RESET} artifact accepted ${DIM}·${RESET} ${kind} ${filename} ${DIM}·${RESET} provenance ${provenance}` +
       (prNumber !== undefined ? ` ${DIM}·${RESET} pr #${prNumber}` : "");
   if (!opts.quiet) process.stdout.write(output + "\n");
-  return { spooled: false, data, output, exitCode: 0 };
+  return { spooled: false, data, output };
 }

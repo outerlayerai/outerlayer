@@ -145,7 +145,7 @@ async function seed(): Promise<Fixture> {
   // that the resolver must ignore for owners. The built-in role column stays a
   // real 'read' fallback (custom is active via custom_role_id). The others get
   // a restrictive built-in 'read' row. write/read exist to pin the built-in
-  // environment.promote answers.
+  // environment.insert answers.
   await mk(ownerId, 'owner', { role: 'read', customRoleId: appCustomRoleId });
   await mk(adminId, 'admin', { role: 'read', customRoleId: null });
   await mk(writeId, 'write', { role: 'read', customRoleId: null });
@@ -309,11 +309,11 @@ describe('Authz resolver — structural invariants (corrected-behavior pins)', (
       // through the org role (proving the override cannot restrict).
       expect(await appAuth('app.delete', fx.appHome1)).toBe(true);
       expect(APP_CUSTOM_PERMS).not.toContain('app.delete');
-      // environment.promote, by contrast, IS in the org owner set now, so the
+      // environment.insert, by contrast, IS in the org owner set now, so the
       // owner holds it here via the org role — not via the override, which does
       // not carry it.
-      expect(await appAuth('environment.promote', fx.appHome1)).toBe(true);
-      expect(fx.ownerOrgSet).toContain('environment.promote');
+      expect(await appAuth('environment.insert', fx.appHome1)).toBe(true);
+      expect(fx.ownerOrgSet).toContain('environment.insert');
     });
   });
 
@@ -321,7 +321,7 @@ describe('Authz resolver — structural invariants (corrected-behavior pins)', (
     await asActor(fx.ownerId, fx.homeTenantId, async () => {
       const set = new Set(await effectiveSet(fx.appHome1));
       // Boolean for every app_permission in one pass, on the app whose override
-      // is the one a two-copies resolver leaks environment.promote through.
+      // is the one a two-copies resolver leaks environment.insert through.
       const res = await client.query<{ perm: string; b: boolean }>(
         `SELECT p.perm::text AS perm,
                 private.app_authorize(p.perm, $1::uuid) AS b
@@ -341,9 +341,9 @@ describe('Authz resolver — structural invariants (corrected-behavior pins)', (
     });
   });
 
-  it('environment.promote is held by owner/admin/write and denied to read (per built-in role)', async () => {
+  it('environment.insert is held by owner/admin/write and denied to read (per built-in role)', async () => {
     // appHome2 has no per-app override for any actor → each resolves to its org
-    // role set. Pins the built-in matrix for environment.promote so a future
+    // role set. Pins the built-in matrix for environment.insert so a future
     // reseed that drops it from a write-capable role, or adds it to read, fails.
     const expected: Array<[string, boolean]> = [
       [fx.ownerId, true],
@@ -353,12 +353,12 @@ describe('Authz resolver — structural invariants (corrected-behavior pins)', (
     ];
     for (const [userId, want] of expected) {
       await asActor(userId, fx.homeTenantId, async () => {
-        expect(await appAuth('environment.promote', fx.appHome2)).toBe(want);
+        expect(await appAuth('environment.insert', fx.appHome2)).toBe(want);
       });
     }
     // A disabled member holds it nowhere (state gate precedes role resolution).
     await asActor(fx.disabledId, fx.homeTenantId, async () => {
-      expect(await appAuth('environment.promote', fx.appHome2)).toBe(false);
+      expect(await appAuth('environment.insert', fx.appHome2)).toBe(false);
     });
   });
 

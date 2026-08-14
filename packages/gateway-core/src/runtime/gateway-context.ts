@@ -94,7 +94,15 @@ export interface AuthResolver {
 
 export interface ResolveApiKeyParams {
   authHeader: string;
-  appId: string;
+  /**
+   * The `X-Outerlayer-App-Id` header value, or `null` when the caller omitted
+   * it. Only `/v1/mcp` allows this (see `authMiddleware`'s `headerOptional`
+   * rule); every other API-key route still requires the header, and the
+   * middleware never reaches this call without one. A `null` appId asks the
+   * resolver to derive the app from the credential itself rather than
+   * cross-check it against a header.
+   */
+  appId: string | null;
   env: Env;
   /** Optional identity cache (skips the Unkey round-trip within the TTL). The
    * self-host adapter ignores it — its Supabase lookup is already local. */

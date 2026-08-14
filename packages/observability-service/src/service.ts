@@ -30,6 +30,9 @@ import type {
   AgentFleetCostAnomalyResponse,
   AgentPrAttributionResponse,
   AgentPrCostAttributionResponse,
+  MetricsBreakdownDimension,
+  MetricsBreakdownResponse,
+  AgentFleetDailyTrendResponse,
   TracesParams,
   TracesResponse,
   TraceDetail,
@@ -230,6 +233,22 @@ export class AnalyticsService implements IAnalyticsService {
     options?: AgentFleetQueryOptions,
   ): Promise<AgentAutonomyLadderAttributionResponse> {
     return this.agentFleet.getAutonomyLadderAttribution(ctx, options);
+  }
+  getAgentFleetMetricsBreakdown(
+    ctx: TenantContext,
+    dateRange: DateRange,
+    dimension: MetricsBreakdownDimension,
+    limit: number,
+    options?: AgentFleetQueryOptions,
+  ): Promise<MetricsBreakdownResponse> {
+    return this.agentFleet.getAgentFleetMetricsBreakdown(ctx, dateRange, dimension, limit, options);
+  }
+  getAgentFleetDailyTrend(
+    ctx: TenantContext,
+    dateRange: DateRange,
+    options?: AgentFleetQueryOptions,
+  ): Promise<AgentFleetDailyTrendResponse> {
+    return this.agentFleet.getAgentFleetDailyTrend(ctx, dateRange, options);
   }
 }
 

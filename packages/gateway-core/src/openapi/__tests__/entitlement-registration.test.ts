@@ -112,4 +112,54 @@ describe('tier-gated route registration', () => {
       }
     });
   });
+
+  describe('topics entitlement gate', () => {
+    it.each([
+      ['GET', '/v1/topics'],
+      // compare returns topic ids/names/counts off the same map — it must
+      // carry the same plan gate as /v1/topics, or it is a bypass.
+      ['GET', '/v1/metrics/compare'],
+    ] as const)('%s %s installs entitlementGuard AFTER permissionGuard', (method, path) => {
+      const names = handlerNames(method, path);
+      const permIdx = names.indexOf('permissionGuard');
+      const entIdx = names.indexOf('entitlementGuard');
+
+      expect(permIdx).toBeGreaterThanOrEqual(0);
+      expect(entIdx).toBeGreaterThanOrEqual(0);
+      expect(permIdx).toBeLessThan(entIdx);
+    });
+
+    it.each([
+      ['GET', '/v1/metrics/models'],
+      ['GET', '/v1/metrics/overview'],
+      ['GET', '/v1/metrics/breakdown'],
+      ['GET', '/v1/metrics/trends'],
+      ['GET', '/v1/prs/outcomes'],
+    ] as const)('%s %s stays open (no entitlementGuard)', (method, path) => {
+      const names = handlerNames(method, path);
+      expect(names).not.toContain('entitlementGuard');
+      expect(names).toContain('permissionGuard');
+    });
+  });
+
+  describe('sessions routes', () => {
+    it.each([
+      ['GET', '/v1/sessions'],
+      ['GET', '/v1/sessions/:traceId'],
+    ] as const)('%s %s stays open (no entitlementGuard or quotaGuard)', (method, path) => {
+      const names = handlerNames(method, path);
+      expect(names).not.toContain('entitlementGuard');
+      expect(names).not.toContain('quotaGuard');
+      expect(names).toContain('permissionGuard');
+    });
+  });
+
+  describe('context routes', () => {
+    it('GET /v1/context/changes stays open (no entitlementGuard or quotaGuard)', () => {
+      const names = handlerNames('GET', '/v1/context/changes');
+      expect(names).not.toContain('entitlementGuard');
+      expect(names).not.toContain('quotaGuard');
+      expect(names).toContain('permissionGuard');
+    });
+  });
 });

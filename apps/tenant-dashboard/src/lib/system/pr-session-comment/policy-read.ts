@@ -83,7 +83,7 @@ export async function fetchPrPolicyFiles(
   if (eligible.length > paths.length) {
     problems.push({
       file: VALIDATORS_DIR,
-      problem: `${eligible.length} validator files exceed the cap of ${MAX_VALIDATOR_FILES} — the last ${eligible.length - paths.length} by name were not loaded`,
+      problem: `${eligible.length} validator files found — only the first ${MAX_VALIDATOR_FILES} by name load`,
     });
   }
 

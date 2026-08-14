@@ -2,10 +2,13 @@
 /**
  * Component tests for `<AppSettingsNav>`.
  *
- * The settings nav carries three tabs. There is no standalone "Environments"
+ * The settings nav carries four tabs. There is no standalone "Environments"
  * tab — the breadcrumb and the General page's Environment section cover that
  * job — and the env-vars tab is labeled "Environment Variables" so it does
- * not collide with the breadcrumb's environment language.
+ * not collide with the breadcrumb's environment language. "Connected Apps"
+ * (OAuth connector grants) is unconditional like General — it lists a
+ * user-scoped resource, not an app-scoped one, so there's no app permission
+ * to gate it on.
  *
  * These tests pin the tab set and the absence of label collisions.
  *
@@ -33,6 +36,7 @@ const EXPECTED_TABS = [
   'General',
   'API Keys',
   'Environment Variables',
+  'Connected Apps',
 ];
 
 /** The permission set that makes every gated tab eligible to show. */
@@ -57,14 +61,14 @@ function renderNav(permissions: Permission[] = ALL_PERMISSIONS) {
 }
 
 describe('AppSettingsNav — tab set', () => {
-  it('should render exactly three tabs when every settings surface is available', () => {
+  it('should render exactly four tabs when every settings surface is available', () => {
     renderNav();
 
     const tabs = screen.getAllByRole('link');
-    expect(tabs).toHaveLength(3);
+    expect(tabs).toHaveLength(4);
   });
 
-  it('should render the General, API Keys, and Environment Variables tabs', () => {
+  it('should render the General, API Keys, Environment Variables, and Connected Apps tabs', () => {
     renderNav();
 
     for (const label of EXPECTED_TABS) {
@@ -151,14 +155,15 @@ describe('AppSettingsNav — conditional tab visibility', () => {
     ).toBeInTheDocument();
   });
 
-  it('should render only the General tab when the user has no app permissions', () => {
+  it('should render only the unconditional tabs when the user has no app permissions', () => {
     // The app-scoped-no-access / blank-permission case.
     renderNav([]);
 
-    // Exactly one tab, and it is General. Gated tabs do not leak.
+    // General and Connected Apps are unconditional; every gated tab is
+    // hidden. Connected Apps lists a user-scoped resource, not an
+    // app-scoped one, so no app permission gates it.
     const tabs = screen.getAllByRole('link');
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0]).toHaveTextContent('General');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['General', 'Connected Apps']);
   });
 
   it('should hide the Environment Variables tab when the user lacks env_var.read', () => {

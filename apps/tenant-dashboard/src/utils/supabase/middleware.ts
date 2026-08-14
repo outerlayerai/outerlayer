@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 import { SUPABASE_API } from "../../config-global";
 import { paths } from "../../routes/paths";
+import { sanitizeReturnTo } from "../../lib/auth/sanitize-return-to";
 import {
   extractOrgName,
   resolveRequestTenantId,
@@ -107,9 +108,20 @@ export async function updateSession(request: NextRequest) {
       );
     }
 
-    // no user, respond by redirecting the user to the login page
+    // no user, respond by redirecting the user to the login page — carrying
+    // the original destination as return_to so a deep link (the OAuth
+    // consent page, an invite link, a git-connect callback) survives the
+    // login round-trip instead of losing the user to their default org page
+    // (login-view.tsx / auth/callback already thread return_to through
+    // every login method via sanitizeReturnTo, the same same-origin
+    // relative-path allowlist used here).
     const url = request.nextUrl.clone();
+    const destination = sanitizeReturnTo(
+      `${request.nextUrl.pathname}${request.nextUrl.search}`
+    );
     url.pathname = paths.auth.login;
+    url.search = "";
+    if (destination) url.searchParams.set("return_to", destination);
     return NextResponse.redirect(url);
   }
 

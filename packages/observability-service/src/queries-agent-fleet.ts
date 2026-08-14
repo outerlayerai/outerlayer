@@ -47,6 +47,7 @@
  */
 
 import type { AgentFleetDimension, AgentFleetScope } from './types';
+import { STATUS_ERROR_VALUES_SQL } from './queries';
 
 export interface AgentFleetQueryResult {
   query: string;
@@ -297,6 +298,133 @@ LIMIT {limit:UInt32}`,
       startDate: input.startDate,
       endDate: input.endDate,
       limit: input.limit,
+    },
+  };
+}
+
+export interface AgentFleetModelBreakdownQueryInput extends AgentFleetRepoScope {
+  startDate: string;
+  endDate: string;
+  limit: number;
+}
+
+/**
+ * Cost + session count + tool-error-rate per model — the `model` arm of the
+ * unified metrics breakdown, same row shape as `buildAgentFleetDimensionQuery`
+ * but `ARRAY JOIN`ed like `buildAgentFleetModelMixQuery` (`Models` is
+ * `Array(String)` per session). A session that used more than one model
+ * counts its FULL cost and tool-error totals against each model it touched,
+ * the same over-counting-by-design tradeoff `buildAgentFleetModelMixQuery`
+ * already makes for `sessions` — a per-model ranking, not a partition of
+ * total spend.
+ */
+export function buildAgentFleetModelBreakdownQuery(input: AgentFleetModelBreakdownQueryInput): AgentFleetQueryResult {
+  return {
+    query: `SELECT
+  model AS dimensionValue,
+  uniqExact(TraceId) AS sessions,
+  sum(CostUsd) AS costUsd,
+  if(sum(ToolCallCount) > 0, sum(ErrorCount) / sum(ToolCallCount), 0) AS toolErrorRate
+FROM agent_session_summary FINAL
+ARRAY JOIN Models AS model
+WHERE ${scopeWhere(input)}
+  AND model != ''
+  AND toDate(StartedAt) >= {startDate:Date}
+  AND toDate(StartedAt) <= {endDate:Date}
+GROUP BY dimensionValue
+ORDER BY costUsd DESC
+LIMIT {limit:UInt32}`,
+    params: {
+      ...scopeParams(input),
+      startDate: input.startDate,
+      endDate: input.endDate,
+      limit: input.limit,
+    },
+  };
+}
+
+export interface AgentFleetToolBreakdownQueryInput {
+  appId: string;
+  tenantId: string;
+  startDate: string;
+  endDate: string;
+  limit: number;
+}
+
+/**
+ * Calls + errors + error rate per tool, from `otel_traces` (NOT
+ * `agent_session_summary` — a tool call has no row in the session rollup of
+ * its own). Scoped to `TenantId` + `AppId` only, unlike every other builder
+ * in this file: tool spans aren't necessarily repo-tagged the way a session
+ * root is, so this deliberately does not apply the "app = dominant repo"
+ * convention `scopeWhere` encodes for the other queries.
+ *
+ * Tool spans are named `agent.tool.<name>` (see `agent-sessions.ts`'s
+ * `errorCount`/`toolCallCount` fields, which read the same prefix);
+ * `substringUTF8` strips the fixed-length prefix rather than a
+ * runtime-computed offset, so the split can't drift from the LIKE filter
+ * above it. Error rate uses the canonical `STATUS_ERROR_VALUES_SQL` set
+ * (numeric `'2'` plus the legacy string variants), the broader definition
+ * `queries.ts` uses fleet-wide — not the narrower raw `StatusCode = '2'`
+ * check `agent-sessions.ts` applies to one already-normalized session's spans.
+ */
+export function buildAgentFleetToolBreakdownQuery(input: AgentFleetToolBreakdownQueryInput): AgentFleetQueryResult {
+  return {
+    query: `SELECT
+  substringUTF8(SpanName, 12) AS dimensionValue,
+  count() AS requests,
+  countIf(StatusCode IN ${STATUS_ERROR_VALUES_SQL}) AS errors
+FROM otel_traces FINAL
+WHERE TenantId = {tenantId:String}
+  AND AppId = {appId:String}
+  AND SpanName LIKE 'agent.tool.%'
+  AND toDate(Timestamp) >= {startDate:Date}
+  AND toDate(Timestamp) <= {endDate:Date}
+GROUP BY dimensionValue
+ORDER BY requests DESC
+LIMIT {limit:UInt32}`,
+    params: {
+      tenantId: input.tenantId,
+      appId: input.appId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      limit: input.limit,
+    },
+  };
+}
+
+export interface AgentFleetDailyTrendQueryInput extends AgentFleetRepoScope {
+  startDate: string;
+  endDate: string;
+}
+
+/**
+ * Daily sessions + spend + tool-error rate + clean-session rate — one
+ * population (`agent_session_summary`, the all-inclusive block
+ * `buildAgentFleetTilesQuery` also reads), bucketed per day instead of into
+ * a current/prior pair. Backs `GET /v1/metrics/trends`'s cost-per-day
+ * series: deliberately NOT `queries.ts`'s `otel_traces` GENERATION-row cost
+ * trend, which is a different population that this file's header says does
+ * not reconcile with session-grain figures under the same label.
+ */
+export function buildAgentFleetDailyTrendQuery(input: AgentFleetDailyTrendQueryInput): AgentFleetQueryResult {
+  return {
+    query: `SELECT
+  toDate(StartedAt) AS date,
+  count() AS sessions,
+  sum(CostUsd) AS costUsd,
+  if(sum(ToolCallCount) > 0, sum(ErrorCount) / sum(ToolCallCount), 0) AS toolErrorRate,
+  if(count() > 0, countIf(ErrorCount = 0) / count(), 0) AS cleanSessionRate
+FROM agent_session_summary FINAL
+WHERE ${scopeWhere(input)}
+  AND toDate(StartedAt) >= {startDate:Date}
+  AND toDate(StartedAt) <= {endDate:Date}
+GROUP BY date
+ORDER BY date ASC`,
+    params: {
+      ...scopeParams(input),
+      startDate: input.startDate,
+      endDate: input.endDate,
     },
   };
 }

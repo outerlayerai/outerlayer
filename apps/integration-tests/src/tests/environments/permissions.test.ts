@@ -249,13 +249,12 @@ describe('Environment permissions', () => {
       // Specifically, the migration `20260524150001_environments_promotion_and_navigation.sql`
       // only seeds `role_permissions` and `platform_role_permissions`, NOT
       // `custom_role_permission`. The column is the enum `app_permission`, so
-      // we enumerate the 5 env values and assert each is absent.
+      // we enumerate the 4 env values and assert each is absent.
       const envPerms = [
         'environment.read',
         'environment.insert',
         'environment.update',
         'environment.delete',
-        'environment.promote',
       ];
 
       // Act
@@ -300,13 +299,12 @@ describe('Environment permissions', () => {
   // GATEWAY_PERMISSIONS exposes environment.*
   // ────────────────────────────────────────────────────────────────────────
 
-  describe('GATEWAY_PERMISSIONS includes the 5 env permissions', () => {
+  describe('GATEWAY_PERMISSIONS includes the 4 env permissions', () => {
     const envPermissions = [
       'environment.read',
       'environment.insert',
       'environment.update',
       'environment.delete',
-      'environment.promote',
     ] as const;
 
     for (const perm of envPermissions) {
@@ -343,7 +341,7 @@ describe('Environment permissions', () => {
       expect(envHits).toEqual([]);
     });
 
-    it("should include all 5 environment.* permissions in the 'full-access' API-key role set", () => {
+    it("should include all 4 environment.* permissions in the 'full-access' API-key role set", () => {
       // Act
       const fullSet = ROLE_PERMISSION_SETS['full-access'];
 
@@ -354,7 +352,6 @@ describe('Environment permissions', () => {
       expect(fullStr).toContain('environment.insert');
       expect(fullStr).toContain('environment.update');
       expect(fullStr).toContain('environment.delete');
-      expect(fullStr).toContain('environment.promote');
     });
   });
 
@@ -369,7 +366,7 @@ describe('Environment permissions', () => {
       // Act + Assert: GATEWAY_PERMISSIONS does NOT contain any per-env
       // qualifier (e.g. 'environment.dev.read' or similar). The permission
       // grants are app-scoped via app_authorize(), not env-scoped — so a key
-      // bound to dev with `environment.promote` can act on prod.
+      // bound to dev with `environment.update` can act on prod.
       const perEnvHits = (GATEWAY_PERMISSIONS as readonly string[]).filter(
         (p) =>
           p.startsWith('environment.') && p.split('.').length > 2,
@@ -380,9 +377,8 @@ describe('Environment permissions', () => {
 
   // There are no saga mutation routes (promote/rollback/cancel/retry) and no
   // deployment audit-list route, so `deployment.read` is absent from
-  // GATEWAY_PERMISSIONS and the `environment.promote` enum value, while still
-  // declared, gates nothing live. Nothing here pins a permission constant for
-  // a route that does not exist.
+  // GATEWAY_PERMISSIONS. Nothing here pins a permission constant for a route
+  // that does not exist.
 });
 
 // Quiet vitest about a possibly-unused import when only typecheck runs.

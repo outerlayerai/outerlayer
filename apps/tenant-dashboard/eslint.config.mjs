@@ -516,6 +516,9 @@ const eslintConfig = defineConfig([
     "scripts/**",
     "src/theme/**",
     ".yalc/**",
+    // Supabase CLI scratch state (edge-runtime bundles, start secrets) —
+    // generated JS/TS the CLI writes on `supabase start`, never our code.
+    'supabase/.temp/**',
   ]),
   {
     plugins: {

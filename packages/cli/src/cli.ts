@@ -110,6 +110,11 @@ export async function runCli(processArgv: string[]): Promise<void> {
   program
     .name("outerlayer")
     .description("OuterLayer — see what your coding agents actually do")
+    // Positional options (also enabled on `emit` below): without this,
+    // commander hoists a parent-declared flag out of a subcommand's argv —
+    // `emit` declares --pr/--json/--url for its name-operand face, and
+    // `emit artifact <file> --pr 42` would silently lose the value.
+    .enablePositionalOptions()
     .version("0.1.0");
 
   program
@@ -263,6 +268,10 @@ export async function runCli(processArgv: string[]): Promise<void> {
   // stays the compile action.
   const emitCmd = program
     .command("emit")
+    // Options after the `artifact` subcommand token belong to the
+    // subcommand: emit's own --pr/--json/--url exist for the name-operand
+    // face and must never capture an `emit artifact … --pr N`.
+    .enablePositionalOptions()
     .description(
       "With no operand: compile .outerlayer/ into each configured target tool's native files (targets come from .outerlayer/config.json — claude-code, cursor, codex, copilot, factory). " +
         "With a name operand: record a pass/fail check result anchored to a PR — `emit <name> --link <url>`",
@@ -336,7 +345,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
     )
     .requiredOption("--caption <text>", "what this artifact shows/proves")
     .option("--for <criterion-id>", "acceptance-criterion id this artifact proves (e.g. AC-084-04)")
-    .option("--pr <number>", "pull request number to anchor to", (v) => parseInt(v, 10))
+    .option("--pr <number>", "pull request number to anchor to")
     .option("--json", "machine-readable JSON output")
     .option("--url <url>", "cloud base URL (or OUTERLAYER_URL / config)")
     .option("--api-key <key>", "API key (or OUTERLAYER_API_KEY / config)")
@@ -350,18 +359,28 @@ export async function runCli(processArgv: string[]): Promise<void> {
     )
     .action(async (file, opts) => {
       const { runEmitArtifact, EmitArtifactError } = await import("./emit-artifact-cmd.js");
+      // Strict digits-only parse: parseInt would read "7abc" as 7 and turn
+      // garbage into NaN, losing the operator's actual input in the error.
+      let pr: number | undefined;
+      if (opts.pr !== undefined) {
+        if (!/^\d+$/.test(String(opts.pr))) {
+          process.stderr.write(`${RED}✗${RESET} invalid --pr "${opts.pr}" — expected a positive integer\n`);
+          process.exitCode = 1;
+          return;
+        }
+        pr = parseInt(String(opts.pr), 10);
+      }
       try {
-        const result = await runEmitArtifact({
+        await runEmitArtifact({
           file,
           caption: opts.caption,
           criterionId: opts.for,
-          pr: opts.pr,
+          pr,
           json: opts.json,
           url: opts.url,
           apiKey: opts.apiKey,
           appId: opts.appId,
         });
-        if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (err) {
         if (err instanceof EmitArtifactError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
@@ -374,6 +393,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
 
   registerImportCommands(program);
   registerHooksCommands(program);
+  registerMcpCommands(program);
 
   await program.parseAsync(processArgv);
 }
@@ -534,6 +554,35 @@ function registerHooksCommands(program: Command): void {
     });
 }
 
+function registerMcpCommands(program: Command): void {
+  const mcpCmd = program.command("mcp").description("Configure MCP clients against the OuterLayer gateway");
+
+  mcpCmd
+    .command("install")
+    .description('Write (or update) an mcpServers entry in .mcp.json pointing at the OuterLayer gateway\'s POST /v1/mcp endpoint')
+    .option("--url <url>", "gateway MCP endpoint (default: the hosted OuterLayer Cloud gateway; self-host: your gateway-node origin + /v1/mcp)")
+    .option("--name <name>", 'mcpServers key to write under (default: "outerlayer")')
+    .option("--dir <path>", "repo root to write into (default: cwd)")
+    .option("--app-id <uuid>", "self-host only: app id, emitted as the X-Outerlayer-App-Id header SelfHostAuthResolver requires (omit for hosted)")
+    .option("--json", "machine-readable JSON output")
+    .addHelpText(
+      "after",
+      "\nThe API key is never a flag and never written to .mcp.json as a literal value — only the\n" +
+        "${OUTERLAYER_API_KEY} placeholder, which Claude Code resolves from your environment at connect\n" +
+        "time. Set OUTERLAYER_API_KEY in your shell (or your MCP client's env config) before connecting.\n" +
+        "\nSelf-host deployments also need --app-id — self-host has no key service to resolve a caller\n" +
+        "from the bearer token alone, so SelfHostAuthResolver 401s without X-Outerlayer-App-Id.\n",
+    )
+    .action(async (opts) => {
+      const { runMcpInstall, handleMcpInstallError } = await import("./mcp-install-cmd.js");
+      try {
+        runMcpInstall({ cwd: opts.dir, url: opts.url, name: opts.name, appId: opts.appId, json: opts.json });
+      } catch (err) {
+        handleMcpInstallError(err);
+      }
+    });
+}
+
 function registerImportCommands(program: Command): void {
   const importCmd = program.command("import").description("Import an existing config format into .outerlayer/");
 
@@ -569,8 +618,7 @@ function registerImportCommands(program: Command): void {
     .action(async (opts) => {
       const { runImportCapture, ImportCaptureError } = await import("./import-capture-cmd.js");
       try {
-        const result = runImportCapture({ cwd: opts.dir, json: opts.json });
-        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+        runImportCapture({ cwd: opts.dir, json: opts.json });
       } catch (err) {
         if (err instanceof ImportCaptureError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);

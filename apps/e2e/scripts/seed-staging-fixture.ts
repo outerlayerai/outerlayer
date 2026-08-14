@@ -39,16 +39,15 @@
  * column set the service would.
  *
  * --- Why `owner` is enough for the specs ------------------------------------
- * The specs require the seed user to have `environment.read` AND
- * `environment.promote`. `public.app_authorize` (02-functions-core.sql) has an
- * owner-bypass branch:
+ * The specs require the seed user to have `environment.read`.
+ * `public.app_authorize` (02-functions-core.sql) has an owner-bypass branch:
  *     IF public.authorize(requested_permission) AND
  *        (SELECT role FROM public.membership WHERE id = v_membership_id) = 'owner'
  *     THEN RETURN true;
  * and `public.authorize` reads `public.role_permissions`, which is seeded with
- * `('owner','environment.read')` and `('owner','environment.promote')` by
- * migration 20260524150001_environments_promotion_and_navigation.sql. So an
- * `owner` membership grants both permissions the specs need.
+ * `('owner','environment.read')` by migration
+ * 20260524150001_environments_promotion_and_navigation.sql. So an `owner`
+ * membership grants the permission the specs need.
  *
  * Run with: tsx apps/e2e/scripts/seed-staging-fixture.ts
  */
@@ -330,8 +329,7 @@ async function ensureTenant(userId: string): Promise<string> {
 // UNIQUE (user_id, tenant_id) is the stable key. If a row already exists we
 // leave it as-is (we do NOT downgrade/upgrade an existing role — only ensure a
 // row is present). If absent, create an active OWNER membership so the user
-// gets environment.read + environment.promote via the owner-bypass in
-// app_authorize().
+// gets environment.read via the owner-bypass in app_authorize().
 
 async function ensureOwnerMembership(
   userId: string,
@@ -346,9 +344,9 @@ async function ensureOwnerMembership(
   if (selErr) fail('select membership', selErr);
   if (existing) {
     // Reconcile drift: the specs need an ACTIVE OWNER membership (owner-bypass
-    // grants environment.read + environment.promote). If a row exists with a
-    // different role/status, repair it — silently reusing a non-owner / pending
-    // row would surface later as a confusing 403 mid-spec, not a clear failure.
+    // grants environment.read). If a row exists with a different role/status,
+    // repair it — silently reusing a non-owner / pending row would surface
+    // later as a confusing 403 mid-spec, not a clear failure.
     if (existing.role !== 'owner' || existing.status !== 'active') {
       const { error: updErr } = await admin
         .from('membership')

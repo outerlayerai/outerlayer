@@ -36,6 +36,7 @@ describe("this repo's dogfood policy", () => {
         whenPaths: ["apps/tenant-dashboard/supabase/migrations/**"],
         requireAny: [
           { type: "session-ran", command: "supabase migration up", status: "ok" },
+          { type: "session-ran", command: "supabase db reset", status: "ok" },
         ],
         needs: ["commands"],
         declaresEmit: null,

@@ -69,7 +69,7 @@ const SWEEP_RESULT = {
   blobScanTruncated: false,
 };
 
-const QUIET_ARTIFACT_RESULT = { examined: 0, blobsDeleted: 0, rowsMarked: 0, failures: 0 };
+const QUIET_ARTIFACT_RESULT = { examined: 0, blobsDeleted: 0, blobsRestored: 0, rowsMarked: 0, failures: 0 };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -133,7 +133,7 @@ describe("retentionSweepHandler", () => {
   });
 
   test("an artifact sweep that found work logs its summary with cron metadata", async () => {
-    const artifactResult = { examined: 4, blobsDeleted: 2, rowsMarked: 3, failures: 1 };
+    const artifactResult = { examined: 4, blobsDeleted: 2, blobsRestored: 1, rowsMarked: 3, failures: 1 };
     vi.mocked(sweepUnmatchedArtifactBlobs).mockResolvedValue(artifactResult);
 
     await retentionSweepHandler(makeContext());

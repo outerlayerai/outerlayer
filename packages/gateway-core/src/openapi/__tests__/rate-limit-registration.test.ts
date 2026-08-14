@@ -41,6 +41,16 @@ describe('rate-limit guard registration', () => {
       ['POST', '/v1/spans/search'],
       ['GET', '/v1/scores'],
       ['POST', '/v1/scores/search'],
+      ['GET', '/v1/topics'],
+      ['GET', '/v1/metrics/models'],
+      ['GET', '/v1/metrics/overview'],
+      ['GET', '/v1/metrics/compare'],
+      ['GET', '/v1/metrics/breakdown'],
+      ['GET', '/v1/metrics/trends'],
+      ['GET', '/v1/prs/outcomes'],
+      ['GET', '/v1/sessions'],
+      ['GET', '/v1/sessions/:traceId'],
+      ['GET', '/v1/context/changes'],
     ] as const)('%s %s', (method, path) => {
       const names = handlerNames(method, path);
       const permIdx = names.indexOf('permissionGuard');

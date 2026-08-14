@@ -1,10 +1,10 @@
 /**
  * Per-session trajectory signals derived from a session's span rows — pure
  * functions, deterministic, no LLM. Signal definitions are pinned in
- * packages/observability-service/docs/trajectory-signals.md; the counters
- * (interventions, denials, tool errors, API errors) come from the
- * agent_session_summary rollup, while the pattern signals here need the
- * span sequence the rollup deliberately doesn't keep.
+ * `docs/trajectory-signals.md`; the counters (interventions, denials, tool
+ * errors, API errors) come from the agent_session_summary rollup, while the
+ * pattern signals here need the span sequence the rollup deliberately
+ * doesn't keep.
  */
 
 /** The slice of a span row these signals read. Rows MUST be in time order —

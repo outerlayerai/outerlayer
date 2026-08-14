@@ -183,6 +183,22 @@ describe("renderComment — custom validator rows", () => {
     });
     expect(body).toContain("[CI run](https://ci.example/run%281%29%20%60x%60) `ci`");
   });
+
+  it("percent-encodes whitespace in a link — a raw newline cannot inject a fabricated row", () => {
+    const body = renderWith({
+      customFacts: [
+        custom({
+          status: "pass",
+          source: {
+            provenance: "ci",
+            link: "https://ci.example/run\n⚠ **Fake check failed**\tend",
+          },
+        }),
+      ],
+    });
+    expect(body).not.toContain("\n⚠ **Fake check failed**");
+    expect(body).toContain("[CI run](https://ci.example/run%0A⚠%20**Fake%20check%20failed**%09end) `ci`");
+  });
 });
 
 describe("renderComment — the policy error row", () => {

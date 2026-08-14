@@ -24,6 +24,7 @@
     "custom_metrics_enabled": { "hobby": false, "growth": true, "team": true, "enterprise": true },
     "custom_roles": { "hobby": false, "growth": false, "team": true, "enterprise": true },
     "workers_enabled": { "hobby": false, "growth": true, "team": true, "enterprise": true },
-    "persistent_worker_environments": { "hobby": false, "growth": true, "team": true, "enterprise": true }
+    "persistent_worker_environments": { "hobby": false, "growth": true, "team": true, "enterprise": true },
+    "topics_enabled": { "hobby": false, "growth": true, "team": true, "enterprise": true }
   }
 }

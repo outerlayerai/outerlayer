@@ -74,6 +74,17 @@ GRANT EXECUTE ON FUNCTION public.platform_admin_delete_tenant(uuid) TO service_r
 REVOKE EXECUTE ON FUNCTION public.change_user_password(character varying, character varying) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.change_user_password(character varying, character varying) TO service_role;
 
+-- list_current_user_oauth_grants/revoke_current_user_oauth_grant
+-- (68-oauth-grants.sql) take the target user id as a parameter rather than
+-- reading auth.uid() internally, so only the service-role client can
+-- execute them — the dashboard resolves the caller's own id from the
+-- authenticated session server-side before calling in.
+REVOKE EXECUTE ON FUNCTION public.list_current_user_oauth_grants(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.list_current_user_oauth_grants(uuid) TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.revoke_current_user_oauth_grant(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.revoke_current_user_oauth_grant(uuid, uuid) TO service_role;
+
 -- -----------------------------------------------------------------------------
 -- Scheduled cleanup (pg_cron / service-role) — never user-facing.
 -- -----------------------------------------------------------------------------

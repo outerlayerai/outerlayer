@@ -64,9 +64,13 @@ jobs:
             gateway:
               # The CF shell AND the extracted runtime-neutral core — both hold
               # gateway behavior the gateway jobs (incl. the dedicated MinIO
-              # blob-storage integration test) must gate on.
+              # blob-storage integration test) must gate on. observability-service
+              # ships inside the Worker bundle too (gateway-core's REST/MCP
+              # surfaces call straight into it), so its bundle-size impact needs
+              # the same gate as gateway-core's own changes.
               - 'apps/gateway/**'
               - 'packages/gateway-core/**'
+              - 'packages/observability-service/**'
             gateway-contract:
               # The actual API contract: top-level openapi source + route
               # definitions + the spec + shared schemas. Deliberately does NOT
@@ -1319,6 +1323,31 @@ jobs:
           (cd apps/integration-tests && npx tsx scripts/setup-db.ts teardown) || true
           docker system prune -f || true
 
+  # The Worker bundle must stay under Cloudflare's compressed upload limit —
+  # nothing else catches this before `wrangler deploy` in CD.
+  gateway-bundle-size:
+    name: Gateway Bundle Size
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    needs: [detect-changes, prepare]
+    if: needs.detect-changes.outputs.gateway == 'true'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup workspace (restore deps + build caches)
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-token: ${{ secrets.TURBO_TOKEN }}
+
+      - name: Build workspace packages (the Worker bundle pulls their dist/)
+        run: yarn turbo build --filter='{./packages/*}'
+
+      - name: Check compressed bundle size
+        run: node scripts/ci/check-gateway-bundle-size.mjs
+
   # Shell script test suites — deploy gating
   agentmark-script-tests:
     name: Agentmark Script Tests
@@ -1552,7 +1581,7 @@ jobs:
     name: CI Gate
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 2
-    needs: [detect-changes, prepare, static-checks, unit-tests, dashboard-build, coverage-gate, patch-mutation, integration-tests, gateway-integration-tests, repo-guards, agentmark-script-tests, supabase-checks, drift-checks, openapi-contract-fuzz, migration-check, openapi-breaking-change, secret-scan]
+    needs: [detect-changes, prepare, static-checks, unit-tests, dashboard-build, coverage-gate, patch-mutation, integration-tests, gateway-integration-tests, repo-guards, agentmark-script-tests, supabase-checks, drift-checks, openapi-contract-fuzz, migration-check, openapi-breaking-change, secret-scan, gateway-bundle-size]
     if: always()
 
     steps:

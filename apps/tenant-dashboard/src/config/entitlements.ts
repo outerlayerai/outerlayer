@@ -204,6 +204,12 @@ export const ENTITLEMENTS = {
    * session resumed, uncommitted state intact). Paid-only; standing storage.
    */
   persistent_worker_environments: { type: 'boolean', displayName: 'Persistent Worker Environments', ...BOOLEAN_ENTITLEMENTS.persistent_worker_environments },
+  /**
+   * Topics — trace clustering into recurring issue/task/steering groups.
+   * Gates both the dashboard Topics feature and `GET /v1/topics` on the
+   * gateway, so headless access can't sidestep the same plan gate.
+   */
+  topics_enabled: { type: 'boolean', displayName: 'Topics', ...BOOLEAN_ENTITLEMENTS.topics_enabled },
 
   // --- Categorical ---
 

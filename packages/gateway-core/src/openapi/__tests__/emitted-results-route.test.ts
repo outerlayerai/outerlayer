@@ -194,6 +194,22 @@ describe('EmitResult', () => {
     expect(emittedUpserts).toEqual([]);
   });
 
+  it('rejects a link containing whitespace — a raw newline would break out of the markdown link the comment renders', async () => {
+    for (const link of [
+      'https://ci.example/run\n⚠ **fake row**',
+      'https://ci.example/run 1',
+      'https://ci.example/run\t1',
+    ]) {
+      const { ctx, status, json } = ctxFor(emitBody({ link }));
+      await new EmitResult({} as never).handle(ctx);
+      expect(status()).toBe(400);
+      expect((json() as { error: { message: string } }).error.message).toBe(
+        'Invalid emitted-result payload: emit.link: must not contain whitespace — percent-encode it',
+      );
+    }
+    expect(emittedUpserts).toEqual([]);
+  });
+
   it('rejects an empty link, an over-cap link, and an unparseable timestamp', async () => {
     for (const [over, path] of [
       [{ link: '' }, 'emit.link'],

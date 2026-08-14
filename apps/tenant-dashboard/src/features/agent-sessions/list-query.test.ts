@@ -7,6 +7,7 @@
  * salvage behavior any future field benefits from.
  */
 import { describe, it, expect } from 'vitest';
+import { MAX_SESSIONS_OFFSET } from '@repo/api-schemas';
 import { parseSessionsUrlParams, SESSIONS_PAGE_SIZE } from './list-query';
 
 describe('parseSessionsUrlParams', () => {
@@ -27,6 +28,16 @@ describe('parseSessionsUrlParams', () => {
     expect(parseSessionsUrlParams({ page: '3' }, false).offset).toBe(3 * SESSIONS_PAGE_SIZE);
     // A garbage page value falls back to page 0, not a NaN offset.
     expect(parseSessionsUrlParams({ page: 'not-a-number' }, false).offset).toBe(0);
+  });
+
+  it('clamps an over-deep page to the schema offset ceiling instead of snapping back to page 1', () => {
+    // Beyond the API's MAX_SESSIONS_OFFSET, salvage would drop the field and
+    // render page 1 under a deep page's URL; the clamp shows the deepest
+    // reachable page instead.
+    expect(parseSessionsUrlParams({ page: '999999' }, false).offset).toBe(MAX_SESSIONS_OFFSET);
+    // The deepest exactly-reachable page is untouched by the clamp.
+    const lastPage = MAX_SESSIONS_OFFSET / SESSIONS_PAGE_SIZE;
+    expect(parseSessionsUrlParams({ page: String(lastPage) }, false).offset).toBe(MAX_SESSIONS_OFFSET);
   });
 
   it('defaults an absent origin to the People segment (interactive,worker) outside a topic drill-down', () => {
@@ -130,11 +141,22 @@ describe('parseSessionsUrlParams', () => {
     expect(query.to).toBe('2026-01-01T00:00:00Z');
   });
 
-  it('drops an invalid topicFacet token instead of passing it through', () => {
+  it('drops BOTH topicId and topicFacet when the facet token is invalid — an invalid facet invalidates the whole topic filter', () => {
     const query = parseSessionsUrlParams({ topicId: 't1', topicFacet: 'not-a-facet' }, false);
     expect(query.topicFacet).toBeUndefined();
-    // topicId itself is a free string — it still survives the salvage.
+    expect(query.topicId).toBeUndefined();
+  });
+
+  it('drops topicFacet too when topicId is missing — a facet with no matching topic id is not a valid filter', () => {
+    const query = parseSessionsUrlParams({ topicFacet: 'task' }, false);
+    expect(query.topicId).toBeUndefined();
+    expect(query.topicFacet).toBeUndefined();
+  });
+
+  it('keeps the pair when both topicId and topicFacet are valid', () => {
+    const query = parseSessionsUrlParams({ topicId: 't1', topicFacet: 'task' }, false);
     expect(query.topicId).toBe('t1');
+    expect(query.topicFacet).toBe('task');
   });
 
   it('passes includeSubagents=1 through, and drops any other value', () => {

@@ -1,4 +1,5 @@
 {
+  "052-headless-api": 1,
   "056-trace-topics": 0,
   "057-pr-session-comment": 0,
   "058-context-overview": 0,
@@ -25,5 +26,6 @@
   "079-profile": 0,
   "081-transactional-email": 0,
   "082-evidence-comment": 0,
-  "083-verification-facts": 0
+  "083-verification-facts": 0,
+  "085-user-validators": 0
 }

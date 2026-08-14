@@ -18,6 +18,9 @@ import {
   buildAgentFleetTilesQuery,
   buildAgentFleetModelMixQuery,
   buildAgentFleetDimensionQuery,
+  buildAgentFleetModelBreakdownQuery,
+  buildAgentFleetToolBreakdownQuery,
+  buildAgentFleetDailyTrendQuery,
   buildAgentFleetPercentileTrendQuery,
   buildAgentFleetAutonomyMixTrendQuery,
   buildAgentFleetActiveActorTrendQuery,
@@ -272,6 +275,90 @@ describe('buildAgentFleetDimensionQuery', () => {
     });
     expect(query).toContain('WorkerKind AS dimensionValue');
     expect(query).not.toContain('concat');
+  });
+});
+
+describe('buildAgentFleetModelBreakdownQuery', () => {
+  it('array-joins Models and projects cost, session count, AND tool-error-rate per model', () => {
+    const { query, params } = buildAgentFleetModelBreakdownQuery({
+      ...repoScope,
+      startDate: '2024-01-08',
+      endDate: '2024-01-14',
+      limit: 10,
+    });
+    expect(query).toContain('ARRAY JOIN Models AS model');
+    expect(query).toContain('model AS dimensionValue');
+    expect(query).toContain('uniqExact(TraceId) AS sessions');
+    expect(query).toContain('sum(CostUsd) AS costUsd');
+    expect(query).toContain(
+      'if(sum(ToolCallCount) > 0, sum(ErrorCount) / sum(ToolCallCount), 0) AS toolErrorRate',
+    );
+    expect(query).toContain("AND model != ''");
+    expect(query).not.toContain('ActorId');
+    expect(params).toEqual({
+      appId: 'app-1',
+      tenantId: 'tenant-1',
+      repo: repoScope.repo,
+      startDate: '2024-01-08',
+      endDate: '2024-01-14',
+      limit: 10,
+    });
+  });
+});
+
+describe('buildAgentFleetToolBreakdownQuery', () => {
+  const input = { appId: 'app-1', tenantId: 'tenant-1', startDate: '2024-01-08', endDate: '2024-01-14', limit: 10 };
+
+  it('reads otel_traces scoped to tenant + app only (no repo pin) and filters tool spans', () => {
+    const { query, params } = buildAgentFleetToolBreakdownQuery(input);
+    expect(query).toContain('FROM otel_traces FINAL');
+    expect(query).toContain("SpanName LIKE 'agent.tool.%'");
+    expect(query).toContain('TenantId = {tenantId:String}');
+    expect(query).toContain('AppId = {appId:String}');
+    expect(query).not.toContain('GitRepo');
+    expect(params).toEqual({
+      tenantId: 'tenant-1',
+      appId: 'app-1',
+      startDate: '2024-01-08',
+      endDate: '2024-01-14',
+      limit: 10,
+    });
+  });
+
+  it('strips the "agent.tool." prefix and counts requests + errors', () => {
+    const { query } = buildAgentFleetToolBreakdownQuery(input);
+    expect(query).toContain('substringUTF8(SpanName, 12) AS dimensionValue');
+    expect(query).toContain('count() AS requests');
+    expect(query).toContain("countIf(StatusCode IN ('2', 'STATUS_CODE_ERROR', 'ERROR', 'Error')) AS errors");
+  });
+});
+
+describe('buildAgentFleetDailyTrendQuery', () => {
+  it('buckets agent_session_summary by day and projects sessions/cost/toolErrorRate/cleanSessionRate', () => {
+    const { query, params } = buildAgentFleetDailyTrendQuery({
+      ...repoScope,
+      startDate: '2024-01-08',
+      endDate: '2024-01-14',
+    });
+    expect(query).toContain('FROM agent_session_summary FINAL');
+    expect(query).toContain('toDate(StartedAt) AS date');
+    expect(query).toContain('GROUP BY date');
+    expect(query).toContain('ORDER BY date ASC');
+    expect(query).toContain('count() AS sessions');
+    expect(query).toContain('sum(CostUsd) AS costUsd');
+    expect(query).toContain(
+      'if(sum(ToolCallCount) > 0, sum(ErrorCount) / sum(ToolCallCount), 0) AS toolErrorRate',
+    );
+    expect(query).toContain(
+      'if(count() > 0, countIf(ErrorCount = 0) / count(), 0) AS cleanSessionRate',
+    );
+    expect(params).toEqual({
+      appId: 'app-1',
+      tenantId: 'tenant-1',
+      repo: repoScope.repo,
+      startDate: '2024-01-08',
+      endDate: '2024-01-14',
+    });
   });
 });
 
@@ -726,6 +813,94 @@ describe('AgentFleetService', () => {
     });
   });
 
+  describe('getAgentFleetMetricsBreakdown', () => {
+    it('resolves the repo and maps agent_session_summary dimensions to {key, sessions, costUsd, toolErrorRate}', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue([{ repo: 'r' }]) })
+        .mockResolvedValueOnce({
+          json: vi.fn().mockResolvedValue([
+            { dimensionValue: 'main', sessions: '8', costUsd: '12.5', toolErrorRate: '0.125' },
+          ]),
+        });
+
+      const result = await service.getAgentFleetMetricsBreakdown(testCtx, dateRange, 'branch', 10);
+
+      expect(result).toEqual({
+        dimension: 'branch',
+        items: [{ key: 'main', sessions: 8, costUsd: 12.5, toolErrorRate: 0.125 }],
+      });
+      const [, dimCall] = mockQuery.mock.calls.map((c) => c[0]);
+      expect(dimCall.query).toContain('GitBranch AS dimensionValue');
+    });
+
+    it('routes the "model" dimension through buildAgentFleetModelBreakdownQuery (ARRAY JOIN Models)', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue([{ repo: 'r' }]) })
+        .mockResolvedValueOnce({
+          json: vi.fn().mockResolvedValue([
+            { dimensionValue: 'claude-opus-5', sessions: '4', costUsd: '9', toolErrorRate: '0' },
+          ]),
+        });
+
+      const result = await service.getAgentFleetMetricsBreakdown(testCtx, dateRange, 'model', 10);
+
+      expect(result).toEqual({
+        dimension: 'model',
+        items: [{ key: 'claude-opus-5', sessions: 4, costUsd: 9, toolErrorRate: 0 }],
+      });
+      const [, dimCall] = mockQuery.mock.calls.map((c) => c[0]);
+      expect(dimCall.query).toContain('ARRAY JOIN Models AS model');
+    });
+
+    // proves AC-052-15
+    it('routes the "tool" dimension through buildAgentFleetToolBreakdownQuery, skips repo resolution, and maps {key, requests, toolErrorRate}', async () => {
+      mockQuery.mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue([
+          { dimensionValue: 'bash', requests: '20', errors: '5' },
+          { dimensionValue: 'edit', requests: '10', errors: '0' },
+        ]),
+      });
+
+      const result = await service.getAgentFleetMetricsBreakdown(testCtx, dateRange, 'tool', 10);
+
+      // Exactly one query — no dominant-repo round-trip for the tool dimension.
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({
+        dimension: 'tool',
+        items: [
+          { key: 'bash', requests: 20, toolErrorRate: 0.25 },
+          { key: 'edit', requests: 10, toolErrorRate: 0 },
+        ],
+      });
+      const [toolCall] = mockQuery.mock.calls.map((c) => c[0]);
+      expect(toolCall.query).toContain('FROM otel_traces FINAL');
+      expect(toolCall.query_params).not.toHaveProperty('repo');
+    });
+  });
+
+  describe('getAgentFleetDailyTrend', () => {
+    it('resolves the repo and maps each daily row into a trend point, preserving order', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue([{ repo: 'r' }]) })
+        .mockResolvedValueOnce({
+          json: vi.fn().mockResolvedValue([
+            { date: '2024-01-08', sessions: '5', costUsd: '10.5', toolErrorRate: '0.1', cleanSessionRate: '0.8' },
+            { date: '2024-01-09', sessions: '3', costUsd: '4.25', toolErrorRate: '0', cleanSessionRate: '1' },
+          ]),
+        });
+
+      const result = await service.getAgentFleetDailyTrend(testCtx, dateRange);
+
+      expect(result.points).toEqual([
+        { date: '2024-01-08', sessions: 5, costUsd: 10.5, toolErrorRate: 0.1, cleanSessionRate: 0.8 },
+        { date: '2024-01-09', sessions: 3, costUsd: 4.25, toolErrorRate: 0, cleanSessionRate: 1 },
+      ]);
+      const [, trendCall] = mockQuery.mock.calls.map((c) => c[0]);
+      expect(trendCall.query).toContain('FROM agent_session_summary FINAL');
+      expect(trendCall.query_params.repo).toBe('r');
+    });
+  });
+
   describe('getAgentFleetPercentileTrend', () => {
     it('maps each daily row into a trend point, preserving order', async () => {
       mockQuery
@@ -1092,5 +1267,44 @@ describe('AnalyticsService facade — getAgentFleetAutonomyMixTrend', () => {
     });
     // The second call is the ladder query — pinned by its group-verdict shape.
     expect(mockQuery.mock.calls[1]![0].query).toContain('minIf(level, level > 0) AS minLevel');
+  });
+});
+
+describe('AnalyticsService facade — getAgentFleetMetricsBreakdown / getAgentFleetDailyTrend', () => {
+  const ctx: TenantContext = {
+    userId: 'test-user',
+    tenantId: 'tenant-123',
+    appId: 'app-123' as VerifiedAppId,
+    dataRetentionDays: -1,
+  };
+
+  it('routes getAgentFleetMetricsBreakdown through the agent-fleet sub-service', async () => {
+    const mockQuery = vi.fn();
+    const facade = new AnalyticsService({ query: mockQuery } as any);
+    mockQuery.mockResolvedValueOnce({
+      json: vi.fn().mockResolvedValue([{ dimensionValue: 'bash', requests: '3', errors: '0' }]),
+    });
+
+    const result = await facade.getAgentFleetMetricsBreakdown(ctx, { start: '2024-01-08', end: '2024-01-14' }, 'tool', 10);
+
+    expect(result).toEqual({ dimension: 'tool', items: [{ key: 'bash', requests: 3, toolErrorRate: 0 }] });
+  });
+
+  it('routes getAgentFleetDailyTrend through the agent-fleet sub-service', async () => {
+    const mockQuery = vi.fn();
+    const facade = new AnalyticsService({ query: mockQuery } as any);
+    mockQuery
+      .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue([{ repo: 'r' }]) })
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue([
+          { date: '2024-01-08', sessions: '1', costUsd: '2', toolErrorRate: '0', cleanSessionRate: '1' },
+        ]),
+      });
+
+    const result = await facade.getAgentFleetDailyTrend(ctx, { start: '2024-01-08', end: '2024-01-14' });
+
+    expect(result).toEqual({
+      points: [{ date: '2024-01-08', sessions: 1, costUsd: 2, toolErrorRate: 0, cleanSessionRate: 1 }],
+    });
   });
 });

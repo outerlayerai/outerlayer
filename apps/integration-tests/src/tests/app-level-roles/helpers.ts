@@ -124,7 +124,7 @@ export async function createTenantWithOwner(): Promise<SameTenantUser> {
  */
 export async function addUserToTenant(
   tenantId: string,
-  role: 'admin' | 'write' | 'read'
+  role: 'admin' | 'write' | 'read' | 'disabled'
 ): Promise<SameTenantUser> {
   const admin = createSupabaseAdminClient();
   const rid = Math.random().toString(36).substring(2, 8);

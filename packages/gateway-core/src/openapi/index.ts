@@ -14,7 +14,7 @@ import type { RouteRateLimit } from '../rate-limits';
 import type { Env } from '../types';
 
 // Route imports
-import { SyncAgentSessions, GetAgentBlob } from './routes/agents';
+import { SyncAgentSessions, GetAgentBlob, GetAgentBlobByToken } from './routes/agents';
 import { EmitArtifact } from './routes/artifacts';
 import { EmitResult } from './routes/emitted-results';
 import { ListSpans, SearchSpans, GetSpan, GetBlob } from './routes/spans';
@@ -22,6 +22,13 @@ import { CreateScore, CreateScoresBatch, ListScores, SearchScores, GetScore, Get
 import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
 import { GetCapabilities } from './routes/capabilities';
 import { GetPricing } from './routes/pricing';
+import { GetOAuthProtectedResourceMetadata, GetAppScopedOAuthProtectedResourceMetadata } from './routes/oauth';
+import { OAUTH_PROTECTED_RESOURCE_METADATA_PATH } from '../lib/oauth-metadata';
+import { GetTopics } from './routes/topics';
+import { GetModelStats, GetFleetOverview, GetMetricsCompare, GetMetricsBreakdown, GetMetricsTrends } from './routes/metrics';
+import { GetPrOutcomes } from './routes/prs';
+import { ListSessions, GetSessionDetail } from './routes/sessions';
+import { ListContextChanges } from './routes/context';
 import { ListApiKeys, CreateApiKey, RevokeApiKey } from './routes/api-keys';
 import {
   ListEnvironments,
@@ -50,6 +57,7 @@ import {
   LaunchWorkerRun,
 } from './routes/workers';
 import { countActiveEnvironmentsForTenant } from '../lib/workers';
+import { handleMcpRequest, mcpMethodNotAllowed } from './mcp/dispatcher';
 import {
   enforceEntitlement,
   enforceQuota,
@@ -535,7 +543,13 @@ export const openApiApp = fromHono(app, {
       { name: 'Environments', description: 'Per-app named environments (e.g. `dev`, `prod`). CRUD for env lifecycle.' },
       { name: 'Apps', description: 'App CRUD — the top-level tenant entity every other resource hangs off. Lets a headless agent provision an app without the dashboard.' },
       { name: 'Workers', description: 'Cloud workers — terminal coding agents on managed compute. Launch one-shot runs or persistent multi-turn sessions against the app\'s connected repo; every response carries the dashboard deep link to the live thread.' },
+      { name: 'Sessions', description: 'Agent-coding session list and full transcript reads, with actor-privacy controls for machine keys.' },
+      { name: 'Topics', description: 'Clusters of agent sessions grouped by task, issues encountered, or steering corrections — the active topic map per facet.' },
+      { name: 'Metrics', description: 'Per-model token spend and fleet-wide agent behavior tiles, including two-window comparisons.' },
+      { name: 'Context', description: 'Synced-commit history of the app\'s `.outerlayer/` context tree.' },
+      { name: 'PRs', description: 'Session→PR attribution: which agent sessions produced which pull requests, and what each attributed PR cost.' },
       { name: 'Health', description: 'Service health checks.' },
+      { name: 'OAuth', description: 'OAuth 2.1 discovery metadata for MCP connector clients.' },
     ],
   },
 });
@@ -690,6 +704,21 @@ registerPublicRoute('get', '/v1/health/ingestion', IngestionHealth);
 registerPublicRoute('get', '/v1/health/files', FilesHealth);
 registerPublicRoute('get', '/v1/capabilities', GetCapabilities);
 registerPublicRoute('get', '/v1/pricing', GetPricing);
+// RFC 9728 — outside /v1/*, same as /health, so the /v1/* auth middleware
+// never sees it; no unauthenticated-path bookkeeping needed beyond this.
+registerPublicRoute(
+  'get',
+  OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
+  GetOAuthProtectedResourceMetadata,
+);
+// RFC 9728 §3.1 path-insertion form for the per-app MCP mount — a distinct
+// document so a client validating the resource audience against
+// /v1/apps/{appId}/mcp doesn't have to accept the bare /v1/mcp one.
+registerPublicRoute(
+  'get',
+  `${OAUTH_PROTECTED_RESOURCE_METADATA_PATH}/v1/apps/:appId/mcp`,
+  GetAppScopedOAuthProtectedResourceMetadata,
+);
 
 // ============================================================================
 // Templates routes
@@ -721,6 +750,7 @@ registerAuthenticatedRoute('get', '/v1/workers/environments/:envId', GetWorkerSe
 
 registerAuthenticatedRoute('post', '/v1/agents/sync', SyncAgentSessions);
 registerAuthenticatedRoute('get', '/v1/agents/blob/:sha256', GetAgentBlob);
+registerAuthenticatedRoute('get', '/v1/agents/blob-token/:token', GetAgentBlobByToken);
 registerAuthenticatedRoute('post', '/v1/artifacts', EmitArtifact);
 registerAuthenticatedRoute('post', '/v1/emitted-results', EmitResult);
 
@@ -750,8 +780,30 @@ registerAuthenticatedRoute('delete', '/v1/scores/:scoreId', DeleteScore);
 // ============================================================================
 
 // ============================================================================
+// Sessions routes
+// ============================================================================
+registerAuthenticatedRoute('get', '/v1/sessions', ListSessions);
+registerAuthenticatedRoute('get', '/v1/sessions/:traceId', GetSessionDetail);
+
+// ============================================================================
+// Topics routes
+// ============================================================================
+registerAuthenticatedRoute('get', '/v1/topics', GetTopics, { entitlement: 'topics_enabled' });
+
+// ============================================================================
 // Metrics routes
 // ============================================================================
+registerAuthenticatedRoute('get', '/v1/metrics/models', GetModelStats);
+registerAuthenticatedRoute('get', '/v1/metrics/overview', GetFleetOverview);
+registerAuthenticatedRoute('get', '/v1/metrics/compare', GetMetricsCompare, { entitlement: 'topics_enabled' });
+registerAuthenticatedRoute('get', '/v1/metrics/breakdown', GetMetricsBreakdown);
+registerAuthenticatedRoute('get', '/v1/metrics/trends', GetMetricsTrends);
+registerAuthenticatedRoute('get', '/v1/prs/outcomes', GetPrOutcomes);
+
+// ============================================================================
+// Context routes
+// ============================================================================
+registerAuthenticatedRoute('get', '/v1/context/changes', ListContextChanges);
 
 // ============================================================================
 // Datasets routes (task mining + run inputs)
@@ -809,3 +861,40 @@ registerAuthenticatedRoute('delete', '/v1/apps/:appId/git/link', UnlinkAppReposi
 registerAuthenticatedRoute('get', '/v1/apps/:appId', GetApp);
 registerAuthenticatedRoute('patch', '/v1/apps/:appId', UpdateApp);
 registerAuthenticatedRoute('delete', '/v1/apps/:appId', DeleteApp);
+
+// ============================================================================
+// MCP mount — POST /v1/mcp, one JSON-RPC 2.0 dispatch point for the MCP tool table
+// + one resource. Registered on the raw Hono `app`, NOT `openApiApp`
+// (chanfana's `.post`/`.get` proxy methods register every call — even a
+// plain function handler — into the generated OpenAPI spec; `app.post`
+// bypasses that entirely). `app` and `openApiApp` share the same underlying
+// router, so this still runs after every `app.use('/v1/*', ...)` middleware
+// registered above (CORS, gtx, authMiddleware, the wildcard
+// permissionMiddleware fallback) — auth happens exactly as it does for every
+// other /v1/* route; per-tool RBAC/entitlement/rate-limit enforcement is
+// the dispatcher's own job (see openapi/mcp/dispatcher.ts), since this
+// mount bypasses `registerAuthenticatedRoute` entirely (one path serving
+// the tool table, not one route per path).
+// ============================================================================
+app.post('/v1/mcp', handleMcpRequest);
+app.get('/v1/mcp', mcpMethodNotAllowed);
+app.delete('/v1/mcp', mcpMethodNotAllowed);
+app.put('/v1/mcp', mcpMethodNotAllowed);
+app.patch('/v1/mcp', mcpMethodNotAllowed);
+
+// ============================================================================
+// Per-app MCP mount — POST /v1/apps/:appId/mcp, for OAuth-connected clients
+// (claude.ai/ChatGPT custom connectors) that paste a single URL and cannot
+// send a custom X-Outerlayer-App-Id header. The app comes from the path
+// instead; authMiddleware resolves and validates it there (see
+// `isAppScopedMcpRoute` in openapi/middleware.ts) before this handler runs,
+// so `handleMcpRequest` itself is unchanged — it still reads the app from
+// `c.get('user')`, same as the plain /v1/mcp mount above. Same raw-Hono,
+// out-of-spec construction as /v1/mcp, for the same reason (one JSON-RPC
+// dispatch point, not a REST operation).
+// ============================================================================
+app.post('/v1/apps/:appId/mcp', handleMcpRequest);
+app.get('/v1/apps/:appId/mcp', mcpMethodNotAllowed);
+app.delete('/v1/apps/:appId/mcp', mcpMethodNotAllowed);
+app.put('/v1/apps/:appId/mcp', mcpMethodNotAllowed);
+app.patch('/v1/apps/:appId/mcp', mcpMethodNotAllowed);

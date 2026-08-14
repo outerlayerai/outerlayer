@@ -77,7 +77,7 @@ describe("fetchPrPolicyFiles", () => {
     ]);
   });
 
-  it("loads only yaml regular files, sorted, and caps the count", async () => {
+  it("loads only yaml regular files, sorted, and reports the cap overflow as a loud problem", async () => {
     const files: Record<string, string> = {};
     const entries: Entry[] = [
       entry("z-last.yaml"),
@@ -101,6 +101,24 @@ describe("fetchPrPolicyFiles", () => {
     expect(result.validatorFiles[1]!.path).toBe(`${VALIDATORS_DIR}/v00.yaml`);
     expect(result.validatorFiles.map((f) => f.path)).not.toContain(`${VALIDATORS_DIR}/notes.md`);
     expect(result.validatorFiles.map((f) => f.path)).not.toContain(`${VALIDATORS_DIR}/z-last.yaml`);
+    // A dropped file is a check that silently stops running — the overflow
+    // must surface as a problem, never vanish.
+    expect(result.problems).toEqual([
+      { file: VALIDATORS_DIR, problem: "27 validator files found — only the first 20 by name load" },
+    ]);
+  });
+
+  it("reports no problem when the file count sits exactly at the cap", async () => {
+    const files: Record<string, string> = {};
+    const entries: Entry[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      const name = `v${String(i).padStart(2, "0")}.yaml`;
+      entries.push(entry(name));
+      files[`${VALIDATORS_DIR}/${name}`] = `id: v${i}`;
+    }
+    const result = await fetchPrPolicyFiles(source({ files, entries }), "acme/app", "main");
+    expect(result.validatorFiles).toHaveLength(20);
+    expect(result.problems).toEqual([]);
   });
 
   it("propagates a non-404 provider failure instead of treating it as no policy", async () => {

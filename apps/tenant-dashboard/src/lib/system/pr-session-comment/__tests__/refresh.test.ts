@@ -1835,6 +1835,88 @@ describe("refreshPrSessionComment under a policy", () => {
     expect(body).toContain("✓ **Migrations ran against a local database** — turn 7");
   });
 
+  // proves AC-085-01
+  it("removes a custom row entirely when the policy file levels the custom off", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9105));
+    seedBasePolicy(githubClient, {
+      ...MIGRATION_POLICY,
+      ".outerlayer/policy.yaml":
+        "extends: outerlayer:recommended@v1\nvalidators:\n  migration-must-run: off\n",
+    });
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "supabase/migrations/20260814_add.sql", changeStatus: "added" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).not.toContain("Migrations ran against a local database");
+    expect(body).not.toContain("policy file has an error");
+  });
+
+  // proves AC-085-03
+  it("keeps a policy-file info-leveled custom visible without counting it toward the verdict", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9106));
+    seedBasePolicy(githubClient, {
+      ...MIGRATION_POLICY,
+      ".outerlayer/policy.yaml":
+        "extends: outerlayer:recommended@v1\nvalidators:\n  migration-must-run: info\n",
+    });
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "supabase/migrations/20260814_add.sql", changeStatus: "added" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], [spanRow("t1", 3, { command: "vitest run" })]),
+        githubClient,
+      },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      "ℹ **Migrations ran against a local database** — required, not proven this PR",
+    );
+    expect(body).toContain("Everything checks out");
+  });
+
+  // proves AC-085-13
+  it("renders a loud error row when the validators directory exceeds the file cap", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9107));
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 21; i += 1) {
+      files[`.outerlayer/validators/v${String(i).padStart(2, "0")}.yaml`] = [
+        `id: check-${String(i).padStart(2, "0")}`,
+        "kind: validation",
+        `row: "Check ${i} holds"`,
+        "require: { validator: red-then-green }",
+      ].join("\n");
+    }
+    seedBasePolicy(githubClient, files);
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      "⚠ **The policy file has an error** — `.outerlayer/validators`: 21 validator files found — only the first 20 by name load",
+    );
+  });
+
   // proves AC-085-07
   it("renders no custom row at all when the PR's diff never touched the scope", async () => {
     confirmedSession();

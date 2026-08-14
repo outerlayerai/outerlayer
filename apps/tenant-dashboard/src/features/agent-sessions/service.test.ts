@@ -61,6 +61,13 @@ const mockQuery = vi.fn(
 );
 let mockClient: { query: typeof mockQuery } | null = { query: mockQuery };
 
+/** Every ClickHouse call issued so far, as (sql, params) pairs. */
+const chCalls = () =>
+  mockQuery.mock.calls.map(([args]) => ({
+    query: args?.query ?? "",
+    query_params: args?.query_params ?? {},
+  }));
+
 vi.mock("@/lib/analytics/client", () => ({
   createTenantReadClient: () => mockClient,
   getDefaultClient: () => mockClient,
@@ -321,9 +328,7 @@ describe("AgentSessionsService.getSessionDetail", () => {
 
   it("caps tool I/O at the ClickHouse boundary so a mega-session response stays small", async () => {
     await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
-    const spansCall = (mockQuery.mock.calls as unknown as [{ query: string }][])
-      .map((c) => c[0])
-      .find((c) => c.query.includes("SpanId AS spanId"))!;
+    const spansCall = chCalls().find((c) => c.query.includes("SpanId AS spanId"))!;
     expect(spansCall.query).toContain("if(SpanName LIKE 'agent.tool.%', substringUTF8(Output, 1, 4096), Output)");
     expect(spansCall.query).toContain("substringUTF8(SpanAttributes['outerlayer.reasoning'], 1, 1024)");
   });
@@ -408,7 +413,7 @@ describe("AgentSessionsService.getSessionDetail", () => {
       { ...FAT_ROW, start: "2026-07-01 10:00:00.000000000", end: "2026-07-01 11:00:00.000000000" },
     ]);
     await agentSessionsService.getSessionDetail(ctx(), "abc123");
-    const calls = (mockQuery.mock.calls as unknown as [{ query: string; query_params: Record<string, unknown> }][]).map((c) => c[0]);
+    const calls = chCalls();
     const rangeCall = calls.find((c) => c.query.includes("otel_traces_trace_id_ts"));
     const spanCall = calls.find((c) => c.query.includes("SpanName LIKE 'agent.%'") && c.query.includes("FROM otel_traces FINAL"));
     expect(rangeCall!.query).toContain("TenantId = {tenantId:String}");
@@ -424,9 +429,7 @@ describe("AgentSessionsService.getSessionDetail", () => {
       { ...FAT_ROW, start: "2026-07-01 10:00:00.000000000", end: "2026-07-01 11:00:00.000000000" },
     ]);
     await agentSessionsService.getSessionDetail(ctx(), "abc123");
-    const spanCall = (mockQuery.mock.calls as unknown as [{ query: string }][])
-      .map((c) => c[0])
-      .find((c) => c.query.includes("FROM otel_traces FINAL"));
+    const spanCall = chCalls().find((c) => c.query.includes("FROM otel_traces FINAL"));
     // Strip SQL comments — they discuss PREWHERE/WHERE and would foul the match.
     const sql = spanCall!.query
       .split("\n")
@@ -453,9 +456,7 @@ describe("AgentSessionsService.getSessionDetail", () => {
     rangeLookupEmpty = true;
     const data = await agentSessionsService.getSessionDetail(ctx(), "abc123");
     expect(data).not.toBeNull();
-    const spanCall = (mockQuery.mock.calls as unknown as [{ query: string }][])
-      .map((c) => c[0])
-      .find((c) => c.query.includes("FROM otel_traces FINAL"));
+    const spanCall = chCalls().find((c) => c.query.includes("FROM otel_traces FINAL"));
     expect(spanCall!.query).not.toContain("tsRangeStart");
   });
 
@@ -515,9 +516,7 @@ describe("AgentSessionsService.getSessionDetail", () => {
 
     it("scopes the facet read by exact trace id, current-status only, and version-pins each facet the way generation does", async () => {
       await agentSessionsService.getSessionDetail(ctx(), FAT_ROW.traceId);
-      const facetCall = (mockQuery.mock.calls as unknown as [{ query: string; query_params: Record<string, unknown> }][])
-        .map((c) => c[0])
-        .find((c) => c.query.includes("trace_facets"));
+      const facetCall = chCalls().find((c) => c.query.includes("trace_facets"));
       expect(facetCall!.query).toContain(
         "PREWHERE TenantId = {tenantId:String} AND AppId = {appId:String} AND TraceId = {traceId:String}",
       );
@@ -573,10 +572,6 @@ describe("AgentSessionsService.listSessions", () => {
   function listQuery(overrides: Partial<ListSessionsQuery> = {}): ListSessionsQuery {
     return { limit: 25, offset: 0, sort: "startedAt", dir: "desc", ...overrides };
   }
-
-  /** Every CH call this method made, as (sql, params) pairs. */
-  const chCalls = () =>
-    (mockQuery.mock.calls as unknown as [{ query: string; query_params: Record<string, unknown> }][]).map((c) => c[0]);
 
   beforeEach(() => {
     mockJson.mockResolvedValue([LIST_ROW]);
@@ -812,15 +807,15 @@ describe("AgentSessionsService.listSessions", () => {
 
         await agentSessionsService.listSessions(ctx({ appId: "app-1" }), listQuery({ pr: 812 }));
         const listCall = chCalls().find((c) => c.query.includes("TraceId AS traceId"))!;
-        expect(listCall.query).toContain("TraceId IN {prTraceIds:Array(String)}");
-        expect(listCall.query_params.prTraceIds).toEqual(["trace-confirmed"]);
+        expect(listCall.query).toContain("TraceId IN {traceIdsConstraint:Array(String)}");
+        expect(listCall.query_params.traceIdsConstraint).toEqual(["trace-confirmed"]);
       });
 
       it("resolves to zero rows (never every row) when the pr filter is active but nothing is confirmed-linked", async () => {
         await agentSessionsService.listSessions(ctx({ appId: "app-1" }), listQuery({ pr: 999 }));
         const listCall = chCalls().find((c) => c.query.includes("TraceId AS traceId"))!;
         expect(listCall.query).toContain("1=0");
-        expect(listCall.query_params.prTraceIds).toBeUndefined();
+        expect(listCall.query_params.traceIdsConstraint).toBeUndefined();
       });
 
       // The comment's footer link carries only `?pr=`, so a dominant-repo pin
@@ -846,7 +841,7 @@ describe("AgentSessionsService.listSessions", () => {
       it("omits the pr clause entirely when no pr param is given", async () => {
         await agentSessionsService.listSessions(ctx({ appId: "app-1" }), listQuery());
         const listCall = chCalls().find((c) => c.query.includes("TraceId AS traceId"))!;
-        expect(listCall.query).not.toContain("TraceId IN {prTraceIds:Array(String)}");
+        expect(listCall.query).not.toContain("TraceId IN {traceIdsConstraint:Array(String)}");
         expect(listCall.query).not.toContain("1=0");
       });
     });

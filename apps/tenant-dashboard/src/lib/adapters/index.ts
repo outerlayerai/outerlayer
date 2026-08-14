@@ -15,6 +15,7 @@
 export {
   loadRequestServiceContext,
   loadPreTenantActor,
+  loadPreTenantActorSession,
   checkRequestPermission,
   resolveCallerMembershipId,
 } from './request-service-context'

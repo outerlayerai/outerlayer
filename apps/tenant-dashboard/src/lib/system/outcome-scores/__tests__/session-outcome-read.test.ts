@@ -6,6 +6,7 @@
  * writer's per-(trace, PR, name) Id); only confirmed links count; a PR with no
  * scores yet is absent; and each score maps to its own field with its label.
  */
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, it, expect, vi } from "vitest";
 import { getAdminDataClient } from "@/lib/system/admin-client";
 import {
@@ -15,6 +16,30 @@ import {
 } from "../../../../test-helpers/msw-handlers";
 import { fetchSessionOutcomeScores, fetchOutcomesForTraces } from "../session-outcome-read";
 import { outcomeScoreId } from "../score-rows";
+
+/** A minimal chainable Supabase query-builder fake, keyed by table name, for
+ * pinning the two `if (error) throw ...` paths and the `data ?? []` null-data
+ * fallback — cases the MSW fixture (which always answers 200 with a real
+ * array) cannot produce. Every builder method returns the same thenable, so
+ * any `.from(table).select(...).eq(...)....` chain resolves to that table's
+ * configured result. */
+function supabaseWithTableResults(
+  results: Record<string, { data: unknown; error: { message: string } | null }>,
+): SupabaseClient {
+  return {
+    from: (table: string) => {
+      const result = results[table] ?? { data: [], error: null };
+      const builder: Record<string, unknown> = {
+        select: () => builder,
+        eq: () => builder,
+        in: () => builder,
+        limit: () => builder,
+        then: (resolve: (v: typeof result) => unknown) => resolve(result),
+      };
+      return builder;
+    },
+  } as unknown as SupabaseClient;
+}
 
 const TENANT = "t-1";
 const APP = "app-1";
@@ -151,6 +176,45 @@ describe("fetchSessionOutcomeScores", () => {
     });
 
     expect(result).toEqual([]);
+  });
+
+  it("surfaces a named error when the confirmed-links read fails, instead of treating it as no links", async () => {
+    const supabase = supabaseWithTableResults({
+      pull_request_session: { data: null, error: { message: "connection reset" } },
+    });
+    const chQuery = stubChQuery([]);
+
+    await expect(
+      fetchSessionOutcomeScores(supabase, chQuery, { tenantId: TENANT, appId: APP, traceId: TRACE }),
+    ).rejects.toThrow("pull_request_session read failed: connection reset");
+  });
+
+  it("treats a null (not empty-array) confirmed-links response as no links, and never queries ClickHouse", async () => {
+    const supabase = supabaseWithTableResults({
+      pull_request_session: { data: null, error: null },
+    });
+    const chQuery = vi.fn(async () => []);
+
+    const result = await fetchSessionOutcomeScores(supabase, chQuery, {
+      tenantId: TENANT,
+      appId: APP,
+      traceId: TRACE,
+    });
+
+    expect(result).toEqual([]);
+    expect(chQuery).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a named error when the PR-url read fails, instead of silently dropping every url", async () => {
+    const supabase = supabaseWithTableResults({
+      pull_request_session: { data: [{ trace_id: TRACE, pr_number: 7 }], error: null },
+      pull_request: { data: null, error: { message: "connection reset" } },
+    });
+    const chQuery = stubChQuery([chScoreRow(7, "worker.ci_green", 1, "success")]);
+
+    await expect(
+      fetchSessionOutcomeScores(supabase, chQuery, { tenantId: TENANT, appId: APP, traceId: TRACE }),
+    ).rejects.toThrow("pull_request url read failed: connection reset");
   });
 });
 

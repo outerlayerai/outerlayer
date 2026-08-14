@@ -22,14 +22,15 @@ evidence; a screenshot of the rendered page is. If the state takes setup
 
 ## Per-kind mechanics
 
-Kind is inferred from the file's media type — name files honestly:
+Kind is inferred from the file's media type — name files honestly. Every
+artifact shares one upload cap of 8 MiB, whatever its kind:
 
 - **screenshot** (`.png`, `.jpg`) — one focused window or region showing the
   proven state. Crop noise; keep enough chrome (URL bar, test summary line)
   to show it is real.
 - **video** (`.webm`, `.mp4`) — a short recording of the flow, start to
-  outcome. Keep it under 8 MiB (the upload cap): trim dead time, prefer
-  webm.
+  outcome. Video is the kind most likely to hit the 8 MiB cap: trim dead
+  time, prefer webm.
 - **report** (`.html`, `.pdf`) — generated reports: coverage, benchmark,
   audit output. Emit the file the tool produced, unedited.
 - **log** (`.txt`, `.log`) — command output proving a run happened: test

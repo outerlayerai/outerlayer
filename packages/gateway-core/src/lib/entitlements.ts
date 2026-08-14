@@ -83,7 +83,11 @@ export type GatewayEntitlement =
   // Cloud workers: enforced on POST /v1/workers/runs and the
   // persistent-session routes in routes/workers.ts.
   | 'workers_enabled'
-  | 'persistent_worker_environments';
+  | 'persistent_worker_environments'
+  // GET /v1/topics: gates headless (REST/MCP) access only. The dashboard
+  // Topics UI renders for every tier regardless of this entitlement — there
+  // is no dashboard-side check on it yet.
+  | 'topics_enabled';
 
 /**
  * The numeric (quota) entitlement keys the gateway enforces. Same

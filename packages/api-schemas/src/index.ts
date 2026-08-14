@@ -12,3 +12,6 @@ export * from "./schemas/scores";
 export * from "./schemas/metrics";
 export * from "./schemas/api-keys";
 export * from "./schemas/apps";
+export * from "./schemas/topics";
+export * from "./schemas/agent-sessions";
+export * from "./schemas/context";

@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@outerlayer/session-schema": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {

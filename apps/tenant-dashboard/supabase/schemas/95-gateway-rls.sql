@@ -70,10 +70,11 @@ GRANT SELECT ON public.tenant_entitlement_override  TO gateway;
 GRANT SELECT, INSERT, UPDATE ON public.worker_run          TO gateway;
 GRANT SELECT, INSERT, UPDATE ON public.worker_workspace    TO gateway;
 
--- Artifacts: /v1/artifacts ingests exhibit records (INSERT), retries update
--- the same client id (UPDATE via upsert), and the retention job reads and
--- flags aged-out rows whose blob bytes it deleted (SELECT, UPDATE).
-GRANT SELECT, INSERT, UPDATE ON public.artifact            TO gateway;
+-- Artifacts: /v1/artifacts ingests exhibit records (INSERT) and re-reads the
+-- stored row to answer idempotent retries (SELECT). No UPDATE: a retried
+-- ingest inserts with ON CONFLICT DO NOTHING, and the sweeps that mutate
+-- rows (verification aging, blob_deleted stamping) run under service_role.
+GRANT SELECT, INSERT ON public.artifact                    TO gateway;
 -- Emitted results: /v1/emitted-results ingests CI check outcomes (INSERT)
 -- and re-reads the winner after an idempotency race (SELECT).
 GRANT SELECT, INSERT ON public.emitted_result              TO gateway;
@@ -258,20 +259,15 @@ CREATE POLICY "gateway_tenant_delete_app" ON public.app
     FOR DELETE TO gateway
     USING (tenant_id = public.tenant_id());
 
--- Cloud workers: tenant-scoped run + environment access for the
--- /v1/workers routes. Permission checks (worker_run.read / worker_run.insert)
--- happen at the Hono middleware layer, matching every other table here.
+-- Artifacts + PR anchor check: the ingest surface's SELECT/INSERT pair (no
+-- UPDATE policy — the role holds no UPDATE grant) and the read-only
+-- pull_request lookup that confirms a claimed PR number at ingest.
 CREATE POLICY "gateway_tenant_read_artifact" ON public.artifact
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());
 
 CREATE POLICY "gateway_tenant_insert_artifact" ON public.artifact
     FOR INSERT TO gateway
-    WITH CHECK (tenant_id = public.tenant_id());
-
-CREATE POLICY "gateway_tenant_update_artifact" ON public.artifact
-    FOR UPDATE TO gateway
-    USING (tenant_id = public.tenant_id())
     WITH CHECK (tenant_id = public.tenant_id());
 
 CREATE POLICY "gateway_tenant_read_emitted_result" ON public.emitted_result
@@ -282,10 +278,14 @@ CREATE POLICY "gateway_tenant_insert_emitted_result" ON public.emitted_result
     FOR INSERT TO gateway
     WITH CHECK (tenant_id = public.tenant_id());
 
+
 CREATE POLICY "gateway_tenant_read_pull_request" ON public.pull_request
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());
 
+-- Cloud workers: tenant-scoped run + environment access for the
+-- /v1/workers routes. Permission checks (worker_run.read / worker_run.insert)
+-- happen at the Hono middleware layer, matching every other table here.
 CREATE POLICY "gateway_tenant_read_worker_run" ON public.worker_run
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());
@@ -311,6 +311,78 @@ CREATE POLICY "gateway_tenant_update_worker_workspace" ON public.worker_workspac
     FOR UPDATE TO gateway
     USING (tenant_id = public.tenant_id())
     WITH CHECK (tenant_id = public.tenant_id());
+
+-- -----------------------------------------------------------------------------
+-- Context mirror surface (public.context_snapshot) — read-only, for
+-- GET /v1/context/changes. Permission enforcement (metrics.read) happens at
+-- the Hono middleware layer; RLS here only owes tenant isolation, matching
+-- every other table in this file. App scoping is applied by the route's own
+-- `.eq('app_id', ...)` filter, the same split `GetEnvironment`/`DeleteEnvironment`
+-- use for a tenant-wide gateway policy.
+-- -----------------------------------------------------------------------------
+GRANT SELECT ON public.context_snapshot TO gateway;
+
+CREATE POLICY "gateway_tenant_read_context_snapshot" ON public.context_snapshot
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+-- -----------------------------------------------------------------------------
+-- PR outcomes + actor names (public.membership, public.profile,
+-- public.pull_request_session) — read-only, for the `prOutcomes` and
+-- `actorNames` ports an API-key caller's session reads build
+-- (packages/gateway-core/src/lib/pr-outcomes.ts,
+-- packages/gateway-core/src/openapi/routes/sessions.ts). Without these, every
+-- query under the `gateway` role fails RLS and the caller silently gets
+-- "no PR outcome" / "no actor name" for every session — permission
+-- enforcement (session.read) happens at the Hono middleware layer, matching
+-- every other table in this file. public.pull_request, which these ports also
+-- read, already carries its gateway grant + gateway_tenant_read_pull_request
+-- policy in the artifact block above.
+-- -----------------------------------------------------------------------------
+GRANT SELECT ON public.membership TO gateway;
+
+CREATE POLICY "gateway_tenant_read_membership" ON public.membership
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+-- profile carries no tenant_id (a user can belong to multiple tenants), so
+-- gateway scoping mirrors the "Users can read profiles" policy in
+-- 12-rbac.sql: readable rows are exactly the active members of the caller's
+-- tenant, via a membership join, rather than the self-row branch that
+-- policy also has (the gateway role has no `auth.uid()` — it acts for a
+-- tenant, not a signed-in user).
+GRANT SELECT ON public.profile TO gateway;
+
+CREATE POLICY "gateway_tenant_read_profile" ON public.profile
+    FOR SELECT TO gateway
+    USING (
+      id IN (
+        SELECT m.user_id
+        FROM public.membership m
+        WHERE m.tenant_id = public.tenant_id()
+          AND (m.status)::text = 'active'::text
+      )
+    );
+
+GRANT SELECT ON public.pull_request_session TO gateway;
+
+CREATE POLICY "gateway_tenant_read_pull_request_session" ON public.pull_request_session
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+-- The pre-existing "Users can read memberships" / "Users can read profiles"
+-- policies (12-rbac.sql) carry no TO clause, so PUBLIC, so the gateway role
+-- inherits their OR-arm that calls private.authorize('membership.read'/...).
+-- Without EXECUTE on that function, every gateway-role SELECT against
+-- membership/profile fails with 42501 ("permission denied for function
+-- authorize") rather than falling through to the tenant-scoped policies
+-- above — Postgres evaluates all permissive policies' quals regardless of
+-- which one ultimately grants access. Granting EXECUTE is safe: authorize()
+-- keys off auth.uid(), which for gateway JWTs is the tenant id and matches
+-- no membership.user_id row, so the legacy policies' OR-arm always
+-- evaluates to false for this role — the grant only prevents the error,
+-- it does not widen what the role can read.
+GRANT EXECUTE ON FUNCTION private.authorize(public.app_permission) TO gateway;
 
 -- -----------------------------------------------------------------------------
 -- Storage policy for gateway: intentionally omitted

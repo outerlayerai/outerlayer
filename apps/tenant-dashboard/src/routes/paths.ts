@@ -114,6 +114,10 @@ export const appPaths = {
       `${envBase(orgName, appName, envName)}/settings/api-keys`,
     envVars: (orgName: string, appName: string, envName: string) =>
       `${envBase(orgName, appName, envName)}/settings/env-vars`,
+    // User-scoped (not app-scoped) despite living under the per-env
+    // settings path — see app-settings-nav.tsx's "Connected Apps" entry.
+    grants: (orgName: string, appName: string, envName: string) =>
+      `${envBase(orgName, appName, envName)}/settings/grants`,
   },
   insights: {
     // The trace-topics surface; URL + label say Insights.

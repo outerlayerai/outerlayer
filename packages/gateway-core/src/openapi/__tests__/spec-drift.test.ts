@@ -62,6 +62,14 @@ const RUNTIME_ONLY_OPERATIONS: ReadonlySet<OperationKey> = new Set<OperationKey>
   // Intentionally empty. Every real /v1/* endpoint should also appear in
   // docs/openapi.yaml. Add an entry only for endpoints whose contract is
   // genuinely outside request/response JSON (e.g. a WebSocket upgrade).
+  //
+  // `POST /v1/mcp` is NOT an entry here, and never will be: it is mounted
+  // directly on the underlying Hono app (`app.post`), bypassing chanfana's
+  // route registration (`openApiApp.post`/`registerAuthenticatedRoute`)
+  // entirely — one JSON-RPC endpoint dispatching to multiple tools has no
+  // single request/response JSON shape to document as an OpenAPI operation.
+  // It is served (auth runs identically to every other /v1/* route) but
+  // stays out of BOTH specs by construction — see the regression test below.
 ]);
 
 /**
@@ -143,6 +151,16 @@ describe('OpenAPI spec drift (runtime ⇄ docs/openapi.yaml)', () => {
         `is implemented outside chanfana (e.g. WebSocket) — adding it to DOCS_ONLY_OPERATIONS ` +
         `with a comment explaining why.`,
     ).toEqual([]);
+  });
+
+  it('the MCP mounts never appear in either spec (documented exception, see RUNTIME_ONLY_OPERATIONS)', () => {
+    for (const path of ['/v1/mcp', '/v1/apps/{appId}/mcp'] as const) {
+      for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const) {
+        const key: OperationKey = `${method} ${path}`;
+        expect(runtimeOps.has(key)).toBe(false);
+        expect(docsOps.has(key)).toBe(false);
+      }
+    }
   });
 
   it('every exception references a live operation (no stale entries)', () => {

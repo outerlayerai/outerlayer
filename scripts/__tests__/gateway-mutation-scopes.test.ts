@@ -31,6 +31,11 @@ describe('scopeForFile — per-file test-discovery scope', () => {
     expect(scopeForFile(GATEWAY_CORE_WORKSPACE, 'src/openapi/routes/traces.ts')).toEqual({
       vitestDir: 'src/openapi',
     });
+    // The MCP mount shares the route handlers' suite scope — its tests live
+    // under src/openapi/mcp/__tests__, same as the routes it wraps.
+    expect(scopeForFile(GATEWAY_CORE_WORKSPACE, 'src/openapi/mcp/dispatcher.ts')).toEqual({
+      vitestDir: 'src/openapi',
+    });
     // git moved to gateway-core; it now gets its own clean dir (no more
     // dir=src + include hack it used when it shared a shard with queues).
     expect(scopeForFile(GATEWAY_CORE_WORKSPACE, 'src/git/crypto.ts')).toEqual({

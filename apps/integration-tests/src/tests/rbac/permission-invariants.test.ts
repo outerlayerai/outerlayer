@@ -53,6 +53,10 @@ const ALLOWED_CLAIM_PATHS = new Set<string>([
   'session_id',
   'aal',
   'is_anonymous',
+  // Minted by Supabase's OAuth server on connector access tokens, not
+  // custom_access_token_hook; private.is_connector_token reads it only to
+  // detect a connector token, never to authorize on its value.
+  'client_id',
 ]);
 
 /**

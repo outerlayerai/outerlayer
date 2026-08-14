@@ -48,6 +48,7 @@ vi.mock('@repo/observability-service', async (importOriginal) => {
 // Import after mocks
 import {
   getGatewayAnalyticsService,
+  getGatewayTopicsService,
   resetGatewayAnalyticsService,
 } from '../analytics-factory';
 
@@ -156,6 +157,34 @@ describe('getGatewayAnalyticsService', () => {
 
     expect(createdClients[0]!.query).toHaveBeenCalledWith(
       expect.objectContaining({ clickhouse_settings: { SQL_tenant_id: 'tenant-9' } }),
+    );
+  });
+});
+
+describe('getGatewayTopicsService', () => {
+  it('returns null when CLICKHOUSE_HOST is undefined', () => {
+    expect(getGatewayTopicsService({ CLICKHOUSE_HOST: undefined }, SCOPE)).toBeNull();
+  });
+
+  it('shares the base adapter with getGatewayAnalyticsService (same isolate singleton)', () => {
+    const env = { CLICKHOUSE_HOST: 'http://localhost:8123' };
+    getGatewayAnalyticsService(env, SCOPE);
+    getGatewayTopicsService(env, SCOPE);
+    expect(createdClients).toHaveLength(1);
+  });
+
+  it('pins topics reads to the scope settings, same as analytics reads', async () => {
+    const service = getGatewayTopicsService(
+      { CLICKHOUSE_HOST: 'http://localhost:8123' },
+      SCOPE,
+    ) as any;
+
+    await service['client'].query({ query: 'SELECT 1' });
+
+    expect(createdClients[0]!.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clickhouse_settings: { SQL_tenant_id: 'tenant-1', SQL_app_id: 'app-1' },
+      }),
     );
   });
 });

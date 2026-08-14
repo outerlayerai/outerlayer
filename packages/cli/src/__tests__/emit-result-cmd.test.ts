@@ -80,6 +80,19 @@ describe("runEmitResult — validation (before any I/O)", () => {
     ).rejects.toThrow(/invalid --link "ftp:\/\/ci\.example\/run\/1" — expected an http:\/\/ or https:\/\/ URL/);
   });
 
+  it("rejects a link containing whitespace before any I/O", async () => {
+    const calls: FetchCall[] = [];
+    for (const link of ["https://ci.example/run 1", "https://ci.example/run\n1"]) {
+      const err = await runEmitResult({
+        name: "smoke.pass", link, pr: 7, cwd: work, home, quiet: true, env: {}, ...CREDS,
+        fetchImpl: acceptingFetch(calls),
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(EmitResultError);
+      expect((err as Error).message).toContain("URLs cannot contain whitespace");
+    }
+    expect(calls).toEqual([]);
+  });
+
   it("rejects a link over the length cap instead of truncating it — exactly 500 is accepted", async () => {
     const over = `https://${"a".repeat(493)}`; // 501 chars
     await expect(
