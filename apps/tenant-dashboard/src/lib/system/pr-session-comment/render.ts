@@ -329,10 +329,15 @@ function safeLinkUrl(link: string): string | null {
   if (!/^https?:\/\//i.test(link)) return null;
   // Explicit percent-encoding: encodeURIComponent leaves `(` and `)`
   // untouched, and an unencoded `)` is exactly the breakout being closed.
-  return link.replace(
-    /[()<>` ]/g,
-    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
-  );
+  // `\s` covers every whitespace character, newlines above all — a raw
+  // newline ends the `(url)` wrapper and lets the remainder of the stored
+  // link render as fabricated comment markdown.
+  return link.replace(/[()<>`]|\s/g, (char) => {
+    const code = char.charCodeAt(0);
+    return code <= 0xff
+      ? `%${code.toString(16).toUpperCase().padStart(2, "0")}`
+      : encodeURIComponent(char);
+  });
 }
 
 /** The provenance suffix for an emitted-result-backed row: the run link

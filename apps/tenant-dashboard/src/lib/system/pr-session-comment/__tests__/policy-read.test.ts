@@ -45,7 +45,7 @@ describe("fetchPrPolicyFiles", () => {
   // proves AC-085-02
   it("returns absences for a repo declaring nothing — the no-policy state, not an error", async () => {
     const result = await fetchPrPolicyFiles(source({}), "acme/app", "main");
-    expect(result).toEqual({ policyFile: null, validatorFiles: [] });
+    expect(result).toEqual({ policyFile: null, validatorFiles: [], problems: [] });
   });
 
   // proves AC-085-04
@@ -68,6 +68,7 @@ describe("fetchPrPolicyFiles", () => {
       validatorFiles: [
         { path: `${VALIDATORS_DIR}/migration.yaml`, content: "id: migration-must-run" },
       ],
+      problems: [],
     });
     // Every content read carried the base ref — never a PR head ref.
     expect(calls).toEqual([

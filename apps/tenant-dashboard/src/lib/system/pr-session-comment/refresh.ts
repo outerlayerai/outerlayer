@@ -734,8 +734,22 @@ export async function refreshPrSessionComment(
             base.baseRef,
           );
           policy = parsePolicy(files.policyFile, files.validatorFiles);
+          if (files.problems.length > 0) {
+            policy = { ...policy, problems: [...files.problems, ...policy.problems] };
+          }
         }
-      } catch {
+      } catch (error) {
+        // Fail-open by design for the BUILT-INS (defaults mean more checks,
+        // not fewer) — but a repo's custom checks silently stop running for
+        // this refresh, so the degradation must at least be visible in logs.
+        await serverLogger.error(error instanceof Error ? error : new Error(String(error)), {
+          context:
+            "[pr-session-comment] policy read failed — recommended defaults apply this refresh",
+          event: "pr_session_comment.policy_unreadable",
+          tenantId,
+          repository,
+          prNumber,
+        });
         policy = defaultPolicy();
       }
     }

@@ -38,13 +38,19 @@ import type { QueueMessageSendRequest } from '../../runtime';
 import type { Database } from '../../db';
 
 /** The proof link is the row's evidence — a reviewer follows it to the CI
- * run. Only web-resolvable URLs qualify; anything else stores a dead end. */
+ * run. Only web-resolvable URLs qualify; anything else stores a dead end.
+ * Whitespace is refused outright: the link lands inside a markdown `(url)`
+ * wrapper on a world-readable comment, and a raw newline would end the
+ * wrapper and let the remainder render as fabricated comment content. */
 const EmittedLinkSchema = z
   .string()
   .min(1)
   .max(EMITTED_RESULT_MAX_LINK_LENGTH)
   .refine((v) => v.startsWith('http://') || v.startsWith('https://'), {
     message: 'must be an http:// or https:// URL',
+  })
+  .refine((v) => !/\s/.test(v), {
+    message: 'must not contain whitespace — percent-encode it',
   });
 
 const EmitResultBodySchema = z.object({

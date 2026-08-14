@@ -92,6 +92,11 @@ export async function runEmitResult(opts: EmitResultCommandOptions): Promise<Emi
   if (!link.startsWith("http://") && !link.startsWith("https://")) {
     throw new EmitResultError(`invalid --link "${link}" — expected an http:// or https:// URL`);
   }
+  // The gateway refuses whitespace too (the link renders inside a markdown
+  // `(url)` wrapper); failing here saves the round-trip and names the fix.
+  if (/\s/.test(link)) {
+    throw new EmitResultError(`invalid --link — URLs cannot contain whitespace; percent-encode it`);
+  }
   if (link.length > EMITTED_RESULT_MAX_LINK_LENGTH) {
     throw new EmitResultError(
       `link is ${link.length} characters — the cap is ${EMITTED_RESULT_MAX_LINK_LENGTH}`,

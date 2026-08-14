@@ -113,9 +113,12 @@ function evaluateAlt(
       };
     }
     case "validator": {
-      // Parse-time resolution guarantees the id exists and custom→custom
-      // references are acyclic, so evaluation order (sorted, DFS on refs)
-      // has always produced the referenced result by the time it is read.
+      // Parse-time resolution guarantees the id names a loaded validator and
+      // the reference graph is acyclic, so DFS evaluation order has already
+      // VISITED the referenced validator — but a visit may have produced no
+      // result (its `when:` scope missed this PR, or it is leveled off).
+      // With the referenced check not running, this requirement can be
+      // answered in neither direction: not checkable, not a failure.
       const referenced =
         input.builtinResults.get(alt.id) ??
         (customResults.has(alt.id)

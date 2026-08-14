@@ -38,6 +38,10 @@ interface PolicyFileSource {
 interface PolicyFiles {
   policyFile: { path: string; content: string } | null;
   validatorFiles: Array<{ path: string; content: string }>;
+  /** Load-time problems in `PolicyProblem` shape, merged into the parsed
+   * policy's problems by the caller. Today: the validator-file cap being
+   * exceeded — a dropped file must surface on the error row, never vanish. */
+  problems: Array<{ file: string; problem: string }>;
 }
 
 /**
@@ -66,17 +70,31 @@ export async function fetchPrPolicyFiles(
     if (!(error instanceof FileNotFoundError)) throw error;
   }
 
-  const paths = entries
+  const eligible = entries
     .filter((entry) => entry.type === "file" && /\.ya?ml$/.test(entry.name))
     .map((entry) => entry.path)
-    .sort()
-    .slice(0, MAX_VALIDATOR_FILES);
+    .sort();
+  const paths = eligible.slice(0, MAX_VALIDATOR_FILES);
 
-  const validatorFiles: PolicyFiles["validatorFiles"] = [];
-  for (const path of paths) {
-    const file = await github.getFileContent(repo, path, baseRef);
-    validatorFiles.push({ path, content: file.content });
+  // A file past the cap is a check that silently stops running — that must
+  // fail as loudly as any broken config, so the overflow becomes a problem
+  // the caller renders on the policy-error row.
+  const problems: PolicyFiles["problems"] = [];
+  if (eligible.length > paths.length) {
+    problems.push({
+      file: VALIDATORS_DIR,
+      problem: `${eligible.length} validator files exceed the cap of ${MAX_VALIDATOR_FILES} — the last ${eligible.length - paths.length} by name were not loaded`,
+    });
   }
 
-  return { policyFile, validatorFiles };
+  // Content reads run concurrently; order comes from the sorted path list,
+  // not completion order, so the load stays deterministic.
+  const validatorFiles = await Promise.all(
+    paths.map(async (path) => {
+      const file = await github.getFileContent(repo, path, baseRef);
+      return { path, content: file.content };
+    }),
+  );
+
+  return { policyFile, validatorFiles, problems };
 }

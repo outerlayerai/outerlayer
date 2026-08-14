@@ -384,7 +384,7 @@ describe("parsePolicy — custom validator files", () => {
     ]);
   });
 
-  it("levels a custom from the policy file above its own declared level", () => {
+  it("levels a custom from the policy file above its own declared level — on the definition the evaluator reads, not only the levels map", () => {
     const loaded = parsePolicy(
       policyFile(
         [
@@ -397,6 +397,70 @@ describe("parsePolicy — custom validator files", () => {
     );
     expect(loaded.problems).toEqual([]);
     expect(loaded.levels["migration-must-run"]).toBe("info");
+    expect(loaded.customs.map((c) => ({ id: c.id, level: c.level }))).toEqual([
+      { id: "migration-must-run", level: "info" },
+    ]);
+  });
+
+  it("turns a custom off from the policy file — the definition carries the off level the evaluator skips on", () => {
+    const loaded = parsePolicy(
+      policyFile(
+        [
+          "extends: outerlayer:recommended@v1",
+          "validators:",
+          "  migration-must-run: off",
+        ].join("\n"),
+      ),
+      [MIGRATION_VALIDATOR],
+    );
+    expect(loaded.problems).toEqual([]);
+    expect(loaded.customs.map((c) => ({ id: c.id, level: c.level }))).toEqual([
+      { id: "migration-must-run", level: "off" },
+    ]);
+  });
+
+  it("caps when.paths glob count and glob length, refusing the file loudly", () => {
+    const manyGlobs = parsePolicy(null, [
+      validatorFile(
+        "many.yaml",
+        [
+          "id: many-globs",
+          "kind: validation",
+          'row: "x"',
+          "when:",
+          `  paths: [${Array.from({ length: 21 }, (_, i) => `"p${i}/**"`).join(", ")}]`,
+          "require: { validator: red-then-green }",
+        ].join("\n"),
+      ),
+    ]);
+    expect(manyGlobs.customs).toEqual([]);
+    expect(manyGlobs.problems).toEqual([
+      {
+        file: ".outerlayer/validators/many.yaml",
+        problem: '"many-globs" when.paths lists 21 globs — the cap is 20',
+      },
+    ]);
+
+    const longGlob = parsePolicy(null, [
+      validatorFile(
+        "long.yaml",
+        [
+          "id: long-glob",
+          "kind: validation",
+          'row: "x"',
+          "when:",
+          `  paths: ["${"a*".repeat(101)}"]`,
+          "require: { validator: red-then-green }",
+        ].join("\n"),
+      ),
+    ]);
+    expect(longGlob.customs).toEqual([]);
+    expect(longGlob.problems).toEqual([
+      {
+        file: ".outerlayer/validators/long.yaml",
+        problem: '"long-glob" when.paths has a 202-character glob — the cap is 200',
+      },
+    ]);
   });
 
   it("keeps loading valid files when a sibling file is broken", () => {

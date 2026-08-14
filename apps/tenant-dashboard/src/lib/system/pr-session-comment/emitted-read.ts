@@ -44,11 +44,14 @@ export async function readPrEmittedResults(params: {
   const byName = new Map<string, EmittedResultRecord>();
   for (const row of data ?? []) {
     if (byName.has(row.name)) continue;
+    // Clamp toward the WEAKER claim: the check constraints make other values
+    // unreachable, but if one ever appears it must not read as a pass or as
+    // CI-grade provenance.
     byName.set(row.name, {
       name: row.name,
-      result: row.result === "fail" ? "fail" : "pass",
+      result: row.result === "pass" ? "pass" : "fail",
       link: row.link,
-      provenance: row.provenance === "local" ? "local" : "ci",
+      provenance: row.provenance === "ci" ? "ci" : "local",
     });
   }
   return byName;

@@ -99,6 +99,13 @@ const SLUG_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
  * comment renderer must never inherit an unbounded tenant-authored string. */
 const MAX_ROW_LENGTH = 200;
 
+/** `when.paths` bounds. Each glob compiles to a regex that runs against
+ * every changed path in the PR, and stacked `*` segments backtrack — an
+ * unbounded tenant-authored pattern is a CPU sink in the refresh worker, so
+ * both the pattern length and the pattern count are capped at parse time. */
+const MAX_GLOB_LENGTH = 200;
+const MAX_WHEN_PATHS = 20;
+
 /** Fact-family spellings accepted in `needs:`. The namespaced forms are the
  * validator format's own vocabulary; the bare forms are the engine's. */
 const NEEDS_ALIASES: Readonly<Record<string, FactFamily>> = {
@@ -371,6 +378,15 @@ function parseCustomFile(
     ) {
       return fail(`"${id}" when.paths must be a non-empty list of path globs`);
     }
+    if (paths.length > MAX_WHEN_PATHS) {
+      return fail(`"${id}" when.paths lists ${paths.length} globs — the cap is ${MAX_WHEN_PATHS}`);
+    }
+    const oversized = paths.find((p: string) => p.length > MAX_GLOB_LENGTH);
+    if (oversized !== undefined) {
+      return fail(
+        `"${id}" when.paths has a ${oversized.length}-character glob — the cap is ${MAX_GLOB_LENGTH}`,
+      );
+    }
     whenPaths = paths.map((p: string) => p.trim());
   }
 
@@ -564,10 +580,10 @@ export function parsePolicy(
   });
 
   const resolved = resolveReferences(deduped, signalIds, problems);
-  const customs = resolved.map((p) => p.def).sort((a, b) => (a.id < b.id ? -1 : 1));
+  const sorted = resolved.map((p) => p.def).sort((a, b) => (a.id < b.id ? -1 : 1));
 
   const levels: Record<string, PolicyLevel> = { ...RECOMMENDED_LEVELS };
-  for (const custom of customs) levels[custom.id] = custom.level;
+  for (const custom of sorted) levels[custom.id] = custom.level;
   for (const [id, level] of Object.entries(policy.overrides)) {
     if (!(id in levels) && !signalIds.has(id)) {
       problems.push({
@@ -580,6 +596,13 @@ export function parsePolicy(
     // the file that declared the signal already established it exists.
     if (!signalIds.has(id)) levels[id] = level;
   }
+
+  // The effective level lives on the definition too: the evaluator reads
+  // `def.level` (an `off` custom produces no result at all), so a policy-file
+  // override must land there, not only in the `levels` map the built-ins use.
+  const customs = sorted.map((def) =>
+    levels[def.id] === def.level ? def : { ...def, level: levels[def.id]! },
+  );
 
   return { levels, customs, problems };
 }
