@@ -1,4 +1,4 @@
--- Adds the artifact table (supabase/schemas/77-artifact.sql): one row per
+-- Adds the artifact table (supabase/schemas/78-artifact.sql): one row per
 -- emitted exhibit (screenshot, recording, report, log) anchored to a pull
 -- request, with gateway-role ingest grants (95-gateway-rls.sql), the
 -- tenant-app composite FK (97-tenant-app-consistency.sql), and the

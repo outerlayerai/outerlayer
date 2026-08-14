@@ -861,6 +861,10 @@ describe('Gateway RLS Matrix — tenant isolation via gateway role', () => {
   // either layer that re-enables forgery is caught.
   //
   //   api_key                         → INSERT + DELETE (UPDATE not granted)
+  //
+  // `artifact` carries the same trigger; its forgery-correction proof lives in
+  // tests/artifacts/artifact-rls.test.ts alongside the rest of its policy
+  // surface.
   // -------------------------------------------------------------------------
 
   describe('Cross-table write-forgery resistance (set_tenant_id)', () => {

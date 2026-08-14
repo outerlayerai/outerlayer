@@ -173,9 +173,10 @@ line) — capture the working state and emit it as an artifact:
     outerlayer emit artifact <file> --caption "what it shows" [--for <criterion-id>] [--pr <n>]
 
 Capture AFTER the state exists (run it, then shoot it). Kind comes from the
-file type: png/jpg → screenshot, webm/mp4 → video (≤ 8 MiB), html/pdf →
+file type: png/jpg → screenshot, webm/mp4 → video, html/pdf →
 report, txt/log → log; anything else is a plain `file` and satisfies no
-stronger requirement. Captions are one present-tense sentence with no
+stronger requirement. Every artifact caps at 8 MiB — video is the kind most
+likely to hit it. Captions are one present-tense sentence with no
 secrets. Bind `--for` the criterion id from `acceptance/*.md`, matching its
 declared form exactly — a screenshot never satisfies `proof: video`.
 Satisfy declared proofs and stop; don't document everything. Inside a

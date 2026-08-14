@@ -70,10 +70,11 @@ GRANT SELECT ON public.tenant_entitlement_override  TO gateway;
 GRANT SELECT, INSERT, UPDATE ON public.worker_run          TO gateway;
 GRANT SELECT, INSERT, UPDATE ON public.worker_workspace    TO gateway;
 
--- Artifacts: /v1/artifacts ingests exhibit records (INSERT), retries update
--- the same client id (UPDATE via upsert), and the retention job reads and
--- flags aged-out rows whose blob bytes it deleted (SELECT, UPDATE).
-GRANT SELECT, INSERT, UPDATE ON public.artifact            TO gateway;
+-- Artifacts: /v1/artifacts ingests exhibit records (INSERT) and re-reads the
+-- stored row to answer idempotent retries (SELECT). No UPDATE: a retried
+-- ingest inserts with ON CONFLICT DO NOTHING, and the sweeps that mutate
+-- rows (verification aging, blob_deleted stamping) run under service_role.
+GRANT SELECT, INSERT ON public.artifact                    TO gateway;
 -- Anchor resolution at ingest confirms a claimed PR number against the
 -- webhook-fed pull_request record; read-only.
 GRANT SELECT ON public.pull_request                        TO gateway;
@@ -255,9 +256,9 @@ CREATE POLICY "gateway_tenant_delete_app" ON public.app
     FOR DELETE TO gateway
     USING (tenant_id = public.tenant_id());
 
--- Cloud workers: tenant-scoped run + environment access for the
--- /v1/workers routes. Permission checks (worker_run.read / worker_run.insert)
--- happen at the Hono middleware layer, matching every other table here.
+-- Artifacts + PR anchor check: the ingest surface's SELECT/INSERT pair (no
+-- UPDATE policy — the role holds no UPDATE grant) and the read-only
+-- pull_request lookup that confirms a claimed PR number at ingest.
 CREATE POLICY "gateway_tenant_read_artifact" ON public.artifact
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());
@@ -266,15 +267,13 @@ CREATE POLICY "gateway_tenant_insert_artifact" ON public.artifact
     FOR INSERT TO gateway
     WITH CHECK (tenant_id = public.tenant_id());
 
-CREATE POLICY "gateway_tenant_update_artifact" ON public.artifact
-    FOR UPDATE TO gateway
-    USING (tenant_id = public.tenant_id())
-    WITH CHECK (tenant_id = public.tenant_id());
-
 CREATE POLICY "gateway_tenant_read_pull_request" ON public.pull_request
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());
 
+-- Cloud workers: tenant-scoped run + environment access for the
+-- /v1/workers routes. Permission checks (worker_run.read / worker_run.insert)
+-- happen at the Hono middleware layer, matching every other table here.
 CREATE POLICY "gateway_tenant_read_worker_run" ON public.worker_run
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());
