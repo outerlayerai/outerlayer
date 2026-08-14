@@ -17,8 +17,7 @@ vi.mock('@repo/shared-utils', () => ({
   verifySignature: vi.fn(),
 }));
 
-import type { Octokit } from 'octokit';
-
+import { asOctokit } from '@/test-helpers/mock-octokit';
 import { GitHubProvider } from '../github/client';
 
 function createMockOctokit() {
@@ -32,7 +31,7 @@ type MockOctokit = ReturnType<typeof createMockOctokit>;
 
 function createProvider(octokit?: MockOctokit) {
   const mock = octokit ?? createMockOctokit();
-  return { provider: new GitHubProvider(mock as unknown as Octokit), octokit: mock };
+  return { provider: new GitHubProvider(asOctokit(mock)), octokit: mock };
 }
 
 describe('GitHubProvider.getPullRequestBaseBranch', () => {
