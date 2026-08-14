@@ -7,6 +7,8 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyCommand,
+  commandPairKey,
+  detectTestResult,
   extractCommandText,
   hasBypassFlag,
   isTestFilePath,
@@ -79,12 +81,33 @@ describe("classifyCommand", () => {
 });
 
 describe("hasBypassFlag", () => {
+  // AC-083-08
   it("sees bypasses on raw commands even when normalization would hide them", () => {
     expect(hasBypassFlag("HUSKY=0 git push")).toEqual(true);
     expect(hasBypassFlag("git commit --no-verify -m x")).toEqual(true);
     expect(hasBypassFlag("git commit -m 'mention --no-verify'")).toEqual(false);
     expect(hasBypassFlag("yarn test --no-verify-fixtures")).toEqual(false);
     expect(hasBypassFlag("git push")).toEqual(false);
+  });
+});
+
+describe("commandPairKey", () => {
+  it("strips pipe tails and stderr redirects so reruns pair", () => {
+    expect(commandPairKey("vitest run src/lib 2>&1 | tail -25")).toEqual("vitest run src/lib");
+    expect(commandPairKey("vitest run src/lib 2>&1 | tail -5")).toEqual("vitest run src/lib");
+    expect(commandPairKey("vitest run src/lib 2>&1")).toEqual("vitest run src/lib");
+    expect(commandPairKey("ci:unit")).toEqual("ci:unit");
+  });
+});
+
+describe("detectTestResult", () => {
+  it("trusts output first, exit status only for unpiped commands", () => {
+    expect(detectTestResult("vitest run | tail -5", "ok", " Tests  1 failed | 19 passed")).toEqual("fail");
+    expect(detectTestResult("vitest run | tail -5", "ok", " Tests  20 passed (20)")).toEqual("pass");
+    expect(detectTestResult("vitest run | tail -5", "ok", undefined)).toEqual(undefined);
+    expect(detectTestResult("vitest run", "error", undefined)).toEqual("fail");
+    expect(detectTestResult("vitest run", "ok", undefined)).toEqual("pass");
+    expect(detectTestResult("vitest run", "ok", " Tests  0 failed, 20 passed")).toEqual("pass");
   });
 });
 

@@ -1,4 +1,4 @@
-import { classifyCommand, extractCommandText, isTestFilePath } from "./classify";
+import { classifyCommand, commandPairKey, detectTestResult, extractCommandText, isTestFilePath, splitCommandSegments } from "./classify";
 import type { CommandRun, Facts, FactFamily, FileEdit, TimelineSpan } from "./types";
 
 /**
@@ -46,18 +46,33 @@ export function extractFacts(spans: readonly TimelineSpan[]): Facts {
     const commandText = span.command === undefined ? null : extractCommandText(span.command);
     if (commandText === null) return;
     coverage.add("commands");
-    const classified = classifyCommand(commandText);
-    runs.push({
-      seq,
-      sessionIndex: span.sessionIndex,
-      turnIndex: span.turnIndex,
-      status: span.status,
-      kind: classified.kind,
-      normalized: classified.normalized,
-      suiteScope: classified.suiteScope,
-      bypass: classified.bypass,
-      ...(span.errorSignature ? { errorSignature: span.errorSignature } : {}),
-    });
+    // Segment-aware: every statement in a compound classifies independently,
+    // so a test run (or a bypassed git command) buried mid-chain is seen.
+    // Segments that classify `other` collapse to one run for the whole span.
+    const segments = splitCommandSegments(commandText);
+    const classifiedSegments = segments
+      .map((segment) => classifyCommand(segment))
+      .filter((c) => c.kind !== "other");
+    const toEmit = classifiedSegments.length > 0 ? classifiedSegments : [classifyCommand(commandText)];
+    for (const classified of toEmit) {
+      const testResult =
+        classified.kind === "test"
+          ? detectTestResult(classified.normalized, span.status, span.output)
+          : undefined;
+      runs.push({
+        seq,
+        sessionIndex: span.sessionIndex,
+        turnIndex: span.turnIndex,
+        status: span.status,
+        kind: classified.kind,
+        normalized: classified.normalized,
+        pairKey: commandPairKey(classified.normalized),
+        suiteScope: classified.suiteScope,
+        bypass: classified.bypass,
+        ...(testResult !== undefined ? { testResult } : {}),
+        ...(span.errorSignature ? { errorSignature: span.errorSignature } : {}),
+      });
+    }
   });
 
   return { runs, edits, coverage };

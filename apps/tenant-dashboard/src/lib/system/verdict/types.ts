@@ -21,6 +21,9 @@ export interface TimelineSpan {
   errorSignature?: string;
   /** Raw command content when the tool ran a command (full tier only). */
   command?: string;
+  /** Raw command output (full tier only) — the failure-detection source for
+   * piped test runs, whose exit codes report the LAST pipeline stage. */
+  output?: string;
 }
 
 export type CommandKind = "test" | "lint" | "build" | "vcs" | "migration" | "other";
@@ -38,7 +41,15 @@ export interface CommandRun {
   status: "ok" | "error" | "rejected";
   kind: CommandKind;
   normalized: string;
+  /** Pipeline-stripped identity: `vitest run x | tail -5` and `| tail -25`
+   * are the SAME command for pairing purposes. Display keeps `normalized`. */
+  pairKey: string;
   suiteScope: SuiteScope;
+  /** Reliable outcome for test runs only. Derived from run OUTPUT when
+   * present, falling back to exit status ONLY for unpiped commands — a piped
+   * command's exit code is the last stage's, so a failing `vitest … | tail`
+   * exits 0. Undefined = could not be reliably determined (or not a test). */
+  testResult?: "pass" | "fail";
   /** True when the command carries a hook/check bypass flag. */
   bypass: boolean;
   errorSignature?: string;

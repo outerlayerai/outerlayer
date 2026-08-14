@@ -22,16 +22,17 @@ function covered(facts: Facts, validator: Validator): boolean {
   return validator.needs.every((family) => facts.coverage.has(family));
 }
 
-/** Groups test runs by their normalized command — the identity that lets a
- * later pass be recognized as "the same command that failed". Insertion
- * order follows the timeline, so groups iterate deterministically. */
+/** Groups test runs by pair key — the pipeline-stripped identity that lets a
+ * later pass be recognized as "the same command that failed" even when the
+ * two invocations wore different pipe tails. Insertion order follows the
+ * timeline, so groups iterate deterministically. */
 function testRunsByCommand(facts: Facts): Map<string, CommandRun[]> {
   const groups = new Map<string, CommandRun[]>();
   for (const run of facts.runs) {
     if (run.kind !== "test") continue;
-    const group = groups.get(run.normalized);
+    const group = groups.get(run.pairKey);
     if (group) group.push(run);
-    else groups.set(run.normalized, [run]);
+    else groups.set(run.pairKey, [run]);
   }
   return groups;
 }
@@ -46,9 +47,10 @@ interface FailThenPass {
 function failThenPassPairs(facts: Facts): FailThenPass[] {
   const pairs: FailThenPass[] = [];
   for (const runs of testRunsByCommand(facts).values()) {
-    const fail = runs.find((run) => run.status === "error");
+    // Anchors use the RELIABLE outcome, never a piped run's exit code.
+    const fail = runs.find((run) => run.testResult === "fail");
     if (!fail) continue;
-    const pass = runs.find((run) => run.status === "ok" && run.seq > fail.seq);
+    const pass = runs.find((run) => run.testResult === "pass" && run.seq > fail.seq);
     if (pass) pairs.push({ fail, pass });
   }
   return pairs;
@@ -149,7 +151,15 @@ export const testsAfterLastEdit: Validator = {
     // The summary names the command rather than a totality ("all N tests")
     // unless the run's scope is provably the full suite.
     const scopeNote = lastTest.suiteScope === "full" ? "the full suite" : `\`${lastTest.normalized}\``;
-    if (lastTest.status !== "ok") {
+    if (lastTest.testResult === undefined) {
+      return {
+        id: this.id,
+        status: "flag",
+        summary: `The result of the last test run could not be determined (${scopeNote})`,
+        refs: [{ sessionIndex: lastTest.sessionIndex, turnIndex: lastTest.turnIndex }],
+      };
+    }
+    if (lastTest.testResult === "fail") {
       return {
         id: this.id,
         status: "flag",

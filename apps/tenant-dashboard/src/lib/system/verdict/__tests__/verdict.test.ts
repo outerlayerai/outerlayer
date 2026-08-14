@@ -10,7 +10,12 @@ import { extractFacts } from "../facts";
 import { noTestTampering, redThenGreen, testsAfterLastEdit } from "../validators";
 import type { TimelineSpan } from "../types";
 
-function run(command: string, status: "ok" | "error" = "ok", turnIndex = 0): TimelineSpan {
+function run(
+  command: string,
+  status: "ok" | "error" = "ok",
+  turnIndex = 0,
+  output?: string,
+): TimelineSpan {
   return {
     sessionIndex: 0,
     turnIndex,
@@ -18,6 +23,7 @@ function run(command: string, status: "ok" | "error" = "ok", turnIndex = 0): Tim
     status,
     isEdit: false,
     command: JSON.stringify({ command }),
+    ...(output !== undefined ? { output } : {}),
     ...(status === "error" ? { errorSignature: "assertion failed" } : {}),
   };
 }
@@ -43,8 +49,10 @@ describe("extractFacts", () => {
         status: "error",
         kind: "test",
         normalized: "ci:unit",
+        pairKey: "ci:unit",
         suiteScope: "full",
         bypass: false,
+        testResult: "fail",
         errorSignature: "assertion failed",
       },
       {
@@ -54,8 +62,10 @@ describe("extractFacts", () => {
         status: "ok",
         kind: "test",
         normalized: "ci:unit",
+        pairKey: "ci:unit",
         suiteScope: "full",
         bypass: false,
+        testResult: "pass",
       },
     ]);
     expect(facts.edits).toEqual([
@@ -95,6 +105,7 @@ describe("redThenGreen", () => {
     run("vitest run", "ok", 63),
   ];
 
+  // AC-083-01
   it("passes with the failing and passing runs as refs when the diff adds tests", () => {
     const result = redThenGreen.evaluate(extractFacts(timeline), { diffAddsTests: true });
     expect(result).toEqual({
@@ -108,6 +119,7 @@ describe("redThenGreen", () => {
     });
   });
 
+  // AC-083-02
   it("is absent — never red — when tests were never seen failing or none were added", () => {
     const bornGreen = [edit("src/a.test.ts", 1), run("vitest run", "ok", 2)];
     expect(redThenGreen.evaluate(extractFacts(bornGreen), { diffAddsTests: true }).status).toEqual(
@@ -125,6 +137,7 @@ describe("redThenGreen", () => {
     );
   });
 
+  // AC-083-03
   it("is not checkable without command coverage", () => {
     const noCommands = extractFacts([edit("src/a.test.ts", 1)]);
     expect(redThenGreen.evaluate(noCommands, { diffAddsTests: true }).status).toEqual(
@@ -133,7 +146,63 @@ describe("redThenGreen", () => {
   });
 });
 
+describe("piped commands mask exit codes", () => {
+  // AC-083-04
+  it("anchors red-then-green from OUTPUT when a piped failing run exits ok", () => {
+    const facts = extractFacts([
+      run("yarn vitest run src/lib | tail -25", "ok", 10, " Tests  1 failed | 19 passed (20)"),
+      edit("src/lib/facts.ts", 11),
+      run("yarn vitest run src/lib | tail -5", "ok", 12, " Tests  20 passed (20)"),
+      edit("src/lib/facts.test.ts", 13),
+    ]);
+    expect(facts.runs[0]!.status).toEqual("ok");
+    expect(facts.runs[0]!.testResult).toEqual("fail");
+    expect(facts.runs[0]!.pairKey).toEqual(facts.runs[1]!.pairKey);
+    expect(redThenGreen.evaluate(facts, { diffAddsTests: true })).toEqual({
+      id: "red-then-green",
+      status: "pass",
+      summary: "New tests failed first, then passed",
+      refs: [
+        { sessionIndex: 0, turnIndex: 10 },
+        { sessionIndex: 0, turnIndex: 12 },
+      ],
+    });
+  });
+
+  it("anchors nothing on a piped run whose output is inconclusive", () => {
+    const facts = extractFacts([
+      run("vitest run src/lib | tail -5", "ok", 1),
+      edit("src/a.test.ts", 2),
+      run("vitest run src/lib | tail -5", "ok", 3),
+    ]);
+    expect(facts.runs[0]!.testResult).toEqual(undefined);
+    expect(redThenGreen.evaluate(facts, { diffAddsTests: true }).status).toEqual("absent");
+    const last = testsAfterLastEdit.evaluate(
+      extractFacts([edit("src/a.ts", 1), run("vitest run src/x | tail -3", "ok", 2)]),
+      { diffAddsTests: false },
+    );
+    expect(last.status).toEqual("flag");
+    expect(last.summary).toEqual(
+      "The result of the last test run could not be determined (`vitest run src/x | tail -3`)",
+    );
+  });
+});
+
+describe("compound commands", () => {
+  // AC-083-05
+  it("classifies a test run buried mid-compound and never classifies heredoc content", () => {
+    const compound =
+      "cd repo && python3 - <<'EOF'\nprint('vitest run inside a heredoc')\nEOF\nyarn turbo run build && yarn vitest run src/lib | grep -E 'Tests '";
+    const facts = extractFacts([run(compound, "ok", 7, " Tests  27 passed (27)")]);
+    const tests = facts.runs.filter((r) => r.kind === "test");
+    expect(tests.map((r) => r.pairKey)).toEqual(["vitest run src/lib"]);
+    expect(tests[0]!.testResult).toEqual("pass");
+    expect(facts.runs.filter((r) => r.kind === "build").length).toEqual(1);
+  });
+});
+
 describe("noTestTampering", () => {
+  // AC-083-07
   it("red-flags a bypassed git command with the exact ref", () => {
     const facts = extractFacts([edit("src/a.test.ts", 1), run("HUSKY=0 git push", "ok", 88)]);
     expect(noTestTampering.evaluate(facts, { diffAddsTests: true })).toEqual({
@@ -145,6 +214,7 @@ describe("noTestTampering", () => {
     });
   });
 
+  // AC-083-06
   it("flags a failure resolved by editing only tests, amber not red", () => {
     const facts = extractFacts([
       run("vitest run", "error", 48),
@@ -196,6 +266,7 @@ describe("testsAfterLastEdit", () => {
     });
   });
 
+  // AC-083-10
   it("names the command unless the run provably covered the full suite", () => {
     const partial = extractFacts([
       edit("src/a.ts", 1),

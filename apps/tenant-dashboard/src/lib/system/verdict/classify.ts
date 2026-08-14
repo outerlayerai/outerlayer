@@ -118,6 +118,58 @@ export function classifyCommand(rawCommand: string): ClassifiedCommand {
   return { normalized, kind, suiteScope, bypass: hasBypassFlag(rawCommand) };
 }
 
+/** The pairing identity for "the same command ran again": everything from
+ * the first pipe onward and trailing stderr redirects are presentation, not
+ * identity — `… | tail -25` on the failing run and `… | tail -5` on the
+ * rerun must pair. */
+export function commandPairKey(normalized: string): string {
+  return normalized.split(" | ")[0]!.replace(/\s*2>&1\s*$/, "").trim();
+}
+
+const OUTPUT_FAIL = /(?:^|\s)[1-9]\d*\s+fail(?:ed)?\b/;
+const OUTPUT_PASS = /\b\d+\s+pass(?:ed)?\b/;
+
+/**
+ * Reliable outcome of a test run. Output is the primary source because piped
+ * commands mask exit codes (`vitest … | tail` exits with tail's status — a
+ * REAL failing run in this repo's own history recorded `ok`). Exit status is
+ * trusted only for unpiped commands; a piped run with inconclusive output is
+ * honestly unknown, and validators must not anchor anything on it.
+ */
+export function detectTestResult(
+  normalized: string,
+  exitStatus: "ok" | "error" | "rejected",
+  output: string | undefined,
+): "pass" | "fail" | undefined {
+  if (output) {
+    if (OUTPUT_FAIL.test(output)) return "fail";
+    if (OUTPUT_PASS.test(output)) return "pass";
+  }
+  const piped = normalized.includes(" | ");
+  if (piped) return undefined;
+  if (exitStatus === "error") return "fail";
+  if (exitStatus === "ok") return "pass";
+  return undefined;
+}
+
+/**
+ * Real commands are compounds: `cd x && python3 - <<'EOF' … EOF && yarn
+ * vitest run … | tail`. Classifying only the first token buries the test
+ * run — a REAL passing rerun in this repo's history classified `other`
+ * because the compound started with a heredoc. So classification is
+ * segment-aware: heredoc bodies are stripped first (their CONTENT must
+ * never classify — a script that mentions `vitest run` in a string is not
+ * a test run), then the command splits on statement separators and each
+ * segment classifies independently.
+ */
+export function splitCommandSegments(rawCommand: string): string[] {
+  const noHeredocs = rawCommand.replace(/<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?[\s\S]*?\n\1\b/g, "");
+  return noHeredocs
+    .split(/&&|;|\n/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
 /** Test-file naming this repo (and most JS/TS repos) uses. Kept as data so
  * org-configurable globs can replace it without touching callers. */
 const TEST_FILE_PATTERN = /(?:\.test\.|\.spec\.|__tests__\/|(?:^|\/)tests?\/)/;
