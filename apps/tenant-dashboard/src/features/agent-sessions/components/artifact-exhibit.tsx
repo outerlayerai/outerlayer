@@ -19,7 +19,7 @@ function ExpiredNotice() {
   return (
     <Box
       sx={{
-        borderRadius: 2, border: "1px dashed #E4E0D6", bgcolor: "#fff", p: 3,
+        borderRadius: 2, border: "1px dashed", borderColor: "divider", bgcolor: "background.paper", p: 3,
         display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center",
       }}
     >
@@ -28,6 +28,15 @@ function ExpiredNotice() {
       </Typography>
     </Box>
   );
+}
+
+/** Rendered on the server and re-rendered on the viewer's machine at
+ * hydration, so the output must not depend on locale or timezone — a
+ * locale-formatted date here is a guaranteed hydration mismatch. */
+function formatEmittedAtUtc(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -70,7 +79,7 @@ export function ArtifactExhibitView({
         src={blobUrl}
         alt={artifact.filename}
         onError={() => setFailed(true)}
-        sx={{ maxWidth: "100%", maxHeight: 640, borderRadius: 2, border: "1px solid #E4E0D6", objectFit: "contain", bgcolor: "#fff" }}
+        sx={{ maxWidth: "100%", maxHeight: 640, borderRadius: 2, border: "1px solid", borderColor: "divider", objectFit: "contain", bgcolor: "background.paper" }}
       />
     );
   } else if (artifact.kind === "video") {
@@ -80,7 +89,7 @@ export function ArtifactExhibitView({
         src={blobUrl}
         controls
         onError={() => setFailed(true)}
-        sx={{ maxWidth: "100%", maxHeight: 640, borderRadius: 2, border: "1px solid #E4E0D6", bgcolor: "#000" }}
+        sx={{ maxWidth: "100%", maxHeight: 640, borderRadius: 2, border: "1px solid", borderColor: "divider", bgcolor: "common.black" }}
       />
     );
   } else {
@@ -128,7 +137,7 @@ export function ArtifactExhibitView({
               </Link>
             </MetaRow>
           )}
-          <MetaRow label="Emitted">{new Date(artifact.emittedAt).toLocaleString()}</MetaRow>
+          <MetaRow label="Emitted">{formatEmittedAtUtc(artifact.emittedAt)}</MetaRow>
         </Stack>
       </Card>
     </Stack>

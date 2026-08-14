@@ -50,6 +50,9 @@ describe("ArtifactExhibitView", () => {
     expect(container.textContent).toContain("Login page after fix");
     expect(getByText("AC-084-01").tagName).toBe("CODE");
     expect(container.textContent).toMatch(/acme\/api\s*#61/);
+    // Locale/timezone-independent, or the server render and the viewer's
+    // hydration disagree.
+    expect(container.textContent).toContain("2026-08-14 10:00 UTC");
     // The session link goes to the existing session detail page.
     expect(getByText("1b247b75").getAttribute("href")).toBe(
       "/orgs/acme/apps/api/env/production/agents/sessions/1b247b75d3481b247b75d3481b247b75",
@@ -81,13 +84,18 @@ describe("ArtifactExhibitView", () => {
   });
 
   it("says the link expired instead of showing a broken viewer", () => {
-    const { container, getByText } = render(
+    const { container } = render(
       <ArtifactExhibitView {...props} artifact={exhibit({})} />,
     );
+    expect(container.textContent).not.toContain("Link expired");
+
     fireEvent.error(container.querySelector("img")!);
-    expect(getByText("Link expired — reload to view").textContent).toBe(
-      "Link expired — reload to view",
-    );
+
+    expect(container.textContent).toContain("Link expired — reload to view");
+    // The failed viewer is fully replaced — no media element is left to
+    // retry the expired token.
     expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector("[src]")).toBeNull();
   });
 });

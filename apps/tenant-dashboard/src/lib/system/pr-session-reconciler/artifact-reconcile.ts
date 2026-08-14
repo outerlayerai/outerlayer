@@ -13,7 +13,8 @@ import { BRANCH_LINK_LOOKBACK_DAYS } from "./reconciler";
  * Resolution tiers, strongest first — mirroring how the artifact was
  * anchored at ingest:
  *   1. a claimed PR number — confirmed once the webhook-fed `pull_request`
- *      row exists (the gateway confirms immediately when it already did);
+ *      row exists AND any claimed repository names the app's connected repo
+ *      (the gateway confirms immediately when the row already did);
  *   2. the emitting session's confirmed PR links (`pull_request_session`);
  *   3. branch + activity window, the same guarded match sessions use.
  *
@@ -28,6 +29,11 @@ const ARTIFACT_PENDING_GRACE_DAYS = 14;
 
 /** Bounded scan — reconciliation is incremental, never a full-table walk. */
 const MAX_PENDING_ARTIFACTS = 5_000;
+
+/** Bound on the branch tier's `pull_request` read. Ordered newest-opened
+ * first, so if a tenant ever exceeds it the rows dropped are the oldest —
+ * the ones `pickPrByWindow`'s newest-wins rule would lose anyway. */
+const MAX_BRANCH_PR_ROWS = 2_000;
 
 export interface ArtifactReconcileCounts {
   pending: number;
@@ -121,6 +127,15 @@ export async function reconcileArtifacts(
   }
 
   const graceMs = ARTIFACT_PENDING_GRACE_DAYS * 86_400_000;
+  // A session-anchored artifact's PR can legitimately open — and its
+  // session's link confirm — up to BRANCH_LINK_LOOKBACK_DAYS after the
+  // emit, the same padding `pickPrByWindow` grants. INVARIANT: the grace
+  // for session-anchored artifacts covers the base grace PLUS that link
+  // window, and the sweep reconciles session links before artifacts in the
+  // same tick (see `runPrSessionSweep`); together these keep an artifact
+  // emitted at session start from being terminally unmatched (blob deleted)
+  // one tick before its session's link confirms.
+  const sessionGraceMs = (ARTIFACT_PENDING_GRACE_DAYS + BRANCH_LINK_LOOKBACK_DAYS) * 86_400_000;
 
   for (const [appId, artifacts] of byApp) {
     const canonicalRepo = repoByApp.get(appId) ?? "";
@@ -144,40 +159,81 @@ export async function reconcileArtifacts(
 
     // Window rows for every PR number any tier might bind to: claimed
     // numbers confirm on existence, session/branch tiers pick by window.
+    // Two exact query shapes, never an unnarrowed scan: an in-list on the
+    // claimed/session numbers (a claimed PR falling outside an arbitrary
+    // scan subset would false-negative into TERMINAL unmatch with its blob
+    // deleted, although the PR exists), and an in-list on the branch names
+    // the branch tier has in play.
     const claimedPrs = artifacts.map((a) => a.pr_number).filter((n): n is number => n !== null);
     const sessionPrs = [...linksByTrace.values()].flat();
-    const needsBranchTier = artifacts.some(
-      (a) => a.pr_number === null && a.trace_id === "" && a.git_branch !== "",
-    );
-    let prRows: PullRequestWindowRow[] = [];
+    const branchNames = [
+      ...new Set(
+        artifacts
+          .filter((a) => a.pr_number === null && a.trace_id === "" && a.git_branch !== "")
+          .map((a) => a.git_branch),
+      ),
+    ];
     const prNumbers = [...new Set([...claimedPrs, ...sessionPrs])];
-    if (prNumbers.length > 0 || needsBranchTier) {
-      let query = supabase
+    const prRowByNumber = new Map<number, PullRequestWindowRow>();
+    // Both reads project the same columns from the same table, so a PR
+    // returned by both writes identical rows — last write wins, harmlessly.
+    const collectPrRows = (prs: Record<string, unknown>[] | null) => {
+      if (!prs) return;
+      for (const p of prs) {
+        const prNumber = Number(p.pr_number);
+        prRowByNumber.set(prNumber, {
+          pr_number: prNumber,
+          head_branch: String(p.head_branch ?? ""),
+          opened_at: (p.opened_at as string | null) ?? null,
+          closed_at: (p.closed_at as string | null) ?? null,
+          merged_at: (p.merged_at as string | null) ?? null,
+        });
+      }
+    };
+    if (prNumbers.length > 0) {
+      const { data: prs } = await supabase
         .from("pull_request")
         .select("pr_number, head_branch, opened_at, closed_at, merged_at")
-        .eq("app_id", appId);
-      // The branch tier can't pre-narrow by number; scoping to the branch
-      // names in play keeps the read bounded without a second query shape.
-      if (!needsBranchTier) query = query.in("pr_number", prNumbers);
-      const { data: prs } = await query.limit(2_000);
-      prRows = (prs ?? []).map((p) => ({
-        pr_number: Number(p.pr_number),
-        head_branch: String(p.head_branch ?? ""),
-        opened_at: p.opened_at,
-        closed_at: p.closed_at,
-        merged_at: p.merged_at,
-      }));
+        .eq("app_id", appId)
+        .in("pr_number", prNumbers)
+        .limit(prNumbers.length);
+      collectPrRows(prs);
     }
-    const knownPrs = new Set(prRows.map((p) => p.pr_number));
+    if (branchNames.length > 0) {
+      const { data: prs } = await supabase
+        .from("pull_request")
+        .select("pr_number, head_branch, opened_at, closed_at, merged_at")
+        .eq("app_id", appId)
+        .in("head_branch", branchNames)
+        .order("opened_at", { ascending: false, nullsFirst: false })
+        .limit(MAX_BRANCH_PR_ROWS);
+      collectPrRows(prs);
+    }
+    const prRows = [...prRowByNumber.values()];
+    const knownPrs = new Set(prRowByNumber.keys());
 
     for (const artifact of artifacts) {
       const emittedAtMs = new Date(artifact.emitted_at).getTime();
       let resolvedPr: number | null = null;
 
       if (artifact.pr_number !== null) {
-        // Claimed number: existence is the whole check — the caller already
-        // said which PR, the provider record just has to agree.
-        resolvedPr = knownPrs.has(artifact.pr_number) ? artifact.pr_number : null;
+        // Claimed number: the provider record must exist AND the claimed
+        // repository (when one was claimed) must name this app's connected
+        // repo. `artifact.repository` originates from the caller's CI
+        // environment, and PR numbers collide freely across a tenant's
+        // repos — without this check, an emit against this app's key
+        // claiming another repo's name confirms on this app's PR number and
+        // forges evidence onto that other repo's world-readable comment.
+        // Same canonicalization the branch tier applies to the checkout
+        // remote; a claim that does not canonicalize never agrees.
+        const claimedCanonical = canonicalPrCommentRepo(artifact.repository);
+        const repoAgrees =
+          artifact.repository === "" ||
+          canonicalRepo === "" ||
+          claimedCanonical === canonicalRepo;
+        if (repoAgrees && knownPrs.has(artifact.pr_number)) {
+          resolvedPr = artifact.pr_number;
+        }
       } else if (artifact.trace_id !== "") {
         const candidates = linksByTrace.get(artifact.trace_id) ?? [];
         const windows = prRows.filter((p) => candidates.includes(p.pr_number));
@@ -210,20 +266,39 @@ export async function reconcileArtifacts(
           .update({
             verification: "confirmed",
             pr_number: resolvedPr,
-            repository: artifact.repository !== "" ? artifact.repository : canonicalRepo,
+            // The comment read joins on this column, so it carries the app
+            // connection's canonical repo whenever one exists — never the
+            // caller-claimed string verbatim: a surviving claim has only
+            // been proven to AGREE with the connection, not to be canonical.
+            repository:
+              canonicalRepo !== ""
+                ? canonicalRepo
+                : (canonicalPrCommentRepo(artifact.repository) ?? ""),
             last_reconciled_at: nowIso,
           })
           .eq("id", artifact.id);
         if (updateError) throw new Error(`artifact update failed: ${updateError.message}`);
         counts.confirmed += 1;
         changed.set(`${appId}:${resolvedPr}`, { appId, prNumber: resolvedPr });
-      } else if (now.getTime() - emittedAtMs > graceMs) {
+      } else if (
+        now.getTime() - emittedAtMs > (artifact.trace_id !== "" ? sessionGraceMs : graceMs)
+      ) {
         const { error: updateError } = await supabase
           .from("artifact")
           .update({ verification: "unmatched", last_reconciled_at: nowIso })
           .eq("id", artifact.id);
         if (updateError) throw new Error(`artifact update failed: ${updateError.message}`);
         counts.unmatched += 1;
+        // A pending artifact with a direct PR anchor renders on that PR's
+        // comment (`readPrArtifacts` includes pending rows), so aging it out
+        // must nominate the comment for refresh — otherwise the comment
+        // keeps a dead evidence link until some unrelated trigger fires.
+        if (artifact.pr_number !== null) {
+          changed.set(`${appId}:${artifact.pr_number}`, {
+            appId,
+            prNumber: artifact.pr_number,
+          });
+        }
       }
     }
   }

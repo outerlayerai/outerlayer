@@ -387,7 +387,7 @@ export function renderComment(
   evaluation: EvidenceEvaluation,
   evidence?: RenderEvidence,
 ): string {
-  const evidenceBlock = evidence ? renderEvidence(evidence, links) : null;
+  const separators = "\n\n".length;
 
   if (evaluation.verdict === "waiting" || rows.length === 0) {
     // No confirmed session to judge. Pending candidates say so; either way
@@ -395,6 +395,13 @@ export function renderComment(
     // still surface — evidence is evidence of the PR, not of a session.
     const parts: string[] = [];
     if (evaluation.pendingLinkCount > 0) parts.push(waitingLine(evaluation.pendingLinkCount));
+    const fixed =
+      parts.reduce((sum, part) => sum + part.length + separators, 0) +
+      PR_SESSION_COMMENT_MARKER.length +
+      separators;
+    const evidenceBlock = evidence
+      ? renderEvidence(evidence, links, GITHUB_COMMENT_BODY_LIMIT - fixed)
+      : null;
     if (evidenceBlock) parts.push(evidenceBlock);
     parts.push(PR_SESSION_COMMENT_MARKER);
     return parts.join("\n\n");
@@ -428,10 +435,34 @@ export function renderComment(
     ? `Full transcripts in the [session dashboard](${sessionsListLink(links, firstRow.appName, firstRow.envName)}).`
     : null;
 
-  // The evidence block is fixed content the session-table fitter must leave
-  // room for — evidence links are the exhibits reviewers came for, so the
-  // table truncates before evidence ever would.
-  const evidenceReservation = evidenceBlock ? evidenceBlock.length + "\n\n".length : 0;
+  // Evidence outranks the session table under the byte ceiling — the
+  // exhibits are what reviewers came for, so the table truncates before
+  // evidence ever would — but the evidence block fits ITS OWN budget too,
+  // which leaves room for everything that renders unconditionally: the
+  // prelude, the footer, the marker, and the session table's header plus
+  // its worst-case overflow line.
+  // `rows` is non-empty on this path (the empty case returned above), so
+  // the reserve is unconditional.
+  const sessionReserve =
+    tableHeader.length +
+    separators +
+    `_…and ${tableRows.length} more sessions — see the dashboard._`.length +
+    separators;
+  const fixedWithoutEvidence =
+    prelude.reduce((sum, part) => sum + part.length + separators, 0) +
+    (footer ? footer.length + separators : 0) +
+    PR_SESSION_COMMENT_MARKER.length +
+    separators;
+  const evidenceBlock = evidence
+    ? renderEvidence(
+        evidence,
+        links,
+        GITHUB_COMMENT_BODY_LIMIT - fixedWithoutEvidence - sessionReserve - separators,
+      )
+    : null;
+  // The fitted evidence block is then fixed content the session-table
+  // fitter must leave room for.
+  const evidenceReservation = evidenceBlock ? evidenceBlock.length + separators : 0;
   const fitted = fitTableRows(tableRows, prelude, tableHeader, footer, evidenceReservation);
   const bodyParts = [...prelude];
   if (fitted.rows.length > 0) {
@@ -502,12 +533,19 @@ function criterionSpan(id: string): string {
 }
 
 function artifactLabel(artifact: PrArtifactRow, links: RenderLinks): string {
-  // Kind comes from the server's media-type allowlist, so printing it as the
-  // link's prefix is a claim the store can back — never author-supplied.
-  const label = `${artifact.kind} · ${escapeMarkdownCell(artifact.filename)}`;
+  // `kind` is a plain text column at rest — the media-type allowlist that
+  // writes it lives in another app and is no boundary here — so it is
+  // escaped like every other stored string.
+  const label = `${escapeMarkdownCell(artifact.kind)} · ${escapeMarkdownCell(artifact.filename)}`;
   // Session provenance is the default reading of agent evidence; only the
-  // other submission paths get labeled.
+  // other submission paths get labeled. The value is validated against the
+  // provenance vocabulary at the read boundary (`artifacts-read.ts`), which
+  // is what makes it safe inside a backtick span.
   const provenance = artifact.provenance === "session" ? "" : ` \`${artifact.provenance}\``;
+  // No default environment means no addressable exhibit page — an empty
+  // `env` segment would publish a guaranteed-404 link — so the label
+  // renders unlinked.
+  if (artifact.envName === "") return `${label}${provenance}`;
   return `[${label}](${artifactDeepLink(links, artifact)})${provenance}`;
 }
 
@@ -528,10 +566,57 @@ function renderProofCell(
     return matching.map((a) => artifactLabel(a, links)).join(", ");
   }
   if (bound.length > 0) {
-    const attachedKinds = [...new Set(bound.map((a) => a.kind))].sort().join(", ");
-    return `${criterion.proofKind} required · ${attachedKinds} attached`;
+    // Kinds are stored strings; escaped for the same reason the label
+    // escapes them. `proofKind` passes the parser's allowlist today, but
+    // escaping costs nothing and does not rely on it.
+    const attachedKinds = [...new Set(bound.map((a) => escapeMarkdownCell(a.kind)))]
+      .sort()
+      .join(", ");
+    return `${escapeMarkdownCell(criterion.proofKind)} required · ${attachedKinds} attached`;
   }
-  return `${criterion.proofKind} required · none attached`;
+  return `${escapeMarkdownCell(criterion.proofKind)} required · none attached`;
+}
+
+/**
+ * Fits a table's rows within `budget` bytes, head-first — the orderings this
+ * module renders in already put the most valuable rows first — reserving the
+ * counted "…N more" line whenever any row is omitted so appending it can
+ * never push the section back over. `extraOmitted` folds a row-count cap's
+ * omissions into the same line. Deterministic: a pure function of its
+ * inputs, so unchanged records keep the byte-identical re-render property.
+ *
+ * Degenerate outcomes are honest rather than broken: no rows fitting drops
+ * the header and renders only the counted line; the line itself not fitting
+ * drops the section entirely.
+ */
+function fitEvidenceTable(params: {
+  header: string;
+  rows: string[];
+  budget: number;
+  extraOmitted: number;
+  overflowLine: (omitted: number) => string;
+}): string | null {
+  const { header, rows, budget, extraOmitted, overflowLine } = params;
+  // The count's digits only shrink as rows are kept, so reserving the
+  // all-omitted line is always enough.
+  const reserve = "\n\n".length + overflowLine(rows.length + extraOmitted).length;
+  let used = header.length;
+  const kept: string[] = [];
+  for (const row of rows) {
+    const cost = row.length + 1; // the newline joining it to the previous row
+    const reserveNow = extraOmitted === 0 && kept.length + 1 === rows.length ? 0 : reserve;
+    if (used + cost + reserveNow > budget) break;
+    used += cost;
+    kept.push(row);
+  }
+  const omitted = rows.length - kept.length + extraOmitted;
+  if (kept.length === 0) {
+    if (omitted === 0) return null;
+    const line = overflowLine(omitted);
+    return line.length <= budget ? line : null;
+  }
+  const table = `${header}\n${kept.join("\n")}`;
+  return omitted > 0 ? `${table}\n\n${overflowLine(omitted)}` : table;
 }
 
 /**
@@ -541,44 +626,65 @@ function renderProofCell(
  * render inline (no `![`/`<img`); the dashboard page behind the link mints
  * per-viewer expiring blob tokens. Returns null when there is no evidence at
  * all, so a PR without artifacts shows no Evidence section.
+ *
+ * `budget` is the block's byte allowance inside the GitHub body limit
+ * (computed by the caller from everything else the body must carry). Both
+ * tables shed rows deterministically against it — a body that renders must
+ * always POST, because a 422 on a byte-identical re-render is permanent for
+ * that PR.
  */
-function renderEvidence(evidence: RenderEvidence, links: RenderLinks): string | null {
+function renderEvidence(
+  evidence: RenderEvidence,
+  links: RenderLinks,
+  budget: number,
+): string | null {
   const artifacts = orderArtifacts(evidence.artifacts);
   const criteria = [...evidence.criteria].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
   if (artifacts.length === 0 && criteria.length === 0) return null;
 
-  const parts: string[] = [];
+  const separators = "\n\n".length;
   const artifactWord = artifacts.length === 1 ? "artifact" : "artifacts";
-  parts.push(
+  const summary =
     artifacts.length > 0
       ? `**Evidence** · ${artifacts.length} ${artifactWord}`
-      : `**Evidence**`,
-  );
+      : `**Evidence**`;
+  if (summary.length > budget) return null;
+  const parts: string[] = [summary];
+  let remaining = budget - summary.length;
 
   if (criteria.length > 0) {
-    const criteriaHeader = "| Criterion | Proof |\n| --------- | ----- |";
-    const criteriaRows = criteria.map(
-      (c) => `| ${criterionSpan(c.id)} | ${renderProofCell(c, artifacts, links)} |`,
-    );
-    parts.push(`${criteriaHeader}\n${criteriaRows.join("\n")}`);
+    const fittedCriteria = fitEvidenceTable({
+      header: "| Criterion | Proof |\n| --------- | ----- |",
+      rows: criteria.map(
+        (c) => `| ${criterionSpan(c.id)} | ${renderProofCell(c, artifacts, links)} |`,
+      ),
+      budget: remaining - separators,
+      extraOmitted: 0,
+      overflowLine: (n) => `_…and ${n} more ${n === 1 ? "criterion" : "criteria"} not shown._`,
+    });
+    if (fittedCriteria !== null) {
+      parts.push(fittedCriteria);
+      remaining -= separators + fittedCriteria.length;
+    }
   }
 
   if (artifacts.length > 0) {
     const shown = artifacts.slice(0, MAX_RENDERED_ARTIFACTS);
-    const artifactsHeader = "**Artifacts**\n\n| Artifact | Caption |\n| -------- | ------- |";
-    const artifactRows = shown.map((a) => {
-      const caption = a.caption.trim() === "" ? "—" : escapeMarkdownCell(a.caption);
-      const forSuffix = a.criterionId === "" ? "" : ` · for ${criterionSpan(a.criterionId)}`;
-      return `| ${artifactLabel(a, links)} | ${caption}${forSuffix} |`;
+    const fittedArtifacts = fitEvidenceTable({
+      header: "**Artifacts**\n\n| Artifact | Caption |\n| -------- | ------- |",
+      rows: shown.map((a) => {
+        const caption = a.caption.trim() === "" ? "—" : escapeMarkdownCell(a.caption);
+        const forSuffix = a.criterionId === "" ? "" : ` · for ${criterionSpan(a.criterionId)}`;
+        return `| ${artifactLabel(a, links)} | ${caption}${forSuffix} |`;
+      }),
+      budget: remaining - separators,
+      extraOmitted: artifacts.length - shown.length,
+      overflowLine: (n) =>
+        `_…and ${n} more ${n === 1 ? "artifact" : "artifacts"} — see the dashboard._`,
     });
-    parts.push(`${artifactsHeader}\n${artifactRows.join("\n")}`);
-    const omitted = artifacts.length - shown.length;
-    if (omitted > 0) {
-      const word = omitted === 1 ? "artifact" : "artifacts";
-      parts.push(`_…and ${omitted} more ${word} — see the dashboard._`);
-    }
+    if (fittedArtifacts !== null) parts.push(fittedArtifacts);
   }
 
   return parts.join("\n\n");

@@ -48,9 +48,18 @@ type State = {
   links: PullRequestSessionMswRow[];
 };
 let state: State = { pullRequests: [], links: [] };
+let pullRequestReadQueries: string[] = [];
 
 export function resetPullRequestSessionMswState() {
   state = { pullRequests: [], links: [] };
+  pullRequestReadQueries = [];
+}
+
+/** Decoded query strings of every `pull_request` GET, in order — lets a test
+ * pin the exact scoping of a read (in-lists, order, limit), which row-level
+ * results alone cannot prove (an over-broad scan returns the same rows). */
+export function getPullRequestReadQueries(): readonly string[] {
+  return [...pullRequestReadQueries];
 }
 export function seedPullRequestSessionMswState(next: Partial<State>) {
   state = {
@@ -108,6 +117,7 @@ function matches(row: Record<string, unknown>, filters: Filter[]): boolean {
 export const pullRequestSessionHandlers = [
   http.get(`${SUPABASE_URL}/rest/v1/pull_request`, ({ request }) => {
     const url = new URL(request.url);
+    pullRequestReadQueries.push(decodeURIComponent(url.searchParams.toString()));
     const filters = parseFilters(url);
     let rows = state.pullRequests.filter((r) => matches(r as Record<string, unknown>, filters));
     const limit = url.searchParams.get("limit");
