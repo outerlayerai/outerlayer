@@ -1,7 +1,6 @@
 import { Suspense } from "react";
-import { Alert } from "@mui/material";
 
-import { OAuthGrantsList, OAuthGrantsLoading } from "@/features/oauth-grants";
+import { OAuthGrantsList, OAuthGrantsLoading, OAuthGrantsError } from "@/features/oauth-grants";
 import { loadOAuthGrants } from "@/features/oauth-grants/read";
 
 export const metadata = {
@@ -17,7 +16,7 @@ async function OAuthGrantsContent() {
   const result = await loadOAuthGrants();
 
   if ("unresolved" in result) {
-    return <Alert severity="warning">Could not load your connected apps. Try again.</Alert>;
+    return <OAuthGrantsError />;
   }
 
   return <OAuthGrantsList grants={result.grants} />;

@@ -7,7 +7,7 @@ import "server-only";
  * gateway's future `/v1/sessions` route and the `list_sessions` MCP tool);
  * this module owns only the dashboard's URL-vocabulary translation.
  */
-import { ListSessionsQuerySchema, ORIGIN_LITERALS, type ListSessionsQuery } from "@repo/api-schemas";
+import { ListSessionsQuerySchema, MAX_SESSIONS_OFFSET, ORIGIN_LITERALS, type ListSessionsQuery } from "@repo/api-schemas";
 import { z } from "zod";
 import { SESSIONS_PAGE_SIZE, DEFAULT_ORIGIN } from "./session-list-shared";
 
@@ -80,6 +80,10 @@ export function parseSessionsUrlParams(
   topicActive: boolean,
 ): ListSessionsQuery {
   const pageNum = Math.max(0, Number(flat.page ?? 0) || 0);
+  // Clamp to the schema's offset ceiling rather than letting salvageParse
+  // drop an over-deep offset: the drop would silently render page 1 under a
+  // deep page's URL, where the clamp shows the deepest reachable page.
+  const offset = Math.min(pageNum * SESSIONS_PAGE_SIZE, MAX_SESSIONS_OFFSET);
 
   // A topic drill-down's pristine state is every origin (the drill-down's
   // own facet rules narrow the population); the plain list's pristine state
@@ -101,7 +105,7 @@ export function parseSessionsUrlParams(
 
   return salvageParse(ListSessionsQuerySchema, {
     limit: SESSIONS_PAGE_SIZE,
-    offset: pageNum * SESSIONS_PAGE_SIZE,
+    offset,
     branch: flat.branch,
     agentType: flat.agent,
     model: flat.model,

@@ -41,17 +41,20 @@ export const MAX_SESSIONS_OFFSET = 10_000;
 export const ListSessionsQueryBaseSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(SESSIONS_PAGE_SIZE),
   offset: z.coerce.number().int().min(0).max(MAX_SESSIONS_OFFSET).default(0),
-  repo: z.string().refine(...noLoneSurrogates).optional(),
-  branch: z.string().refine(...noLoneSurrogates).optional(),
-  agentType: z.string().refine(...noLoneSurrogates).optional(),
+  // Exact-match filters carry a generous length cap (no real repo path,
+  // branch, model id, or actor id approaches it) so an arbitrarily long
+  // string can't be shipped into a ClickHouse bound param as payload bulk.
+  repo: z.string().max(500).refine(...noLoneSurrogates).optional(),
+  branch: z.string().max(500).refine(...noLoneSurrogates).optional(),
+  agentType: z.string().max(500).refine(...noLoneSurrogates).optional(),
   /** Exact model id; matches sessions whose Models array contains it. */
-  model: z.string().refine(...noLoneSurrogates).optional(),
+  model: z.string().max(500).refine(...noLoneSurrogates).optional(),
   /** Run origin (seat|cloud|ci|shared; '' = pre-migration rows). */
-  workerKind: z.string().refine(...noLoneSurrogates).optional(),
+  workerKind: z.string().max(500).refine(...noLoneSurrogates).optional(),
   /** Case-insensitive title substring. */
   q: z.string().max(200).refine(...noLoneSurrogates).optional(),
   /** Developer filter — the ActorId stamped at ingest (membership id or key:<id>). */
-  actor: z.string().refine(...noLoneSurrogates).optional(),
+  actor: z.string().max(500).refine(...noLoneSurrogates).optional(),
   /** ISO instant lower/upper bounds on StartedAt. `reasonableChDate` rejects
    * far-future/far-past values that overflow ClickHouse's DateTime range —
    * an out-of-range bound reaches parseDateTimeBestEffort undefended
@@ -76,7 +79,7 @@ export const ListSessionsQueryBaseSchema = z.object({
     }),
   /** Topic drill-down: show only sessions assigned to this topic (by TraceId
    * in trace_facets) for the given facet. Set together; spans repos. */
-  topicId: z.string().refine(...noLoneSurrogates).optional(),
+  topicId: z.string().max(500).refine(...noLoneSurrogates).optional(),
   topicFacet: z.enum(['task', 'issues', 'steering']).optional(),
   /** PR filter: show only sessions CONFIRMED-linked (via
    * `pull_request_session`) to this provider PR/MR number. The header link

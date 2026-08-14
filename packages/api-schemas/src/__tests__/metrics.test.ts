@@ -115,6 +115,45 @@ describe('MetricsTrendsResponseSchema', () => {
   });
 });
 
+// A reversed window errors nowhere downstream — ClickHouse just returns
+// zero rows — so the schema is the only place a typo'd date range can
+// surface as a 400 instead of a silent "no activity".
+describe('window ordering (from <= to)', () => {
+  test.each([
+    ['ModelStatsQuerySchema', ModelStatsQuerySchema, {}],
+    ['FleetOverviewQuerySchema', FleetOverviewQuerySchema, {}],
+    ['MetricsBreakdownQuerySchema', MetricsBreakdownQuerySchema, { dimension: 'model' }],
+    ['MetricsTrendsQuerySchema', MetricsTrendsQuerySchema, {}],
+  ] as const)('%s rejects from > to and accepts from <= to', (_name, schema, extra) => {
+    expect(schema.safeParse({ ...extra, from: '2026-08-10', to: '2026-08-01' }).success).toBe(false);
+    expect(schema.safeParse({ ...extra, from: '2026-08-01', to: '2026-08-10' }).success).toBe(true);
+    expect(schema.safeParse({ ...extra, from: '2026-08-01', to: '2026-08-01' }).success).toBe(true);
+    // A lone bound has nothing to be ordered against.
+    expect(schema.safeParse({ ...extra, from: '2026-08-10' }).success).toBe(true);
+  });
+
+  test('CompareWindowsQuerySchema rejects a reversed window on either side, independently', () => {
+    const valid = { aFrom: '2026-08-01', aTo: '2026-08-05', bFrom: '2026-08-06', bTo: '2026-08-10' };
+    expect(CompareWindowsQuerySchema.safeParse(valid).success).toBe(true);
+    expect(
+      CompareWindowsQuerySchema.safeParse({ ...valid, aFrom: '2026-08-05', aTo: '2026-08-01' }).success,
+    ).toBe(false);
+    expect(
+      CompareWindowsQuerySchema.safeParse({ ...valid, bFrom: '2026-08-10', bTo: '2026-08-06' }).success,
+    ).toBe(false);
+    // Windows may overlap or run in either order relative to EACH OTHER —
+    // only each window's own bounds are constrained.
+    expect(
+      CompareWindowsQuerySchema.safeParse({
+        aFrom: '2026-08-06',
+        aTo: '2026-08-10',
+        bFrom: '2026-08-01',
+        bTo: '2026-08-05',
+      }).success,
+    ).toBe(true);
+  });
+});
+
 describe('PrOutcomesResponseSchema', () => {
   test('accepts the attribution set merged with per-item cost', () => {
     const result = PrOutcomesResponseSchema.safeParse({

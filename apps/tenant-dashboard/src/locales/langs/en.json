@@ -303,7 +303,9 @@
         "connectedOn": "Connected",
         "emptyList": "No connected apps",
         "revokeTitle": "Revoke this connection?",
-        "revokeButton": "Revoke"
+        "revokeButton": "Revoke",
+        "loadError": "Could not load your connected apps. Try again.",
+        "unexpectedError": "Unexpected error"
       }
     },
     "users": {
@@ -945,7 +947,14 @@
       "grantLabel": "What this connects",
       "grantDescription": "This connector gets read access to your organization's OuterLayer analytics via MCP — agent sessions, topics, metrics, and context changes — acting as you.",
       "approveButton": "Allow access",
-      "denyButton": "Deny"
+      "denyButton": "Deny",
+      "unexpectedError": "Unexpected error",
+      "errors": {
+        "missingAuthorizationTitle": "Missing authorization",
+        "missingAuthorizationDescription": "This link is missing the information needed to complete the connection. Try connecting again from the client that sent you here.",
+        "errorTitle": "Something went wrong",
+        "errorDescription": "We couldn't complete this connection. Try again from the client that sent you here."
+      }
     },
     "validation": {
       "firstName": {

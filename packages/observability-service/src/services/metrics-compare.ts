@@ -15,15 +15,17 @@
 
 import type { TopicFacet } from '@repo/api-schemas';
 import type { IClickHouseQuery } from '../client';
-import { QUERY_TIMEOUT_SETTINGS } from '../shared';
+import { QUERY_TIMEOUT_ONLY_SETTINGS } from '../shared';
 import { facetsEnvClause } from './topics';
 import type { TopicsScope } from './topics';
 
 /** Same caps as the other lifted read services (topics.ts, agent-sessions.ts)
  * — see `scripts/ci/check-clickhouse-client-guardrails.mjs`, which asserts
- * every `query(` call site in this file sets both. */
+ * every `query(` call site in this file sets both. Timeout-only base: this
+ * module reads trace_facets / trace_topic_maps, where the partition-local
+ * FINAL optimization is unsafe (see the constant's doc in ../shared.ts). */
 export const COMPARE_QUERY_SETTINGS = {
-  ...QUERY_TIMEOUT_SETTINGS,
+  ...QUERY_TIMEOUT_ONLY_SETTINGS,
   max_memory_usage: 1_000_000_000,
   max_rows_to_read: 10_000_000,
 } as const;

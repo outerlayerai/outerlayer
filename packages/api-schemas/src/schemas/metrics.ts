@@ -71,11 +71,22 @@ export type MetricsResponse = z.infer<typeof MetricsResponseSchema>;
 // so a caller can omit them entirely.
 // ---------------------------------------------------------------------------
 
-export const ModelStatsQuerySchema = z.object({
-  from: z.string().date().refine(...reasonableChDate).optional(),
-  to: z.string().date().refine(...reasonableChDate).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(10),
-});
+// Window-ordering guard: `from`/`to` are YYYY-MM-DD strings, so
+// lexicographic order IS calendar order. A reversed window would not error
+// downstream — ClickHouse just returns zero rows — so without this check the
+// caller reads "no activity" where they typo'd a date.
+const fromNotAfterTo = [
+  (q: { from?: string; to?: string }) => !q.from || !q.to || q.from <= q.to,
+  { message: "'from' must not be after 'to'" },
+] as const;
+
+export const ModelStatsQuerySchema = z
+  .object({
+    from: z.string().date().refine(...reasonableChDate).optional(),
+    to: z.string().date().refine(...reasonableChDate).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(10),
+  })
+  .refine(...fromNotAfterTo);
 
 export const ModelStatsEntrySchema = z.object({
   model: z.string(),
@@ -96,10 +107,12 @@ export const ModelStatsResponseSchema = z.object({
 // GET /v1/metrics/overview — fleet-wide tiles, current vs prior period
 // ---------------------------------------------------------------------------
 
-export const FleetOverviewQuerySchema = z.object({
-  from: z.string().date().refine(...reasonableChDate).optional(),
-  to: z.string().date().refine(...reasonableChDate).optional(),
-});
+export const FleetOverviewQuerySchema = z
+  .object({
+    from: z.string().date().refine(...reasonableChDate).optional(),
+    to: z.string().date().refine(...reasonableChDate).optional(),
+  })
+  .refine(...fromNotAfterTo);
 
 const FleetTileSchema = z.object({
   current: z.number(),
@@ -137,14 +150,18 @@ export type FleetOverviewQuery = z.infer<typeof FleetOverviewQuerySchema>;
 // sensible "trailing N days" fallback for either side.
 // ---------------------------------------------------------------------------
 
-export const CompareWindowsQuerySchema = z.object({
-  aFrom: z.string().date().refine(...reasonableChDate),
-  aTo: z.string().date().refine(...reasonableChDate),
-  bFrom: z.string().date().refine(...reasonableChDate),
-  bTo: z.string().date().refine(...reasonableChDate),
-  facet: z.enum(TOPIC_FACETS).default("issues"),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-});
+export const CompareWindowsQuerySchema = z
+  .object({
+    aFrom: z.string().date().refine(...reasonableChDate),
+    aTo: z.string().date().refine(...reasonableChDate),
+    bFrom: z.string().date().refine(...reasonableChDate),
+    bTo: z.string().date().refine(...reasonableChDate),
+    facet: z.enum(TOPIC_FACETS).default("issues"),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  })
+  // Same rationale as `fromNotAfterTo` above, once per window.
+  .refine((q) => q.aFrom <= q.aTo, { message: "'aFrom' must not be after 'aTo'" })
+  .refine((q) => q.bFrom <= q.bTo, { message: "'bFrom' must not be after 'bTo'" });
 
 /** Fleet tiles for ONE window — the `current` half of {@link FleetOverviewSchema}'s
  * pair shape, flattened (no `prior`): a comparison across two explicit,
@@ -201,12 +218,14 @@ export type CompareWindowsQuery = z.infer<typeof CompareWindowsQuerySchema>;
 
 export const METRICS_BREAKDOWN_DIMENSIONS = ['branch', 'agent_type', 'worker_kind', 'model', 'tool'] as const;
 
-export const MetricsBreakdownQuerySchema = z.object({
-  dimension: z.enum(METRICS_BREAKDOWN_DIMENSIONS),
-  from: z.string().date().refine(...reasonableChDate).optional(),
-  to: z.string().date().refine(...reasonableChDate).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
-});
+export const MetricsBreakdownQuerySchema = z
+  .object({
+    dimension: z.enum(METRICS_BREAKDOWN_DIMENSIONS),
+    from: z.string().date().refine(...reasonableChDate).optional(),
+    to: z.string().date().refine(...reasonableChDate).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(10),
+  })
+  .refine(...fromNotAfterTo);
 
 export const MetricsBreakdownItemSchema = z.object({
   key: z.string(),
@@ -229,10 +248,12 @@ export type MetricsBreakdownQuery = z.infer<typeof MetricsBreakdownQuerySchema>;
 // GET /v1/metrics/trends — daily sessions/cost/quality trend
 // ---------------------------------------------------------------------------
 
-export const MetricsTrendsQuerySchema = z.object({
-  from: z.string().date().refine(...reasonableChDate).optional(),
-  to: z.string().date().refine(...reasonableChDate).optional(),
-});
+export const MetricsTrendsQuerySchema = z
+  .object({
+    from: z.string().date().refine(...reasonableChDate).optional(),
+    to: z.string().date().refine(...reasonableChDate).optional(),
+  })
+  .refine(...fromNotAfterTo);
 
 export const MetricsTrendPointSchema = z.object({
   date: z.string().date(),

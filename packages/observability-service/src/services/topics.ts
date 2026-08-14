@@ -40,7 +40,7 @@ import {
   STEERING_EXTRACTOR_VERSION,
 } from '@repo/trace-topics';
 import type { IClickHouseQuery } from '../client';
-import { QUERY_TIMEOUT_SETTINGS } from '../shared';
+import { QUERY_TIMEOUT_ONLY_SETTINGS } from '../shared';
 import { generationFloorForFacet } from '@repo/api-schemas';
 
 /** Safety cap on map rows fetched per generation, not a real limit — a map
@@ -53,12 +53,14 @@ import { generationFloorForFacet } from '@repo/api-schemas';
 export const MAX_MAP_TOPICS = 1000;
 
 /** ClickHouse resource caps every lifted query in this module carries, on
- * top of {@link QUERY_TIMEOUT_SETTINGS} — bounds the blast radius of a
+ * top of {@link QUERY_TIMEOUT_ONLY_SETTINGS} — bounds the blast radius of a
  * misbehaving query on the shared analytics cluster (see
  * `scripts/ci/check-clickhouse-client-guardrails.mjs`, which asserts every
- * `query(` call site here sets both). */
+ * `query(` call site here sets both). Timeout-only base: this module reads
+ * trace_facets / trace_topic_maps, where the partition-local FINAL
+ * optimization is unsafe (see the constant's doc in ../shared.ts). */
 export const TOPICS_QUERY_SETTINGS = {
-  ...QUERY_TIMEOUT_SETTINGS,
+  ...QUERY_TIMEOUT_ONLY_SETTINGS,
   max_memory_usage: 1_000_000_000,
   max_rows_to_read: 10_000_000,
 } as const;

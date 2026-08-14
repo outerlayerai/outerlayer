@@ -32,7 +32,7 @@ export const OAuthConsentView = ({ authorizationId, clientName, resource, redire
       // client-side router.
       window.location.assign(resp.data.redirectUrl);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unexpected error");
+      setError(err instanceof Error ? err.message : t("auth.oauthConsent.unexpectedError"));
       setPending(null);
     }
   };

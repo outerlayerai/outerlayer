@@ -65,7 +65,7 @@ paths:
           name: "appId"
           required: true
           schema:
-            minLength: 1
+            format: "uuid"
             type: "string"
       responses:
         "200":
@@ -5866,26 +5866,31 @@ paths:
           name: "repo"
           required: false
           schema:
+            maxLength: 500
             type: "string"
         - in: "query"
           name: "branch"
           required: false
           schema:
+            maxLength: 500
             type: "string"
         - in: "query"
           name: "agentType"
           required: false
           schema:
+            maxLength: 500
             type: "string"
         - in: "query"
           name: "model"
           required: false
           schema:
+            maxLength: 500
             type: "string"
         - in: "query"
           name: "workerKind"
           required: false
           schema:
+            maxLength: 500
             type: "string"
         - in: "query"
           name: "q"
@@ -5897,6 +5902,7 @@ paths:
           name: "actor"
           required: false
           schema:
+            maxLength: 500
             type: "string"
         - in: "query"
           name: "from"
@@ -5959,6 +5965,7 @@ paths:
           name: "topicId"
           required: false
           schema:
+            maxLength: 500
             type: "string"
         - in: "query"
           name: "topicFacet"

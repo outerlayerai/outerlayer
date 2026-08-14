@@ -47,7 +47,7 @@ export const OAuthGrantsList = ({ grants }: Props) => {
       setSessionIdForRevoke(null);
       dialog.onFalse();
     } catch (error) {
-      enqueueSnackbar(error instanceof Error ? error.message : "Unexpected error", {
+      enqueueSnackbar(error instanceof Error ? error.message : t("dashboard.developers.grants.unexpectedError"), {
         variant: "error",
       });
     } finally {
