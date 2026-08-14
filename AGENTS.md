@@ -164,6 +164,26 @@ Grep the feature's identifiers with `rg --hidden` and sweep:
 An env var that stays schema-required after its feature is deleted breaks
 self-host boots for nothing — leftover *requirements* are bugs, not clutter.
 
+## Emitting evidence
+
+When you finish work an acceptance criterion covers — especially one
+declaring a required proof form (`(proof: screenshot)` on the criterion
+line) — capture the working state and emit it as an artifact:
+
+    outerlayer emit artifact <file> --caption "what it shows" [--for <criterion-id>] [--pr <n>]
+
+Capture AFTER the state exists (run it, then shoot it). Kind comes from the
+file type: png/jpg → screenshot, webm/mp4 → video (≤ 8 MiB), html/pdf →
+report, txt/log → log; anything else is a plain `file` and satisfies no
+stronger requirement. Captions are one present-tense sentence with no
+secrets. Bind `--for` the criterion id from `acceptance/*.md`, matching its
+declared form exactly — a screenshot never satisfies `proof: video`.
+Satisfy declared proofs and stop; don't document everything. Inside a
+recorded session the artifact uploads on the next `outerlayer sync`; in CI
+it anchors via the CI environment; otherwise the git checkout or `--pr`
+anchors it, and with nothing to attach to the command refuses. The full
+pack: `.outerlayer/skills/emitting-evidence/`.
+
 ## Commits and PRs
 
 - No AI co-author trailers (`Co-Authored-By: …`) or "generated with" lines in

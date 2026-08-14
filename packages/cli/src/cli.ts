@@ -257,7 +257,9 @@ export async function runCli(processArgv: string[]): Promise<void> {
       // This registration exists only so `--help` documents it.
     });
 
-  program
+  // Parent keeps the flat compile action; commander only dispatches to a
+  // subcommand (`emit artifact`) when the first operand names one.
+  const emitCmd = program
     .command("emit")
     .description(
       "Compile .outerlayer/ into each configured target tool's native files (targets come from .outerlayer/config.json — claude-code, cursor, codex, copilot, factory)",
@@ -281,6 +283,49 @@ export async function runCli(processArgv: string[]): Promise<void> {
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (err) {
         if (err instanceof EmitError) {
+          process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        throw err;
+      }
+    });
+
+  emitCmd
+    .command("artifact <file>")
+    .description(
+      "Emit a proof artifact (screenshot, recording, report, log) — spooled into the active recorded session, or uploaded anchored to a PR / git checkout",
+    )
+    .requiredOption("--caption <text>", "what this artifact shows/proves")
+    .option("--for <criterion-id>", "acceptance-criterion id this artifact proves (e.g. AC-082-04)")
+    .option("--pr <number>", "pull request number to anchor to", (v) => parseInt(v, 10))
+    .option("--json", "machine-readable JSON output")
+    .option("--url <url>", "cloud base URL (or OUTERLAYER_URL / config)")
+    .option("--api-key <key>", "API key (or OUTERLAYER_API_KEY / config)")
+    .option("--app-id <id>", "app id the key is bound to (or OUTERLAYER_APP_ID / config)")
+    .addHelpText(
+      "after",
+      "\nInside a recorded Claude Code session the artifact spools locally and ships,\n" +
+        "bound to that session, on the next `outerlayer sync`. Otherwise it uploads\n" +
+        "immediately, anchored to a PR (--pr, or CI's PR context) or to the current\n" +
+        "git checkout. With nothing to attach it to, the command refuses.\n",
+    )
+    .action(async (file, opts) => {
+      const { runEmitArtifact, EmitArtifactError } = await import("./emit-artifact-cmd.js");
+      try {
+        const result = await runEmitArtifact({
+          file,
+          caption: opts.caption,
+          criterionId: opts.for,
+          pr: opts.pr,
+          json: opts.json,
+          url: opts.url,
+          apiKey: opts.apiKey,
+          appId: opts.appId,
+        });
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      } catch (err) {
+        if (err instanceof EmitArtifactError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
           process.exitCode = 1;
           return;
@@ -468,6 +513,28 @@ function registerImportCommands(program: Command): void {
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (err) {
         if (err instanceof ImportRulerError) {
+          process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        throw err;
+      }
+    });
+
+  importCmd
+    .command("capture")
+    .description(
+      "Install the evidence capture pack into .outerlayer/ — the emitting-evidence skill plus an AGENTS.md snippet teaching agents to run `emit artifact`",
+    )
+    .option("--dir <path>", "repo root to write into (default: cwd)")
+    .option("--json", "machine-readable JSON output")
+    .action(async (opts) => {
+      const { runImportCapture, ImportCaptureError } = await import("./import-capture-cmd.js");
+      try {
+        const result = runImportCapture({ cwd: opts.dir, json: opts.json });
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      } catch (err) {
+        if (err instanceof ImportCaptureError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
           process.exitCode = 1;
           return;
