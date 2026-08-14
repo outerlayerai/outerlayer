@@ -11,13 +11,17 @@ import {
   type IssueCommentListResult,
   type IssueCommentResult,
   type PullRequestCommitListResult,
+  type PullRequestFileListResult,
 } from "@/lib/system/git/github/client";
 import { tenantChQuery } from "@/lib/system/pr-session-reconciler/ch-query";
 import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 
 import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
 
-import { evaluateEvidence } from "./evaluate";
+import { evaluateEvidence, type VerificationFact } from "./evaluate";
+import { isTestFilePath } from "@/lib/system/verdict/classify";
+import { verificationFacts } from "@/lib/system/verdict/evidence";
+import { readVerificationSpans } from "@/lib/system/verdict/span-source";
 import { LinksUnreadableError, LINKS_UNREADABLE_REASON, readLinkedSessions } from "./read";
 import { readPrArtifacts } from "./artifacts-read";
 import { fetchPrProofCriteria, type CriterionRequirement } from "./criteria";
@@ -138,13 +142,14 @@ interface PrSessionCommentGithubClient {
    * a test fake can omit it; when absent (or not `ok`), the fact is omitted
    * from the evaluation rather than asserted either way. */
   listPullRequestCommits?(repo: string, prNumber: number): Promise<PullRequestCommitListResult>;
-  /** Proof-criteria reads (`criteria.ts`) — only exercised when the PR has
-   * artifacts. Optional so a test fake can omit them; when absent, the
+  /** The PR's changed files — red-then-green's "does the diff add tests"
+   * input, and the scope filter for the Evidence block's proof-criteria
+   * fetch. Same optionality contract: absent or not `ok` means both are
+   * conservatively suppressed, never approximated. */
+  listPullRequestFiles?(repo: string, prNumber: number): Promise<PullRequestFileListResult>;
+  /** Proof-criteria content reads (`criteria.ts`) — only exercised when the
+   * PR has artifacts. Optional so a test fake can omit it; when absent, the
    * Evidence block renders artifacts without criterion proof rows. */
-  listPullRequestFiles?(
-    repo: string,
-    prNumber: number,
-  ): Promise<{ headSha: string | null; files: { path: string; status: string }[] }>;
   getFileContent?(repo: string, path: string, ref: string): Promise<{ content: string }>;
 }
 
@@ -664,29 +669,58 @@ export async function refreshPrSessionComment(
       }
     }
 
+    // The PR's changed-file list serves two consumers: red-then-green's
+    // "does the diff add tests" gate and the Evidence block's proof-criteria
+    // scope. Fetched at most once; absent or unreadable suppresses both.
+    let prFiles: { filename: string; changeStatus: string }[] | null = null;
+    const wantsFilesForFacts = rows.length > 0 && chQuery !== null;
+    const wantsFilesForCriteria = artifacts.length > 0 && githubClient.getFileContent !== undefined;
+    if ((wantsFilesForFacts || wantsFilesForCriteria) && githubClient.listPullRequestFiles) {
+      const filesResult = await githubClient.listPullRequestFiles(repository, prNumber);
+      if (filesResult.status === "ok") {
+        prFiles = filesResult.files;
+      }
+    }
+
+    // Verification facts: session tool-call timelines through the span fact
+    // layer. Reuses the same ClickHouse seam as the reads above; when it is
+    // unavailable the facts are simply absent — the same omission contract
+    // as an unreadable commit list.
+    let verification: VerificationFact[] = [];
+    if (rows.length > 0 && chQuery) {
+      const diffAddsTests =
+        prFiles === null
+          ? null
+          : prFiles.some(
+              (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
+            );
+      const spans = await readVerificationSpans(chQuery, traceIds);
+      verification = verificationFacts(spans, traceIds, diffAddsTests);
+    }
+
     // Criterion proof requirements come from the PR's own changed acceptance
     // files (see criteria.ts) and are best-effort: a fetch failure degrades
-    // to artifacts-without-criteria rather than blocking the comment. The
-    // fetch is deliberately not cached; when artifact adoption makes the
-    // per-refresh GitHub reads matter, cache the parsed criteria keyed by
-    // `pull_request.head_sha`.
+    // to artifacts-without-criteria rather than blocking the comment.
     let criteria: CriterionRequirement[] = [];
-    if (artifacts.length > 0 && githubClient.listPullRequestFiles && githubClient.getFileContent) {
+    if (artifacts.length > 0 && githubClient.getFileContent && prFiles !== null) {
       try {
         criteria = await fetchPrProofCriteria(
-          {
-            listPullRequestFiles: githubClient.listPullRequestFiles.bind(githubClient),
-            getFileContent: githubClient.getFileContent.bind(githubClient),
-          },
+          { getFileContent: githubClient.getFileContent.bind(githubClient) },
           repository,
           prNumber,
+          prFiles,
         );
       } catch {
         criteria = [];
       }
     }
 
-    const evaluation = evaluateEvidence({ sessions: rows, pendingLinkCount, prCommitShas });
+    const evaluation = evaluateEvidence({
+      sessions: rows,
+      pendingLinkCount,
+      prCommitShas,
+      verificationFacts: verification,
+    });
     // Recorded at evaluation time, before the GitHub write and regardless of
     // its outcome — a verdict on a not-yet-permitted installation is still a
     // verdict, and the outcomes measurement needs those too. Best-effort:

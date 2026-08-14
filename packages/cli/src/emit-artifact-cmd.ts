@@ -125,7 +125,7 @@ export async function runEmitArtifact(opts: EmitArtifactCommandOptions): Promise
   }
   if (opts.criterionId !== undefined && !ArtifactCriterionIdSchema.safeParse(opts.criterionId).success) {
     throw new EmitArtifactError(
-      `invalid --for "${opts.criterionId}" — a criterion id is 1-64 characters of letters, digits, "_", ".", ":" or "-" (e.g. AC-083-04)`,
+      `invalid --for "${opts.criterionId}" — a criterion id is 1-64 characters of letters, digits, "_", ".", ":" or "-" (e.g. AC-084-04)`,
     );
   }
   const criterionId = opts.criterionId;

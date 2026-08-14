@@ -93,6 +93,17 @@ export type PullRequestCommitListResult =
   | { status: 'unavailable' };
 
 /**
+ * Same tri-state contract as {@link PullRequestCommitListResult}: a 403/404
+ * is "files unknown", never an error the caller should surface. `status` is
+ * GitHub's per-file change status (`added`/`modified`/`removed`/…), which is
+ * what lets a caller distinguish "adds tests" from "deletes tests".
+ */
+export type PullRequestFileListResult =
+  | { status: 'ok'; files: { filename: string; changeStatus: string }[] }
+  | { status: 'not_permitted' }
+  | { status: 'unavailable' };
+
+/**
  * Page size and page ceiling for {@link GitHubProvider.listPullRequestCommits}.
  * GitHub's list-PR-commits endpoint returns at most 250 commits regardless
  * of pagination, so 100 × 3 covers everything the API will ever hand back.
@@ -1069,44 +1080,6 @@ export class GitHubProvider implements GitProvider {
    * per-PR GET carries them — so this exists for the enrichment backfill,
    * not the webhook path (the pull_request payload already has all three).
    */
-  /**
-   * The PR's head sha and changed-file paths, for readers that need the PR's
-   * own content (the comment's proof-criteria fetch). First three pages
-   * (300 files) — a PR beyond that is bulk churn, and callers filter to a
-   * handful of paths anyway.
-   */
-  async listPullRequestFiles(
-    repo: string,
-    prNumber: number
-  ): Promise<{ headSha: string | null; files: { path: string; status: string }[] }> {
-    const [owner, repoName] = this.parseRepo(repo);
-    try {
-      const { data: pr } = await this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
-        owner,
-        repo: repoName,
-        pull_number: prNumber,
-      });
-      const headSha = typeof pr.head?.sha === 'string' ? pr.head.sha : null;
-      const files: { path: string; status: string }[] = [];
-      for (let page = 1; page <= 3; page += 1) {
-        const { data } = await this.octokit.rest.pulls.listFiles({
-          owner,
-          repo: repoName,
-          pull_number: prNumber,
-          per_page: 100,
-          page,
-        });
-        for (const f of data) {
-          files.push({ path: f.filename, status: f.status });
-        }
-        if (data.length < 100) break;
-      }
-      return { headSha, files };
-    } catch (error: unknown) {
-      throw this.handleError(error, repo);
-    }
-  }
-
   async getPullRequestDiffStats(
     repo: string,
     prNumber: number
@@ -1435,6 +1408,40 @@ export class GitHubProvider implements GitProvider {
         if (response.data.length < PR_COMMITS_PAGE_SIZE) break;
       }
       return { status: 'ok', commits };
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 403) {
+        return { status: 'not_permitted' };
+      }
+      if (status === 404) {
+        return { status: 'unavailable' };
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
+  async listPullRequestFiles(
+    repo: string,
+    prNumber: number
+  ): Promise<PullRequestFileListResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+    const files: { filename: string; changeStatus: string }[] = [];
+
+    try {
+      for (let page = 1; page <= PR_COMMITS_MAX_PAGES; page += 1) {
+        const response = await this.octokit.rest.pulls.listFiles({
+          owner,
+          repo: repoName,
+          pull_number: prNumber,
+          per_page: PR_COMMITS_PAGE_SIZE,
+          page,
+        });
+        for (const file of response.data) {
+          files.push({ filename: file.filename, changeStatus: file.status });
+        }
+        if (response.data.length < PR_COMMITS_PAGE_SIZE) break;
+      }
+      return { status: 'ok', files };
     } catch (error: unknown) {
       const status = (error as { status?: number }).status;
       if (status === 403) {

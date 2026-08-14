@@ -271,7 +271,7 @@ describe('EmitArtifact', () => {
     expect((json() as { error: { code: string } }).error.code).toBe('invalid_request_body');
   });
 
-  // proves AC-083-01
+  // proves AC-084-01
   it('stores an accepted emit with caption, inferred kind, criterion id, and derived provenance, and echoes them', async () => {
     const { ctx, status, json } = ctxFor(
       emitBody({
@@ -353,7 +353,7 @@ describe('EmitArtifact', () => {
     expect(blobStore.size).toBe(0);
   });
 
-  // proves AC-083-03
+  // proves AC-084-03
   it('anchors a CI emit immediately: shared-key ci provenance, pr_number set, confirmed when the PR row exists', async () => {
     prRowExists = true;
     // No actorMembershipId override: a shared machine key.
@@ -444,7 +444,7 @@ describe('EmitArtifact', () => {
     expect((json() as { data: { provenance: string } }).data.provenance).toBe('session');
   });
 
-  // proves AC-083-05
+  // proves AC-084-05
   it('rejects a claimed session binding whose session never synced, storing nothing', async () => {
     sessionExistsInClickHouse = false;
     const { ctx, status, json } = ctxFor(
@@ -468,7 +468,7 @@ describe('EmitArtifact', () => {
     expect(blobStore.size).toBe(0);
   });
 
-  // proves AC-083-05
+  // proves AC-084-05
   it('downgrades a ci claim from an actor-bound key to local', async () => {
     prRowExists = true;
     const { ctx, status } = ctxFor(
@@ -481,7 +481,7 @@ describe('EmitArtifact', () => {
     expect(artifactUpserts[0]!.row.provenance).toBe('local');
   });
 
-  // proves AC-083-06
+  // proves AC-084-06
   it('refuses an emit with no anchor, storing neither blob nor row', async () => {
     const { ctx, status, json } = ctxFor(emitBody());
     await new EmitArtifact({} as never).handle(ctx);
@@ -512,8 +512,8 @@ describe('EmitArtifact', () => {
     expect(artifactUpserts[0]!.row.pr_number).toBeNull();
   });
 
-  // proves AC-083-09
-  // proves AC-083-10
+  // proves AC-084-09
+  // proves AC-084-10
   it('stores the kind inferred from the media type, filing an unrecognized type as file even when the payload claims otherwise', async () => {
     const first = ctxFor(emitBody({ prNumber: 7 }));
     await new EmitArtifact({} as never).handle(first.ctx);

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { evaluateEvidence } from "../evaluate";
+import { evaluateEvidence, type VerificationFact } from "../evaluate";
 
 const session = (recordedCommitShas: string[]) => ({ recordedCommitShas });
 
@@ -233,5 +233,85 @@ describe("evaluateEvidence", () => {
     };
 
     expect(evaluateEvidence(input)).toStrictEqual(evaluateEvidence(input));
+  });
+});
+
+const verification = (over: Partial<VerificationFact> = {}): VerificationFact => ({
+  id: "red-then-green",
+  status: "pass",
+  class: "amber",
+  sentence: "New tests failed first, then passed",
+  refs: [{ traceId: "t1", turnIndex: 61 }],
+  ...over,
+});
+
+describe("evaluateEvidence with verification facts", () => {
+  // AC-083-11
+  it("appends verification facts to the displayed facts unchanged", () => {
+    const fact = verification();
+    const result = evaluateEvidence({
+      sessions: [session(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"])],
+      pendingLinkCount: 0,
+      prCommitShas: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      verificationFacts: [fact],
+    });
+
+    expect(result.verdict).toBe("pass");
+    expect(result.facts).toEqual([
+      expect.objectContaining({ id: "commits-from-sessions", status: "pass" }),
+      fact,
+    ]);
+  });
+
+  it("counts an amber verification flag in flaggedCount and derives flag, not unverifiable", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      verificationFacts: [
+        verification({
+          id: "no-test-tampering",
+          status: "flag",
+          sentence: "A failing test was made to pass by changing the test, not the code",
+        }),
+      ],
+    });
+
+    expect(result.verdict).toBe("flag");
+    expect(result.flaggedCount).toBe(1);
+  });
+
+  // AC-083-12
+  it("derives unverifiable from a flagged red-class verification fact", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      verificationFacts: [
+        verification({
+          id: "no-test-tampering",
+          status: "flag",
+          class: "red",
+          sentence: "A git command skipped the repo's checks",
+          refs: [{ traceId: "t1", turnIndex: 88 }],
+        }),
+      ],
+    });
+
+    expect(result.verdict).toBe("unverifiable");
+    expect(result.flaggedCount).toBe(1);
+  });
+
+  // A red-class fact that PASSES must not scare the verdict — only a
+  // flagged red fact voids it.
+  it("ignores fact class entirely when the fact passes", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      verificationFacts: [verification({ class: "red" })],
+    });
+
+    expect(result.verdict).toBe("pass");
   });
 });

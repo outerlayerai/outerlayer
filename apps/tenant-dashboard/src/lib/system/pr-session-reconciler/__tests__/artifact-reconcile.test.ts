@@ -55,7 +55,7 @@ beforeEach(() => {
 });
 
 describe("reconcileArtifacts", () => {
-  // proves AC-083-07
+  // proves AC-084-07
   it("confirms a pending session-anchored artifact through its session's confirmed PR link", async () => {
     seedPullRequestSessionMswState({
       pullRequests: [
@@ -144,7 +144,7 @@ describe("reconcileArtifacts", () => {
     expect(rows.get("wrong-repo")).toMatchObject({ verification: "pending", pr_number: null });
   });
 
-  // proves AC-083-08
+  // proves AC-084-08
   it("marks a pending artifact past the grace window as unmatched", async () => {
     seedPullRequestSessionMswState({ pullRequests: [], links: [] });
     seedArtifactMswRows([

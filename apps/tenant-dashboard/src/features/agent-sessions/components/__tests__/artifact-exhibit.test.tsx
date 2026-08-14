@@ -22,7 +22,7 @@ const exhibit = (over: Partial<ArtifactExhibit>): ArtifactExhibit => ({
   mediaType: "image/png",
   kind: "screenshot",
   caption: "Login page after fix",
-  criterionId: "AC-083-01",
+  criterionId: "AC-084-01",
   provenance: "session",
   prNumber: 61,
   repository: "acme/api",
@@ -48,7 +48,7 @@ describe("ArtifactExhibitView", () => {
     expect(getByTestId("artifact-kind-chip").textContent).toBe("screenshot");
     expect(getByTestId("artifact-provenance-chip").textContent).toBe("session");
     expect(container.textContent).toContain("Login page after fix");
-    expect(getByText("AC-083-01").tagName).toBe("CODE");
+    expect(getByText("AC-084-01").tagName).toBe("CODE");
     expect(container.textContent).toMatch(/acme\/api\s*#61/);
     // The session link goes to the existing session detail page.
     expect(getByText("1b247b75").getAttribute("href")).toBe(

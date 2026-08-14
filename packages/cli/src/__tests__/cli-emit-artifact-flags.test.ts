@@ -72,14 +72,14 @@ describe("emit artifact argv surface", () => {
     await runCli([
       "node", "outerlayer", "emit", "artifact", join(root, "shot.png"),
       "--caption", "wired through commander",
-      "--for", "AC-083-02",
+      "--for", "AC-084-02",
     ]);
 
     expect(process.exitCode).toBe(0);
     const record = JSON.parse(readFileSync(artifactsSpoolPath(home), "utf8").trim()) as Record<string, unknown>;
     expect(record.sessionId).toBe("sess-cli-wire");
     expect(record.caption).toBe("wired through commander");
-    expect(record.criterionId).toBe("AC-083-02");
+    expect(record.criterionId).toBe("AC-084-02");
     const stdoutText = out.mock.calls.map((c) => String(c[0])).join("");
     expect(stdoutText).toContain("spooled");
     expect(err).not.toHaveBeenCalled();

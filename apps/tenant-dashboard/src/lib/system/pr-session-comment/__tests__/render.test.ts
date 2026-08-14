@@ -655,3 +655,90 @@ describe("renderComment", () => {
     expect(body).toContain("session dashboard");
   });
 });
+
+describe("verification fact rows", () => {
+  const base = (over: Partial<EvidenceEvaluation> = {}): EvidenceEvaluation => ({
+    verdict: "pass",
+    facts: [],
+    flaggedCount: 0,
+    pendingLinkCount: 0,
+    ...over,
+  });
+  const rows = [row({ traceId: "t1" })];
+
+  // AC-083-11
+  it("renders a passing verification fact as a ✓ row with its turn range", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      base({
+        facts: [
+          {
+            id: "red-then-green",
+            status: "pass",
+            class: "amber",
+            sentence: "New tests failed first, then passed",
+            refs: [
+              { traceId: "t1", turnIndex: 61 },
+              { traceId: "t1", turnIndex: 63 },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(body).toContain("✓ **New tests failed first, then passed** — turns 61 → 63");
+  });
+
+  it("renders an amber flag as ⚠ and a single ref as one turn", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      base({
+        verdict: "flag",
+        flaggedCount: 1,
+        facts: [
+          {
+            id: "no-test-tampering",
+            status: "flag",
+            class: "amber",
+            sentence: "A failing test was made to pass by changing the test, not the code",
+            refs: [{ traceId: "t1", turnIndex: 48 }],
+          },
+        ],
+      }),
+    );
+
+    expect(body).toContain(
+      "⚠ **A failing test was made to pass by changing the test, not the code** — turn 48",
+    );
+  });
+
+  // AC-083-12: the red-class row carries ✕, distinct from amber's ⚠ — the
+  // one mark reserved for facts that void the verdict.
+  it("renders a red-class flag as ✕ and omits the suffix when refs carry no turns", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      base({
+        verdict: "unverifiable",
+        flaggedCount: 1,
+        facts: [
+          {
+            id: "no-test-tampering",
+            status: "flag",
+            class: "red",
+            sentence: "A git command skipped the repo's checks",
+            refs: [{ traceId: "t1", turnIndex: null }],
+          },
+        ],
+      }),
+    );
+
+    expect(body).toContain("✕ **A git command skipped the repo's checks**");
+    expect(body).not.toContain("A git command skipped the repo's checks** — turn");
+  });
+});

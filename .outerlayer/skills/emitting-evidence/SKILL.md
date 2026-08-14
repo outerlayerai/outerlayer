@@ -48,7 +48,7 @@ Never put secrets, tokens, or personal data in the caption — or the pixels.
 
 When a criterion is the reason you captured, bind it:
 
-    outerlayer emit artifact shot.png --caption "…" --for AC-083-11
+    outerlayer emit artifact shot.png --caption "…" --for AC-084-11
 
 The id comes from the acceptance spec (`acceptance/*.md`). A criterion that
 declares a required form (`(proof: video)`) is satisfied only by that kind —

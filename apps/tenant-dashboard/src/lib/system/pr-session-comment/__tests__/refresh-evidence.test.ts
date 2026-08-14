@@ -114,10 +114,10 @@ beforeEach(() => {
 });
 
 describe("refreshPrSessionComment — evidence", () => {
-  // proves AC-083-11
+  // proves AC-084-11
   it("posts a body whose Evidence block lists the PR's artifacts and criterion proofs", async () => {
     seedArtifactMswRows([
-      artifactRow({ id: "a1", criterion_id: "AC-083-11" }),
+      artifactRow({ id: "a1", criterion_id: "AC-084-11" }),
       artifactRow({
         id: "a2",
         filename: "run.log",
@@ -131,11 +131,11 @@ describe("refreshPrSessionComment — evidence", () => {
       createIssueComment: vi.fn<(repo: string, issueNumber: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9001)),
       updateIssueComment: vi.fn<(repo: string, commentId: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9001)),
       listPullRequestFiles: vi.fn(async () => ({
-        headSha: "beefcafe",
-        files: [{ path: "acceptance/082-artifacts.md", status: "added" }],
+        status: "ok" as const,
+        files: [{ filename: "acceptance/082-artifacts.md", changeStatus: "added" }],
       })),
       getFileContent: vi.fn(async () => ({
-        content: "1. `AC-083-11` (proof: screenshot) **Given** x, **Then** y.",
+        content: "1. `AC-084-11` (proof: screenshot) **Given** x, **Then** y.",
       })),
     };
 
@@ -149,21 +149,26 @@ describe("refreshPrSessionComment — evidence", () => {
     expect(githubClient.getFileContent).toHaveBeenCalledWith(
       REPO,
       "acceptance/082-artifacts.md",
-      "beefcafe",
+      `refs/pull/${PR}/head`,
     );
     const body = githubClient.createIssueComment.mock.calls[0]![2];
     expect(body).toContain("**Evidence** · 2 artifacts");
-    expect(body).toContain("| `AC-083-11` | [screenshot · evidence.png](");
+    expect(body).toContain("| `AC-084-11` | [screenshot · evidence.png](");
     expect(body).toContain("[log · run.log](");
     expect(body).toContain("`ci`");
     expect(body).toContain("gate output");
   });
 
-  it("skips the criteria fetch entirely when the PR has no artifacts", async () => {
+  it("skips the criteria content reads entirely when the PR has no artifacts", async () => {
     const githubClient = {
       createIssueComment: vi.fn<(repo: string, issueNumber: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9002)),
       updateIssueComment: vi.fn<(repo: string, commentId: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9002)),
-      listPullRequestFiles: vi.fn(),
+      // The verification facts still read the changed-file list; the
+      // criteria path must add no content fetches on top.
+      listPullRequestFiles: vi.fn(async () => ({
+        status: "ok" as const,
+        files: [{ filename: "acceptance/082-artifacts.md", changeStatus: "added" }],
+      })),
       getFileContent: vi.fn(),
     };
 
@@ -173,21 +178,23 @@ describe("refreshPrSessionComment — evidence", () => {
     );
 
     expect(result.status).toBe("created");
-    expect(githubClient.listPullRequestFiles).not.toHaveBeenCalled();
     expect(githubClient.getFileContent).not.toHaveBeenCalled();
     const body = githubClient.createIssueComment.mock.calls[0]![2];
     expect(body).not.toContain("**Evidence**");
   });
 
-  it("degrades to artifacts-without-criteria when the criteria fetch fails", async () => {
+  it("degrades to artifacts-without-criteria when the criteria content read fails", async () => {
     seedArtifactMswRows([artifactRow({ id: "a1" })]);
     const githubClient = {
       createIssueComment: vi.fn<(repo: string, issueNumber: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9003)),
       updateIssueComment: vi.fn<(repo: string, commentId: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9003)),
-      listPullRequestFiles: vi.fn(async () => {
+      listPullRequestFiles: vi.fn(async () => ({
+        status: "ok" as const,
+        files: [{ filename: "acceptance/082-artifacts.md", changeStatus: "added" }],
+      })),
+      getFileContent: vi.fn(async () => {
         throw new Error("github unavailable");
       }),
-      getFileContent: vi.fn(),
     };
 
     const result = await refreshPrSessionComment(

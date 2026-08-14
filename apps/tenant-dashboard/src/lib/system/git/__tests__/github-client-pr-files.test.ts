@@ -1,14 +1,13 @@
 /**
  * GitHubProvider.listPullRequestFiles tests.
  *
- * The evidence comment's proof-criteria fetch reads the PR's changed files
- * and head sha through this method, so its contract is pinned here: the
- * mapped path/status pairs, the head sha extraction (null when absent), and
- * the bounded pagination (three pages of 100, then stop). Mocks the
- * underlying Octokit calls, mirroring `github-client-pr-commits.test.ts`.
+ * Red-then-green's "does the diff add tests" input reads the PR's changed
+ * files through this method, so its contract is pinned here: filename +
+ * change status mapped per file, bounded pagination, and the typed
+ * degradations — 403 → not_permitted, 404 → unavailable — that let the
+ * caller suppress the rule instead of approximating it. Mirrors
+ * `github-client-pr-commits.test.ts`.
  */
-
-
 
 // Mock server-only (imported by github/client.ts)
 vi.mock('server-only', () => ({}));
@@ -49,22 +48,18 @@ function filePage(count: number, prefix: string) {
 }
 
 describe('GitHubProvider.listPullRequestFiles', () => {
-  it('returns the PR head sha and the mapped path/status pairs in order', async () => {
+  it('lists the PR-files endpoint and maps filename and change status per file', async () => {
     const { provider, octokit } = createProvider();
-    octokit.request.mockResolvedValue({ data: { head: { sha: 'beefcafe' } } });
     octokit.rest.pulls.listFiles.mockResolvedValue({
       data: [
-        { filename: 'acceptance/083-artifacts.md', status: 'added' },
-        { filename: 'src/index.ts', status: 'removed' },
+        { filename: 'src/lib/a.ts', status: 'modified' },
+        { filename: 'src/lib/__tests__/a.test.ts', status: 'added' },
+        { filename: 'src/lib/old.ts', status: 'removed' },
       ],
     });
 
     const result = await provider.listPullRequestFiles('org/repo', 42);
 
-    expect(octokit.request).toHaveBeenCalledWith(
-      'GET /repos/{owner}/{repo}/pulls/{pull_number}',
-      { owner: 'org', repo: 'repo', pull_number: 42 },
-    );
     expect(octokit.rest.pulls.listFiles).toHaveBeenCalledWith({
       owner: 'org',
       repo: 'repo',
@@ -74,67 +69,68 @@ describe('GitHubProvider.listPullRequestFiles', () => {
     });
     expect(octokit.rest.pulls.listFiles).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      headSha: 'beefcafe',
+      status: 'ok',
       files: [
-        { path: 'acceptance/083-artifacts.md', status: 'added' },
-        { path: 'src/index.ts', status: 'removed' },
+        { filename: 'src/lib/a.ts', changeStatus: 'modified' },
+        { filename: 'src/lib/__tests__/a.test.ts', changeStatus: 'added' },
+        { filename: 'src/lib/old.ts', changeStatus: 'removed' },
       ],
     });
   });
 
-  it('paginates past full pages, stops at the three-page bound, and concatenates in page order', async () => {
+  it('paginates past a full page and concatenates in page order', async () => {
     const { provider, octokit } = createProvider();
-    octokit.request.mockResolvedValue({ data: { head: { sha: 'beefcafe' } } });
     octokit.rest.pulls.listFiles
       .mockResolvedValueOnce({ data: filePage(100, 'p1') })
-      .mockResolvedValueOnce({ data: filePage(100, 'p2') })
-      .mockResolvedValueOnce({ data: filePage(100, 'p3') })
-      .mockResolvedValueOnce({ data: filePage(100, 'p4') });
-
-    const result = await provider.listPullRequestFiles('org/repo', 42);
-
-    // The three-page cap: page 4 is never requested even though page 3 was full.
-    expect(octokit.rest.pulls.listFiles).toHaveBeenCalledTimes(3);
-    expect(octokit.rest.pulls.listFiles).toHaveBeenNthCalledWith(2, {
-      owner: 'org',
-      repo: 'repo',
-      pull_number: 42,
-      per_page: 100,
-      page: 2,
-    });
-    expect(octokit.rest.pulls.listFiles).toHaveBeenNthCalledWith(3, {
-      owner: 'org',
-      repo: 'repo',
-      pull_number: 42,
-      per_page: 100,
-      page: 3,
-    });
-    expect(result.files).toHaveLength(300);
-    expect(result.files[0]).toEqual({ path: 'p1-0.ts', status: 'modified' });
-    expect(result.files[100]).toEqual({ path: 'p2-0.ts', status: 'modified' });
-    expect(result.files[299]).toEqual({ path: 'p3-99.ts', status: 'modified' });
-  });
-
-  it('stops after a short page instead of requesting the next one', async () => {
-    const { provider, octokit } = createProvider();
-    octokit.request.mockResolvedValue({ data: { head: { sha: 'beefcafe' } } });
-    octokit.rest.pulls.listFiles
-      .mockResolvedValueOnce({ data: filePage(100, 'p1') })
-      .mockResolvedValueOnce({ data: filePage(99, 'p2') });
+      .mockResolvedValueOnce({ data: [{ filename: 'p2-0.ts', status: 'added' }] });
 
     const result = await provider.listPullRequestFiles('org/repo', 42);
 
     expect(octokit.rest.pulls.listFiles).toHaveBeenCalledTimes(2);
-    expect(result.files).toHaveLength(199);
+    expect(octokit.rest.pulls.listFiles).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 2 }),
+    );
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') throw new Error('unreachable');
+    expect(result.files).toHaveLength(101);
+    expect(result.files[0]).toEqual({ filename: 'p1-0.ts', changeStatus: 'modified' });
+    expect(result.files[100]).toEqual({ filename: 'p2-0.ts', changeStatus: 'added' });
   });
 
-  it('returns headSha null when the PR payload carries no usable sha', async () => {
+  it('stops at three full pages — the same page ceiling as the commits read', async () => {
     const { provider, octokit } = createProvider();
-    octokit.request.mockResolvedValue({ data: { head: {} } });
-    octokit.rest.pulls.listFiles.mockResolvedValue({ data: [] });
+    octokit.rest.pulls.listFiles.mockResolvedValue({ data: filePage(100, 'full') });
 
     const result = await provider.listPullRequestFiles('org/repo', 42);
 
-    expect(result).toEqual({ headSha: null, files: [] });
+    expect(octokit.rest.pulls.listFiles).toHaveBeenCalledTimes(3);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') throw new Error('unreachable');
+    expect(result.files).toHaveLength(300);
+  });
+
+  it('returns {status: "not_permitted"} on 403 without throwing', async () => {
+    const { provider, octokit } = createProvider();
+    octokit.rest.pulls.listFiles.mockRejectedValue({ status: 403, message: 'Forbidden' });
+
+    await expect(provider.listPullRequestFiles('org/repo', 42)).resolves.toEqual({
+      status: 'not_permitted',
+    });
+  });
+
+  it('returns {status: "unavailable"} on 404 without throwing', async () => {
+    const { provider, octokit } = createProvider();
+    octokit.rest.pulls.listFiles.mockRejectedValue({ status: 404, message: 'Not Found' });
+
+    await expect(provider.listPullRequestFiles('org/repo', 42)).resolves.toEqual({
+      status: 'unavailable',
+    });
+  });
+
+  it('throws through the shared error handler on any other failure', async () => {
+    const { provider, octokit } = createProvider();
+    octokit.rest.pulls.listFiles.mockRejectedValue({ status: 500, message: 'kaboom' });
+
+    await expect(provider.listPullRequestFiles('org/repo', 42)).rejects.toThrow();
   });
 });

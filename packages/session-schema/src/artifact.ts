@@ -65,7 +65,7 @@ export function mediaTypeForArtifactPath(path: string): string {
   return MEDIA_TYPE_BY_EXTENSION[ext] ?? "application/octet-stream";
 }
 
-/** Criterion ids are acceptance-file ids (`AC-083-04`) today, but the shape
+/** Criterion ids are acceptance-file ids (`AC-084-04`) today, but the shape
  * stays permissive-yet-inert: id characters only, so a stored value can never
  * carry markdown, spaces, or HTML into a rendered surface. */
 export const ArtifactCriterionIdSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/);
