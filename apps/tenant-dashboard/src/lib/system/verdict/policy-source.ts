@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { PolicyFile, PolicySource } from "./policy";
+import { MAX_VALIDATOR_FILES, type PolicyFile, type PolicySource } from "./policy";
 
 /**
  * Reads a repo's evidence-policy files from GitHub — always at the PR's
@@ -16,10 +16,6 @@ import type { PolicyFile, PolicySource } from "./policy";
 
 const POLICY_PATH = ".outerlayer/policy.yaml";
 const VALIDATORS_DIR = ".outerlayer/validators";
-
-/** More validator files than this is not a policy, it's a bulk import;
- * reads stay bounded and the rest are ignored in path order. */
-const MAX_VALIDATOR_FILES = 20;
 
 const YAML_FILE = /\.ya?ml$/;
 
@@ -38,41 +34,50 @@ export async function readPolicySource(
   repository: string,
   prNumber: number,
 ): Promise<PolicySource | null> {
-  if (!client.getPullRequestBaseBranch || !client.getFileContent) return null;
-  const baseRef = await client.getPullRequestBaseBranch(repository, prNumber).catch(() => null);
+  const { getPullRequestBaseBranch, getFileContent, listDirectory } = client;
+  if (!getPullRequestBaseBranch || !getFileContent) return null;
+  const baseRef = await getPullRequestBaseBranch(repository, prNumber).catch(() => null);
   if (baseRef === null) return null;
 
-  let policyYaml: PolicyFile | null = null;
-  try {
-    const file = await client.getFileContent(repository, POLICY_PATH, baseRef);
-    policyYaml = { path: POLICY_PATH, content: file.content };
-  } catch {
-    policyYaml = null;
-  }
+  // The policy file and the directory listing are independent reads; the
+  // per-file fetches below fan out the same way. Every refresh pays this
+  // read, so the round trips overlap instead of chaining.
+  const [policyYaml, entries] = await Promise.all([
+    getFileContent(repository, POLICY_PATH, baseRef).then(
+      (file): PolicyFile => ({ path: POLICY_PATH, content: file.content }),
+      () => null,
+    ),
+    listDirectory
+      ? listDirectory(repository, VALIDATORS_DIR, baseRef).catch(
+          () => [] as Array<{ path: string; name: string; type: string }>,
+        )
+      : Promise.resolve([] as Array<{ path: string; name: string; type: string }>),
+  ]);
 
-  const validatorFiles: PolicyFile[] = [];
-  if (client.listDirectory) {
-    let entries: Array<{ path: string; name: string; type: string }> = [];
-    try {
-      entries = await client.listDirectory(repository, VALIDATORS_DIR, baseRef);
-    } catch {
-      entries = [];
-    }
-    const yamlEntries = entries
-      .filter((entry) => entry.type === "file" && YAML_FILE.test(entry.name))
-      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-      .slice(0, MAX_VALIDATOR_FILES);
-    for (const entry of yamlEntries) {
-      try {
-        const file = await client.getFileContent(repository, entry.path, baseRef);
-        validatorFiles.push({ path: entry.path, content: file.content });
-      } catch {
+  const yamlEntries = entries
+    .filter((entry) => entry.type === "file" && YAML_FILE.test(entry.name))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const ignoredValidatorPaths = yamlEntries
+    .slice(MAX_VALIDATOR_FILES)
+    .map((entry) => entry.path);
+  const reads = await Promise.all(
+    yamlEntries.slice(0, MAX_VALIDATOR_FILES).map((entry) =>
+      getFileContent(repository, entry.path, baseRef).then(
+        (file): PolicyFile => ({ path: entry.path, content: file.content }),
         // An unreadable single file degrades to "that file is absent"; the
         // rest of the policy still applies.
-      }
-    }
-  }
+        () => null,
+      ),
+    ),
+  );
+  const validatorFiles = reads.filter((file): file is PolicyFile => file !== null);
 
-  if (policyYaml === null && validatorFiles.length === 0) return null;
-  return { policyYaml, validatorFiles };
+  if (policyYaml === null && validatorFiles.length === 0 && ignoredValidatorPaths.length === 0) {
+    return null;
+  }
+  return {
+    policyYaml,
+    validatorFiles,
+    ...(ignoredValidatorPaths.length > 0 ? { ignoredValidatorPaths } : {}),
+  };
 }

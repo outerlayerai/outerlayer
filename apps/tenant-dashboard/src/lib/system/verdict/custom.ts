@@ -105,6 +105,21 @@ export function customValidationFacts(
   return out;
 }
 
+/** Flags that make an invocation a no-op: `cmd --help` exits 0 without
+ * doing anything, so a word-prefix match on them would let the cheapest
+ * possible command satisfy a proof. Only the unambiguous long forms are
+ * listed — `-h` commonly means a host, not help, and a false suppression
+ * here would flag work that genuinely happened. (Function-scoped so the
+ * mutation gate can attribute coverage; module-level constants read as
+ * unkillable static mutants.) */
+function argsNegateRun(argsTail: string): boolean {
+  const noRunFlags = ["--help", "--dry-run", "--version"];
+  return argsTail
+    .trim()
+    .split(/\s+/)
+    .some((token) => noRunFlags.includes(token));
+}
+
 function evaluateCondition(
   condition: RequireCondition,
   facts: Facts,
@@ -117,7 +132,9 @@ function evaluateCondition(
         (candidate) =>
           candidate.status === "ok" &&
           candidate.testResult !== "fail" &&
-          (candidate.normalized === wanted || candidate.normalized.startsWith(`${wanted} `)),
+          (candidate.normalized === wanted ||
+            (candidate.normalized.startsWith(`${wanted} `) &&
+              !argsNegateRun(candidate.normalized.slice(wanted.length)))),
       );
       if (!run) return { state: "unmet" };
       return { state: "met", refs: [{ sessionIndex: run.sessionIndex, turnIndex: run.turnIndex }] };

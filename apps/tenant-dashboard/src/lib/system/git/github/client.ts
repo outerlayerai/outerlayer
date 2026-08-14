@@ -1076,11 +1076,6 @@ export class GitHubProvider implements GitProvider {
   }
 
   /**
-   * One PR's diff-size stats. The list endpoint omits these — only the
-   * per-PR GET carries them — so this exists for the enrichment backfill,
-   * not the webhook path (the pull_request payload already has all three).
-   */
-  /**
    * The PR's base branch name — where the evidence policy is read from (a
    * PR must not be judged under its own policy edits). Same typed
    * degradation as the other PR reads: 403/404 mean "unknown", never an
@@ -1104,6 +1099,11 @@ export class GitHubProvider implements GitProvider {
     }
   }
 
+  /**
+   * One PR's diff-size stats. The list endpoint omits these — only the
+   * per-PR GET carries them — so this exists for the enrichment backfill,
+   * not the webhook path (the pull_request payload already has all three).
+   */
   async getPullRequestDiffStats(
     repo: string,
     prNumber: number

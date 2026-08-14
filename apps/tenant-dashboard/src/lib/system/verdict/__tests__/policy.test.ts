@@ -199,6 +199,7 @@ require:
       [`id: x\nkind: gate\nrow: "r"\n${REQUIRE}`, '`kind` must be "validation" or "signal", got "gate"'],
       [`id: x\n${REQUIRE}`, "`row` is required — it is the sentence the comment renders"],
       [`id: x\nrow: "${"y".repeat(141)}"\n${REQUIRE}`, "`row` is longer than 140 characters"],
+      [`id: x\nrow: "a\\n✓ forged"\n${REQUIRE}`, "`row` must be a single line without control characters"],
       [`id: x\nrow: "r"\nlevel: blocking\n${REQUIRE}`, '`level` must be warn, info, or off — got "blocking"'],
       [`id: x\nrow: "r"\nwhen: 5\n${REQUIRE}`, "`when` must be a mapping"],
       [`id: x\nrow: "r"\nwhen:\n  paths: "x"\n${REQUIRE}`, "`when.paths` must be a list of non-empty path globs"],
@@ -300,6 +301,68 @@ require:
       },
     ]);
     expect(policy.levels.get("x")).toEqual("off");
+  });
+
+  it("flattens and truncates foreign strings quoted into error messages", () => {
+    // A newline in a quoted value could forge extra comment rows; it
+    // collapses to a space instead.
+    const multiline = parseEvidencePolicy({
+      policyYaml: file(".outerlayer/policy.yaml", 'extends: "bad\\npreset"\n'),
+      validatorFiles: [],
+    });
+    expect(multiline.errors).toEqual([
+      {
+        file: ".outerlayer/policy.yaml",
+        message: 'unknown preset "bad preset" — this engine ships outerlayer:recommended@v1',
+      },
+    ]);
+    const oversized = parseEvidencePolicy({
+      policyYaml: file(".outerlayer/policy.yaml", `extends: ${"z".repeat(200)}\n`),
+      validatorFiles: [],
+    });
+    expect(oversized.errors).toEqual([
+      {
+        file: ".outerlayer/policy.yaml",
+        message: `unknown preset "${"z".repeat(79)}…" — this engine ships outerlayer:recommended@v1`,
+      },
+    ]);
+  });
+
+  it("accepts a 140-character row once surrounding whitespace is trimmed", () => {
+    const row = "y".repeat(140);
+    const policy = parseEvidencePolicy({
+      policyYaml: null,
+      validatorFiles: [
+        file("v.yaml", `id: x\nrow: "  ${row}  "\nrequire:\n  session.ran: { command: "t" }`),
+      ],
+    });
+    expect(policy.errors).toEqual([]);
+    expect(policy.customs[0]!.row).toEqual(row);
+  });
+
+  it("reports validator files past the read cap as a load error", () => {
+    const plural = parseEvidencePolicy({
+      policyYaml: null,
+      validatorFiles: [],
+      ignoredValidatorPaths: [".outerlayer/validators/u.yaml", ".outerlayer/validators/v.yaml"],
+    });
+    expect(plural.errors).toEqual([
+      {
+        file: ".outerlayer/validators/u.yaml",
+        message: "not read — a policy reads at most 20 validator files (along with 1 more)",
+      },
+    ]);
+    const singular = parseEvidencePolicy({
+      policyYaml: null,
+      validatorFiles: [],
+      ignoredValidatorPaths: [".outerlayer/validators/u.yaml"],
+    });
+    expect(singular.errors).toEqual([
+      {
+        file: ".outerlayer/validators/u.yaml",
+        message: "not read — a policy reads at most 20 validator files",
+      },
+    ]);
   });
 
   // AC-085-11
