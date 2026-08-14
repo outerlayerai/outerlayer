@@ -42,6 +42,7 @@ import {
   prSessionCommentHandlers,
   resetPrSessionCommentMswState,
 } from './pr-session-comment';
+import { artifactHandlers, resetArtifactMswState } from './artifact';
 
 export {
   seedPullRequestSessionMswState,
@@ -49,6 +50,12 @@ export {
   type PullRequestMswRow,
   type PullRequestSessionMswRow,
 } from './pull-request-session';
+
+export {
+  seedArtifactMswRows,
+  getArtifactMswRows,
+  type ArtifactMswRow,
+} from './artifact';
 
 export { seedApiKeysMswState } from './api-keys';
 export {
@@ -156,6 +163,7 @@ export const mswHandlers = [
   ...pullRequestSessionHandlers,
   ...aiCostConfigHandlers,
   ...prSessionCommentHandlers,
+  ...artifactHandlers,
 ];
 
 export function resetMswState() {
@@ -179,4 +187,5 @@ export function resetMswState() {
   resetAppsListMswState();
   resetAiCostConfigMswState();
   resetPrSessionCommentMswState();
+  resetArtifactMswState();
 }

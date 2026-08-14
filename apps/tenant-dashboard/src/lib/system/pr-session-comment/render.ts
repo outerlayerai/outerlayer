@@ -1,4 +1,6 @@
 import type { LinkedSessionRow } from "./read";
+import type { PrArtifactRow } from "./artifacts-read";
+import type { CriterionRequirement } from "./criteria";
 
 /**
  * The renderer behind the PR session comment: `rows` (from
@@ -76,6 +78,22 @@ export interface RenderLinks {
 }
 
 const DEFAULT_SOURCE_TAG = "pr-comment";
+
+/**
+ * Evidence inputs for the comment: artifacts anchored to the PR and the
+ * proof requirements its changed acceptance files declare. Both are plain
+ * data — the read layer and the criteria fetch own all I/O — so the renderer
+ * stays pure and the evidence guarantees are provable against objects.
+ */
+export interface RenderEvidence {
+  artifacts: PrArtifactRow[];
+  criteria: CriterionRequirement[];
+}
+
+/** Artifacts rendered before the overflow line takes over. A PR with more
+ * exhibits than this is a documentation dump, not evidence; the dashboard
+ * holds the full list. */
+const MAX_RENDERED_ARTIFACTS = 30;
 
 /** URL path segments are tenant-authored (`appName`, `envName`) or
  * ClickHouse-derived (`traceId`). An unencoded `)` in any of them closes the
@@ -203,20 +221,139 @@ function renderRow(
   return `| [${label}](${url})${badge} | ${topicsCell} | ${duration} | ${cost} | ${models} |`;
 }
 
+function artifactDeepLink(links: RenderLinks, artifact: PrArtifactRow): string {
+  const src = links.sourceTag ?? DEFAULT_SOURCE_TAG;
+  return `${links.baseUrl}/orgs/${urlSegment(links.orgName)}/apps/${urlSegment(artifact.appName)}/env/${urlSegment(artifact.envName)}/agents/artifacts/${urlSegment(artifact.id)}?src=${urlSegment(src)}`;
+}
+
+/**
+ * The one ordering the Artifacts subgroup ever renders in: artifacts bound
+ * to a criterion first, then by emit time, ties broken by id. A total order
+ * over fields that never change after ingest — re-rendering unchanged
+ * records is byte-identical by construction.
+ */
+function orderArtifacts(artifacts: PrArtifactRow[]): PrArtifactRow[] {
+  return [...artifacts].sort((a, b) => {
+    const aBound = a.criterionId !== "" ? 0 : 1;
+    const bBound = b.criterionId !== "" ? 0 : 1;
+    if (aBound !== bBound) return aBound - bBound;
+    if (a.emittedAt !== b.emittedAt) return a.emittedAt < b.emittedAt ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
+/** Criterion ids are shape-constrained at ingest and by the spec parser, but
+ * the renderer still neutralizes them for a code span: a backtick would end
+ * the span early, and `escapeMarkdownCell` covers the rest. */
+function criterionSpan(id: string): string {
+  return `\`${escapeMarkdownCell(id.replace(/`/g, ""))}\``;
+}
+
+function artifactLabel(artifact: PrArtifactRow, links: RenderLinks): string {
+  // Kind comes from the server's media-type allowlist, so printing it as the
+  // link's prefix is a claim the store can back — never author-supplied.
+  const label = `${artifact.kind} · ${escapeMarkdownCell(artifact.filename)}`;
+  // Session provenance is the default reading of agent evidence; only the
+  // other submission paths get labeled.
+  const provenance = artifact.provenance === "session" ? "" : ` \`${artifact.provenance}\``;
+  return `[${label}](${artifactDeepLink(links, artifact)})${provenance}`;
+}
+
+/**
+ * The proof cell for one criterion: its bound artifacts of the required kind
+ * as links, or the exact mismatch wording — "video required · screenshot
+ * attached" / "video required · none attached". A wrong kind never upgrades:
+ * only a kind-matching artifact renders as a link.
+ */
+function renderProofCell(
+  criterion: CriterionRequirement,
+  artifacts: PrArtifactRow[],
+  links: RenderLinks,
+): string {
+  const bound = artifacts.filter((a) => a.criterionId === criterion.id);
+  const matching = bound.filter((a) => a.kind === criterion.proofKind);
+  if (matching.length > 0) {
+    return matching.map((a) => artifactLabel(a, links)).join(", ");
+  }
+  if (bound.length > 0) {
+    const attachedKinds = [...new Set(bound.map((a) => a.kind))].sort().join(", ");
+    return `${criterion.proofKind} required · ${attachedKinds} attached`;
+  }
+  return `${criterion.proofKind} required · none attached`;
+}
+
+/**
+ * The Evidence block: a summary line carrying the artifact count, a Criteria
+ * table when the PR's acceptance files declare proof requirements, and an
+ * Artifacts table listing each exhibit as a link. Links only — bytes never
+ * render inline (no `![`/`<img`); the dashboard page behind the link mints
+ * per-viewer expiring blob tokens. Returns null when there is no evidence at
+ * all, so a PR without artifacts shows no Evidence section.
+ */
+function renderEvidence(evidence: RenderEvidence, links: RenderLinks): string | null {
+  const artifacts = orderArtifacts(evidence.artifacts);
+  const criteria = [...evidence.criteria].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
+  if (artifacts.length === 0 && criteria.length === 0) return null;
+
+  const parts: string[] = [];
+  const artifactWord = artifacts.length === 1 ? "artifact" : "artifacts";
+  parts.push(
+    artifacts.length > 0
+      ? `**Evidence** · ${artifacts.length} ${artifactWord}`
+      : `**Evidence**`,
+  );
+
+  if (criteria.length > 0) {
+    const criteriaHeader = "| Criterion | Proof |\n| --------- | ----- |";
+    const criteriaRows = criteria.map(
+      (c) => `| ${criterionSpan(c.id)} | ${renderProofCell(c, artifacts, links)} |`,
+    );
+    parts.push(`${criteriaHeader}\n${criteriaRows.join("\n")}`);
+  }
+
+  if (artifacts.length > 0) {
+    const shown = artifacts.slice(0, MAX_RENDERED_ARTIFACTS);
+    const artifactsHeader = "**Artifacts**\n\n| Artifact | Caption |\n| -------- | ------- |";
+    const artifactRows = shown.map((a) => {
+      const caption = a.caption.trim() === "" ? "—" : escapeMarkdownCell(a.caption);
+      const forSuffix = a.criterionId === "" ? "" : ` · for ${criterionSpan(a.criterionId)}`;
+      return `| ${artifactLabel(a, links)} | ${caption}${forSuffix} |`;
+    });
+    parts.push(`${artifactsHeader}\n${artifactRows.join("\n")}`);
+    const omitted = artifacts.length - shown.length;
+    if (omitted > 0) {
+      const word = omitted === 1 ? "artifact" : "artifacts";
+      parts.push(`_…and ${omitted} more ${word} — see the dashboard._`);
+    }
+  }
+
+  return parts.join("\n\n");
+}
+
 /**
  * Renders the PR session comment body from linked-session rows, their topic
- * labels, and the link-composition data. Pure — no I/O.
+ * labels, the link-composition data, and (optionally) the PR's evidence.
+ * Pure — no I/O.
  */
 export function renderComment(
   rows: LinkedSessionRow[],
   topics: Map<string, string[]>,
   links: RenderLinks,
+  evidence?: RenderEvidence,
 ): string {
+  const evidenceBlock = evidence ? renderEvidence(evidence, links) : null;
+
   // A connected repo's PR always gets this slot, even with zero linked
   // sessions — that's what makes a *missing* comment legible as "app not
-  // connected" rather than "no sessions yet".
+  // connected" rather than "no sessions yet". CI-emitted artifacts can exist
+  // with zero sessions, so the evidence block still renders here.
   if (rows.length === 0) {
-    return `No agent sessions linked yet.\n\n${PR_SESSION_COMMENT_MARKER}`;
+    const emptyParts = ["No agent sessions linked yet."];
+    if (evidenceBlock) emptyParts.push(evidenceBlock);
+    emptyParts.push(PR_SESSION_COMMENT_MARKER);
+    return emptyParts.join("\n\n");
   }
 
   const totalMinutes = rows.reduce(
@@ -253,7 +390,11 @@ export function renderComment(
     ? `Full transcripts in the [session dashboard](${sessionsListLink(links, firstRow.appName, firstRow.envName)}).`
     : null;
 
-  const fitted = fitTableRows(tableRows, header, tableHeader, footer);
+  // The evidence block is fixed content the session-table fitter must leave
+  // room for — evidence links are the exhibits reviewers came for, so the
+  // table truncates before evidence ever would.
+  const evidenceReservation = evidenceBlock ? evidenceBlock.length + "\n\n".length : 0;
+  const fitted = fitTableRows(tableRows, header, tableHeader, footer, evidenceReservation);
   const bodyParts = [header];
   if (fitted.rows.length > 0) {
     bodyParts.push(`${tableHeader}\n${fitted.rows.join("\n")}`);
@@ -262,6 +403,7 @@ export function renderComment(
     const word = fitted.omitted === 1 ? "session" : "sessions";
     bodyParts.push(`_…and ${fitted.omitted} more ${word} — see the dashboard._`);
   }
+  if (evidenceBlock) bodyParts.push(evidenceBlock);
   if (footer) bodyParts.push(footer);
   // Last, so it never displaces content a reader sees, and so the fitter's
   // reservation for it (below) is a plain constant.
@@ -292,6 +434,7 @@ function fitTableRows(
   header: string,
   tableHeader: string,
   footer: string | null,
+  extraFixed = 0,
 ): { rows: string[]; omitted: number } {
   const separators = "\n\n".length;
   const fixed =
@@ -302,7 +445,9 @@ function fitTableRows(
     // The marker is appended unconditionally by the caller and must be
     // inside the ceiling, not pushed over it by the last row that fits.
     separators +
-    PR_SESSION_COMMENT_MARKER.length;
+    PR_SESSION_COMMENT_MARKER.length +
+    // Evidence block reservation — see the caller.
+    extraFixed;
   // Reserved unconditionally, so dropping the last row can never push the
   // body back over the limit by adding this line.
   const overflowLine = `_…and ${tableRows.length} more sessions — see the dashboard._`;

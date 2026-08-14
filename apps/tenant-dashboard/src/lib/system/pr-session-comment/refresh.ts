@@ -17,6 +17,8 @@ import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
 
 import { LinksUnreadableError, LINKS_UNREADABLE_REASON, readLinkedSessions } from "./read";
+import { readPrArtifacts } from "./artifacts-read";
+import { fetchPrProofCriteria, type CriterionRequirement } from "./criteria";
 import { readTopicLabels } from "./topics";
 import { PR_SESSION_COMMENT_MARKER, renderComment, type RenderLinks } from "./render";
 
@@ -119,6 +121,14 @@ interface PrSessionCommentGithubClient {
    * {@link findPostedComment}. Optional so a test fake can omit it; when
    * absent, a claim takeover degrades to posting fresh. */
   listIssueComments?(repo: string, issueNumber: number): Promise<IssueCommentListResult>;
+  /** Proof-criteria reads (`criteria.ts`) — only exercised when the PR has
+   * artifacts. Optional so a test fake can omit them; when absent, the
+   * Evidence block renders artifacts without criterion proof rows. */
+  listPullRequestFiles?(
+    repo: string,
+    prNumber: number,
+  ): Promise<{ headSha: string | null; files: { path: string; status: string }[] }>;
+  getFileContent?(repo: string, path: string, ref: string): Promise<{ content: string }>;
 }
 
 interface RefreshPrSessionCommentDeps {
@@ -591,11 +601,55 @@ export async function refreshPrSessionComment(
       prNumber,
     };
 
+    // One Postgres read decides whether this PR participates in evidence at
+    // all. Zero artifacts (the fleet-wide common case) keeps the refresh on
+    // its cheap path: no GitHub client, no criteria fetch, a body computed
+    // entirely from local reads — which is what keeps the unchanged-body
+    // short-circuit below free of GitHub calls.
+    const artifacts = await readPrArtifacts({ tenantId, repository, prNumber });
+
+    // Lazily-resolved GitHub client, shared by the criteria fetch (only when
+    // artifacts exist) and the post/update path below — resolved at most
+    // once per refresh.
+    let resolvedGithubClient: PrSessionCommentGithubClient | null = deps.githubClient ?? null;
+    const resolveClient = async (): Promise<PrSessionCommentGithubClient | null> => {
+      if (resolvedGithubClient) return resolvedGithubClient;
+      const installationId = await resolveInstallationId(admin, tenantId, repository);
+      if (installationId === null) return null;
+      resolvedGithubClient = await resolveGithubClient(installationId);
+      return resolvedGithubClient;
+    };
+
+    // Criterion proof requirements come from the PR's own changed acceptance
+    // files (see criteria.ts) and are best-effort: a fetch failure degrades
+    // to artifacts-without-criteria rather than blocking the comment. The
+    // fetch is deliberately not cached; when artifact adoption makes the
+    // per-refresh GitHub reads matter, cache the parsed criteria keyed by
+    // `pull_request.head_sha`.
+    let criteria: CriterionRequirement[] = [];
+    if (artifacts.length > 0) {
+      const client = await resolveClient();
+      if (client?.listPullRequestFiles && client?.getFileContent) {
+        try {
+          criteria = await fetchPrProofCriteria(
+            {
+              listPullRequestFiles: client.listPullRequestFiles.bind(client),
+              getFileContent: client.getFileContent.bind(client),
+            },
+            repository,
+            prNumber,
+          );
+        } catch {
+          criteria = [];
+        }
+      }
+    }
+
     // Rows/topics are re-read from ClickHouse on every call, so
     // the rendered body always reflects present state, never a first-sight
     // snapshot — a session that accrues more work produces a different body
     // (and therefore a different hash) on the very next refresh.
-    const body = renderComment(rows, topics, links);
+    const body = renderComment(rows, topics, links, { artifacts, criteria });
     const bodyHash = hashBody(body);
 
     const { data: existing, error: readError } = await admin
@@ -634,18 +688,14 @@ export async function refreshPrSessionComment(
     // comment to check and nothing new to say, but a create still has to
     // happen — fall through.
 
-    let githubClient: PrSessionCommentGithubClient;
-    if (deps.githubClient) {
-      // Test seam — bypasses the installation lookup entirely, since the
-      // fake client needs no real GitHub App installation id.
-      githubClient = deps.githubClient;
-    } else {
-      const installationId = await resolveInstallationId(admin, tenantId, repository);
-      if (installationId === null) {
-        return { status: "failed", reason: "no installation id for this repository" };
-      }
-      githubClient = await resolveGithubClient(installationId);
+    // `resolveClient` memoizes: a criteria fetch above already paid for the
+    // installation lookup on artifact-bearing PRs, and the test seam
+    // (`deps.githubClient`) bypasses the lookup entirely.
+    const maybeClient = await resolveClient();
+    if (maybeClient === null) {
+      return { status: "failed", reason: "no installation id for this repository" };
     }
+    const githubClient: PrSessionCommentGithubClient = maybeClient;
 
     let commentId = existing?.github_comment_id ?? null;
     // The stored id GitHub has told us no longer exists, kept so the claim

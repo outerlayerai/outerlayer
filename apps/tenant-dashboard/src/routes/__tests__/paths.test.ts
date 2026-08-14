@@ -27,6 +27,9 @@ describe("appPaths — env-scoped builders", () => {
     expect(appPaths.agents.session(ORG, APP, ENV, "1b247b75d348")).toBe(
       `${BASE}/agents/sessions/1b247b75d348`,
     );
+    expect(appPaths.agents.artifact(ORG, APP, ENV, "0f4d1f2a-1")).toBe(
+      `${BASE}/agents/artifacts/0f4d1f2a-1`,
+    );
   });
 
   it("settings (developers) index + every sub-page", () => {
