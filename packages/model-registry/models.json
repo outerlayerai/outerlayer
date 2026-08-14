@@ -1,14 +1,14 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-13T02:15:46.045Z",
+  "generatedAt": "2026-08-14T02:12:19.009Z",
   "sources": {
     "litellm": {
-      "fetchedAt": "2026-08-13T02:15:46.045Z",
-      "modelCount": 1523
+      "fetchedAt": "2026-08-14T02:12:19.009Z",
+      "modelCount": 1529
     },
     "openrouter": {
-      "fetchedAt": "2026-08-13T02:15:46.045Z",
-      "modelCount": 184
+      "fetchedAt": "2026-08-14T02:12:19.009Z",
+      "modelCount": 186
     }
   },
   "models": {
@@ -10596,13 +10596,14 @@
         "outputCostPerToken": 8e-8
       },
       "context": {
-        "maxInputTokens": 128000,
-        "maxOutputTokens": 8192
+        "maxInputTokens": 131072,
+        "maxOutputTokens": 131072
       },
       "capabilities": {
         "functionCalling": true,
         "structuredOutput": false
-      }
+      },
+      "deprecationDate": "2026-08-16"
     },
     "llama-3.3-70b-versatile": {
       "provider": "groq",
@@ -10614,13 +10615,14 @@
         "outputCostPerToken": 7.9e-7
       },
       "context": {
-        "maxInputTokens": 128000,
+        "maxInputTokens": 131072,
         "maxOutputTokens": 32768
       },
       "capabilities": {
         "functionCalling": true,
         "structuredOutput": false
-      }
+      },
+      "deprecationDate": "2026-08-16"
     },
     "gemma-7b-it": {
       "provider": "groq",
@@ -10652,7 +10654,8 @@
       "context": {
         "maxInputTokens": 8192,
         "maxOutputTokens": 8192
-      }
+      },
+      "deprecationDate": "2026-03-05"
     },
     "meta-llama/llama-4-maverick-17b-128e-instruct": {
       "provider": "groq",
@@ -10671,7 +10674,8 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      }
+      },
+      "deprecationDate": "2026-03-09"
     },
     "meta-llama/llama-4-scout-17b-16e-instruct": {
       "provider": "groq",
@@ -10690,7 +10694,8 @@
         "vision": true,
         "functionCalling": true,
         "structuredOutput": true
-      }
+      },
+      "deprecationDate": "2026-07-17"
     },
     "moonshotai/kimi-k2-instruct-0905": {
       "provider": "groq",
@@ -10709,7 +10714,8 @@
       "capabilities": {
         "functionCalling": true,
         "structuredOutput": true
-      }
+      },
+      "deprecationDate": "2026-04-15"
     },
     "openai/gpt-oss-120b": {
       "provider": "groq",
@@ -10723,7 +10729,7 @@
       },
       "context": {
         "maxInputTokens": 131072,
-        "maxOutputTokens": 32766
+        "maxOutputTokens": 65536
       },
       "capabilities": {
         "functionCalling": true,
@@ -10745,7 +10751,7 @@
       },
       "context": {
         "maxInputTokens": 131072,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 65536
       },
       "capabilities": {
         "functionCalling": true,
@@ -10784,7 +10790,8 @@
       "context": {
         "maxInputTokens": 10000,
         "maxOutputTokens": 10000
-      }
+      },
+      "deprecationDate": "2025-12-31"
     },
     "qwen/qwen3-32b": {
       "provider": "groq",
@@ -10803,7 +10810,8 @@
         "functionCalling": true,
         "structuredOutput": false,
         "reasoning": true
-      }
+      },
+      "deprecationDate": "2026-07-17"
     },
     "whisper-large-v3": {
       "provider": "groq",
@@ -29870,8 +29878,8 @@
         "max_tokens"
       ],
       "pricing": {
-        "inputCostPerToken": 7.5e-7,
-        "outputCostPerToken": 0.00000375
+        "inputCostPerToken": 3.75e-7,
+        "outputCostPerToken": 0.000001875
       },
       "context": {
         "maxInputTokens": 1048576,
@@ -30502,12 +30510,12 @@
         "top_p"
       ],
       "pricing": {
-        "inputCostPerToken": 8e-8,
-        "outputCostPerToken": 1.8e-7
+        "inputCostPerToken": 1.4e-7,
+        "outputCostPerToken": 2.8e-7
       },
       "context": {
         "maxInputTokens": 1048576,
-        "maxOutputTokens": 384000
+        "maxOutputTokens": 393216
       },
       "capabilities": {
         "functionCalling": true,
@@ -31453,6 +31461,7 @@
         "max_tokens",
         "presence_penalty",
         "temperature",
+        "top_k",
         "top_p"
       ],
       "pricing": {
@@ -31464,6 +31473,129 @@
         "maxOutputTokens": 384000
       },
       "capabilities": {
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "gemini-3.7-flash": {
+      "provider": "google",
+      "displayName": "Google: Gemini 3.7 Flash",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 7.5e-7,
+        "outputCostPerToken": 0.00000375,
+        "cacheReadCostPerToken": 7.5e-8
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 65536
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "parallelFunctionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "reasoning": true,
+        "audioInput": true,
+        "audioOutput": false,
+        "pdfInput": true,
+        "webSearch": true
+      },
+      "supportedParameters": [
+        "max_tokens",
+        "temperature",
+        "top_p"
+      ]
+    },
+    "meta-llama/llama-prompt-guard-2-22m": {
+      "provider": "groq",
+      "displayName": "Meta Llama/llama Prompt Guard 2 22m",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 3e-8,
+        "outputCostPerToken": 3e-8
+      },
+      "context": {
+        "maxInputTokens": 512,
+        "maxOutputTokens": 512
+      }
+    },
+    "meta-llama/llama-prompt-guard-2-86m": {
+      "provider": "groq",
+      "displayName": "Meta Llama/llama Prompt Guard 2 86m",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 4e-8,
+        "outputCostPerToken": 4e-8
+      },
+      "context": {
+        "maxInputTokens": 512,
+        "maxOutputTokens": 512
+      }
+    },
+    "canopylabs/orpheus-v1-english": {
+      "provider": "groq",
+      "displayName": "Canopylabs/orpheus V1 English",
+      "mode": "audio_speech",
+      "source": "litellm",
+      "context": {
+        "maxInputTokens": 4000,
+        "maxOutputTokens": 4000
+      }
+    },
+    "canopylabs/orpheus-arabic-saudi": {
+      "provider": "groq",
+      "displayName": "Canopylabs/orpheus Arabic Saudi",
+      "mode": "audio_speech",
+      "source": "litellm",
+      "context": {
+        "maxInputTokens": 4000,
+        "maxOutputTokens": 4000
+      }
+    },
+    "qwen/qwen3.6-27b": {
+      "provider": "groq",
+      "displayName": "Qwen/qwen3.6 27b",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 6e-7,
+        "outputCostPerToken": 0.000003
+      },
+      "context": {
+        "maxInputTokens": 131072,
+        "maxOutputTokens": 16384
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": false,
+        "reasoning": true
+      }
+    },
+    "gemini-3.7-flash:batch": {
+      "provider": "google",
+      "displayName": "Google: Gemini 3.7 Flash (batch)",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "max_tokens"
+      ],
+      "pricing": {
+        "inputCostPerToken": 1.875e-7,
+        "outputCostPerToken": 9.375e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 65536
+      },
+      "capabilities": {
+        "vision": true,
+        "audioInput": true,
         "functionCalling": true,
         "structuredOutput": true
       }
