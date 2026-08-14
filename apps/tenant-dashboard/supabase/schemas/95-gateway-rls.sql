@@ -74,6 +74,9 @@ GRANT SELECT, INSERT, UPDATE ON public.worker_workspace    TO gateway;
 -- the same client id (UPDATE via upsert), and the retention job reads and
 -- flags aged-out rows whose blob bytes it deleted (SELECT, UPDATE).
 GRANT SELECT, INSERT, UPDATE ON public.artifact            TO gateway;
+-- Emitted results: /v1/emitted-results ingests CI check outcomes (INSERT)
+-- and re-reads the winner after an idempotency race (SELECT).
+GRANT SELECT, INSERT ON public.emitted_result              TO gateway;
 -- Anchor resolution at ingest confirms a claimed PR number against the
 -- webhook-fed pull_request record; read-only.
 GRANT SELECT ON public.pull_request                        TO gateway;
@@ -269,6 +272,14 @@ CREATE POLICY "gateway_tenant_insert_artifact" ON public.artifact
 CREATE POLICY "gateway_tenant_update_artifact" ON public.artifact
     FOR UPDATE TO gateway
     USING (tenant_id = public.tenant_id())
+    WITH CHECK (tenant_id = public.tenant_id());
+
+CREATE POLICY "gateway_tenant_read_emitted_result" ON public.emitted_result
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+CREATE POLICY "gateway_tenant_insert_emitted_result" ON public.emitted_result
+    FOR INSERT TO gateway
     WITH CHECK (tenant_id = public.tenant_id());
 
 CREATE POLICY "gateway_tenant_read_pull_request" ON public.pull_request

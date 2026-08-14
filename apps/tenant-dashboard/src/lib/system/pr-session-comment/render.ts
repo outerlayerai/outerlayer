@@ -310,6 +310,64 @@ function shaDisplay(sha: string): string {
   return sha.replace(/[^0-9a-f]/gi, "").slice(0, SHA_DISPLAY_LENGTH).toLowerCase();
 }
 
+/** The "— turn N" / "— turns A → B" suffix for a fact's timeline refs. */
+function turnsSuffix(refs: ReadonlyArray<{ turnIndex: number | null }>): string {
+  const turns = refs
+    .map((ref) => ref.turnIndex)
+    .filter((turn): turn is number => turn !== null);
+  if (turns.length === 0) return "";
+  return ` — ${turns.length === 1 ? `turn ${turns[0]}` : `turns ${turns.join(" → ")}`}`;
+}
+
+/**
+ * An emitted-result link, made safe for a markdown context. The URL is
+ * author-supplied (a CI flag) and lands in a world-readable comment, so
+ * only http(s) renders as a link at all, and the characters that would end
+ * the `(url)` wrapper or open HTML are percent-encoded.
+ */
+function safeLinkUrl(link: string): string | null {
+  if (!/^https?:\/\//i.test(link)) return null;
+  // Explicit percent-encoding: encodeURIComponent leaves `(` and `)`
+  // untouched, and an unencoded `)` is exactly the breakout being closed.
+  return link.replace(
+    /[()<>` ]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+  );
+}
+
+/** The provenance suffix for an emitted-result-backed row: the run link
+ * (when its URL is renderable) plus the provenance stamp, mirroring the
+ * artifact table's `` `ci` `` labeling. */
+function sourceSuffix(source: { provenance: "ci" | "local"; link: string }): string {
+  const url = safeLinkUrl(source.link);
+  const label = source.provenance === "ci" ? "CI run" : "run";
+  return url === null ? ` — \`${source.provenance}\`` : ` — [${label}](${url}) \`${source.provenance}\``;
+}
+
+/**
+ * A custom validator's row. The sentence is the definition's `row:` copy
+ * verbatim — escaped, because it is tenant-authored and this is someone
+ * else's repository. Marks: ✓ pass, ⚠ warn-level flag, ℹ info-level flag
+ * (visible, never counted), – not checkable. A flag's suffix states the
+ * mechanical situation, never a semantic accusation.
+ */
+function customFactLine(fact: Extract<EvidenceFact, { type: "custom-validation" }>): string {
+  const sentence = `**${escapeMarkdownCell(fact.sentence)}**`;
+  if (fact.status === "not_checkable") {
+    return `– ${sentence} — not checkable for this session`;
+  }
+  if (fact.status === "pass") {
+    const suffix = fact.source !== null ? sourceSuffix(fact.source) : turnsSuffix(fact.refs);
+    return `✓ ${sentence}${suffix}`;
+  }
+  const mark = fact.level === "info" ? "ℹ" : "⚠";
+  const suffix =
+    fact.source !== null
+      ? ` — failed${sourceSuffix(fact.source)}`
+      : " — required, not proven this PR";
+  return `${mark} ${sentence}${suffix}`;
+}
+
 /**
  * One line per stated fact. The fact sentence is the design's copy verbatim
  * — "{k} of {n} commits came from recorded sessions" — and a flagged
@@ -317,6 +375,22 @@ function shaDisplay(sha: string): string {
  * counted) rather than leaving the reviewer to diff the commit list.
  */
 function factLine(fact: EvidenceFact): string {
+  if ("type" in fact) {
+    switch (fact.type) {
+      case "custom-validation":
+        return customFactLine(fact);
+      case "policy-error": {
+        const extra =
+          fact.additionalProblemCount > 0 ? ` (and ${fact.additionalProblemCount} more)` : "";
+        return `⚠ **The policy file has an error** — \`${escapeMarkdownCell(fact.file.replace(/`/g, ""))}\`: ${escapeMarkdownCell(fact.problem)}${extra}`;
+      }
+      default: {
+        const exhaustive: never = fact;
+        void exhaustive;
+        return "";
+      }
+    }
+  }
   switch (fact.id) {
     case "commits-from-sessions": {
       const sentence = `**${fact.matchedCommitCount} of ${fact.totalCommitCount} commits came from recorded sessions**`;
@@ -326,22 +400,23 @@ function factLine(fact: EvidenceFact): string {
       );
       const remainder = fact.unrecordedShas.length - named.length;
       const list = remainder > 0 ? `${named.join(", ")} …and ${remainder} more` : named.join(", ");
-      return `⚠ ${sentence} — unrecorded: ${list}`;
+      return `${fact.level === "info" ? "ℹ" : "⚠"} ${sentence} — unrecorded: ${list}`;
     }
     case "red-then-green":
     case "no-test-tampering": {
       // The sentence is the validator's summary verbatim — the row may only
       // claim what the matcher proved, so no copy is added here. ✕ is
-      // reserved for red-class facts (the ones that void the verdict).
-      const mark = fact.status === "pass" ? "✓" : fact.class === "red" ? "✕" : "⚠";
-      const turns = fact.refs
-        .map((ref) => ref.turnIndex)
-        .filter((turn): turn is number => turn !== null);
-      const suffix =
-        turns.length === 0
-          ? ""
-          : ` — ${turns.length === 1 ? `turn ${turns[0]}` : `turns ${turns.join(" → ")}`}`;
-      return `${mark} **${fact.sentence}**${suffix}`;
+      // reserved for red-class facts (the ones that void the verdict); an
+      // info-leveled flag renders ℹ — visible, never counted.
+      const mark =
+        fact.status === "pass"
+          ? "✓"
+          : fact.class === "red"
+            ? "✕"
+            : fact.level === "info"
+              ? "ℹ"
+              : "⚠";
+      return `${mark} **${fact.sentence}**${turnsSuffix(fact.refs)}`;
     }
     default: {
       const exhaustive: never = fact;

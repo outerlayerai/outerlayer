@@ -43,6 +43,7 @@ import {
   resetPrSessionCommentMswState,
 } from './pr-session-comment';
 import { artifactHandlers, resetArtifactMswState } from './artifact';
+import { emittedResultHandlers, resetEmittedResultMswState } from './emitted-result';
 import {
   prEvidenceEvaluationHandlers,
   resetPrEvidenceEvaluationMswState,
@@ -60,6 +61,8 @@ export {
   getArtifactMswRows,
   type ArtifactMswRow,
 } from './artifact';
+
+export { seedEmittedResultMswRows } from './emitted-result';
 
 export { seedApiKeysMswState } from './api-keys';
 export {
@@ -172,6 +175,7 @@ export const mswHandlers = [
   ...aiCostConfigHandlers,
   ...prSessionCommentHandlers,
   ...artifactHandlers,
+  ...emittedResultHandlers,
   ...prEvidenceEvaluationHandlers,
 ];
 
@@ -197,5 +201,6 @@ export function resetMswState() {
   resetAiCostConfigMswState();
   resetPrSessionCommentMswState();
   resetArtifactMswState();
+  resetEmittedResultMswState();
   resetPrEvidenceEvaluationMswState();
 }

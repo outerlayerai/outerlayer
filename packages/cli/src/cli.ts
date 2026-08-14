@@ -258,25 +258,63 @@ export async function runCli(processArgv: string[]): Promise<void> {
     });
 
   // Parent keeps the flat compile action; commander only dispatches to a
-  // subcommand (`emit artifact`) when the first operand names one.
+  // subcommand (`emit artifact`) when the first operand names one. Any other
+  // operand is an emit NAME — the check-result path — and no operand at all
+  // stays the compile action.
   const emitCmd = program
     .command("emit")
     .description(
-      "Compile .outerlayer/ into each configured target tool's native files (targets come from .outerlayer/config.json — claude-code, cursor, codex, copilot, factory)",
+      "With no operand: compile .outerlayer/ into each configured target tool's native files (targets come from .outerlayer/config.json — claude-code, cursor, codex, copilot, factory). " +
+        "With a name operand: record a pass/fail check result anchored to a PR — `emit <name> --link <url>`",
     )
+    .argument("[name]", "emit name as the validator declares it (e.g. smoke.pass) — switches to the check-result path")
     .option("--check", "compute outputs and compare against disk; write nothing, exit 1 on any drift (CI mode)")
     .option("--dir <path>", "repo root to read from (default: cwd)")
     .option("--json", "machine-readable JSON output")
+    .option("--link <url>", "proof link — the CI run URL (required with a name operand)")
+    .option("--result <pass|fail>", "check outcome (default: pass)")
+    .option("--pr <number>", "pull request number to anchor to (default: the CI environment's PR context)")
+    .option("--url <url>", "cloud base URL (or OUTERLAYER_URL / config)")
+    .option("--api-key <key>", "API key (or OUTERLAYER_API_KEY / config)")
+    .option("--app-id <id>", "app id the key is bound to (or OUTERLAYER_APP_ID / config)")
     .addHelpText(
       "after",
-      "\nTarget selection comes from .outerlayer/config.json only — there is no --target flag.\n" +
-        'Missing or empty config: {"targets": [...]} — e.g. {"targets": ["claude-code"]}.\n\n' +
+      "\nCompile mode (no operand): target selection comes from .outerlayer/config.json\n" +
+        'only — there is no --target flag. Missing or empty config: {"targets": [...]}\n' +
+        '— e.g. {"targets": ["claude-code"]}.\n\n' +
         "Orphan detection (--check) only covers header-carrying outputs — every markdown\n" +
         "target file gets a generated-by comment, but .mcp.json / .cursor/mcp.json are JSON\n" +
         "(no comment syntax) and so can never be flagged as orphaned; missing/content drift\n" +
-        "still applies to them.",
+        "still applies to them.\n\n" +
+        "Result mode (`emit <name> --link <url>`): records that a named check ran and\n" +
+        "passed or failed, anchored to a PR (--pr, or CI's pull_request context) with\n" +
+        "the run URL as proof. With nothing to attach it to, the command refuses.\n",
     )
-    .action(async (opts) => {
+    .action(async (name, opts) => {
+      if (name !== undefined) {
+        const { runEmitResult, EmitResultError } = await import("./emit-result-cmd.js");
+        try {
+          const result = await runEmitResult({
+            name,
+            link: opts.link,
+            result: opts.result,
+            pr: opts.pr,
+            json: opts.json,
+            url: opts.url,
+            apiKey: opts.apiKey,
+            appId: opts.appId,
+          });
+          if (result.exitCode !== 0) process.exitCode = result.exitCode;
+        } catch (err) {
+          if (err instanceof EmitResultError) {
+            process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
+            process.exitCode = 1;
+            return;
+          }
+          throw err;
+        }
+        return;
+      }
       const { runEmit, EmitError } = await import("./emit-cmd.js");
       try {
         const result = runEmit({ cwd: opts.dir, check: opts.check, json: opts.json });

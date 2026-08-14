@@ -16,6 +16,7 @@ import type { Env } from '../types';
 // Route imports
 import { SyncAgentSessions, GetAgentBlob } from './routes/agents';
 import { EmitArtifact } from './routes/artifacts';
+import { EmitResult } from './routes/emitted-results';
 import { ListSpans, SearchSpans, GetSpan, GetBlob } from './routes/spans';
 import { CreateScore, CreateScoresBatch, ListScores, SearchScores, GetScore, GetScoreAggregations, GetScoreNames, DeleteScore } from './routes/scores';
 import { HealthCheck, IngestionHealth, FilesHealth } from './routes/health';
@@ -523,6 +524,7 @@ export const openApiApp = fromHono(app, {
     tags: [
       { name: 'Agents', description: 'Coding-agent session ingest (outerlayer sync) and content-addressed session images.' },
       { name: 'Artifacts', description: 'Evidence artifacts (screenshots, recordings, reports, logs) emitted as proof of a change and anchored to pull requests.' },
+      { name: 'Emitted Results', description: 'Pass/fail outcomes of checks run in your own CI or compute, anchored to pull requests with the run URL as proof.' },
       { name: 'Spans', description: 'Query individual spans across traces.' },
       { name: 'Scoring', description: 'Create, retrieve, list, and delete score records for spans and traces.' },
       { name: 'Search', description: 'Structured-filter search across observability resources.' },
@@ -720,6 +722,7 @@ registerAuthenticatedRoute('get', '/v1/workers/environments/:envId', GetWorkerSe
 registerAuthenticatedRoute('post', '/v1/agents/sync', SyncAgentSessions);
 registerAuthenticatedRoute('get', '/v1/agents/blob/:sha256', GetAgentBlob);
 registerAuthenticatedRoute('post', '/v1/artifacts', EmitArtifact);
+registerAuthenticatedRoute('post', '/v1/emitted-results', EmitResult);
 
 // ============================================================================
 // Spans routes

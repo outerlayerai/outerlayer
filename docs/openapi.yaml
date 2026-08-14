@@ -2914,6 +2914,145 @@ paths:
       summary: "Get capabilities"
       tags:
         - "Capabilities"
+  /v1/emitted-results:
+    post:
+      description: "Accepts one emitted result — the recorded pass/fail outcome of a check that ran in your own CI or compute, named after the validator that declares it. The link is the proof: the run URL a reviewer follows to see the check. Every emitted result anchors to a repository and PR number at ingest; a request that resolves no repository is refused and nothing is stored. Provenance (ci / local) is derived from the submission path and cannot be supplied by the caller. Retrying with the same clientEmitId returns the already-stored result."
+      operationId: "emit-result"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                emit:
+                  properties:
+                    ci:
+                      type: "boolean"
+                    clientEmitId:
+                      pattern: "^[A-Za-z0-9_.:-]{1,64}$"
+                      type: "string"
+                    emittedAt:
+                      type: "string"
+                    gitRepo:
+                      type: "string"
+                    link:
+                      maxLength: 500
+                      minLength: 1
+                      type: "string"
+                    name:
+                      pattern: "^[a-z][a-z0-9._-]{0,63}$"
+                      type: "string"
+                    prNumber:
+                      exclusiveMinimum: true
+                      minimum: 0
+                      type: "integer"
+                    repository:
+                      type: "string"
+                    result:
+                      enum:
+                        - "pass"
+                        - "fail"
+                      type: "string"
+                  required:
+                    - "clientEmitId"
+                    - "name"
+                    - "result"
+                    - "link"
+                    - "emittedAt"
+                    - "prNumber"
+                  type: "object"
+                schemaVersion:
+                  enum:
+                    - 1
+                  type: "number"
+              required:
+                - "schemaVersion"
+                - "emit"
+              type: "object"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      id:
+                        type: "string"
+                      name:
+                        type: "string"
+                      prNumber:
+                        type: "integer"
+                      provenance:
+                        enum:
+                          - "ci"
+                          - "local"
+                        type: "string"
+                      repository:
+                        type: "string"
+                      result:
+                        enum:
+                          - "pass"
+                          - "fail"
+                        type: "string"
+                      verification:
+                        enum:
+                          - "pending"
+                          - "confirmed"
+                        type: "string"
+                    required:
+                      - "id"
+                      - "name"
+                      - "result"
+                      - "provenance"
+                      - "verification"
+                      - "prNumber"
+                      - "repository"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "The stored result (the existing row on an idempotent retry)."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Malformed body or nothing to attach to."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+      summary: "Emit a check result (pass/fail evidence for a pull request)"
+      tags:
+        - "Emitted Results"
   /v1/environments:
     get:
       description: "Returns environments for the authenticated application, default env first. Each env carries pin state (`current_version` — 0 when no-pin — plus `current_commit_sha`, the git commit of the pinned deployment, NULL when no-pin) and a stable `epoch` that distinguishes env instances across name reuse after delete."
@@ -6562,6 +6701,8 @@ tags:
     name: "Agents"
   - description: "Evidence artifacts (screenshots, recordings, reports, logs) emitted as proof of a change and anchored to pull requests."
     name: "Artifacts"
+  - description: "Pass/fail outcomes of checks run in your own CI or compute, anchored to pull requests with the run URL as proof."
+    name: "Emitted Results"
   - description: "Query individual spans across traces."
     name: "Spans"
   - description: "Create, retrieve, list, and delete score records for spans and traces."

@@ -85,8 +85,9 @@ export interface EmitArtifactCommandResult {
 /** PR number from the GitHub Actions environment: `GITHUB_REF`
  * (`refs/pull/<n>/…`) covers pull_request events; the event payload file
  * covers other events that still carry a PR. Both probes tolerate absence —
- * non-GitHub CI simply resolves nothing. */
-function prNumberFromCiEnv(env: Record<string, string | undefined>): number | undefined {
+ * non-GitHub CI simply resolves nothing. Shared with `emit <name>`, which
+ * anchors emitted results by the same probes. */
+export function prNumberFromCiEnv(env: Record<string, string | undefined>): number | undefined {
   const refMatch = env.GITHUB_REF?.match(/^refs\/pull\/(\d+)\//);
   if (refMatch) {
     const n = parseInt(refMatch[1]!, 10);

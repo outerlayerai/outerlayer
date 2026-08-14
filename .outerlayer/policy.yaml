@@ -1,0 +1,5 @@
+# The checks OuterLayer runs on this repo's own PRs. Levels are per
+# validator: warn (counts toward the verdict), info (visible, never
+# counted), off (no row). Evaluation always uses the policy on the PR's
+# BASE branch, so a change here takes effect when it merges.
+extends: outerlayer:recommended@v1

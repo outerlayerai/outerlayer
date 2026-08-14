@@ -104,6 +104,17 @@ export type PullRequestFileListResult =
   | { status: 'unavailable' };
 
 /**
+ * Result of resolving a pull request's base branch. Same tri-state contract
+ * as {@link PullRequestCommitListResult}: a 403/404 means "base unknown",
+ * never an error the caller should surface — the policy read it serves
+ * degrades to the recommended defaults.
+ */
+export type PullRequestBaseRefResult =
+  | { status: 'ok'; baseRef: string }
+  | { status: 'not_permitted' }
+  | { status: 'unavailable' };
+
+/**
  * Page size and page ceiling for {@link GitHubProvider.listPullRequestCommits}.
  * GitHub's list-PR-commits endpoint returns at most 250 commits regardless
  * of pagination, so 100 × 3 covers everything the API will ever hand back.
@@ -1442,6 +1453,37 @@ export class GitHubProvider implements GitProvider {
         if (response.data.length < PR_COMMITS_PAGE_SIZE) break;
       }
       return { status: 'ok', files };
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 403) {
+        return { status: 'not_permitted' };
+      }
+      if (status === 404) {
+        return { status: 'unavailable' };
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
+  /**
+   * A pull request's base branch name — `GET
+   * /repos/{owner}/{repo}/pulls/{pull_number}`, `base.ref`. Serves the
+   * policy read, which must key off the BASE branch so a PR cannot loosen
+   * its own evaluation. Tri-state like the other PR reads: 403 →
+   * `not_permitted`, 404 → `unavailable`, both meaning "base unknown".
+   */
+  async getPullRequestBaseRef(repo: string, prNumber: number): Promise<PullRequestBaseRefResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+
+    try {
+      const { data } = await this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+        owner,
+        repo: repoName,
+        pull_number: prNumber,
+      });
+      const baseRef = data.base?.ref ?? '';
+      if (!baseRef) return { status: 'unavailable' };
+      return { status: 'ok', baseRef };
     } catch (error: unknown) {
       const status = (error as { status?: number }).status;
       if (status === 403) {

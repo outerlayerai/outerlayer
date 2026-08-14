@@ -53,9 +53,11 @@ export type GatewayErrorCode =
   | 'repo_branch_already_linked'
   | 'unsupported_git_provider'
   | 'webhook_registration_failed'
-  // Artifacts: emit-time anchoring failures (400). `session_not_found` rejects
-  // a session binding whose session never synced; `nothing_to_attach` rejects
-  // an emit with no anchor at all (no session, PR, or git context).
+  // Evidence emits (artifacts + emitted results): emit-time anchoring
+  // failures (400). `session_not_found` rejects a session binding whose
+  // session never synced; `nothing_to_attach` rejects an emit with no anchor
+  // (for artifacts: no session, PR, or git context; for emitted results: no
+  // resolvable repository).
   | 'session_not_found'
   | 'nothing_to_attach'
   // Tier-gated features (402 Payment Required)

@@ -21,6 +21,7 @@ import { describe, it, expect, vi } from "vitest";
 
 import { server } from "@/test-helpers/msw-server";
 import {
+  seedEmittedResultMswRows,
   seedMembershipMswState,
   seedPullRequestSessionMswState,
   seedSupabaseMswState,
@@ -60,9 +61,11 @@ import { refreshPrSessionComment } from "../refresh";
 import type {
   IssueCommentListResult,
   IssueCommentResult,
+  PullRequestBaseRefResult,
   PullRequestCommitListResult,
   PullRequestFileListResult,
 } from "@/lib/system/git/github/client";
+import { FileNotFoundError } from "@/lib/system/git/errors";
 import { PR_SESSION_COMMENT_MARKER } from "../render";
 
 const SUPABASE_URL = "http://localhost:54321";
@@ -216,7 +219,49 @@ function fakeGithubClient() {
       vi.fn<(repo: string, prNumber: number) => Promise<PullRequestFileListResult>>(
         async () => ({ status: "ok", files: [] }),
       ),
+    /** The policy read's anchor. Defaults to a resolvable base whose policy
+     * files 404 below — the no-policy state, today's behavior. */
+    getPullRequestBaseRef:
+      vi.fn<(repo: string, prNumber: number) => Promise<PullRequestBaseRefResult>>(
+        async () => ({ status: "ok", baseRef: "main" }),
+      ),
+    /** Policy + criteria content reads. Defaults to file-not-found — no
+     * policy file, no validators directory. */
+    getFileContent: vi.fn<(repo: string, path: string, ref: string) => Promise<{ content: string }>>(
+      async (repo, path) => {
+        throw new FileNotFoundError("github", repo, path);
+      },
+    ),
+    listDirectory: vi.fn<
+      (repo: string, path: string, ref: string) => Promise<Array<{ path: string; name: string; type: "file" | "dir" }>>
+    >(async (repo, path) => {
+      throw new FileNotFoundError("github", repo, path);
+    }),
   };
+}
+
+/** Wires a base-branch policy surface into a fake client: `files` maps path
+ * → content at the base ref, and the validators directory lists whatever
+ * yaml paths `files` declares under it. Reads at any OTHER ref throw — the
+ * assertion that policy is never read from the PR head. */
+function seedBasePolicy(
+  githubClient: ReturnType<typeof fakeGithubClient>,
+  files: Record<string, string>,
+  baseRef = "main",
+) {
+  githubClient.getFileContent.mockImplementation(async (repo, path, ref) => {
+    if (ref !== baseRef) throw new Error(`policy read at non-base ref: ${ref}`);
+    const content = files[path];
+    if (content === undefined) throw new FileNotFoundError("github", repo, path);
+    return { content };
+  });
+  githubClient.listDirectory.mockImplementation(async (repo, path, ref) => {
+    if (ref !== baseRef) throw new Error(`policy read at non-base ref: ${ref}`);
+    if (path !== ".outerlayer/validators") throw new FileNotFoundError("github", repo, path);
+    return Object.keys(files)
+      .filter((p) => p.startsWith(".outerlayer/validators/"))
+      .map((p) => ({ path: p, name: p.split("/").pop()!, type: "file" as const }));
+  });
 }
 
 /** An `ok` issue-comment result for the given id. */
@@ -1613,6 +1658,256 @@ describe("refreshPrSessionComment", () => {
 
     expect(githubClient.createIssueComment.mock.calls[0]![2]).not.toContain(
       "New tests failed first, then passed",
+    );
+  });
+});
+
+describe("refreshPrSessionComment under a policy", () => {
+  const MIGRATION_POLICY = {
+    ".outerlayer/policy.yaml": "extends: outerlayer:recommended@v1\n",
+    ".outerlayer/validators/migration-must-run.yaml": [
+      "id: migration-must-run",
+      "kind: validation",
+      'row: "Migrations ran against a local database"',
+      "when:",
+      '  paths: ["supabase/migrations/**"]',
+      "require:",
+      '  session.ran: { command: "supabase migration up", status: ok }',
+    ].join("\n"),
+  };
+
+  function confirmedSession() {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+  }
+
+  // proves AC-085-04
+  it("reads the policy from the PR's base branch — an off set only on the head never applies", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9001));
+    githubClient.getPullRequestBaseRef.mockResolvedValue({ status: "ok", baseRef: "release/8" });
+    // The BASE policy keeps every built-in on; seedBasePolicy additionally
+    // throws on any read at a non-base ref, so a head-ref policy read —
+    // where a PR's own `off` would live — fails the test by construction.
+    seedBasePolicy(githubClient, { ".outerlayer/policy.yaml": "extends: outerlayer:recommended@v1\n" }, "release/8");
+    githubClient.listPullRequestCommits.mockResolvedValue({
+      status: "ok",
+      commits: [{ sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 9001 });
+    expect(githubClient.getFileContent).toHaveBeenCalledWith(REPO, ".outerlayer/policy.yaml", "release/8");
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("⚠ **0 of 1 commits came from recorded sessions**");
+  });
+
+  // proves AC-085-01
+  it("removes an off-leveled built-in row entirely under the base policy", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9002));
+    seedBasePolicy(githubClient, {
+      ".outerlayer/policy.yaml":
+        "extends: outerlayer:recommended@v1\nvalidators:\n  commits-from-sessions: off\n",
+    });
+    githubClient.listPullRequestCommits.mockResolvedValue({
+      status: "ok",
+      commits: [{ sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 9002 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).not.toContain("commits came from recorded sessions");
+    expect(body).toContain("Everything checks out");
+  });
+
+  // proves AC-085-02
+  it("renders the recommended defaults unchanged when the base declares no policy", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" }),
+        link({
+          id: "l2",
+          app_id: "app-1",
+          trace_id: "t1",
+          method: "pr_link",
+          verification: "confirmed",
+          pr_number: 813,
+        }),
+      ],
+    });
+    const commits = { status: "ok" as const, commits: [{ sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }] };
+
+    const withPolicySurface = fakeGithubClient();
+    withPolicySurface.createIssueComment.mockResolvedValue(okComment(9003));
+    withPolicySurface.listPullRequestCommits.mockResolvedValue(commits);
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient: withPolicySurface },
+    );
+
+    const withoutPolicySurface = {
+      ...fakeGithubClient(),
+      getPullRequestBaseRef: undefined,
+      getFileContent: undefined,
+      listDirectory: undefined,
+    };
+    withoutPolicySurface.createIssueComment.mockResolvedValue(okComment(9004));
+    withoutPolicySurface.listPullRequestCommits.mockResolvedValue(commits);
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: 813 },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient: withoutPolicySurface },
+    );
+
+    // Same rows, same facts: a 404ing policy surface and no policy surface
+    // at all are the same recommended-defaults behavior.
+    const bodyWith = withPolicySurface.createIssueComment.mock.calls[0]![2];
+    const bodyWithout = withoutPolicySurface.createIssueComment.mock.calls[0]![2];
+    expect(bodyWith).toContain("⚠ **0 of 1 commits came from recorded sessions**");
+    expect(bodyWithout).toContain("⚠ **0 of 1 commits came from recorded sessions**");
+  });
+
+  // proves AC-085-05
+  it("renders a scoped custom validator's flag from the base policy over the PR's own diff", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9005));
+    seedBasePolicy(githubClient, MIGRATION_POLICY);
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "supabase/migrations/20260814_add.sql", changeStatus: "added" }],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], [spanRow("t1", 3, { command: "vitest run" })]),
+        githubClient,
+      },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 9005 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      "⚠ **Migrations ran against a local database** — required, not proven this PR",
+    );
+    expect(body).toContain("Look at 1 thing before merging");
+  });
+
+  // proves AC-085-06
+  it("passes the scoped custom with the matching run's turn when the session ran the command", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9006));
+    seedBasePolicy(githubClient, MIGRATION_POLICY);
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "supabase/migrations/20260814_add.sql", changeStatus: "added" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [spanRow("t1", 7, { command: "supabase migration up --local" })],
+        ),
+        githubClient,
+      },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("✓ **Migrations ran against a local database** — turn 7");
+  });
+
+  // proves AC-085-07
+  it("renders no custom row at all when the PR's diff never touched the scope", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9007));
+    seedBasePolicy(githubClient, MIGRATION_POLICY);
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "src/app/page.tsx", changeStatus: "modified" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).not.toContain("Migrations ran against a local database");
+  });
+
+  // proves AC-085-13
+  it("renders the loud policy-error row while the rest of the comment still renders", async () => {
+    confirmedSession();
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9008));
+    seedBasePolicy(githubClient, { ".outerlayer/policy.yaml": "extends: outerlayer:strict@v9\n" });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("⚠ **The policy file has an error** — `.outerlayer/policy.yaml`:");
+    expect(body).toContain('unknown extends "outerlayer:strict@v9"');
+    expect(body).toContain("| [Fix flaky auth test]");
+    expect(body).toContain(PR_SESSION_COMMENT_MARKER);
+  });
+
+  // proves AC-085-10
+  it("satisfies an emitted requirement from a recorded CI result, linking the run", async () => {
+    confirmedSession();
+    seedEmittedResultMswRows([
+      {
+        tenant_id: TENANT,
+        repository: REPO,
+        pr_number: PR,
+        name: "smoke.pass",
+        result: "pass",
+        link: "https://ci.example/runs/42",
+        provenance: "ci",
+        emitted_at: "2026-08-01T10:00:00.000Z",
+      },
+    ]);
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(9009));
+    seedBasePolicy(githubClient, {
+      ".outerlayer/validators/smoke-test.yaml": [
+        "id: smoke-test",
+        "kind: validation",
+        'row: "Smoke test passed on the preview deploy"',
+        "run: { where: ci, emit: smoke.pass }",
+      ].join("\n"),
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      "✓ **Smoke test passed on the preview deploy** — [CI run](https://ci.example/runs/42) `ci`",
     );
   });
 });

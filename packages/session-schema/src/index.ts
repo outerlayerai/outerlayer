@@ -53,6 +53,17 @@ export type {
   ArtifactSpoolRecord,
   EmitArtifactRequest,
 } from "./artifact.js";
+export {
+  EMITTED_RESULT_MAX_LINK_LENGTH,
+  EMITTED_RESULT_PROVENANCES,
+  EMITTED_RESULTS,
+  EmittedNameSchema,
+} from "./emitted-result.js";
+export type {
+  EmitResultRequest,
+  EmittedResultOutcome,
+  EmittedResultProvenance,
+} from "./emitted-result.js";
 export { agentSessionJsonSchema, AGENT_SESSION_SCHEMA_ID } from "./json-schema.js";
 export {
   spanTreeFromSession,
