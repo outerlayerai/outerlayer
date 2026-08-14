@@ -149,6 +149,28 @@ describe("fetchPrProofCriteria", () => {
     expect(getFileContent.mock.calls.map((call) => call[1])).toEqual(["src/lib/a.test.ts"]);
   });
 
+  it("reads every changed test file while any test-proof id is uncited", async () => {
+    const getFileContent = vi.fn(async () => ({ content: "// AC-086-08 only" }));
+    const citations = await fetchCriterionTestCitations(
+      { getFileContent },
+      "acme/api",
+      61,
+      [
+        { filename: "src/lib/a.test.ts", changeStatus: "modified" },
+        { filename: "src/lib/b.test.ts", changeStatus: "modified" },
+      ],
+      [
+        { id: "AC-086-08", proofKind: "test" },
+        { id: "AC-086-02", proofKind: "test" },
+      ],
+    );
+    expect(citations).toEqual(new Map([["AC-086-08", "src/lib/a.test.ts"]]));
+    expect(getFileContent.mock.calls.map((call) => call[1])).toEqual([
+      "src/lib/a.test.ts",
+      "src/lib/b.test.ts",
+    ]);
+  });
+
   it("reads nothing when no criterion demands a test", async () => {
     const getFileContent = vi.fn();
     const citations = await fetchCriterionTestCitations(

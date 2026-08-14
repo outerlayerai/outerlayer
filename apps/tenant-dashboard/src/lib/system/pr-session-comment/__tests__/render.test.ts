@@ -847,7 +847,23 @@ describe("issue integration rendering", () => {
     });
     expect(two).toContain("for #91 — Fix the flaky signup · #92 — Add the allowlist");
     const none = renderComment(rows, new Map(), LINKS, evaluation(), { artifacts: [], criteria: [] });
-    expect(none).not.toContain("for #");
+    expect(none).not.toMatch(/^for /m);
+    expect(two).not.toContain("· and");
+  });
+
+  it("caps the issue line at three, trims titles, and counts the remainder exactly", () => {
+    const body = renderComment(rows, new Map(), LINKS, evaluation(), {
+      artifacts: [],
+      criteria: [],
+      issues: [
+        { number: 1, title: "  One  " },
+        { number: 2, title: "Two" },
+        { number: 3, title: "Three" },
+        { number: 4, title: "Four" },
+      ],
+    });
+    expect(body).toContain("for #1 — One · #2 — Two · #3 — Three · and 1 more");
+    expect(body).not.toContain("#4");
   });
 
   // AC-086-02

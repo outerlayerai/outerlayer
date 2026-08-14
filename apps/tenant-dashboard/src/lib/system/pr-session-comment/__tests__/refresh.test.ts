@@ -1911,4 +1911,74 @@ require:
     expect(updated).toContain("Full signup flow — video required, none attached");
     expect(updated).not.toContain("Settings page renders");
   });
+
+  it("renders without issue context when the closing-issues read is unavailable, and skips it with no confirmed rows", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      getPullRequestClosingIssues: vi.fn(async () => ({ status: "unavailable" as const })),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(8400));
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+    expect(githubClient.createIssueComment.mock.calls[0]![2]).not.toMatch(/^for /m);
+
+    // A waiting PR (no confirmed rows) spends no closing-issues read.
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l2", app_id: "app-1", trace_id: "t2", method: "pr_link", verification: "pending" })],
+    });
+    const waitingClient = {
+      ...fakeGithubClient(),
+      ...closingIssues([]),
+    };
+    waitingClient.createIssueComment.mockResolvedValue(okComment(8401));
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: "acme/waiting", prNumber: 999 },
+      { chQuery: fakeChQuery([]), githubClient: waitingClient },
+    );
+    expect(waitingClient.getPullRequestClosingIssues).not.toHaveBeenCalled();
+  });
+
+  // AC-086-08: the citation path end to end — a changed acceptance file
+  // declares a test proof, a changed test file cites it, the cell names it.
+  it("renders a test-proof criterion's citation through the full refresh", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const files: Record<string, string> = {
+      "acceptance/090-example.md": "1. `AC-086-08` (proof: test) **Given** x, **Then** y.",
+      "src/lib/signup.test.ts": "// AC-086-08\nit(\"proves it\", () => {});",
+    };
+    const githubClient = {
+      ...fakeGithubClient(),
+      getFileContent: vi.fn(async (_repo: string, path: string) => {
+        const content = files[path];
+        if (content === undefined) throw new Error(`missing ${path}`);
+        return { content };
+      }),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(8500));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [
+        { filename: "acceptance/090-example.md", changeStatus: "added" },
+        { filename: "src/lib/signup.test.ts", changeStatus: "added" },
+      ],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("| `AC-086-08` | cited by `src/lib/signup.test.ts` |");
+  });
 });
