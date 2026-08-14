@@ -115,11 +115,11 @@ export function agentBlobKey(tenantId: string, appId: string, sha256: string): s
   return `agents/${tenantId}/${appId}/${sha256}`;
 }
 
-function base64ToBytes(data: string): Uint8Array {
+export function base64ToBytes(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -137,6 +137,19 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * route closes its client; this path routes every insert through here so it
  * does too.
  */
+/**
+ * The one place agent-pipe callers outside this file may construct a
+ * ClickHouse client (this file is on the client-guardrail allowlist; new
+ * `createClient` call sites are not). Point reads and small writes only —
+ * anything scan-shaped belongs behind the guarded analytics factories.
+ */
+export function createAgentIngestClient(env: {
+  CLICKHOUSE_HOST: string;
+  CLICKHOUSE_PASSWORD: string;
+}): ReturnType<typeof createClient> {
+  return createClient({ url: env.CLICKHOUSE_HOST, ...clickHouseWriteAuth(env) });
+}
+
 export async function insertAgentRows(
   env: { CLICKHOUSE_HOST: string; CLICKHOUSE_PASSWORD: string },
   batches: Array<{ table: string; values: Record<string, unknown>[] }>,

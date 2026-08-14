@@ -23,6 +23,8 @@ import { isTestFilePath } from "@/lib/system/verdict/classify";
 import { verificationFacts } from "@/lib/system/verdict/evidence";
 import { readVerificationSpans } from "@/lib/system/verdict/span-source";
 import { LinksUnreadableError, LINKS_UNREADABLE_REASON, readLinkedSessions } from "./read";
+import { readPrArtifacts } from "./artifacts-read";
+import { fetchPrProofCriteria, type CriterionRequirement } from "./criteria";
 import { recordEvidenceEvaluation } from "./record";
 import { readTopicLabels } from "./topics";
 import { PR_SESSION_COMMENT_MARKER, renderComment, type RenderLinks } from "./render";
@@ -141,9 +143,14 @@ interface PrSessionCommentGithubClient {
    * from the evaluation rather than asserted either way. */
   listPullRequestCommits?(repo: string, prNumber: number): Promise<PullRequestCommitListResult>;
   /** The PR's changed files — red-then-green's "does the diff add tests"
-   * input. Same optionality contract: absent or not `ok` means the rule is
+   * input, and the scope filter for the Evidence block's proof-criteria
+   * fetch. Same optionality contract: absent or not `ok` means both are
    * conservatively suppressed, never approximated. */
   listPullRequestFiles?(repo: string, prNumber: number): Promise<PullRequestFileListResult>;
+  /** Proof-criteria content reads (`criteria.ts`) — only exercised when the
+   * PR has artifacts. Optional so a test fake can omit it; when absent, the
+   * Evidence block renders artifacts without criterion proof rows. */
+  getFileContent?(repo: string, path: string, ref: string): Promise<{ content: string }>;
 }
 
 interface RefreshPrSessionCommentDeps {
@@ -597,12 +604,15 @@ export async function refreshPrSessionComment(
       return { status: "skipped-disabled" };
     }
     const { sessions: rows, pendingLinkCount } = reads;
-    // A human-only PR — no confirmed session, no pending candidate — gets
-    // no comment. Deliberately BEFORE any identity-row read: this is the
-    // common case on a connected repo, and it must not create rows, mint
-    // tokens, or touch GitHub. A comment posted earlier (when candidates
-    // existed) is left in place rather than rewritten to say less.
-    if (rows.length === 0 && pendingLinkCount === 0) {
+    // A human-only PR — no confirmed session, no pending candidate, and no
+    // anchored artifact — gets no comment. Deliberately BEFORE any
+    // identity-row read: this is the common case on a connected repo, and it
+    // must not create rows, mint tokens, or touch GitHub. A comment posted
+    // earlier (when candidates existed) is left in place rather than
+    // rewritten to say less. Artifacts count as candidates: a CI emit needs
+    // no session, and its evidence must still reach the PR.
+    const presenceArtifacts = await readPrArtifacts({ tenantId, repository, prNumber });
+    if (rows.length === 0 && pendingLinkCount === 0 && presenceArtifacts.length === 0) {
       return { status: "skipped-no-links" };
     }
 
@@ -624,6 +634,10 @@ export async function refreshPrSessionComment(
       orgName,
       prNumber,
     };
+
+    // The presence read above already fetched this PR's artifacts; the
+    // GitHub-side criteria fetch below stays gated on them actually existing.
+    const artifacts = presenceArtifacts;
 
     // The GitHub client is resolved BEFORE rendering now (it used to wait
     // until after the hash short-circuit): the PR's commit list is a render
@@ -655,23 +669,50 @@ export async function refreshPrSessionComment(
       }
     }
 
+    // The PR's changed-file list serves two consumers: red-then-green's
+    // "does the diff add tests" gate and the Evidence block's proof-criteria
+    // scope. Fetched at most once; absent or unreadable suppresses both.
+    let prFiles: { filename: string; changeStatus: string }[] | null = null;
+    const wantsFilesForFacts = rows.length > 0 && chQuery !== null;
+    const wantsFilesForCriteria = artifacts.length > 0 && githubClient.getFileContent !== undefined;
+    if ((wantsFilesForFacts || wantsFilesForCriteria) && githubClient.listPullRequestFiles) {
+      const filesResult = await githubClient.listPullRequestFiles(repository, prNumber);
+      if (filesResult.status === "ok") {
+        prFiles = filesResult.files;
+      }
+    }
+
     // Verification facts: session tool-call timelines through the span fact
     // layer. Reuses the same ClickHouse seam as the reads above; when it is
     // unavailable the facts are simply absent — the same omission contract
     // as an unreadable commit list.
     let verification: VerificationFact[] = [];
     if (rows.length > 0 && chQuery) {
-      let diffAddsTests: boolean | null = null;
-      if (githubClient.listPullRequestFiles) {
-        const filesResult = await githubClient.listPullRequestFiles(repository, prNumber);
-        if (filesResult.status === "ok") {
-          diffAddsTests = filesResult.files.some(
-            (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
-          );
-        }
-      }
+      const diffAddsTests =
+        prFiles === null
+          ? null
+          : prFiles.some(
+              (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
+            );
       const spans = await readVerificationSpans(chQuery, traceIds);
       verification = verificationFacts(spans, traceIds, diffAddsTests);
+    }
+
+    // Criterion proof requirements come from the PR's own changed acceptance
+    // files (see criteria.ts) and are best-effort: a fetch failure degrades
+    // to artifacts-without-criteria rather than blocking the comment.
+    let criteria: CriterionRequirement[] = [];
+    if (artifacts.length > 0 && githubClient.getFileContent && prFiles !== null) {
+      try {
+        criteria = await fetchPrProofCriteria(
+          { getFileContent: githubClient.getFileContent.bind(githubClient) },
+          repository,
+          prNumber,
+          prFiles,
+        );
+      } catch {
+        criteria = [];
+      }
     }
 
     const evaluation = evaluateEvidence({
@@ -690,7 +731,7 @@ export async function refreshPrSessionComment(
     // the rendered body always reflects present state, never a first-sight
     // snapshot — a session that accrues more work produces a different body
     // (and therefore a different hash) on the very next refresh.
-    const body = renderComment(rows, topics, links, evaluation);
+    const body = renderComment(rows, topics, links, evaluation, { artifacts, criteria });
     const bodyHash = hashBody(body);
 
     const { data: existing, error: readError } = await admin

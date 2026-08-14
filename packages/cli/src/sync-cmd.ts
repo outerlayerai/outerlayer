@@ -24,7 +24,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import {
   scanAll,
   enrichSessionRepo,
@@ -36,16 +36,25 @@ import {
 import {
   downconvertSession,
   bannedPathsForTier,
+  inferArtifactKind,
   isHumanUserTurn,
   CAPTURE_TIERS,
   type AgentSession,
   type CaptureTier,
+  type EmitArtifactRequest,
   type Turn,
 } from "@outerlayer/session-schema";
 import { scrubDeep, setCustomScrubbers, setLocalIdentity, setRepoRoot, type CustomScrubConfig } from "@outerlayer/capture";
 import { writeSyncStatus } from "./sync-status.js";
 import { readWatermark, writeWatermark } from "./watermark.js";
 import { planHookExecMerge, appendHookExecEvents, writeHookExecWatermark } from "./hook-exec-merge.js";
+import {
+  ARTIFACT_RETRY_MAX_AGE_MS,
+  artifactBlobsDir,
+  planArtifactUpload,
+  resolveArtifactTurnIndex,
+  writeArtifactsWatermark,
+} from "./artifact-spool.js";
 import { execFileSync } from "node:child_process";
 import { hostname, userInfo } from "node:os";
 import { RepoFilter, type RepoFilterConfig } from "./repo-filter.js";
@@ -397,6 +406,16 @@ function fmtBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Coarse age for pending-artifact rows — just enough to spot a stuck record. */
+function fmtAge(ms: number): string {
+  if (!Number.isFinite(ms)) return "?";
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 const DIM = "\x1b[2m";
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
@@ -522,6 +541,10 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
     // -----------------------------------------------------------------------
     const hookPlan = planHookExecMerge({ home });
     const mergedHookSessionIds = new Set<string>();
+
+    // Artifact spool, snapshotted at the same point: records emitted DURING
+    // this run land after the snapshot and simply wait for the next sync.
+    const artifactPlan = planArtifactUpload({ home });
 
     // -----------------------------------------------------------------------
     // collect eligible sessions (streaming; tier applied at parse AND after)
@@ -671,7 +694,21 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
       let output: string;
       if (opts.json) {
         output = JSON.stringify(
-          { url, appId, tier, batches: batches.map((b) => b.payload) },
+          {
+            url,
+            appId,
+            tier,
+            batches: batches.map((b) => b.payload),
+            artifacts: {
+              pending: artifactPlan.records.length,
+              records: artifactPlan.records.map(({ record }) => ({
+                filename: record.filename,
+                kind: inferArtifactKind(record.mediaType),
+                sessionId: record.sessionId,
+                emittedAt: record.t,
+              })),
+            },
+          },
           null,
           2,
         );
@@ -689,6 +726,17 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
         );
         lines.push(`  sessions     ${collected.length} (of ${report.scanned} scanned) in ${batches.length} batch(es)`);
         lines.push(`  images       ${blobsTotal} blob(s), ${fmtBytes(blobBytes)}`);
+        if (artifactPlan.records.length > 0) {
+          lines.push(`  artifacts    ${artifactPlan.records.length} pending upload`);
+          for (const { record } of artifactPlan.records.slice(0, 10)) {
+            lines.push(
+              `    ${DIM}${record.sessionId.slice(0, 8)}${RESET}  ${inferArtifactKind(record.mediaType)}  ${record.filename}  ${DIM}${fmtAge(Date.now() - Date.parse(record.t))}${RESET}`,
+            );
+          }
+          if (artifactPlan.records.length > 10) {
+            lines.push(`    ${DIM}… and ${artifactPlan.records.length - 10} more${RESET}`);
+          }
+        }
         const byRepo = new Map<string, number>();
         for (const item of collected) {
           const r = (item.session as unknown as { env?: { gitRepo?: string } }).env?.gitRepo || "(no repo)";
@@ -909,6 +957,98 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
       }
     }
 
+    // -----------------------------------------------------------------------
+    // spooled artifacts → POST /v1/artifacts, one per record, AFTER the
+    // session batches (the gateway validates the session an artifact claims,
+    // so that session must land first). Failures never fail the sync: a
+    // record that can't upload holds the artifact watermark at its offset
+    // (min-offset rule, like hook-exec's) and retries next run, until it is
+    // older than ARTIFACT_RETRY_MAX_AGE_MS.
+    // -----------------------------------------------------------------------
+    let artifactWatermarkOffset = artifactPlan.fullyConsumedOffset;
+    if (artifactPlan.records.length > 0) {
+      const artifactEndpoint = new URL("/v1/artifacts", url).toString();
+      const nowMs = Date.now();
+      const uploadedShas = new Set<string>();
+      const heldShas = new Set<string>();
+      const warn = (message: string): void => {
+        if (!opts.quiet) process.stderr.write(`${YELLOW}!${RESET} ${message}\n`);
+      };
+      for (const { record, offset } of artifactPlan.records) {
+        let blobData: Buffer;
+        try {
+          blobData = readFileSync(join(artifactBlobsDir(home), record.sha256));
+        } catch {
+          warn(`artifact ${record.filename}: blob missing from the spool — dropping the record`);
+          continue;
+        }
+        // The owning session, if it was part of THIS scan — its tool-call
+        // text locates the emitting turn. A session synced in an earlier run
+        // uploads with no turnIndex; the server still validates the id.
+        const owner = collected.find((c) => (c.session as { id?: string }).id === record.sessionId);
+        const turnIndex = owner
+          ? resolveArtifactTurnIndex((owner.session as { turns?: Turn[] }).turns ?? [], record.filename)
+          : undefined;
+        const request: EmitArtifactRequest = {
+          schemaVersion: 1,
+          artifact: {
+            clientArtifactId: record.artifactId,
+            filename: record.filename,
+            mediaType: record.mediaType,
+            bytes: record.bytes,
+            sha256: record.sha256,
+            caption: record.caption,
+            ...(record.criterionId !== undefined ? { criterionId: record.criterionId } : {}),
+            emittedAt: record.t,
+            ...(record.prNumber !== undefined ? { prNumber: record.prNumber } : {}),
+            ...(record.gitRepo !== undefined ? { gitRepo: record.gitRepo } : {}),
+            ...(record.gitBranch !== undefined ? { gitBranch: record.gitBranch } : {}),
+            ...(record.commitSha !== undefined ? { commitSha: record.commitSha } : {}),
+            session: { sessionId: record.sessionId, ...(turnIndex !== undefined ? { turnIndex } : {}) },
+          },
+          blob: { data: blobData.toString("base64") },
+        };
+        let failure = "";
+        try {
+          const response = await fetchImpl(artifactEndpoint, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${apiKey}`,
+              "x-outerlayer-app-id": appId,
+            },
+            body: JSON.stringify(request),
+          });
+          if (!response.ok) failure = `HTTP ${response.status}`;
+        } catch (err) {
+          failure = String(err);
+        }
+        if (!failure) {
+          uploadedShas.add(record.sha256);
+          continue;
+        }
+        const emittedMs = Date.parse(record.t);
+        if (Number.isFinite(emittedMs) && nowMs - emittedMs > ARTIFACT_RETRY_MAX_AGE_MS) {
+          warn(`artifact ${record.filename} (${failure}) is older than 14 days and still failing — dropping it`);
+          continue;
+        }
+        warn(`artifact ${record.filename} upload failed (${failure}) — will retry on the next sync`);
+        heldShas.add(record.sha256);
+        artifactWatermarkOffset = Math.min(artifactWatermarkOffset, offset);
+      }
+      // Blob cleanup, refcounted within the remaining spool: a sha that
+      // uploaded may still be referenced by a held record — its bytes must
+      // survive for that retry.
+      for (const sha of uploadedShas) {
+        if (heldShas.has(sha)) continue;
+        try {
+          unlinkSync(join(artifactBlobsDir(home), sha));
+        } catch {
+          // already gone — content-addressed, nothing left to clean
+        }
+      }
+    }
+
     // First successful sync with explicit flags → persist for next time, so
     // the background sync (which passes none) knows where to ship. A loopback
     // destination is deliberately NOT persisted: see isLoopbackUrl.
@@ -949,6 +1089,7 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
     // events next time — see hook-exec-merge.ts). Never reached on --dry-run,
     // which returns above and must leave local state untouched.
     writeHookExecWatermark(hookWatermarkOffset, home);
+    writeArtifactsWatermark(artifactWatermarkOffset, home);
 
     return {
       scanned: report.scanned,

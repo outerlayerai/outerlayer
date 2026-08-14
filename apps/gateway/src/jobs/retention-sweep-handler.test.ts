@@ -3,6 +3,7 @@ import { retentionSweepHandler, RETENTION_SWEEP_CRON } from "./retention-sweep-h
 import { createRetentionStore } from "@repo/gateway-core/stores/clickhouse/retention-store";
 import { createLoggerFromContext } from "../services/logger";
 import { createSystemAdminClient } from "@repo/gateway-core/lib/system-client";
+import { sweepUnmatchedArtifactBlobs } from "@repo/gateway-core/jobs/artifact-blob-sweep";
 import { runRetentionSweep } from "../services/retention-sweep-service";
 import type { GatewayScheduleContext } from "@repo/gateway-core/types";
 
@@ -21,6 +22,10 @@ vi.mock("../services/logger", () => ({
 
 vi.mock("@repo/gateway-core/lib/system-client", () => ({
   createSystemAdminClient: vi.fn().mockReturnValue({ admin: true }),
+}));
+
+vi.mock("@repo/gateway-core/jobs/artifact-blob-sweep", () => ({
+  sweepUnmatchedArtifactBlobs: vi.fn(),
 }));
 
 // Keep the real config resolver + blob-capability guard; mock only the sweep.
@@ -64,6 +69,8 @@ const SWEEP_RESULT = {
   blobScanTruncated: false,
 };
 
+const QUIET_ARTIFACT_RESULT = { examined: 0, blobsDeleted: 0, rowsMarked: 0, failures: 0 };
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(createLoggerFromContext).mockReturnValue(
@@ -71,16 +78,23 @@ beforeEach(() => {
   );
   logger.flush.mockResolvedValue(undefined);
   vi.mocked(runRetentionSweep).mockResolvedValue(SWEEP_RESULT);
+  vi.mocked(sweepUnmatchedArtifactBlobs).mockResolvedValue(QUIET_ARTIFACT_RESULT);
 });
 
 describe("retentionSweepHandler", () => {
-  test("disabled (default): returns without touching the store, admin client, or logger", async () => {
-    await retentionSweepHandler(makeContext());
+  test("disabled (default): retention machinery untouched, but the artifact blob sweep still runs", async () => {
+    // RETENTION_SWEEP_ENABLED arms the entitlement-driven mass delete only.
+    // The unmatched-artifact blob release is row-driven cleanup every
+    // deployment needs, so it rides the cron regardless of the flag.
+    const context = makeContext();
+    await retentionSweepHandler(context);
 
     expect(createRetentionStore).not.toHaveBeenCalled();
-    expect(createSystemAdminClient).not.toHaveBeenCalled();
-    expect(createLoggerFromContext).not.toHaveBeenCalled();
     expect(runRetentionSweep).not.toHaveBeenCalled();
+    expect(sweepUnmatchedArtifactBlobs).toHaveBeenCalledWith(context.env, { admin: true });
+    // A quiet run (nothing unmatched) logs nothing — but still flushes.
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.flush).toHaveBeenCalledTimes(1);
   });
 
   test("enabled: composes store, admin client, R2 bucket, and the cron fire time into the sweep, then logs the summary", async () => {
@@ -115,6 +129,38 @@ describe("retentionSweepHandler", () => {
     });
     expect(logger.error).not.toHaveBeenCalled();
     expect(logger.flush).toHaveBeenCalledTimes(1);
+    expect(sweepUnmatchedArtifactBlobs).toHaveBeenCalledWith(context.env, { admin: true });
+  });
+
+  test("an artifact sweep that found work logs its summary with cron metadata", async () => {
+    const artifactResult = { examined: 4, blobsDeleted: 2, rowsMarked: 3, failures: 1 };
+    vi.mocked(sweepUnmatchedArtifactBlobs).mockResolvedValue(artifactResult);
+
+    await retentionSweepHandler(makeContext());
+
+    expect(logger.info).toHaveBeenCalledWith("unmatched-artifact blob sweep completed", {
+      cron: RETENTION_SWEEP_CRON,
+      ...artifactResult,
+    });
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  test("an artifact sweep failure is swallowed, logged, and flushed", async () => {
+    const failure = new Error("unmatched read failed");
+    vi.mocked(sweepUnmatchedArtifactBlobs).mockRejectedValue(failure);
+
+    await expect(retentionSweepHandler(makeContext())).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenCalledWith(failure, { cron: RETENTION_SWEEP_CRON });
+    expect(logger.flush).toHaveBeenCalledTimes(1);
+  });
+
+  test("a retention failure does not skip the artifact sweep (phases are isolated)", async () => {
+    vi.mocked(runRetentionSweep).mockRejectedValue(new Error("zero billing rows resolved"));
+
+    await retentionSweepHandler(makeContext({ RETENTION_SWEEP_ENABLED: "true" }));
+
+    expect(sweepUnmatchedArtifactBlobs).toHaveBeenCalledTimes(1);
   });
 
   test("a blob store without list/delete (node self-host seam) passes blobs: null", async () => {
