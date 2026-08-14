@@ -1545,8 +1545,7 @@ describe("refreshPrSessionComment", () => {
       links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
     });
     const noMethod = fakeGithubClient();
-    // @ts-expect-error — exercising the "client fake omits the method" contract.
-    delete noMethod.listPullRequestFiles;
+    Reflect.deleteProperty(noMethod, "listPullRequestFiles");
     noMethod.createIssueComment.mockResolvedValue(okComment(111));
     const result = await refreshPrSessionComment(
       { tenantId: TENANT, repository: REPO, prNumber: PR },

@@ -21,7 +21,9 @@ type Row = {
 };
 
 function chQueryOf(rows: Row[]) {
-  return vi.fn(async () => rows);
+  return vi.fn<(sql: string, params: Record<string, unknown>) => Promise<Row[]>>(
+    async () => rows,
+  );
 }
 
 function bashRow(over: Partial<Row> = {}): Row {
@@ -48,7 +50,7 @@ describe("readVerificationSpans", () => {
     await readVerificationSpans(chQuery, ["t1", "t2"]);
 
     expect(chQuery).toHaveBeenCalledTimes(1);
-    const [sql, params] = chQuery.mock.calls[0]! as unknown as [string, Record<string, unknown>];
+    const [sql, params] = chQuery.mock.calls[0]!;
     expect(params).toEqual({ traceIds: ["t1", "t2"] });
     expect(sql).toContain("FROM otel_traces");
     expect(sql).toContain("SpanName LIKE 'agent.tool.%'");
