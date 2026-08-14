@@ -389,6 +389,10 @@ CREATE OR REPLACE TRIGGER on_update_pr_session_comment_set_updated_at
     BEFORE UPDATE ON public.pr_session_comment
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_only();
 
+CREATE OR REPLACE TRIGGER on_update_artifact_set_updated_at
+    BEFORE UPDATE ON public.artifact
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_only();
+
 -- -----------------------------------------------------------------------------
 -- Realtime Subscriptions
 -- -----------------------------------------------------------------------------

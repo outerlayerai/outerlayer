@@ -100,6 +100,10 @@ ALTER TABLE public.pull_request_session
     ADD CONSTRAINT pull_request_session_tenant_app_fk
     FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
 
+ALTER TABLE public.artifact
+    ADD CONSTRAINT artifact_tenant_app_fk
+    FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
+
 -- saved_trace_filters is the one table here with no pre-existing app_id FK at
 -- all, so this constraint is also what first ties its app_id to a real app.
 ALTER TABLE public.saved_trace_filters

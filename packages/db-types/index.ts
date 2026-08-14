@@ -352,6 +352,112 @@ export type Database = {
           },
         ]
       }
+      artifact: {
+        Row: {
+          app_id: string
+          blob_deleted: boolean
+          caption: string
+          client_artifact_id: string
+          commit_sha: string
+          created_at: string
+          criterion_id: string
+          emitted_at: string
+          filename: string
+          git_branch: string
+          git_repo: string
+          id: string
+          kind: string
+          last_reconciled_at: string
+          media_type: string
+          pr_number: number | null
+          provenance: string
+          repository: string
+          session_id: string
+          sha256: string
+          tenant_id: string
+          trace_id: string
+          turn_index: number | null
+          updated_at: string
+          verification: string
+        }
+        Insert: {
+          app_id: string
+          blob_deleted?: boolean
+          caption?: string
+          client_artifact_id: string
+          commit_sha?: string
+          created_at?: string
+          criterion_id?: string
+          emitted_at: string
+          filename: string
+          git_branch?: string
+          git_repo?: string
+          id?: string
+          kind: string
+          last_reconciled_at?: string
+          media_type: string
+          pr_number?: number | null
+          provenance: string
+          repository?: string
+          session_id?: string
+          sha256: string
+          tenant_id: string
+          trace_id?: string
+          turn_index?: number | null
+          updated_at?: string
+          verification?: string
+        }
+        Update: {
+          app_id?: string
+          blob_deleted?: boolean
+          caption?: string
+          client_artifact_id?: string
+          commit_sha?: string
+          created_at?: string
+          criterion_id?: string
+          emitted_at?: string
+          filename?: string
+          git_branch?: string
+          git_repo?: string
+          id?: string
+          kind?: string
+          last_reconciled_at?: string
+          media_type?: string
+          pr_number?: number | null
+          provenance?: string
+          repository?: string
+          session_id?: string
+          sha256?: string
+          tenant_id?: string
+          trace_id?: string
+          turn_index?: number | null
+          updated_at?: string
+          verification?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "artifact_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "app"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "artifact_tenant_app_fk"
+            columns: ["tenant_id", "app_id"]
+            isOneToOne: false
+            referencedRelation: "app"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "artifact_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenant"
+            referencedColumns: ["tenant_id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action_type: string
