@@ -5,11 +5,13 @@
  * Drives the handler directly with a mocked context (the agents-sync.test.ts
  * pattern): ClickHouse traffic is captured per table/query, blob storage is an
  * in-memory map, and the scoped Supabase client is replaced at the
- * `getScopedSupabase` seam with a stateful fake covering the two Postgres
- * tables the route touches.
+ * `getScopedSupabase` seam with a stateful fake covering the three Postgres
+ * tables the route touches. Every fake captures the COLUMN NAMES of its
+ * filters alongside the values, so a filter on the wrong column fails even
+ * when the values happen to line up.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { NoopCacheStore } from '../../runtime/adapters/noop-cache-store';
 
@@ -33,12 +35,14 @@ const checkStorageCap = vi.fn(async () => {
   return storageCapResult;
 });
 
-// Captured ClickHouse traffic: blob inserts per table plus every
-// session-existence read, so tests can pin tenant scoping on the read and
-// exact content on the write.
+// Captured ClickHouse traffic: blob inserts per table plus every read (the
+// session-existence probe and the blob commit-marker probe), so tests can pin
+// tenant scoping on the reads and exact content on the write.
 const insertsByTable: Record<string, Array<Record<string, unknown>>> = {};
-const summaryQueries: Array<Record<string, unknown>> = [];
+const chQueries: Array<{ query: string; query_params: Record<string, unknown> }> = [];
 let sessionExistsInClickHouse = false;
+let sessionTurnCount = 8;
+let blobRowExistsInClickHouse = true;
 let insertShouldThrow: Error | null = null;
 vi.mock('@clickhouse/client-web', () => ({
   createClient: vi.fn(() => ({
@@ -46,9 +50,19 @@ vi.mock('@clickhouse/client-web', () => ({
       if (insertShouldThrow) throw insertShouldThrow;
       (insertsByTable[params.table] ??= []).push(...params.values);
     }),
-    query: vi.fn(async (params: { query_params?: Record<string, unknown> }) => {
-      summaryQueries.push(params.query_params ?? {});
-      return { json: async () => [{ n: sessionExistsInClickHouse ? 1 : 0 }] };
+    query: vi.fn(async (params: { query: string; query_params?: Record<string, unknown> }) => {
+      chQueries.push({ query: params.query, query_params: params.query_params ?? {} });
+      if (params.query.includes('agent_session_summary')) {
+        return {
+          json: async () => [
+            { n: sessionExistsInClickHouse ? 1 : 0, turnCount: sessionExistsInClickHouse ? sessionTurnCount : 0 },
+          ],
+        };
+      }
+      if (params.query.includes('agent_blobs')) {
+        return { json: async () => [{ n: blobRowExistsInClickHouse ? 1 : 0 }] };
+      }
+      throw new Error(`unexpected ClickHouse query: ${params.query}`);
     }),
     close: vi.fn(async () => {}),
   })),
@@ -57,11 +71,13 @@ vi.mock('@clickhouse/client-web', () => ({
 // In-memory blob storage (the object-storage half of the dual-write).
 const blobStore = new Map<string, { bytes: Uint8Array; contentType: string }>();
 let blobStorageAvailable = true;
+let storagePutShouldThrow: Error | null = null;
 vi.mock('../../lib/blob-storage', () => ({
   createBlobStorage: vi.fn(() => {
     if (!blobStorageAvailable) throw new Error('no R2 binding');
     return {
       put: async (key: string, bytes: Uint8Array, contentType: string) => {
+        if (storagePutShouldThrow) throw storagePutShouldThrow;
         blobStore.set(key, { bytes, contentType });
       },
       get: async (key: string) => blobStore.get(key)?.bytes ?? null,
@@ -69,8 +85,9 @@ vi.mock('../../lib/blob-storage', () => ({
   }),
 }));
 
-// Scoped-Supabase seam: a stateful fake for the two tables the route reads
-// and writes. Calls are captured into plain arrays and asserted with toEqual.
+// Scoped-Supabase seam: a stateful fake for the three tables the route reads
+// and writes. Calls are captured into plain arrays — column names included —
+// and asserted with toEqual.
 type StoredArtifactRow = {
   id: string;
   kind: string;
@@ -78,26 +95,36 @@ type StoredArtifactRow = {
   verification: string;
   pr_number: number | null;
   repository: string;
+  sha256?: string;
+  blob_deleted?: boolean;
 };
 // Consumed one entry per artifact select (pre-check first, then the
 // post-upsert re-read); an exhausted queue reads as "no row".
 let artifactSelectQueue: Array<StoredArtifactRow | null> = [];
 let prRowExists = false;
+let gitConnectionRow: { provider: string; repository: string | null } | null = null;
 let upsertIgnored = false;
 const artifactUpserts: Array<{ row: Record<string, unknown>; options: Record<string, unknown> }> = [];
-const artifactLookups: Array<{ appId: string; clientArtifactId: string }> = [];
-const prLookups: Array<{ appId: string; prNumber: number }> = [];
+const artifactLookups: Array<{ select: string; filters: Array<[string, unknown]> }> = [];
+const prLookups: Array<{ select: string; filters: Array<[string, unknown]> }> = [];
+const gitConnectionLookups: Array<{ select: string; filters: Array<[string, unknown]> }> = [];
 
 function scopedDb() {
   return {
     from: (table: string) => {
       if (table === 'artifact') {
         return {
-          select: () => ({
-            eq: (_appCol: string, appId: string) => ({
-              eq: (_idCol: string, clientArtifactId: string) => ({
+          select: (select: string) => ({
+            eq: (col1: string, val1: unknown) => ({
+              eq: (col2: string, val2: unknown) => ({
                 maybeSingle: async () => {
-                  artifactLookups.push({ appId, clientArtifactId });
+                  artifactLookups.push({
+                    select,
+                    filters: [
+                      [col1, val1],
+                      [col2, val2],
+                    ],
+                  });
                   const next = artifactSelectQueue.length > 0 ? artifactSelectQueue.shift()! : null;
                   return { data: next, error: null };
                 },
@@ -128,16 +155,34 @@ function scopedDb() {
       }
       if (table === 'pull_request') {
         return {
-          select: () => ({
-            eq: (_appCol: string, appId: string) => ({
-              eq: (_prCol: string, prNumber: number) => ({
+          select: (select: string) => ({
+            eq: (col1: string, val1: unknown) => ({
+              eq: (col2: string, val2: unknown) => ({
                 limit: () => ({
                   maybeSingle: async () => {
-                    prLookups.push({ appId, prNumber });
+                    prLookups.push({
+                      select,
+                      filters: [
+                        [col1, val1],
+                        [col2, val2],
+                      ],
+                    });
                     return { data: prRowExists ? { id: 'pr-uuid-1' } : null, error: null };
                   },
                 }),
               }),
+            }),
+          }),
+        };
+      }
+      if (table === 'git_connection') {
+        return {
+          select: (select: string) => ({
+            eq: (col1: string, val1: unknown) => ({
+              maybeSingle: async () => {
+                gitConnectionLookups.push({ select, filters: [[col1, val1]] });
+                return { data: gitConnectionRow, error: null };
+              },
             }),
           }),
         };
@@ -154,7 +199,12 @@ vi.mock('../routes/_shared', async (importOriginal) => ({
 
 import { createClient } from '@clickhouse/client-web';
 import type { AppContext } from '../routes/_shared';
-import { EmitArtifact, ARTIFACT_MAX_BLOB_BYTES, ARTIFACT_MAX_REQUEST_BYTES } from '../routes/artifacts';
+import {
+  EmitArtifact,
+  ARTIFACT_MAX_BLOB_BYTES,
+  ARTIFACT_MAX_REQUEST_BYTES,
+  ARTIFACT_EMITTED_AT_MAX_PAST_MS,
+} from '../routes/artifacts';
 import { agentBlobKey } from '../routes/agents';
 import { PR_COMMENT_QUEUE_DEBOUNCE_SECONDS } from '../../types/queue-messages';
 
@@ -167,6 +217,12 @@ const createClientMock = vi.mocked(createClient);
 const pngBytes = new TextEncoder().encode('png-bytes-of-proof');
 const pngSha = createHash('sha256').update(pngBytes).digest('hex');
 const pngB64 = Buffer.from(pngBytes).toString('base64');
+
+/** Frozen wall clock — the emitted_at clamp math must be exact-asserted. */
+const SERVER_NOW = new Date('2026-08-14T12:00:00.000Z');
+
+const ARTIFACT_PRECHECK_SELECT = 'id,kind,provenance,verification,pr_number,repository,sha256,blob_deleted';
+const ARTIFACT_RETURN_SELECT = 'id,kind,provenance,verification,pr_number,repository';
 
 function emitBody(
   artifactOver: Record<string, unknown> = {},
@@ -185,6 +241,20 @@ function emitBody(
       ...artifactOver,
     },
     blob: { data: pngB64, ...blobOver },
+  };
+}
+
+function storedRow(over: Partial<StoredArtifactRow> = {}): StoredArtifactRow {
+  return {
+    id: 'artifact-uuid-9',
+    kind: 'screenshot',
+    provenance: 'ci',
+    verification: 'confirmed',
+    pr_number: 512,
+    repository: 'acme/api',
+    sha256: pngSha,
+    blob_deleted: false,
+    ...over,
   };
 }
 
@@ -221,7 +291,7 @@ function ctxFor(
     },
     env: { CLICKHOUSE_HOST: 'http://localhost:8123', CLICKHOUSE_PASSWORD: 'x', ...envOver },
     req: {
-      json: async () => body,
+      text: async () => JSON.stringify(body),
       method: 'POST',
       path: '/v1/artifacts',
       header: (name: string) => lowerHeaders[name.toLowerCase()],
@@ -241,22 +311,40 @@ function ctxFor(
   };
 }
 
+function summaryProbes() {
+  return chQueries.filter((q) => q.query.includes('agent_session_summary'));
+}
+
+function blobProbes() {
+  return chQueries.filter((q) => q.query.includes('agent_blobs'));
+}
+
 beforeEach(() => {
+  vi.useFakeTimers({ now: SERVER_NOW, toFake: ['Date'] });
   for (const key of Object.keys(insertsByTable)) delete insertsByTable[key];
-  summaryQueries.length = 0;
+  chQueries.length = 0;
   sessionExistsInClickHouse = false;
+  sessionTurnCount = 8;
+  blobRowExistsInClickHouse = true;
   insertShouldThrow = null;
   blobStore.clear();
   blobStorageAvailable = true;
+  storagePutShouldThrow = null;
   artifactSelectQueue = [];
   prRowExists = false;
+  gitConnectionRow = null;
   upsertIgnored = false;
   artifactUpserts.length = 0;
   artifactLookups.length = 0;
   prLookups.length = 0;
+  gitConnectionLookups.length = 0;
   createClientMock.mockClear();
   storageCapResult = { allowed: true, currentBytes: 0, limitBytes: -1, capReached: false };
   checkStorageCap.mockClear();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 // ---------------------------------------------------------------------------
@@ -312,6 +400,16 @@ describe('EmitArtifact', () => {
       onConflict: 'app_id,client_artifact_id',
       ignoreDuplicates: true,
     });
+    // The pre-check filters on the idempotency key's exact columns.
+    expect(artifactLookups).toEqual([
+      {
+        select: ARTIFACT_PRECHECK_SELECT,
+        filters: [
+          ['app_id', 'app-1'],
+          ['client_artifact_id', 'art_01HZX4T8'],
+        ],
+      },
+    ]);
     expect(json()).toEqual({
       data: {
         id: 'artifact-uuid-1',
@@ -361,7 +459,15 @@ describe('EmitArtifact', () => {
     await new EmitArtifact({} as never).handle(ctx);
 
     expect(status()).toBe(200);
-    expect(prLookups).toEqual([{ appId: 'app-1', prNumber: 512 }]);
+    expect(prLookups).toEqual([
+      {
+        select: 'id',
+        filters: [
+          ['app_id', 'app-1'],
+          ['pr_number', 512],
+        ],
+      },
+    ]);
     expect(artifactUpserts[0]!.row).toEqual({
       tenant_id: 'tenant-1',
       app_id: 'app-1',
@@ -403,6 +509,46 @@ describe('EmitArtifact', () => {
     expect(status()).toBe(200);
     expect(artifactUpserts[0]!.row.pr_number).toBe(900);
     expect(artifactUpserts[0]!.row.verification).toBe('pending');
+    // An unconfirmed claim consults no git connection.
+    expect(gitConnectionLookups).toEqual([]);
+  });
+
+  it('stamps the repository from the app git connection when confirming a PR claim that carried none', async () => {
+    prRowExists = true;
+    gitConnectionRow = { provider: 'github', repository: 'Acme/API' };
+    const { ctx, status, json } = ctxFor(emitBody({ prNumber: 42 }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect(gitConnectionLookups).toEqual([
+      { select: 'provider,repository', filters: [['app_id', 'app-1']] },
+    ]);
+    expect(artifactUpserts[0]!.row.repository).toBe('acme/api');
+    expect(artifactUpserts[0]!.row.verification).toBe('confirmed');
+    expect((json() as { data: { repository: string } }).data.repository).toBe('acme/api');
+  });
+
+  it('prefers the connection repository over divergent caller input on a confirmed claim', async () => {
+    prRowExists = true;
+    gitConnectionRow = { provider: 'github', repository: 'acme/api' };
+    const { ctx, status } = ctxFor(emitBody({ prNumber: 42, repository: 'other/repo' }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect(artifactUpserts[0]!.row.repository).toBe('acme/api');
+  });
+
+  it('keeps the repository unresolved when the confirming app connection is not GitHub', async () => {
+    prRowExists = true;
+    gitConnectionRow = { provider: 'gitlab', repository: 'group/project' };
+    const queue = { sendBatch: vi.fn(async () => {}) };
+    const { ctx, status } = ctxFor(emitBody({ prNumber: 42 }), {}, {}, { PR_COMMENT_QUEUE: queue });
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect(artifactUpserts[0]!.row.repository).toBe('');
+    expect(artifactUpserts[0]!.row.verification).toBe('confirmed');
+    expect(queue.sendBatch).not.toHaveBeenCalled();
   });
 
   it('binds to a synced session: session provenance, derived trace id, session_id and turn_index stored', async () => {
@@ -416,8 +562,11 @@ describe('EmitArtifact', () => {
     // The existence read is pinned to the caller's tenant + app partition and
     // the trace id derived the same way the sync converter derives it (UUID
     // with dashes stripped).
-    expect(summaryQueries).toEqual([
-      { t: 'tenant-1', a: 'app-1', id: '5c3a1b2d4e6f47089a1b2c3d4e5f6a7b' },
+    expect(summaryProbes()).toEqual([
+      {
+        query: expect.stringContaining('agent_session_summary'),
+        query_params: { t: 'tenant-1', a: 'app-1', id: '5c3a1b2d4e6f47089a1b2c3d4e5f6a7b' },
+      },
     ]);
     expect(artifactUpserts[0]!.row).toEqual({
       tenant_id: 'tenant-1',
@@ -460,12 +609,46 @@ describe('EmitArtifact', () => {
           'No synced session matches this binding for the app — sync the session before emitting artifacts bound to it.',
       },
     });
-    expect(summaryQueries).toEqual([
-      { t: 'tenant-1', a: 'app-1', id: 'aaaaaaaabbbb4ccc8dddeeeeeeeeeeee' },
+    expect(summaryProbes()).toEqual([
+      {
+        query: expect.stringContaining('agent_session_summary'),
+        query_params: { t: 'tenant-1', a: 'app-1', id: 'aaaaaaaabbbb4ccc8dddeeeeeeeeeeee' },
+      },
     ]);
     expect(artifactUpserts).toEqual([]);
     expect(insertsByTable['agent_blobs']).toBeUndefined();
     expect(blobStore.size).toBe(0);
+  });
+
+  it('rejects a turn index at or past the synced session turn count, storing nothing', async () => {
+    sessionExistsInClickHouse = true;
+    sessionTurnCount = 4;
+    const { ctx, status, json } = ctxFor(
+      emitBody({ session: { sessionId: '5c3a1b2d-4e6f-4708-9a1b-2c3d4e5f6a7b', turnIndex: 4 } }),
+    );
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(400);
+    expect(json()).toEqual({
+      error: {
+        code: 'invalid_field_value',
+        message: 'session.turnIndex is out of range for the synced session',
+      },
+    });
+    expect(artifactUpserts).toEqual([]);
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+    expect(blobStore.size).toBe(0);
+  });
+
+  it('accepts the last in-range turn index (turnCount - 1)', async () => {
+    sessionExistsInClickHouse = true;
+    sessionTurnCount = 4;
+    const { ctx, status } = ctxFor(
+      emitBody({ session: { sessionId: '5c3a1b2d-4e6f-4708-9a1b-2c3d4e5f6a7b', turnIndex: 3 } }),
+    );
+    await new EmitArtifact({} as never).handle(ctx);
+    expect(status()).toBe(200);
+    expect(artifactUpserts[0]!.row.turn_index).toBe(3);
   });
 
   // proves AC-084-05
@@ -550,6 +733,19 @@ describe('EmitArtifact', () => {
     expect(artifactUpserts).toEqual([]);
   });
 
+  it('rejects a bytes field that does not equal the decoded blob length, storing nothing', async () => {
+    const { ctx, status, json } = ctxFor(emitBody({ prNumber: 7, bytes: pngBytes.byteLength + 1 }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(400);
+    expect(json()).toEqual({
+      error: { code: 'invalid_field_value', message: 'bytes does not match the decoded blob length' },
+    });
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+    expect(blobStore.size).toBe(0);
+    expect(artifactUpserts).toEqual([]);
+  });
+
   it('rejects blob data that is not valid base64', async () => {
     const { ctx, status, json } = ctxFor(emitBody({ prNumber: 7 }, { data: '!!!not-base64!!!' }));
     await new EmitArtifact({} as never).handle(ctx);
@@ -616,15 +812,45 @@ describe('EmitArtifact', () => {
     expect(artifactUpserts).toEqual([]);
   });
 
-  it('returns the stored row on an idempotent retry without a second blob write', async () => {
-    artifactSelectQueue.push({
-      id: 'artifact-uuid-9',
-      kind: 'screenshot',
-      provenance: 'ci',
-      verification: 'confirmed',
-      pr_number: 512,
-      repository: 'acme/api',
-    });
+  it('rejects free-text context fields past their caps with 400, storing nothing', async () => {
+    const oversizedByField: Array<Record<string, unknown>> = [
+      { repository: 'a'.repeat(201), prNumber: 7 },
+      { gitRepo: 'a'.repeat(301) },
+      { gitBranch: 'a'.repeat(256) },
+      { commitSha: 'a'.repeat(65), gitBranch: 'fix/login' },
+      { session: { sessionId: 'a'.repeat(129) } },
+    ];
+    for (const over of oversizedByField) {
+      const { ctx, status, json } = ctxFor(emitBody(over));
+      await new EmitArtifact({} as never).handle(ctx);
+      expect(status()).toBe(400);
+      expect((json() as { error: { code: string } }).error.code).toBe('invalid_request_body');
+    }
+    expect(artifactUpserts).toEqual([]);
+    expect(blobStore.size).toBe(0);
+  });
+
+  it('clamps a backdated emittedAt to the bounded window so the grace clock cannot be pre-expired', async () => {
+    const { ctx, status } = ctxFor(emitBody({ prNumber: 7, emittedAt: '2026-01-01T00:00:00.000Z' }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect(artifactUpserts[0]!.row.emitted_at).toBe(
+      new Date(SERVER_NOW.getTime() - ARTIFACT_EMITTED_AT_MAX_PAST_MS).toISOString(),
+    );
+  });
+
+  it('clamps a future-dated emittedAt to server time so the row cannot stay pending forever', async () => {
+    const { ctx, status } = ctxFor(emitBody({ prNumber: 7, emittedAt: '2027-01-01T00:00:00.000Z' }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect(artifactUpserts[0]!.row.emitted_at).toBe('2026-08-14T12:00:00.000Z');
+  });
+
+  it('returns the stored row on an idempotent retry, probing the blob commit marker but writing nothing', async () => {
+    blobRowExistsInClickHouse = true;
+    artifactSelectQueue.push(storedRow());
     const { ctx, status, json } = ctxFor(emitBody({ ci: true, repository: 'acme/api', prNumber: 512 }));
     await new EmitArtifact({} as never).handle(ctx);
 
@@ -639,14 +865,80 @@ describe('EmitArtifact', () => {
         repository: 'acme/api',
       },
     });
-    expect(artifactLookups).toEqual([{ appId: 'app-1', clientArtifactId: 'art_01HZX4T8' }]);
+    expect(artifactLookups).toEqual([
+      {
+        select: ARTIFACT_PRECHECK_SELECT,
+        filters: [
+          ['app_id', 'app-1'],
+          ['client_artifact_id', 'art_01HZX4T8'],
+        ],
+      },
+    ]);
+    expect(blobProbes()).toEqual([
+      {
+        query: expect.stringContaining('agent_blobs'),
+        query_params: { t: 'tenant-1', a: 'app-1', s: pngSha },
+      },
+    ]);
     expect(artifactUpserts).toEqual([]);
     expect(insertsByTable['agent_blobs']).toBeUndefined();
     expect(blobStore.size).toBe(0);
-    expect(createClientMock).not.toHaveBeenCalled();
   });
 
-  it('returns the winner row when a concurrent duplicate makes the upsert a no-op', async () => {
+  it('finishes an interrupted dual-write on retry: missing commit marker triggers a re-put of both stores', async () => {
+    blobRowExistsInClickHouse = false;
+    artifactSelectQueue.push(storedRow());
+    const { ctx, status, json } = ctxFor(emitBody({ ci: true, repository: 'acme/api', prNumber: 512 }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect((json() as { data: { id: string } }).data.id).toBe('artifact-uuid-9');
+    expect(insertsByTable['agent_blobs']).toEqual([
+      {
+        TenantId: 'tenant-1',
+        AppId: 'app-1',
+        Sha256: pngSha,
+        MediaType: 'image/png',
+        Bytes: pngBytes.byteLength,
+        Data: pngB64,
+      },
+    ]);
+    expect(blobStore.get(agentBlobKey('tenant-1', 'app-1', pngSha))?.contentType).toBe('image/png');
+    // No second row write: the repair touches the byte stores only.
+    expect(artifactUpserts).toEqual([]);
+  });
+
+  it('never re-puts bytes for a row the sweep already released, even when the blob is gone', async () => {
+    blobRowExistsInClickHouse = false;
+    artifactSelectQueue.push(storedRow({ verification: 'unmatched', blob_deleted: true }));
+    const { ctx, status } = ctxFor(emitBody({ ci: true, repository: 'acme/api', prNumber: 512 }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect(blobProbes()).toEqual([]);
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+    expect(blobStore.size).toBe(0);
+  });
+
+  it('refuses a clientArtifactId retry whose content diverges from the stored artifact with 409', async () => {
+    artifactSelectQueue.push(storedRow({ sha256: 'b'.repeat(64) }));
+    const { ctx, status, json } = ctxFor(emitBody({ ci: true, repository: 'acme/api', prNumber: 512 }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(409);
+    expect(json()).toEqual({
+      error: {
+        code: 'artifact_content_conflict',
+        message: 'clientArtifactId is already stored with different content — mint a new id for new bytes.',
+      },
+    });
+    expect(blobProbes()).toEqual([]);
+    expect(artifactUpserts).toEqual([]);
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+    expect(blobStore.size).toBe(0);
+  });
+
+  it('returns the winner row when a concurrent duplicate makes the upsert a no-op, still completing the byte writes', async () => {
     upsertIgnored = true;
     // Pre-check misses (the duplicate lands mid-request), the post-upsert
     // re-read finds the winner.
@@ -675,17 +967,59 @@ describe('EmitArtifact', () => {
         repository: '',
       },
     });
+    // The re-read uses the return columns, filtered on the same key columns.
+    expect(artifactLookups).toEqual([
+      {
+        select: ARTIFACT_PRECHECK_SELECT,
+        filters: [
+          ['app_id', 'app-1'],
+          ['client_artifact_id', 'art_01HZX4T8'],
+        ],
+      },
+      {
+        select: ARTIFACT_RETURN_SELECT,
+        filters: [
+          ['app_id', 'app-1'],
+          ['client_artifact_id', 'art_01HZX4T8'],
+        ],
+      },
+    ]);
+    // The loser re-runs the idempotent byte writes, covering a winner that
+    // shed mid-write.
+    expect(insertsByTable['agent_blobs']).toHaveLength(1);
+    expect(blobStore.size).toBe(1);
   });
 
-  it('sheds 503 with Retry-After when the blob insert fails, before the row upsert', async () => {
+  it('sheds 503 with Retry-After when the blob insert fails, leaving the row for the retry to repair', async () => {
     insertShouldThrow = new Error('ClickHouse 503: too many simultaneous queries');
     const { ctx, status, json, headers } = ctxFor(emitBody({ prNumber: 7 }));
     await new EmitArtifact({} as never).handle(ctx);
 
     expect(status()).toBe(503);
     expect((json() as { error: { code: string } }).error.code).toBe('service_unavailable');
-    expect(headers()['Retry-After']).toBe('30');
-    expect(artifactUpserts).toEqual([]);
+    // Exact headers: the Retry-After interval and nothing else. This pins
+    // the hand-rolled ctx mock's status+headers convention, which mirrors
+    // the shape the agents-sync route passes to Hono's c.json.
+    expect(headers()).toEqual({ 'Retry-After': '30' });
+    // The row precedes the byte writes; the commit marker (the agent_blobs
+    // row) is absent, so the idempotent retry re-runs the dual-write.
+    expect(artifactUpserts).toHaveLength(1);
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+  });
+
+  it('sheds 503 with Retry-After when the object-storage put fails, never acking an unservable blob', async () => {
+    storagePutShouldThrow = new Error('R2 internal error (500)');
+    const { ctx, status, json, headers } = ctxFor(emitBody({ prNumber: 7 }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(503);
+    expect((json() as { error: { code: string } }).error.code).toBe('service_unavailable');
+    expect(headers()).toEqual({ 'Retry-After': '30' });
+    // The put precedes the ClickHouse commit marker, so the retry's
+    // pre-check sees the marker missing and re-runs both writes.
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+    expect(blobStore.size).toBe(0);
+    expect(artifactUpserts).toHaveLength(1);
   });
 
   it('returns 429 storage_cap_exceeded when the cap is reached, storing nothing', async () => {
@@ -808,7 +1142,7 @@ describe('EmitArtifact PR_COMMENT_QUEUE nomination', () => {
 });
 
 describe('EmitArtifact — contract and edge branches', () => {
-  it('declares the OpenAPI contract: tag, request schema, and the 503 Retry-After header', () => {
+  it('declares the OpenAPI contract: tag, request schema, response set, and the 503 Retry-After header', () => {
     const route = new EmitArtifact({} as never);
     const schema = route.schema as {
       tags: string[];
@@ -820,8 +1154,23 @@ describe('EmitArtifact — contract and edge branches', () => {
     const content = schema.request.body.content;
     expect(Object.keys(content)).toEqual(['application/json']);
     expect(content['application/json']!.schema).toBeInstanceOf(Object);
-    expect(Object.keys(schema.responses).sort()).toEqual(['200', '400', '401', '413', '429', '503']);
+    expect(Object.keys(schema.responses).sort()).toEqual(['200', '400', '401', '409', '413', '429', '503']);
     expect(schema.responses['503']!.headers).toBeInstanceOf(Object);
+  });
+
+  it('declares the structured extras on the 413 and 429 error schemas', () => {
+    const route = new EmitArtifact({} as never) as unknown as {
+      schema: {
+        responses: Record<
+          string,
+          { content?: Record<string, { schema?: { shape?: { error?: { shape?: Record<string, unknown> } } } }> }
+        >;
+      };
+    };
+    const errorShape = (status: string) =>
+      Object.keys(route.schema.responses[status]?.content?.['application/json']?.schema?.shape?.error?.shape ?? {}).sort();
+    expect(errorShape('413')).toEqual(['code', 'limit', 'message']);
+    expect(errorShape('429')).toEqual(['code', 'currentBytes', 'limitBytes', 'message']);
   });
 
   it('413s a request whose base64 payload alone exceeds the request ceiling, naming the limit', async () => {

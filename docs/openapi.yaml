@@ -2696,7 +2696,7 @@ paths:
         - "Apps"
   /v1/artifacts:
     post:
-      description: "Accepts one artifact — a screenshot, recording, report, or log emitted as proof that a change works — plus its content-addressed blob. The artifact anchors to a pull request directly (prNumber), through the recorded session that produced it, or through git context resolved to a PR later; a request with no anchor at all is refused and nothing is stored. `kind` is inferred from the media type and provenance (session / ci / local) is derived from the submission path — neither can be supplied by the caller. Retrying with the same clientArtifactId returns the already-stored artifact."
+      description: "Accepts one artifact — a screenshot, recording, report, or log emitted as proof that a change works — plus its content-addressed blob. The artifact anchors to a pull request directly (prNumber), through the recorded session that produced it, or through git context resolved to a PR later; a request with no anchor at all is refused and nothing is stored. `kind` is inferred from the media type and provenance (session / ci / local) is derived from the submission path — neither can be supplied by the caller. A session binding must name a session that already synced for the app, with `turnIndex` within its recorded turns; note the binding proves the session exists, not that the bytes came from it. `ci` is advisory: it is honored only for a shared (non-actor) API key and downgrades to `local` otherwise. `bytes` must equal the decoded blob length. `emittedAt` is display metadata; because it also starts the unmatched grace clock, the stored value is clamped to a bounded window ending at server receipt time. Retrying with the same clientArtifactId returns the already-stored artifact when the content matches and fails with 409 when it does not."
       operationId: "emit-artifact"
       requestBody:
         content:
@@ -2717,6 +2717,7 @@ paths:
                       pattern: "^[A-Za-z0-9_.:-]{1,64}$"
                       type: "string"
                     commitSha:
+                      maxLength: 64
                       type: "string"
                     criterionId:
                       pattern: "^[A-Za-z0-9_.:-]{1,64}$"
@@ -2728,8 +2729,10 @@ paths:
                       minLength: 1
                       type: "string"
                     gitBranch:
+                      maxLength: 255
                       type: "string"
                     gitRepo:
+                      maxLength: 300
                       type: "string"
                     mediaType:
                       maxLength: 100
@@ -2740,10 +2743,12 @@ paths:
                       minimum: 0
                       type: "integer"
                     repository:
+                      maxLength: 200
                       type: "string"
                     session:
                       properties:
                         sessionId:
+                          maxLength: 128
                           minLength: 1
                           type: "string"
                         turnIndex:
@@ -2846,7 +2851,7 @@ paths:
                 required:
                   - "error"
                 type: "object"
-          description: "Malformed body, sha256 mismatch, unknown session binding, or nothing to attach to."
+          description: "Malformed body, sha256 or bytes mismatch, unknown session binding, turn index out of range, or nothing to attach to."
         "401":
           content:
             application/json:
@@ -2866,6 +2871,25 @@ paths:
                   - "error"
                 type: "object"
           description: "Missing or invalid API key."
+        "409":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "The clientArtifactId is already stored with different content."
         "413":
           content:
             application/json:
@@ -2875,16 +2899,19 @@ paths:
                     properties:
                       code:
                         type: "string"
+                      limit:
+                        type: "integer"
                       message:
                         type: "string"
                     required:
                       - "code"
                       - "message"
+                      - "limit"
                     type: "object"
                 required:
                   - "error"
                 type: "object"
-          description: "Blob or request exceeds the byte ceiling."
+          description: "Blob or request exceeds the byte ceiling (`error.limit` names it)."
         "429":
           content:
             application/json:
@@ -2894,16 +2921,22 @@ paths:
                     properties:
                       code:
                         type: "string"
+                      currentBytes:
+                        type: "number"
+                      limitBytes:
+                        type: "number"
                       message:
                         type: "string"
                     required:
                       - "code"
                       - "message"
+                      - "currentBytes"
+                      - "limitBytes"
                     type: "object"
                 required:
                   - "error"
                 type: "object"
-          description: "Monthly storage cap exceeded."
+          description: "Monthly storage cap exceeded (`error.currentBytes` / `error.limitBytes` carry the usage)."
         "503":
           content:
             application/json:
