@@ -193,6 +193,7 @@ describe('<Topics> populated map', () => {
   });
 
   // proves AC-056-05
+  // proves AC-056-06
   it('renders topic rows sorted as given, with counts and share, plus the no-match row', () => {
     renderTopics({ topics: populatedList() });
 
@@ -237,7 +238,6 @@ describe('<Topics> populated map', () => {
     expect(spark).toHaveAttribute('aria-label', 'No trend data');
   });
 
-  // proves AC-056-06
   it('hides the no-match row when there are no unmatched traces', () => {
     renderTopics({ topics: populatedList({ noMatchCount: 0 }) });
     expect(screen.queryByTestId('topic-row-no-match')).not.toBeInTheDocument();

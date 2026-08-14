@@ -35,10 +35,12 @@ vi.mock("@/lib/system/terms-agreement", () => ({
 }));
 
 const mockAcceptInvitationForUser = vi.hoisted(() => vi.fn());
+const mockDeclineInvitationForUser = vi.hoisted(() => vi.fn());
 const mockCheckNeedsTermsAgreement = vi.hoisted(() => vi.fn());
 const mockGetInvitationDetailsForUser = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/system/org-actions-admin", () => ({
   acceptInvitationForUser: mockAcceptInvitationForUser,
+  declineInvitationForUser: mockDeclineInvitationForUser,
   checkNeedsTermsAgreement: mockCheckNeedsTermsAgreement,
   getInvitationDetailsForUser: mockGetInvitationDetailsForUser,
 }));
@@ -60,8 +62,13 @@ vi.mock("@/lib/action-kit", async (importOriginal) => {
 
 import { ActionErrorCodes } from "@/lib/action-kit";
 import * as actionsModule from "./actions";
-const { checkTermsAgreement, acceptInvitation, checkTermsForInvitation, getInvitationDetails } =
-  actionsModule;
+const {
+  checkTermsAgreement,
+  acceptInvitation,
+  declineInvitation,
+  checkTermsForInvitation,
+  getInvitationDetails,
+} = actionsModule;
 
 // Captured once, right after import: every export calls `preTenantAction`
 // exactly once at module init, and `beforeEach`'s `vi.clearAllMocks()` would
@@ -84,6 +91,7 @@ describe("module boundary", () => {
     expect(declaredReasons).toEqual([
       "user-scoped", // checkTermsAgreement
       "pending-membership", // acceptInvitation
+      "pending-membership", // declineInvitation
       "pending-membership", // checkTermsForInvitation
       "pending-membership", // getInvitationDetails
     ]);
@@ -210,6 +218,48 @@ describe("acceptInvitation", () => {
     const result = await acceptInvitation({ membershipId: "membership-1", agreedToTerms: false });
 
     expect(result).toEqual({ ok: true, data: { error: "expired" } });
+  });
+});
+
+describe("declineInvitation", () => {
+  it("returns unauthenticated and never calls declineInvitationForUser when the caller is unauthenticated", async () => {
+    mockLoadPreTenantActor.mockResolvedValue(null);
+
+    const result = await declineInvitation({ membershipId: "membership-1" });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: ActionErrorCodes.UNAUTHENTICATED, message: "Not authenticated" },
+    });
+    expect(mockDeclineInvitationForUser).not.toHaveBeenCalled();
+  });
+
+  it("declines for the resolved actor and revalidates /orgs", async () => {
+    mockDeclineInvitationForUser.mockResolvedValue({ success: true });
+
+    const result = await declineInvitation({ membershipId: "membership-1" });
+
+    expect(mockDeclineInvitationForUser).toHaveBeenCalledWith(
+      { userId: ACTOR.userId, email: ACTOR.email },
+      "membership-1",
+    );
+    expect(result).toEqual({ ok: true, data: { data: { success: true } } });
+    expect(revalidatePath).toHaveBeenCalledWith("/orgs");
+  });
+
+  it("passes through the service's failure message unchanged (e.g. already accepted)", async () => {
+    mockDeclineInvitationForUser.mockResolvedValue({
+      success: false,
+      error: "This invitation has already been accepted",
+    });
+
+    const result = await declineInvitation({ membershipId: "membership-1" });
+
+    expect(result).toEqual({
+      ok: true,
+      data: { error: "This invitation has already been accepted" },
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
 

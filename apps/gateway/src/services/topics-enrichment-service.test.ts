@@ -193,6 +193,7 @@ describe("TopicsEnrichmentService.run", () => {
     });
   });
 
+  // proves AC-056-01
   test("happy path writes exactly one row per facet with mock summaries, unit embeddings, and no topic (no map yet)", async () => {
     const store = makeStore();
     const result = await makeService(store).run();

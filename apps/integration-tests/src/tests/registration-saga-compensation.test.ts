@@ -10,6 +10,7 @@
  */
 
 import { createAuthenticatedUser, cleanupTestUsers, getSupabaseAdmin } from '../lib/test-utils';
+import { deleteTenantsAndUsers, TenantCleanupError } from '../lib/tenant-cleanup';
 import { OrganizationService, OrganizationServiceConfig } from '../../../tenant-dashboard/src/lib/system/organization-service';
 import type { StripeService } from '../../../tenant-dashboard/src/lib/external-services';
 
@@ -91,19 +92,25 @@ class MockStripeService implements StripeService {
   }
 }
 
-// Cleanup additional test tenants
+// Cleanup additional test tenants created directly via createOrganization
+// (their owner is `testUser`, tracked and cleaned separately by
+// cleanupTestUsers — see the afterEach ordering below for why these must go
+// first).
 async function cleanupTestTenants() {
   const supabase = getSupabaseAdmin();
-  for (const tenantId of testTenantIds) {
-    try {
-      await supabase.from('membership').delete().eq('tenant_id', tenantId);
-      await supabase.from('billing').delete().eq('tenant_id', tenantId);
-      await supabase.from('tenant').delete().eq('tenant_id', tenantId);
-    } catch (error) {
-      // Ignore cleanup errors
+  const snapshot = [...testTenantIds];
+  try {
+    await deleteTenantsAndUsers(supabase, snapshot, []);
+    testTenantIds.length = 0;
+  } catch (err) {
+    if (err instanceof TenantCleanupError) {
+      for (const tenantId of err.succeededTenantIds) {
+        const index = testTenantIds.indexOf(tenantId);
+        if (index !== -1) testTenantIds.splice(index, 1);
+      }
     }
+    throw err;
   }
-  testTenantIds.length = 0;
 }
 
 // ---------------
@@ -134,11 +141,30 @@ describe('SAGA COMPENSATION - Organization Creation', () => {
 
   afterEach(async () => {
     console.error = originalConsoleError;
-    await cleanupTestTenants();
-    await cleanupTestUsers();
+    // Tenants before users: `testUser` owns both their own tenant (tracked
+    // by cleanupTestUsers) and any createOrganization tenant tracked here,
+    // and deleting the auth user cascades into whichever owner membership
+    // is still standing — so the createOrganization tenant must be gone
+    // first, or that cascade trips protect_last_owner same as a raw delete
+    // would. Both cleanups are attempted regardless of the other failing.
+    const errors: string[] = [];
+    try {
+      await cleanupTestTenants();
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+    try {
+      await cleanupTestUsers();
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+    if (errors.length > 0) {
+      throw new Error(`afterEach cleanup failed:\n${errors.join('\n')}`);
+    }
   });
 
   describe('STRIPE FAILURE COMPENSATION', () => {
+    // proves AC-064-05
     it('Should fail gracefully when Stripe fails (no orphaned data)', async () => {
       const orgName = uniqueOrgName('stripe-fail-org');
       const testUser = await createAuthenticatedUser('owner');
@@ -171,6 +197,7 @@ describe('SAGA COMPENSATION - Organization Creation', () => {
   });
 
   describe('DATABASE FAILURE COMPENSATION', () => {
+    // proves AC-064-06
     it('Should rollback Stripe when tenant creation fails (duplicate name)', { retry: 2 }, async () => {
       const existingOrgName = uniqueOrgName('existing-org');
       const testUser = await createAuthenticatedUser('owner');
@@ -219,6 +246,7 @@ describe('SAGA COMPENSATION - Organization Creation', () => {
   });
 
   describe('SAGA PATTERN VERIFICATION', () => {
+    // proves AC-064-07
     it('Should execute services in correct order on success', { retry: 2 }, async () => {
       const orgName = uniqueOrgName('saga-order-org');
       const testUser = await createAuthenticatedUser('owner');

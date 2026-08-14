@@ -5,11 +5,15 @@
   "devDependencies": {
     "@react-email/ui": "6.9.1",
     "@repo/typescript-config": "*",
-    "typescript": "^5.5.3"
+    "react": "^19.2.1",
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.8"
   },
   "scripts": {
     "dev:email": "email dev",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "private": true,
   "license": "Apache-2.0",

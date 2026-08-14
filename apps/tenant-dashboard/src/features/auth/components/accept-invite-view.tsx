@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
@@ -14,6 +14,7 @@ import { paths } from "@/routes/paths";
 import { RouterLink } from "@/routes/components";
 import {
   acceptInvitationAction,
+  declineInvitationAction,
   getInvitationDetailsAction,
   checkTermsForInvitationAction,
 } from "../action-adapters";
@@ -32,6 +33,7 @@ type InvitationState =
   | { status: "org_limit_reached"; companyName: string };
 
 export default function AcceptInviteView() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useTranslate();
   const membershipId = searchParams.get("id");
@@ -40,6 +42,7 @@ export default function AcceptInviteView() {
   const [needsTermsAgreement, setNeedsTermsAgreement] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [termsError, setTermsError] = useState<string | null>(null);
+  const [isDeclining, setIsDeclining] = useState(false);
 
   const loadInvitation = useCallback(async () => {
     if (!membershipId) {
@@ -116,6 +119,25 @@ export default function AcceptInviteView() {
 
       setState({ status: "success", companyName: result.data.companyName });
     }
+  };
+
+  const handleDecline = async () => {
+    if (state.status !== "ready") return;
+
+    setIsDeclining(true);
+    try {
+      const result = await declineInvitationAction(state.id);
+      if (result.error) {
+        setState({ status: "error", message: result.error });
+        return;
+      }
+    } catch {
+      setState({ status: "error", message: t("auth.acceptInvite.error.title") });
+      return;
+    }
+
+    // The invite is gone; the dashboard is the only place left to act.
+    router.push(paths.dashboard.root);
   };
 
   // Loading state
@@ -296,9 +318,9 @@ export default function AcceptInviteView() {
       )}
       <Stack direction="row" spacing={2}>
         <Button
-          component={RouterLink}
-          href={paths.dashboard.root}
           variant="outlined"
+          onClick={handleDecline}
+          loading={isDeclining}
         >
           {t("auth.acceptInvite.declineButton")}
         </Button>
@@ -307,7 +329,10 @@ export default function AcceptInviteView() {
           color="inherit"
           size="large"
           onClick={handleAccept}
-          disabled={needsTermsAgreement && !agreedToTerms}
+          // A decline in flight must not race an accept on the same
+          // membership; accepting flips the whole view, so the reverse
+          // direction cannot happen.
+          disabled={(needsTermsAgreement && !agreedToTerms) || isDeclining}
         >
           {t("auth.acceptInvite.acceptButton")}
         </Button>

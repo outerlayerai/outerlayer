@@ -75,6 +75,7 @@ export {
   getDeletedEntitlementOverrides,
   getUpdatedBilling,
   getProfileUpdateCalls,
+  getDeletedAuthUserIds,
   type SavedTraceFilterRow,
 } from './supabase';
 export {

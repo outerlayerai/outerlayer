@@ -8,6 +8,7 @@
 export type {
   AgentSessionDetail,
   AgentSpan,
+  FacetSummary,
   SessionPrOutcome,
   SessionsPage,
   SessionsSort,

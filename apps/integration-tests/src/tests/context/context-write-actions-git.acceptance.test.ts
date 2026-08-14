@@ -87,6 +87,7 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
   });
 
   describe('runReadRemoteContextFile', () => {
+    // AC-066-07
     it('reads the file content, blob sha, and commit sha at the connected branch head', async () => {
       const path = '.outerlayer/docs/readme.md';
       const content = '# Readme\n\nHello.';
@@ -119,6 +120,7 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
   });
 
   describe('runCreateContextFile', () => {
+    // AC-066-01
     it('creates a new path and the commit lands in the fake repo', async () => {
       seedFakeRepo(repository, { branch: 'main', files: {} });
       await actAsInOrg(owner, owner.tenantId);
@@ -133,6 +135,7 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
       expect(getFakeRepoFile(repository, 'main', path)).toBe(content);
     });
 
+    // AC-066-02
     it('rejects a duplicate path as a conflict — no commit fired', async () => {
       const path = '.outerlayer/docs/existing.md';
       const original = '# Existing\n\nAlready here.';
@@ -156,6 +159,7 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
   });
 
   describe('runCommitUpdateFirst / runCommitDeleteFirst', () => {
+    // AC-066-04
     it('lands a mixed update+create batch as one atomic commit', async () => {
       const updatePath = '.outerlayer/docs/a.md';
       const createPath = '.outerlayer/docs/b.md';
@@ -182,6 +186,7 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
       expect(commits).toHaveLength(2);
     });
 
+    // AC-066-05
     it('lands a delete-only batch through runCommitDeleteFirst, removing the file at head', async () => {
       const path = '.outerlayer/docs/c.md';
       const original = '# C\n\nTo be deleted.';
@@ -200,6 +205,7 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
       expect(getFakeRepoFile(repository, 'main', path)).toBeNull();
     });
 
+    // AC-066-03
     it('reports a stale-base conflict for the batch, no commit fired', async () => {
       const path = '.outerlayer/docs/d.md';
       seedFakeRepo(repository, { branch: 'main', files: { [path]: '# D\n\nOriginal.' } });
@@ -221,6 +227,7 @@ describe('context write-action git round-trips (session-cookie + fake GitProvide
   });
 
   describe('runEnumerateSkillDeletion — connected app, live directory walk', () => {
+    // AC-066-06
     it('lists every file under the skill directory via the fake provider listTree', async () => {
       const skillDir = '.outerlayer/skills/deploy';
       const files = {

@@ -202,6 +202,7 @@ describe('MembershipService - pending user operations (integration)', () => {
   // ==========================================================================
 
   describe('resendInviteLink', () => {
+    // proves AC-077-06
     it('should successfully resend invite to a pending user', async () => {
       const ownerUser = buildAdminUser({ id: setup.ownerId, email: setup.ownerEmail, tenantId: setup.tenantId, role: UserRoleEnum.OWNER });
 
@@ -238,6 +239,7 @@ describe('MembershipService - pending user operations (integration)', () => {
   // ==========================================================================
 
   describe('changeUserRole', () => {
+    // proves AC-077-07
     it('should change role for a pending user when called by owner', async () => {
       const ownerUser = buildAdminUser({ id: setup.ownerId, tenantId: setup.tenantId, role: UserRoleEnum.OWNER });
 
@@ -302,6 +304,7 @@ describe('MembershipService - pending user operations (integration)', () => {
       }
     });
 
+    // proves AC-077-08
     it('should remove a pending user from the organization when called by owner', async () => {
       const ownerUser = buildAdminUser({ id: setup.ownerId, tenantId: setup.tenantId, role: UserRoleEnum.OWNER });
 

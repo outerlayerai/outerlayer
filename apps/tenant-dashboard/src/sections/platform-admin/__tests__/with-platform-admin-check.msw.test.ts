@@ -100,6 +100,7 @@ describe('withPlatformAdminCheck', () => {
     );
   });
 
+  // proves AC-075-12
   it('denies a user on the allowed domain WITHOUT a platform role', async () => {
     // The other direction: domain alone grants nothing.
     seedSupabaseAuth({ user: onAllowedDomain as never });

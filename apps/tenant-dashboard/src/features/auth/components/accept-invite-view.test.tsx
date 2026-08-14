@@ -10,17 +10,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
 const acceptInvitationAction = vi.hoisted(() => vi.fn());
+const declineInvitationAction = vi.hoisted(() => vi.fn());
 const getInvitationDetailsAction = vi.hoisted(() => vi.fn());
 const checkTermsForInvitationAction = vi.hoisted(() => vi.fn());
 vi.mock("../action-adapters", () => ({
   acceptInvitationAction,
+  declineInvitationAction,
   getInvitationDetailsAction,
   checkTermsForInvitationAction,
 }));
 
 const searchParamsState = vi.hoisted(() => ({ id: "membership-123" as string | null }));
+const routerPush = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useSearchParams: () => ({ get: (key: string) => (key === "id" ? searchParamsState.id : null) }),
+  useRouter: () => ({ push: routerPush }),
 }));
 
 // A stable `t` reference, matching the real `useTranslate` (react-i18next's
@@ -194,5 +198,32 @@ describe("AcceptInviteView — accepting", () => {
     fireEvent.click(await screen.findByRole("button", { name: "auth.acceptInvite.acceptButton" }));
 
     await waitFor(() => expect(acceptInvitationAction).toHaveBeenCalledWith("membership-123", true));
+  });
+});
+
+describe("AcceptInviteView — declining", () => {
+  beforeEach(() => {
+    getInvitationDetailsAction.mockResolvedValue({ data: READY_DETAILS });
+  });
+
+  it("declines with the loaded membership id and navigates to the dashboard on success", async () => {
+    declineInvitationAction.mockResolvedValue({ data: { success: true } });
+    render(<AcceptInviteView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "auth.acceptInvite.declineButton" }));
+
+    await waitFor(() => expect(declineInvitationAction).toHaveBeenCalledWith("membership-123"));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/dashboard"));
+  });
+
+  it("shows the generic error state, not a navigation, when decline fails", async () => {
+    declineInvitationAction.mockResolvedValue({ error: "Invitation not found" });
+    render(<AcceptInviteView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "auth.acceptInvite.declineButton" }));
+
+    expect(await screen.findByText("auth.acceptInvite.error.title")).toBeInTheDocument();
+    expect(screen.getByText("Invitation not found")).toBeInTheDocument();
+    expect(routerPush).not.toHaveBeenCalled();
   });
 });

@@ -45,6 +45,7 @@ describe('refreshModelPricing — building the map', () => {
     expect(costMod.modelsCostMapping.unpriced).toBeUndefined();
   });
 
+  // proves AC-070-04
   it('lets overrides replace the base model entry', async () => {
     await costMod.refreshModelPricing(
       stubSource(
@@ -104,6 +105,7 @@ describe('refreshModelPricing — registry source', () => {
     ).toEqual({ refreshed: false, reason: 'read_error' });
   });
 
+  // proves AC-070-05
   it('keeps the bundled map when the stored document is not a registry', async () => {
     // A truncated or placeholder write would otherwise install an EMPTY price
     // map and unprice every model — worse than serving a stale one.

@@ -103,6 +103,7 @@ describe('workers feature behavior — WorkersService + runWorkspaceTurn boundar
   });
 
   describe('run creation lands the exact row the runs read polls for', () => {
+    // proves AC-061-01
     it('createRun persists a queued run, re-readable via getRun with the exact detail shape', async () => {
       const ctx = ctxFor(owner);
       const created = await workersService.createRun(ctx, {
@@ -145,6 +146,7 @@ describe('workers feature behavior — WorkersService + runWorkspaceTurn boundar
   });
 
   describe('createEnvironmentAction: workspace create + invalid-agent boundary', () => {
+    // proves AC-061-03
     it('createWorkspace persists a workspace row, re-readable via getWorkspace with the exact projection', async () => {
       const ctx = ctxFor(owner);
       const created = await workersService.createWorkspace(ctx, {

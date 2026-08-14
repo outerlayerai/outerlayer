@@ -115,6 +115,7 @@ describe("getSSOConfig — lazy-deactivate branch", () => {
     expect(result.isEnterprise).toBe(false);
   });
 
+  // proves AC-072-04
   it("auto-deactivates an active config and clears enforcement when the tenant is downgraded", async () => {
     mockCanAccess.mockResolvedValue(false);
     const svc = setupSSOConfigService({
@@ -174,6 +175,7 @@ describe("entitlement gate on writes — blocks the privileged call on a non-ent
   const saveInput = { metadataUrl: "https://idp.example.com/saml/metadata", allowedDomains: ["example.com"] };
   const DENIED = "SSO is available on the Team plan or above";
 
+  // proves AC-072-02
   it("saveSSOConfig", async () => {
     mockCanAccess.mockResolvedValue(false);
     const svc = setupSSOConfigService();

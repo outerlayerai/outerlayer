@@ -69,6 +69,7 @@ describe('context snapshot / app consistency is a database invariant', () => {
     await cleanupTenantAndUsers(foreign.tenantId, [foreign]);
   });
 
+  // AC-066-12
   it('rejects a tree entry whose app_id is not the snapshot owner', async () => {
     const { data, error } = await admin
       .from('context_tree_entry')
@@ -149,6 +150,7 @@ describe('context snapshot / app consistency is a database invariant', () => {
     expect(eventError).toBeNull();
   });
 
+  // AC-066-13
   it('prunes a snapshot without nulling app_id on the audit row', async () => {
     // context_sync_event uses ON DELETE SET NULL (snapshot_id). The column list
     // matters: a bare SET NULL would also target app_id, which is

@@ -13,6 +13,7 @@ describe('Profile email sync trigger', () => {
     await cleanupTestUsers();
   });
 
+  // proves AC-079-06
   it('should sync email to profile when auth.users email is updated', async () => {
     // Arrange - create a user with a profile
     const user = await createAuthenticatedUser('owner');
@@ -41,6 +42,7 @@ describe('Profile email sync trigger', () => {
     expect(profileAfter?.email).toBe(newEmail);
   });
 
+  // proves AC-079-06
   it('should not update profile when non-email auth fields change', async () => {
     // Arrange
     const user = await createAuthenticatedUser('owner');

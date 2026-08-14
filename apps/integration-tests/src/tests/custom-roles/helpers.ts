@@ -9,6 +9,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient, SupabaseAdminClient } from '../../lib/supabase-admin';
 import { retryOnTransientError } from '../../lib/retry';
+import { deleteTenantsAndUsers } from '../../lib/tenant-cleanup';
 import type { Database } from 'tenant-dashboard/src/types/db';
 import { randomUUID } from 'crypto';
 
@@ -427,30 +428,14 @@ export async function createAppMemberRole(
 
 /**
  * Clean up all users and tenant data created by the helpers above.
+ * `createTenantWithOwner` always leaves the tenant with exactly one active
+ * owner membership — see `deleteTenantsAndUsers` for why the delete order
+ * and attempt-all-then-aggregate-throw behavior matter here.
  */
 export async function cleanupTenantAndUsers(
   tenantId: string,
   users: SameTenantUser[]
 ): Promise<void> {
   const admin = createSupabaseAdminClient();
-
-  // Delete in dependency order
-  await cleanupCustomRoles(admin, tenantId);
-  await admin.from('app_member_role').delete().eq('tenant_id', tenantId);
-  await admin.from('api_key').delete().eq('tenant_id', tenantId);
-  await admin.from('app').delete().eq('tenant_id', tenantId);
-  await admin.from('tenant_entitlement_override').delete().eq('tenant_id', tenantId);
-  await admin.from('billing').delete().eq('tenant_id', tenantId);
-
-  for (const user of users) {
-    try {
-      await admin.from('membership').delete().eq('id', user.membershipId);
-      await admin.from('profile').delete().eq('id', user.id);
-      await admin.auth.admin.deleteUser(user.id);
-    } catch (err) {
-      console.warn(`Cleanup failed for user ${user.email}:`, err);
-    }
-  }
-
-  await admin.from('tenant').delete().eq('tenant_id', tenantId);
+  await deleteTenantsAndUsers(admin, [tenantId], users);
 }

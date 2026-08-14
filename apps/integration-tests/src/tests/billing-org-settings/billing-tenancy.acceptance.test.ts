@@ -121,6 +121,7 @@ describe('billing settings acceptance — tenant + permission scoping', () => {
   });
 
   // proves BL-1
+  // proves AC-059-01
   it('checkout pins client_reference_id/metadata to the request tenant, never the signed-in claim', async () => {
     createCheckoutSessionMock.mockResolvedValue({ url: 'https://stripe.test/checkout/sess_1' });
 
@@ -194,6 +195,7 @@ describe('billing settings acceptance — tenant + permission scoping', () => {
   });
 
   // proves BL-2
+  // proves AC-059-15
   it('an owner-of-A/read-only-in-B actor is forbidden on all three mutations under org B', async () => {
     await actAsInOrg(ownerAReaderB, orgB.tenantId);
 
@@ -242,6 +244,7 @@ describe('billing settings acceptance — tenant + permission scoping', () => {
   });
 
   // proves BL-4
+  // proves AC-059-15
   it('a non-member of B gets forbidden on every billing action under B, even with a valid membership elsewhere', async () => {
     // orgA's owner is not a member of org B at all — the spoof/fail-closed case.
     await actAsInOrg(orgA, orgB.tenantId);

@@ -35,6 +35,7 @@ describe("OrgSettingsService.getTenant", () => {
 });
 
 describe("OrgSettingsService.updateCompanyName", () => {
+  // proves AC-065-01
   it("writes the new company name and returns the updated row", async () => {
     seedMembershipMswState({
       tenants: [{ tenant_id: TENANT_ID, company_name: "Old Name" }],
@@ -47,6 +48,7 @@ describe("OrgSettingsService.updateCompanyName", () => {
     expect(reread).toEqual({ tenantId: TENANT_ID, companyName: "New Name" });
   });
 
+  // proves AC-065-02
   it("throws when the write matches no row — an RLS denial the caller must not read as success", async () => {
     seedMembershipMswState({
       tenants: [{ tenant_id: TENANT_ID, company_name: "Old Name" }],

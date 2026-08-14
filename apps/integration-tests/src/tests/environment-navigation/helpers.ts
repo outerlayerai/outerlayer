@@ -23,6 +23,7 @@ import {
 } from '@repo/env-kind';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { retryOnTransientError } from '../../lib/retry';
+import { deleteTenantsAndUsers } from '../../lib/tenant-cleanup';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -268,41 +269,47 @@ async function seedEnvironment(params: {
   throw new Error(`seedEnvironment(${name}) failed: ${error?.message}`);
 }
 
+/**
+ * `env_var.vault_secret_id` is a bare UUID with no FK into Vault, so
+ * deleting the `env_var` row (directly, or via the tenant cascade below)
+ * does not delete the secret it points to — every seeded secret must be
+ * swept explicitly, by the same name scheme `seedEnvVar`/`seedKindEnvVar`
+ * used to create it, before those rows are gone to look up.
+ */
+async function sweepVaultSecrets(admin: SupabaseClient, tenantId: string): Promise<void> {
+  const { data: envVars, error } = await admin
+    .from('env_var')
+    .select('app_id, environment_id, target_kind, key')
+    .eq('tenant_id', tenantId);
+  if (error) throw new Error(`env_var lookup for vault sweep: ${error.message}`);
+
+  for (const row of envVars ?? []) {
+    const secretName = row.environment_id
+      ? envVarEnvVaultName(row.app_id as string, row.environment_id as string, row.key as string)
+      : envVarKindVaultName(
+          row.app_id as string,
+          row.target_kind as EnvVarTargetKind,
+          row.key as string,
+        );
+    const { error: deleteError } = await admin.rpc('delete_secret', { secret_name: secretName });
+    if (deleteError) {
+      throw new Error(`delete_secret(${secretName}): ${deleteError.message}`);
+    }
+  }
+}
+
+/**
+ * The fixture's owner user is the tenant's only active owner membership —
+ * see `deleteTenantsAndUsers` for why the delete order and
+ * attempt-all-then-aggregate-throw behavior matter here.
+ */
 async function cleanupEnvNavFixture(
   tenantId: string,
   users: FixtureUser[],
 ): Promise<void> {
   const admin = createSupabaseAdminClient() as unknown as SupabaseClient;
-
-  try {
-    // Child rows first. env_var cascades from environment / app,
-    // but delete explicitly so vault-secret cleanup (below) has the rows.
-    await admin.from('env_var').delete().eq('tenant_id', tenantId);
-    await admin.from('api_key').delete().eq('tenant_id', tenantId);
-    await admin.from('environment').delete().eq('tenant_id', tenantId);
-    await admin.from('app').delete().eq('tenant_id', tenantId);
-  } catch (err) {
-
-    console.warn(`cleanup: child-row delete swallowed: ${(err as Error).message}`);
-  }
-
-  for (const u of users) {
-    try {
-      await admin.from('membership').delete().eq('id', u.membershipId);
-      await admin.from('profile').delete().eq('id', u.id);
-      await admin.auth.admin.deleteUser(u.id);
-    } catch (err) {
-
-      console.warn(`Cleanup user ${u.email} failed: ${(err as Error).message}`);
-    }
-  }
-
-  try {
-    await admin.from('tenant').delete().eq('tenant_id', tenantId);
-  } catch (err) {
-
-    console.warn(`Cleanup tenant ${tenantId} failed: ${(err as Error).message}`);
-  }
+  await sweepVaultSecrets(admin, tenantId);
+  await deleteTenantsAndUsers(admin, [tenantId], users);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

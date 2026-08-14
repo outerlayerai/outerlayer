@@ -52,15 +52,15 @@ const ALLOWLIST = new Set([
   // text, so it can't see that `filters`/`vocabWhere` open with the literal
   // `'TenantId={tenantId:String}'` entry. The identity/repo-resolution
   // queries interpolate the same way.
-  'agent-sessions.ts inline query #24', // identity predicate ($identity)
-  'agent-sessions.ts inline query #36', // list query, WHERE ${where}
-  'agent-sessions.ts inline query #37', // total count, WHERE ${where}
-  'agent-sessions.ts inline query #38', // origin counts, WHERE ${baseWhere}
-  'agent-sessions.ts inline query #39', // branch vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #40', // actor vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #41', // agentType vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #42', // model vocab, WHERE ${vocabWhere}
-  'agent-sessions.ts inline query #43', // workerKind vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #25', // identity predicate ($identity)
+  'agent-sessions.ts inline query #38', // list query, WHERE ${where}
+  'agent-sessions.ts inline query #39', // total count, WHERE ${where}
+  'agent-sessions.ts inline query #40', // origin counts, WHERE ${baseWhere}
+  'agent-sessions.ts inline query #41', // branch vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #42', // actor vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #43', // agentType vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #44', // model vocab, WHERE ${vocabWhere}
+  'agent-sessions.ts inline query #45', // workerKind vocab, WHERE ${vocabWhere}
 ]);
 
 export function assertTenantId(name: string, sql: string): void {

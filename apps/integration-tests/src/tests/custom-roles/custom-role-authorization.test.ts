@@ -52,6 +52,7 @@ describe('Custom role authorization via authorize()', () => {
   // Custom role permissions via authorize()
   // ---------------------------------------------------------------------------
   describe('Custom role permissions override built-in role', () => {
+    // proves AC-075-03
     it('should authorize app.read via custom role when user has custom_role_id in JWT claim', async () => {
       // Arrange — create a custom role with app.read and seed an app for verification
       const customRole = await createCustomRole(supabaseAdmin, tenantId, 'Writer Custom', [

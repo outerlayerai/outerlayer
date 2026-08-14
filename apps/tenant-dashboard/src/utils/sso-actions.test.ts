@@ -60,6 +60,7 @@ describe('checkDomainSSO', () => {
 });
 
 describe('validatePasswordLoginAllowed', () => {
+  // proves AC-072-08
   it('should block password login when the domain enforces SSO', async () => {
     checkDomainSSOStatusMock.mockResolvedValue({ hasSso: true, enforced: true });
 

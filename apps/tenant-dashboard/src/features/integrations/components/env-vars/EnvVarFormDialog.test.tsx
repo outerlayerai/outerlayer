@@ -62,6 +62,7 @@ describe("EnvVarFormDialog — target picker", () => {
     );
   });
 
+  // proves AC-067-08
   it("selecting 'All Environments' clears the individual kinds", async () => {
     const { onSave, keyInput, valueInput, save } = setup();
     fill(keyInput, valueInput);
@@ -127,6 +128,7 @@ describe("EnvVarFormDialog — target picker", () => {
     );
   });
 
+  // proves AC-067-09
   it("disables the Add button (not just no-ops) when the key is invalid", async () => {
     const { onSave, keyInput, valueInput } = setup();
     fireEvent.change(keyInput, { target: { value: "1BAD" } });

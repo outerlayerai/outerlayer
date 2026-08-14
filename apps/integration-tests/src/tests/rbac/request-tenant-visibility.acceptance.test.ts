@@ -81,6 +81,7 @@ describe('request-tenant visibility and role scoping', () => {
     await admin.from('tenant').delete().in('tenant_id', [orgA.tenantId, orgB.tenantId]);
   });
 
+  // proves AC-075-07
   it("a member operating under their org sees exactly that org's apps, and none of another org's", async () => {
     const asA = await createTenantScopedClient(orgA, orgA.tenantId);
 
@@ -97,6 +98,7 @@ describe('request-tenant visibility and role scoping', () => {
     expect(crossOrgProbe).toEqual([]);
   });
 
+  // proves AC-075-07
   it('operating under an org the user does not belong to yields no reads and a denied write', async () => {
     // orgA's owner is not a member of orgB — the fail-closed / spoof case.
     const asBSpoof = await createTenantScopedClient(orgA, orgB.tenantId);
@@ -126,6 +128,7 @@ describe('request-tenant visibility and role scoping', () => {
     expect((bApps ?? []).map((r) => r.id)).toEqual([appB1]);
   });
 
+  // proves AC-075-08
   it("a user admin in one org but read-only in another gets the operating org's role, not the claim's", async () => {
     // Claim names org A (admin). Under org B the same user is only a reader.
     const asBReader = await createTenantScopedClient(dualRole, orgB.tenantId);

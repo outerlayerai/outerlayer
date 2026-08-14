@@ -133,6 +133,7 @@ describe('listTenantMembers', () => {
     expect(result).toEqual([]);
   });
 
+  // proves AC-077-14
   it('excludes a disabled membership (only active/pending are listed)', async () => {
     seedSupabaseAuth({ user: { id: '44444444-4444-4444-4444-444444444444', email: 'disabled@example.com' } as never });
     seedMembershipMswState({

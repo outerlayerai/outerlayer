@@ -177,6 +177,7 @@ describe('handlePullRequestReviewEvent (integration, real Supabase)', () => {
     });
   });
 
+  // proves AC-068-09
   it('a review on an UNTRACKED merged PR heals the full row from the embedded PR object', async () => {
     const { appId, repo } = await seedConnectedApp(user.tenantId);
 
@@ -204,6 +205,7 @@ describe('handlePullRequestReviewEvent (integration, real Supabase)', () => {
     });
   });
 
+  // proves AC-068-10
   it('ignores bot reviews — an instant bot approval must not zero out pickup time', async () => {
     const { appId, repo } = await seedConnectedApp(user.tenantId);
     await handlePullRequestEvent(prOpenedPayload(repo, 13));

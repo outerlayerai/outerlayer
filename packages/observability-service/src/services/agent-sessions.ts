@@ -13,12 +13,14 @@
 import type {
   AgentSessionDetail,
   AgentSpan,
+  FacetSummary,
   ListSessionsQuery,
   SessionPrOutcome,
   SessionsPage,
   SignedImageRef,
 } from '@repo/api-schemas';
 import { MAX_SESSION_SPANS, ORIGIN_LITERALS } from '@repo/api-schemas';
+import { BATCHED_EXTRACTOR_VERSION, STEERING_EXTRACTOR_VERSION } from '@repo/trace-topics';
 import { ValidationError } from '../errors';
 import type { IClickHouseQuery } from '../client';
 import { findEditRetryLoop } from './trajectory-signals';
@@ -176,6 +178,27 @@ export const AGENT_SESSIONS_QUERY_SETTINGS = {
   max_rows_to_read: 1e7,
 } as const;
 
+/** Same caps for the trace_facets read, WITHOUT
+ * `do_not_merge_across_partitions_select_final`: facet rows partition by
+ * write-time CreatedAt (the writer never carries it forward), so a
+ * re-extraction's replacement row can land in a later month than the version
+ * it supersedes — FINAL must merge across partitions there or both versions
+ * survive the read. The session tables above partition by a version-stable
+ * time column, which is what makes the flag safe for them. */
+const FACETS_QUERY_SETTINGS = {
+  max_execution_time: 30,
+  max_memory_usage: 1_000_000_000,
+  max_rows_to_read: 1e7,
+} as const;
+
+/**
+ * Facet display order — mirrors the write order the gateway's batched call
+ * uses (task, sentiment, issues) with steering, a separate own-pass facet,
+ * appended after. A custom facet (no fixed position here) sorts after the
+ * built-ins in whatever order ClickHouse returns it.
+ */
+const FACET_ORDER = ['task', 'sentiment', 'issues', 'steering'] as const;
+
 const knownCost = (v: number): number | null => (Number.isFinite(v) && v > 0 ? v : null);
 
 async function queryRows<T>(
@@ -319,7 +342,7 @@ export class AgentSessionsService {
       // unbounded fallback — never turn a lookup failure into a 500
     }
 
-    const [allRows, summaryRows] = await Promise.all([
+    const [allRows, summaryRows, facetRows] = await Promise.all([
       queryRows<Record<string, unknown>>(
         this.client,
         `
@@ -366,6 +389,42 @@ export class AgentSessionsService {
         LIMIT 1`,
         params,
       ),
+      // Facet summaries for this one trace. PREWHERE keeps the version-stable
+      // identity predicates cutting the FINAL merge (TraceId alone is not a
+      // sort-key prefix on trace_facets), and the trace's start time bounds
+      // the scan from below — facets are written after the trace starts, and
+      // there is deliberately no upper bound so a late re-extraction still
+      // surfaces. Writers order a multi-item facet most-significant-first
+      // (ItemIndex 0 first), so argMin keeps the item worth a one-line
+      // summary. A Status='ok' row with an empty Summary is the pipeline's
+      // nothing-to-report sentinel, not a summary — excluded. The
+      // ExtractorVersion floor drops mid-re-extraction leftovers for the
+      // built-in facets only; custom facets version independently (absent
+      // spec version stamps 0) and must pass through.
+      this.client
+        .query({
+          query: `
+          SELECT Facet AS facet, argMin(Summary, ItemIndex) AS summary
+          FROM trace_facets FINAL
+          PREWHERE TenantId = {tenantId:String} AND AppId = {appId:String} AND TraceId = {traceId:String}
+          WHERE Status = 'ok' AND IsDeleted = 0 AND Summary != ''
+            AND ExtractorVersion >= multiIf(
+              Facet = 'steering', {steeringExtractorVersion:UInt32},
+              Facet IN ('task', 'sentiment', 'issues'), {batchedExtractorVersion:UInt32},
+              0)
+            ${params.tsRangeStart ? 'AND CreatedAt >= {tsRangeStart:DateTime64(9)}' : ''}
+          GROUP BY Facet`,
+          query_params: {
+            ...params,
+            steeringExtractorVersion: STEERING_EXTRACTOR_VERSION,
+            batchedExtractorVersion: BATCHED_EXTRACTOR_VERSION,
+          },
+          format: 'JSONEachRow',
+          clickhouse_settings: FACETS_QUERY_SETTINGS,
+        })
+        .then((r) => r.json<{ facet: string; summary: string }>())
+        // Decorative strip — a failed facet read must never 500 the transcript.
+        .catch(() => [] as Array<{ facet: string; summary: string }>),
     ]);
 
     if (allRows.length === 0) return null;
@@ -444,8 +503,17 @@ export class AgentSessionsService {
 
     const outcomeLookup = await ports.prOutcomes.forSessions([traceId]);
 
+    const facetSummaries: FacetSummary[] = facetRows
+      .map((r) => ({ facet: r.facet, summary: r.summary }))
+      .sort((a, b) => {
+        const ai = FACET_ORDER.indexOf(a.facet as (typeof FACET_ORDER)[number]);
+        const bi = FACET_ORDER.indexOf(b.facet as (typeof FACET_ORDER)[number]);
+        return (ai === -1 ? FACET_ORDER.length : ai) - (bi === -1 ? FACET_ORDER.length : bi);
+      });
+
     return {
       prOutcomes: outcomeLookup(traceId),
+      facetSummaries,
       truncated,
       session: {
         traceId,

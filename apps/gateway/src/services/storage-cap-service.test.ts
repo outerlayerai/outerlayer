@@ -39,9 +39,15 @@ const STORAGE_METER_ID = 'mtr_test_storage';
 // Mock factories
 // --------------------------------------------------------------------------
 
-function makeSupabaseMock(tierId: string, override: number | null = null): SupabaseClient<any> {
+function makeSupabaseMock(
+  tierId: string,
+  override: number | null = null,
+  stripeCustomerId: string | null = 'cus_billing_row',
+): SupabaseClient<any> {
+  // One response object serves both billing reads: tier resolution picks
+  // tier_id, the empty-caller customer lookup picks stripe_customer_id.
   const maybeSingleBilling = vi.fn().mockResolvedValue({
-    data: { tier_id: tierId },
+    data: { tier_id: tierId, stripe_customer_id: stripeCustomerId },
     error: null,
   });
   const eqBilling = vi.fn().mockReturnValue({ maybeSingle: maybeSingleBilling });
@@ -315,5 +321,69 @@ describe('StorageCapService.checkStorageCap', () => {
     const resultB = await service.checkStorageCap('tenant-B', 'cus_shared');
     expect(resultB.capReached).toBe(true);
     expect(resultB.currentBytes).toBe(1_000_000_000);
+  });
+
+  it('resolves the customer id from the billing row when the caller carries none (bearer sessions)', async () => {
+    const supabase = makeSupabaseMock('hobby', null, 'cus_from_billing');
+    const stripe = makeStripeMock(1.5);
+    const service = new StorageCapService(supabase, stripe.client, STORAGE_METER_ID, createTestGatewayCache());
+
+    const result = await service.checkStorageCap('tenant-1', '');
+
+    // The gate would otherwise be bypassed by any auth path that mints an
+    // empty customer id — the meter must still be consulted for the tenant.
+    expect(stripe.listEventSummaries).toHaveBeenCalledWith(
+      STORAGE_METER_ID,
+      expect.objectContaining({ customer: 'cus_from_billing' }),
+    );
+    expect(result).toEqual({
+      allowed: false,
+      currentBytes: 1_500_000_000,
+      limitBytes: 1_000_000_000,
+      capReached: true,
+    });
+  });
+
+  it('a tenant with no billing customer at all is allowed without touching Stripe, and the verdict caches', async () => {
+    const supabase = makeSupabaseMock('hobby', null, null);
+    const stripe = makeStripeMock(99);
+    const service = new StorageCapService(supabase, stripe.client, STORAGE_METER_ID, createTestGatewayCache());
+
+    const first = await service.checkStorageCap('tenant-1', '');
+    const second = await service.checkStorageCap('tenant-1', '');
+
+    expect(first).toEqual({ allowed: true, currentBytes: 0, limitBytes: 0, capReached: false });
+    expect(second).toEqual(first);
+    expect(stripe.listEventSummaries).not.toHaveBeenCalled();
+    // Cached: the second check must not re-read billing.
+    expect((supabase.from as ReturnType<typeof vi.fn>).mock.calls.filter(([t]) => t === 'billing')).toHaveLength(2);
+  });
+
+  it('sends minute-aligned window bounds to the Stripe meter API', async () => {
+    // Stripe rejects arbitrary-second bounds; an unaligned end_time turns
+    // the cap into a guaranteed 400 → permanent fail-open.
+    vi.setSystemTime(new Date('2026-03-15T12:07:23.456Z'));
+    const supabase = makeSupabaseMock('hobby');
+    const stripe = makeStripeMock(0.1);
+    const service = new StorageCapService(supabase, stripe.client, STORAGE_METER_ID, createTestGatewayCache());
+
+    await service.checkStorageCap('tenant-1', 'cus_abc');
+
+    const [, args] = stripe.listEventSummaries.mock.calls[0]!;
+    expect(args.start_time % 60).toBe(0);
+    expect(args.end_time % 60).toBe(0);
+    expect(args.end_time).toBe(Math.floor(Date.UTC(2026, 2, 15, 12, 7) / 1000));
+  });
+
+  it('the first minute of a billing month allows without a Stripe call (empty window)', async () => {
+    vi.setSystemTime(new Date('2026-03-01T00:00:30.000Z'));
+    const supabase = makeSupabaseMock('hobby');
+    const stripe = makeStripeMock(99);
+    const service = new StorageCapService(supabase, stripe.client, STORAGE_METER_ID, createTestGatewayCache());
+
+    const result = await service.checkStorageCap('tenant-1', 'cus_abc');
+
+    expect(result).toEqual({ allowed: true, currentBytes: 0, limitBytes: 1_000_000_000, capReached: false });
+    expect(stripe.listEventSummaries).not.toHaveBeenCalled();
   });
 });

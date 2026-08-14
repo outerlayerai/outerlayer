@@ -45,6 +45,7 @@ describe('verifyLicenseKey', () => {
     });
   });
 
+  // proves AC-071-05
   it('rejects a token whose payload was altered after signing', async () => {
     const { privateKey, publicKeyBase64 } = makeKeyPair();
     const token = signToken(privateKey, validClaims);
@@ -58,6 +59,7 @@ describe('verifyLicenseKey', () => {
     expect(await verifyLicenseKey(forged, publicKeyBase64, NOW)).toBeNull();
   });
 
+  // proves AC-071-05
   it('rejects a token signed by a different key', async () => {
     const signer = makeKeyPair();
     const other = makeKeyPair();
@@ -135,6 +137,7 @@ describe('evaluateLicenseWindow', () => {
     expect(evaluateLicenseWindow(claims, NOW)).toEqual({ claims, inGrace: true });
   });
 
+  // proves AC-071-07
   it('expires exactly when the grace window closes', async () => {
     const claims = { ...validClaims, exp: nowSec - graceSeconds };
     expect(evaluateLicenseWindow(claims, NOW)).toBeNull();

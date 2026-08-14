@@ -159,6 +159,7 @@ describe("sendMemberInvite", () => {
     expect(result).toEqual({ success: false, error: "Invalid email format" });
   });
 
+  // proves AC-077-05
   it("assigns the custom role to the new membership and writes an exact audit row after a successful invite", async () => {
     sendInviteFn.mockResolvedValue({ success: true, membershipId: "mem-1" });
     // Kept as a live reference — the MSW PATCH handler mutates this exact

@@ -450,6 +450,92 @@ describe('real-key auth round-trips — live verify path', () => {
     expect(res.status).toBe(401);
   });
 
+  // proves AC-060-14
+  it(
+    'a deleted key cannot be revived by restoring its metadata row (no un-revoke path)',
+    async () => {
+      const name = `${RUN_ID}-no-restore`;
+      const key = await mintSeedAppKey({ name, permissions: ['environment.read'] });
+
+      const { data: original, error: selErr } = await admin
+        .from('api_key')
+        .select('*')
+        .eq('name', name)
+        .eq('app_id', getTestAppId())
+        .single();
+      expect(selErr).toBeNull();
+      if (!original) throw new Error('expected minted row');
+
+      const { error: delErr } = await admin
+        .from('api_key')
+        .delete()
+        .eq('id', original.id as string);
+      expect(delErr).toBeNull();
+
+      const afterDelete = await callWithKey('/v1/environments', key);
+      expect(afterDelete.status).toBe(401);
+
+      // Attempt an "un-revoke": restore the exact metadata row (same id,
+      // same api_key_id) that authenticated before deletion.
+      const { created_at: _created_at, updated_at: _updated_at, ...restorable } = original;
+      const { error: reinsertErr } = await admin.from('api_key').insert(restorable);
+      expect(reinsertErr).toBeNull();
+
+      const afterRestoreAttempt = await callWithKey('/v1/environments', key);
+      // The row is back, but its digest lived only in the cascade-deleted
+      // private.api_key_secret row and cannot be recovered from the
+      // api_key row alone — the same plaintext still fails.
+      expect(afterRestoreAttempt.status).toBe(401);
+
+      await admin.from('api_key').delete().eq('id', original.id as string);
+    },
+  );
+
+  // proves AC-060-15
+  it(
+    'unknown, revoked, and expired keys produce identical rejection responses',
+    async () => {
+      const unknownKey = `sk_outerlayer_${RUN_ID}-never-issued`;
+
+      const revokedName = `${RUN_ID}-b-revoked`;
+      const revokedKey = await mintSeedAppKey({ name: revokedName, permissions: ['environment.read'] });
+      const { error: delErr } = await admin
+        .from('api_key')
+        .delete()
+        .eq('name', revokedName)
+        .eq('app_id', getTestAppId());
+      expect(delErr).toBeNull();
+
+      const past = new Date(Date.now() - 60_000).toISOString();
+      const expiredKey = await mintSeedAppKey({
+        name: `${RUN_ID}-b-expired`,
+        permissions: ['environment.read'],
+        expiresAt: past,
+      });
+
+      const [unknownRes, revokedRes, expiredRes] = await Promise.all([
+        callWithKey('/v1/environments', unknownKey),
+        callWithKey('/v1/environments', revokedKey),
+        callWithKey('/v1/environments', expiredKey),
+      ]);
+      const [unknownBody, revokedBody, expiredBody] = await Promise.all([
+        unknownRes.json(),
+        revokedRes.json(),
+        expiredRes.json(),
+      ]);
+
+      expect(unknownRes.status).toBe(401);
+      expect(revokedRes.status).toBe(unknownRes.status);
+      expect(expiredRes.status).toBe(unknownRes.status);
+
+      // Compare full bodies, not just status — a differing code/message
+      // between conditions would leak which failure mode applied even at
+      // identical HTTP status.
+      expect(revokedBody).toEqual(unknownBody);
+      expect(expiredBody).toEqual(unknownBody);
+    },
+  );
+
   it('the create→revoke lifecycle leaves no metadata row (production reject pre-condition)', async () => {
     const { body: created } = await createKey(`${RUN_ID}-revoke-lifecycle`);
     if (!isCreated(created)) throw new Error('expected created body');

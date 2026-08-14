@@ -397,6 +397,7 @@ describe('POST webhook handler', () => {
       });
     });
 
+    // proves AC-059-11
     it('should clear billing.stripe_subscription_id for a non-paying status', async () => {
       // canceled / incomplete_expired / unpaid: Stripe still surfaces the sub id
       // via subscription.updated, but the user no longer deserves paid rate limits.

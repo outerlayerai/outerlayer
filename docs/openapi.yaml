@@ -496,7 +496,7 @@ paths:
                 required:
                   - "error"
                 type: "object"
-          description: "Monthly unit limit exceeded."
+          description: "Monthly unit limit or storage cap exceeded."
         "503":
           content:
             application/json:
@@ -6225,6 +6225,18 @@ paths:
                 properties:
                   data:
                     properties:
+                      facetSummaries:
+                        items:
+                          properties:
+                            facet:
+                              type: "string"
+                            summary:
+                              type: "string"
+                          required:
+                            - "facet"
+                            - "summary"
+                          type: "object"
+                        type: "array"
                       prOutcomes:
                         items:
                           properties:
@@ -6507,6 +6519,7 @@ paths:
                       - "spans"
                       - "truncated"
                       - "prOutcomes"
+                      - "facetSummaries"
                     type: "object"
                 required:
                   - "data"

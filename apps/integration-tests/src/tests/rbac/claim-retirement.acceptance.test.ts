@@ -194,6 +194,7 @@ describe('headerless requests on notification', () => {
 });
 
 describe('inviting a member to another tenant does not move their active tenant', () => {
+  // proves AC-075-09
   it('a pending invite to B leaves raw_app_meta_data, last_active_tenant_id, and headerless visibility untouched', async () => {
     // Seed the pre-invite state: user active in A, with a claim and a
     // preference already pointing at A.

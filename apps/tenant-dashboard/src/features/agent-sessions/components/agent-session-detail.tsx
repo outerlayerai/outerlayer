@@ -8,7 +8,7 @@ import { useParams } from "next/navigation";
 import Iconify from "@/components/iconify";
 import { PageHeader } from "@/components/page-header";
 import { Stack } from "./agent-ui";
-import type { AgentSessionDetail as AgentSessionDetailData, AgentSpan, SessionPrOutcome } from "../types";
+import type { AgentSessionDetail as AgentSessionDetailData, AgentSpan, FacetSummary, SessionPrOutcome } from "../types";
 import { SessionTimeline } from "./session-timeline";
 import { money, shortModel, agentColor, fmtMs } from "./agent-format";
 import { parseUserTurn } from "./user-turn";
@@ -369,6 +369,39 @@ function SessionOutcomeStrip({ prs }: { prs: SessionPrOutcome[] }) {
   );
 }
 
+/** Facet keys are lowercase `[a-z0-9_]+` slugs; title-casing them is the
+ * whole display transform — every built-in already reads correctly, and a
+ * custom key gets the same treatment with no hand-maintained list. */
+function facetLabel(facet: string): string {
+  return facet.charAt(0).toUpperCase() + facet.slice(1);
+}
+
+/** The session's facet-classification summaries — one row per enabled facet.
+ * Renders nothing when the trace carries none (Topics disabled for the app,
+ * or the pipeline hasn't classified this trace yet) — most sessions predate
+ * Topics or belong to an app that never turned it on, so an empty box on
+ * every one of them would be noise. */
+function FacetSummaryStrip({ facets }: { facets: FacetSummary[] }) {
+  if (facets.length === 0) return null;
+  return (
+    <Box sx={{ mb: 3 }} data-testid="facet-summaries">
+      <Typography sx={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: "text.secondary", mb: 1 }}>
+        facet summaries
+      </Typography>
+      <Stack spacing={0.75}>
+        {facets.map((f) => (
+          <Stack key={f.facet} direction="row" spacing={1} alignItems="baseline">
+            <Typography sx={{ fontFamily: "monospace", fontSize: 11, color: "text.secondary", flex: "0 0 auto", width: 80 }}>
+              {facetLabel(f.facet)}
+            </Typography>
+            <Typography sx={{ fontSize: 13 }}>{f.summary}</Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 export function AgentSessionDetail({
   appId,
   data,
@@ -379,7 +412,7 @@ export function AgentSessionDetail({
   const [view, setView] = useState<"transcript" | "timeline">("transcript");
   const { orgName } = useParams<{ orgName: string }>();
 
-  const { session, spans, prOutcomes } = data;
+  const { session, spans, prOutcomes, facetSummaries } = data;
   const turns = spans.filter((s) => s.name.startsWith("agent.turn."));
   // A wrapped Pre/PostToolUse hook is the only source of these two span
   // names — a transcript-derived Stop hook always names its span
@@ -471,6 +504,8 @@ export function AgentSessionDetail({
       <HookRollup session={session} hasWrappedHookEvents={hasWrappedHookEvents} />
 
       <SessionOutcomeStrip prs={prOutcomes} />
+
+      <FacetSummaryStrip facets={facetSummaries} />
 
       <ToggleButtonGroup
         exclusive

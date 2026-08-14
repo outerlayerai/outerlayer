@@ -45,6 +45,7 @@ beforeEach(() => {
 });
 
 describe('resolveAgentSessionScope', () => {
+  // proves AC-062-13
   it('team.read wins: returns team scope (no actor pin)', async () => {
     seedPermissionsMswState({ allowedAppPermissions: { 'app-1': [SELF, TEAM] } });
     const scope = await resolveAgentSessionScope(context);
@@ -52,6 +53,7 @@ describe('resolveAgentSessionScope', () => {
     expect(scopedActorId(scope)).toBeNull();
   });
 
+  // proves AC-062-12
   it('self.read only: resolves the caller membership as the pinned actor', async () => {
     seedPermissionsMswState({ allowedAppPermissions: { 'app-1': [SELF] } });
     seedMembershipMswState({

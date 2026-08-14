@@ -418,7 +418,18 @@ describe('AgentSessionsService.getSessionDetail', () => {
     );
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) {
-      expect(call.clickhouse_settings).toEqual(AGENT_SESSIONS_QUERY_SETTINGS);
+      if (call.query.includes('FROM trace_facets')) {
+        // Same caps, WITHOUT do_not_merge_across_partitions_select_final:
+        // facet row versions partition by write-time CreatedAt, so FINAL
+        // must merge across partitions or a superseded row survives.
+        expect(call.clickhouse_settings).toEqual({
+          max_execution_time: 30,
+          max_memory_usage: 1_000_000_000,
+          max_rows_to_read: 1e7,
+        });
+      } else {
+        expect(call.clickhouse_settings).toEqual(AGENT_SESSIONS_QUERY_SETTINGS);
+      }
     }
   });
 
@@ -814,8 +825,9 @@ describe('AgentSessionsService.getSessionDetail', () => {
     const service = new AgentSessionsService(client);
     await service.getSessionDetail(SCOPE, 'trace-1', { kind: 'machine-key', canSeeTeamActors: true }, noopPorts());
     assertEveryTenantTableQueryIsScoped(calls, SCOPE.tenantId);
-    // all three queries (range lookup, span read, summary read) touch a tenant table
-    expect(calls.filter((c) => TENANT_TABLE_PATTERN.test(c.query))).toHaveLength(3);
+    // all four queries (range lookup, span read, summary read, facet read)
+    // touch a tenant table
+    expect(calls.filter((c) => TENANT_TABLE_PATTERN.test(c.query))).toHaveLength(4);
   });
 
   test('an image with a non-string sha256 is dropped, and a missing mediaType defaults to image/png', async () => {

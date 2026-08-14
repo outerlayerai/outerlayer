@@ -9,13 +9,18 @@ import { recordTermsAgreementForUser } from "@/lib/system/terms-agreement";
 import {
   acceptInvitationForUser,
   checkNeedsTermsAgreement,
+  declineInvitationForUser,
   getInvitationDetailsForUser,
 } from "@/lib/system/org-actions-admin";
 import { TERMS_VERSION } from "@/config/terms";
 import type { ServerActionResponse } from "@/types/server-action";
 import type { TermsCheckResult } from "@/lib/system/terms-agreement-types";
 import type { InvitationDetails } from "@/lib/system/organization-service";
-import { acceptInvitationInput, getInvitationDetailsInput } from "./schemas";
+import {
+  acceptInvitationInput,
+  declineInvitationInput,
+  getInvitationDetailsInput,
+} from "./schemas";
 
 /**
  * Every action here runs pre-tenant: the caller is authenticated but there is
@@ -95,6 +100,31 @@ export const acceptInvitation = preTenantAction({
         companyName: result.companyName!,
       },
     };
+  },
+});
+
+/**
+ * Decline invitation server action. Deletes the pending membership row —
+ * declining has no further lifecycle to track, unlike acceptance.
+ */
+export const declineInvitation = preTenantAction({
+  input: declineInvitationInput,
+  reason: "pending-membership",
+  handler: async (
+    actor,
+    { membershipId },
+  ): Promise<ServerActionResponse<{ success: true }>> => {
+    const result = await declineInvitationForUser(
+      { userId: actor.userId, email: actor.email },
+      membershipId,
+    );
+
+    if (!result.success) {
+      return { error: result.error };
+    }
+
+    revalidatePath("/orgs");
+    return { data: { success: true } };
   },
 });
 

@@ -90,6 +90,7 @@ describe('deleteExpiredRows against real schemas', () => {
     }
   });
 
+  // proves AC-076-08
   it('deletes each listed tenant’s rows past its OWN cutoff and preserves everything else', async () => {
     const tenantShort = crypto.randomUUID(); // swept at 7 days
     const tenantLong = crypto.randomUUID(); // swept at 90 days

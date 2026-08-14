@@ -27,6 +27,7 @@ describe("AiCostService.getConfig", () => {
     expect(config).toEqual({ seatCount: 12, costPerSeatUsd: 30 });
   });
 
+  // proves AC-070-06
   it("returns null when the tenant never configured costs", async () => {
     seedAiCostConfigMswState({ rows: [] });
 
@@ -34,6 +35,7 @@ describe("AiCostService.getConfig", () => {
     expect(config).toBeNull();
   });
 
+  // proves AC-070-09
   it("scopes strictly to ctx.tenantId — a row seeded under a different tenant id never leaks through", async () => {
     // Catches a D-8 regression (querying `.eq('id', ...)` against the
     // renamed `tenant_id` column, or dropping the `.eq` filter entirely):
@@ -46,6 +48,7 @@ describe("AiCostService.getConfig", () => {
     expect(config).toBeNull();
   });
 
+  // proves AC-070-10
   it("coerces NUMERIC-as-string values from PostgREST", async () => {
     seedAiCostConfigMswState({
       rows: [{ tenant_id: TENANT_ID, seat_count: 20, cost_per_seat_usd: "99.50" as unknown as number }],
@@ -57,6 +60,7 @@ describe("AiCostService.getConfig", () => {
 });
 
 describe("AiCostService.upsertConfig", () => {
+  // proves AC-070-07
   it("upserts onto tenant_id, clamping negatives and rounding fractional seats, and returns the re-read row", async () => {
     seedAiCostConfigMswState({ rows: [] });
 

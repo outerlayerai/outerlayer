@@ -787,21 +787,32 @@ export class MembershipService {
     maxRetries: number = 3
   ): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // auth-js REPORTS HTTP failures via the returned `error` field rather
+      // than throwing, so both channels must count as a failed attempt —
+      // catching alone would end the loop after one silent miss.
+      let failure: unknown = null;
       try {
-        await this.supabaseAdmin.auth.admin.deleteUser(userId);
-        return;
+        const { error } = await this.supabaseAdmin.auth.admin.deleteUser(userId);
+        if (!error) return;
+        // 404 means the user is already gone — the desired end state, and
+        // permanent: retrying it only stalls the caller's invite response.
+        if ((error as { status?: number }).status === 404) return;
+        failure = error;
       } catch (error) {
-        if (attempt === maxRetries) {
-          console.error(
-            `Failed to cleanup orphaned auth user after ${maxRetries} attempts:`,
-            { userId, error }
-          );
-          return;
-        }
-        // Exponential backoff: 100ms, 200ms, 400ms
-        const delay = 100 * Math.pow(2, attempt - 1);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        failure = error;
       }
+      if (attempt === maxRetries) {
+        // An orphaned auth account is real operator-visible debt — it must
+        // reach the monitored log stream, not just the process console.
+        await serverLogger.error(
+          new Error(`Failed to cleanup orphaned auth user after ${maxRetries} attempts`),
+          { userId, error: failure }
+        );
+        return;
+      }
+      // Exponential backoff: 100ms, 200ms, 400ms
+      const delay = 100 * Math.pow(2, attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }

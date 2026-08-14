@@ -174,6 +174,14 @@ interface AgentSessionRow {
   prOutcomes?: SessionPrOutcome[];
 }
 
+/** One facet's current summary for a trace — `facet` is the raw ClickHouse
+ * facet key ('task' | 'sentiment' | 'issues' | 'steering' | a custom facet's
+ * key), not a display label. */
+export interface FacetSummary {
+  facet: string;
+  summary: string;
+}
+
 export interface AgentSessionDetail {
   session: AgentSessionRow & {
     captureTier: string;
@@ -191,6 +199,11 @@ export interface AgentSessionDetail {
    * caller saw the session's FIRST spans, not necessarily its last. */
   truncated: boolean;
   prOutcomes: SessionPrOutcome[];
+  /** Current-extractor-version facet summaries for this trace, in canonical
+   * facet order. Empty when Topics is disabled for the app or the pipeline
+   * hasn't classified this trace yet. Rides the session payload so the
+   * detail view needs no second fetch. */
+  facetSummaries: FacetSummary[];
 }
 
 export interface SessionsPage {
@@ -306,6 +319,7 @@ export const AgentSessionDetailSchema = z.object({
   spans: z.array(AgentSpanSchema),
   truncated: z.boolean(),
   prOutcomes: z.array(SessionPrOutcomeSchema),
+  facetSummaries: z.array(z.object({ facet: z.string(), summary: z.string() })),
 });
 
 export const SessionsListResponseSchema = z.object({ data: SessionsPageSchema });

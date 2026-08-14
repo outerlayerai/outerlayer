@@ -68,6 +68,8 @@ describe('EE entitlement set', () => {
 });
 
 describe('resolveSelfHostBoolean', () => {
+  // proves AC-071-01
+  // proves AC-071-04
   it('unlicensed: EE keys off, everything else on', async () => {
     expect(resolveSelfHostBoolean('custom_sso', false)).toBe(false);
     expect(resolveSelfHostBoolean('audit_log', false)).toBe(false);
@@ -75,6 +77,8 @@ describe('resolveSelfHostBoolean', () => {
     expect(resolveSelfHostBoolean('alerts_enabled', false)).toBe(true);
   });
 
+  // proves AC-071-03
+  // proves AC-071-09
   it('licensed: everything on, including EE keys', async () => {
     expect(resolveSelfHostBoolean('custom_sso', true)).toBe(true);
     expect(resolveSelfHostBoolean('branching_workflow', true)).toBe(true);
@@ -82,6 +86,7 @@ describe('resolveSelfHostBoolean', () => {
 });
 
 describe('SELF_HOST_NUMERIC_LIMIT', () => {
+  // proves AC-071-02
   it('is the UNLIMITED sentinel', async () => {
     expect(SELF_HOST_NUMERIC_LIMIT).toBe(UNLIMITED);
   });

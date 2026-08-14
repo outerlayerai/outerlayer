@@ -11,6 +11,7 @@ import {
   acceptInvitation,
   checkTermsAgreement,
   checkTermsForInvitation,
+  declineInvitation,
   getInvitationDetails,
 } from "./actions";
 
@@ -69,6 +70,12 @@ const ACCEPT_INVITATION_KNOWN_ERRORS = new Set([
 /** Domain outcomes `getInvitationDetails`'s handler returns on purpose. */
 const INVITATION_DETAILS_KNOWN_ERRORS = new Set(["Invitation not found", "already_accepted"]);
 
+/** Domain outcomes `declineInvitation`'s handler returns on purpose. */
+const DECLINE_INVITATION_KNOWN_ERRORS = new Set([
+  "Invitation not found",
+  "This invitation has already been accepted",
+]);
+
 /**
  * `checkTermsAgreement`'s handler has no deliberate domain outcome to
  * preserve — its only `{ error }` case wraps whatever `TermsAgreementService`
@@ -100,6 +107,17 @@ export async function acceptInvitationAction(
     return { error: message ?? result.error.message };
   }
   return redactUnknownError(result.data, ACCEPT_INVITATION_KNOWN_ERRORS);
+}
+
+export async function declineInvitationAction(
+  membershipId: string,
+): Promise<ServerActionResponse<{ success: true }>> {
+  const result = await declineInvitation({ membershipId });
+  if (!result.ok) {
+    const message = unwrapErrorCode(result.error.code, "Not authenticated");
+    return { error: message ?? result.error.message };
+  }
+  return redactUnknownError(result.data, DECLINE_INVITATION_KNOWN_ERRORS);
 }
 
 export async function checkTermsForInvitationAction(): Promise<

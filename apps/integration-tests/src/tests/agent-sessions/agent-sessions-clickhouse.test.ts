@@ -174,6 +174,7 @@ describe('agent-sessions tenancy on the real ClickHouse read path', () => {
     await admin.from('tenant').delete().in('tenant_id', [orgA.tenantId, orgB.tenantId]);
   });
 
+  // proves AC-062-15
   it("listSessions under tenant A returns ONLY A's session, never B's", async () => {
     const db = await createTenantScopedClient(orgA, orgA.tenantId);
     const page = await agentSessionsService.listSessions(
