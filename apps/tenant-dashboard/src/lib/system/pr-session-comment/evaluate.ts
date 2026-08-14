@@ -36,7 +36,11 @@ type EvidenceVerdict = "pass" | "flag" | "unverifiable" | "waiting";
  * landed: computed by the span fact layer (`lib/system/verdict`), passed in
  * already evaluated, appended to the same list the verdict derives from.
  */
-export type EvidenceFact = CommitProvenanceFact | VerificationFact;
+export type EvidenceFact =
+  | CommitProvenanceFact
+  | VerificationFact
+  | CustomValidationFact
+  | PolicyErrorFact;
 
 /**
  * A verification validator's displayed result, produced by
@@ -56,6 +60,37 @@ export interface VerificationFact {
   /** Timeline positions backing the result — turn numbers within the trace
    * they belong to, for "· turn N" suffixes and future deep links. */
   refs: Array<{ traceId: string; turnIndex: number | null }>;
+}
+
+/**
+ * A user-authored validator's displayed result, produced by
+ * `verdict/custom.ts` from the repo's own policy files. Amber by
+ * construction: no custom can make a PR unverifiable — the red class stays
+ * reserved for the engine's tamper checks.
+ */
+export interface CustomValidationFact {
+  id: "custom";
+  /** The custom's own id from its policy file — the display-level key. */
+  validatorId: string;
+  status: "pass" | "flag";
+  class: "amber";
+  /** The custom's `row:` copy verbatim; a flag carries "— not proven". */
+  sentence: string;
+  refs: Array<{ traceId: string; turnIndex: number | null }>;
+}
+
+/**
+ * A policy that exists but is broken — fail loudly at load, not silently at
+ * check time. One row for the whole policy: the first problem by file
+ * order, with the remainder counted. Never leveled: a policy cannot turn
+ * off the row that reports the policy is broken.
+ */
+export interface PolicyErrorFact {
+  id: "policy-error";
+  status: "flag";
+  class: "amber";
+  /** Pre-composed "file — problem" text; the renderer shows it verbatim. */
+  message: string;
 }
 
 interface CommitProvenanceFact {
@@ -101,6 +136,22 @@ interface EvaluateEvidenceInput {
    * displayed facts unchanged. Empty when spans could not be read — same
    * omission contract as an unreadable commit list. */
   verificationFacts?: readonly VerificationFact[];
+  /** User-authored validator results from the repo's policy (`verdict/custom.ts`). */
+  customFacts?: readonly CustomValidationFact[];
+  /** The policy's load failure, if any — appended after every other fact. */
+  policyError?: PolicyErrorFact | null;
+  /** Display levels from the repo's policy, keyed by validator id
+   * (`validatorId` for customs). `off` drops the fact before display;
+   * `info` keeps the row but excludes its flag from the verdict; absent
+   * ids default to full participation. The policy-error fact is exempt —
+   * a policy cannot silence the row that reports it is broken. */
+  factLevels?: ReadonlyMap<string, "warn" | "info" | "off">;
+}
+
+/** The level key: built-ins by fact id, customs by their policy id. */
+function levelKeyOf(fact: EvidenceFact): string | null {
+  if (fact.id === "policy-error") return null;
+  return fact.id === "custom" ? fact.validatorId : fact.id;
 }
 
 function normalizeSha(sha: string): string {
@@ -169,15 +220,29 @@ export function evaluateEvidence(input: EvaluateEvidenceInput): EvidenceEvaluati
     return { verdict: "waiting", facts: [], flaggedCount: 0, pendingLinkCount };
   }
 
-  const facts: EvidenceFact[] = [];
+  const assembled: EvidenceFact[] = [];
   // An empty commit list (n = 0) states nothing worth a row; an unreadable
   // one (null) must not pretend to. Both omit the fact.
   if (prCommitShas !== null && prCommitShas.length > 0) {
-    facts.push(commitProvenanceFact(sessions, prCommitShas));
+    assembled.push(commitProvenanceFact(sessions, prCommitShas));
   }
-  facts.push(...(input.verificationFacts ?? []));
+  assembled.push(...(input.verificationFacts ?? []));
+  assembled.push(...(input.customFacts ?? []));
 
-  const flagged = facts.filter((f) => f.status === "flag");
+  const levels = input.factLevels;
+  const facts = levels
+    ? assembled.filter((fact) => {
+        const key = levelKeyOf(fact);
+        return key === null || levels.get(key) !== "off";
+      })
+    : assembled;
+  if (input.policyError) facts.push(input.policyError);
+
+  const flagged = facts.filter((f) => {
+    if (f.status !== "flag") return false;
+    const key = levelKeyOf(f);
+    return key === null || levels?.get(key) !== "info";
+  });
   // The promotion rule the first slice reserved: a flagged red-class fact —
   // today, only a check-bypass — makes the PR unverifiable. Amber flags can
   // only ever ask for a look.

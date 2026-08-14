@@ -742,3 +742,80 @@ describe("verification fact rows", () => {
     expect(body).not.toContain("A git command skipped the repo's checks** — turn");
   });
 });
+
+describe("policy fact rows", () => {
+  const rows = [row({ traceId: "t1" })];
+  const withFacts = (facts: EvidenceEvaluation["facts"], flagged = 0): EvidenceEvaluation => ({
+    verdict: flagged > 0 ? "flag" : "pass",
+    facts,
+    flaggedCount: flagged,
+    pendingLinkCount: 0,
+  });
+
+  // AC-085-03
+  it("renders a passing custom row with its proof turn", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      withFacts([
+        {
+          id: "custom",
+          validatorId: "migration-must-run",
+          status: "pass",
+          class: "amber",
+          sentence: "The migration was actually run",
+          refs: [{ traceId: "t1", turnIndex: 12 }],
+        },
+      ]),
+    );
+    expect(body).toContain("✓ **The migration was actually run** — turn 12");
+  });
+
+  // AC-085-04
+  it("renders a flagged custom row with the not-proven copy, never ✕", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      withFacts(
+        [
+          {
+            id: "custom",
+            validatorId: "migration-must-run",
+            status: "flag",
+            class: "amber",
+            sentence: "The migration was actually run — not proven",
+            refs: [],
+          },
+        ],
+        1,
+      ),
+    );
+    expect(body).toContain("⚠ **The migration was actually run — not proven**");
+    expect(body).not.toContain("✕");
+  });
+
+  // AC-085-07
+  it("renders the policy error naming the file and the problem", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      withFacts(
+        [
+          {
+            id: "policy-error",
+            status: "flag",
+            class: "amber",
+            message: "`.outerlayer/policy.yaml` — unknown preset (and 2 more)",
+          },
+        ],
+        1,
+      ),
+    );
+    expect(body).toContain(
+      "⚠ **The policy file has an error** — `.outerlayer/policy.yaml` — unknown preset (and 2 more)",
+    );
+  });
+});

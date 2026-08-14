@@ -39,8 +39,8 @@ export function verificationFacts(
   return out;
 }
 
-function toTraceRefs(
-  result: RuleResult,
+export function toTraceRefs(
+  result: Pick<RuleResult, "refs">,
   traceIds: readonly string[],
 ): VerificationFact["refs"] {
   return result.refs
