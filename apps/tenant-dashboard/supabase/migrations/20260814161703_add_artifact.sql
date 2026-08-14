@@ -25,7 +25,7 @@
     "provenance" text not null,
     "session_id" text not null default ''::text,
     "trace_id" text not null default ''::text,
-    "turn_index" integer,
+    "turn_index" bigint,
     "repository" text not null default ''::text,
     "pr_number" bigint,
     "git_repo" text not null default ''::text,

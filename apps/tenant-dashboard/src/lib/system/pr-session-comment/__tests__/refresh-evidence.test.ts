@@ -200,4 +200,33 @@ describe("refreshPrSessionComment — evidence", () => {
     expect(body).toContain("**Evidence** · 1 artifact");
     expect(body).not.toContain("| Criterion | Proof |");
   });
+
+  it("posts an evidence-only comment for a PR whose only anchor is a CI artifact, and skips when there is nothing at all", async () => {
+    seedPullRequestSessionMswState({ pullRequests: [], links: [] });
+    const bare = {
+      createIssueComment: vi.fn<(repo: string, issueNumber: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9004)),
+      updateIssueComment: vi.fn<(repo: string, commentId: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9004)),
+    };
+
+    const skipped = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery, githubClient: bare },
+    );
+    expect(skipped).toEqual({ status: "skipped-no-links" });
+    expect(bare.createIssueComment).not.toHaveBeenCalled();
+
+    seedArtifactMswRows([
+      artifactRow({ id: "ci-only", provenance: "ci", filename: "gate.log", kind: "log" }),
+    ]);
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery, githubClient: bare },
+    );
+
+    expect(result.status).toBe("created");
+    const body = bare.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("**Evidence** · 1 artifact");
+    expect(body).toContain("[log · gate.log](");
+    expect(body).not.toContain("Waiting for session evidence");
+  });
 });

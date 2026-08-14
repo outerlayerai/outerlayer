@@ -806,3 +806,71 @@ describe('EmitArtifact PR_COMMENT_QUEUE nomination', () => {
     expect(queue.sendBatch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('EmitArtifact — contract and edge branches', () => {
+  it('declares the OpenAPI contract: tag, request schema, and the 503 Retry-After header', () => {
+    const route = new EmitArtifact({} as never);
+    const schema = route.schema as {
+      tags: string[];
+      request: { body: { content: Record<string, { schema: unknown }> } };
+      responses: Record<string, { headers?: { shape?: Record<string, unknown> } }>;
+    };
+
+    expect(schema.tags).toEqual(['Artifacts']);
+    const content = schema.request.body.content;
+    expect(Object.keys(content)).toEqual(['application/json']);
+    expect(content['application/json']!.schema).toBeInstanceOf(Object);
+    expect(Object.keys(schema.responses).sort()).toEqual(['200', '400', '401', '413', '429', '503']);
+    expect(schema.responses['503']!.headers).toBeInstanceOf(Object);
+  });
+
+  it('413s a request whose base64 payload alone exceeds the request ceiling, naming the limit', async () => {
+    const { ctx, status, json } = ctxFor(
+      emitBody({}, { data: 'a'.repeat(ARTIFACT_MAX_REQUEST_BYTES + 1) }),
+    );
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(413);
+    expect(json()).toEqual({
+      error: {
+        code: 'payload_too_large',
+        message: `Artifact request exceeds the ${ARTIFACT_MAX_REQUEST_BYTES}-byte ceiling.`,
+        limit: ARTIFACT_MAX_REQUEST_BYTES,
+      },
+    });
+    expect(insertsByTable['agent_blobs']).toBeUndefined();
+  });
+
+  it('anchors on branch context alone — gitBranch with no gitRepo is still an anchor', async () => {
+    const { ctx, status, json } = ctxFor(emitBody({ gitBranch: 'feat/only-branch' }));
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect((json() as { data: { verification: string; provenance: string } }).data).toMatchObject({
+      verification: 'pending',
+      provenance: 'local',
+    });
+    const inserted = artifactUpserts[artifactUpserts.length - 1]!.row;
+    expect(inserted).toMatchObject({ git_branch: 'feat/only-branch', git_repo: '' });
+  });
+
+  it('never nominates a comment refresh for an artifact with no resolved PR number', async () => {
+    sessionExistsInClickHouse = true;
+    const queue = { sendBatch: vi.fn(async () => {}) };
+    const { ctx, status } = ctxFor(
+      emitBody({ session: { sessionId: 'sess-1' } }),
+      {},
+      {},
+      { PR_COMMENT_QUEUE: queue },
+    );
+    await new EmitArtifact({} as never).handle(ctx);
+
+    expect(status()).toBe(200);
+    expect(queue.sendBatch).not.toHaveBeenCalled();
+    // The session-existence probe runs on the shared ingest client factory,
+    // pointed at the env's ClickHouse with its write identity.
+    expect(createClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ url: 'http://localhost:8123' }),
+    );
+  });
+});

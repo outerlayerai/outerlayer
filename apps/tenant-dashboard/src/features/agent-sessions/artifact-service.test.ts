@@ -4,7 +4,6 @@
  * verifiable capability bound to this viewer.
  */
 import { describe, it, expect } from "vitest";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createMswRestClient } from "@/test-helpers/rest-client";
 import { seedArtifactMswRows, type ArtifactMswRow } from "@/test-helpers/msw-handlers";
@@ -19,7 +18,7 @@ function ctx(overrides: { appId?: string } = {}): AgentSessionsContext {
     userId: "user-1",
     tenantId: "tenant-1",
     appId: overrides.appId ?? "app-1",
-    db: createMswRestClient() as unknown as SupabaseClient,
+    db: createMswRestClient(),
   } as unknown as AgentSessionsContext;
 }
 
@@ -90,5 +89,13 @@ describe("getArtifactExhibit", () => {
     expect(await getArtifactExhibit(ctx(), "unmatched")).toBeNull();
     expect(await getArtifactExhibit(ctx(), "blobless")).toBeNull();
     expect(await getArtifactExhibit(ctx(), "missing")).toBeNull();
+  });
+
+  it("maps a not-yet-anchored artifact's null pr_number through as null", async () => {
+    seedArtifactMswRows([row({ id: "loose", pr_number: null, repository: "", verification: "pending" })]);
+
+    const exhibit = await getArtifactExhibit(ctx(), "loose");
+
+    expect(exhibit).toMatchObject({ id: "loose", prNumber: null, repository: "" });
   });
 });

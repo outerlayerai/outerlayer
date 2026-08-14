@@ -82,4 +82,58 @@ describe("fetchPrProofCriteria", () => {
     expect(criteria).toEqual([]);
     expect(getFileContent).not.toHaveBeenCalled();
   });
+
+  it("caps content reads at five acceptance files and skips entirely without a head sha", async () => {
+    const files = Array.from({ length: 6 }, (_, i) => ({
+      path: `acceptance/0${80 + i}-x.md`,
+      status: "modified",
+    }));
+    const getFileContent = vi.fn().mockResolvedValue({ content: "" });
+
+    await fetchPrProofCriteria(
+      { listPullRequestFiles: vi.fn().mockResolvedValue({ headSha: "abc", files }), getFileContent },
+      "acme/app",
+      61,
+    );
+    expect(getFileContent).toHaveBeenCalledTimes(5);
+
+    getFileContent.mockClear();
+    const noSha = await fetchPrProofCriteria(
+      {
+        listPullRequestFiles: vi.fn().mockResolvedValue({ headSha: null, files }),
+        getFileContent,
+      },
+      "acme/app",
+      61,
+    );
+    expect(noSha).toEqual([]);
+    expect(getFileContent).not.toHaveBeenCalled();
+  });
+
+  it("merges declarations across files — first file wins a duplicated id, output sorted by id", async () => {
+    const listPullRequestFiles = vi.fn().mockResolvedValue({
+      headSha: "abc",
+      files: [
+        { path: "acceptance/090-z.md", status: "modified" },
+        { path: "acceptance/091-a.md", status: "modified" },
+      ],
+    });
+    const getFileContent = vi
+      .fn()
+      .mockResolvedValueOnce({
+        content: "1. `AC-083-02` (proof: video) x\n2. `AC-083-01` (proof: log) x",
+      })
+      .mockResolvedValueOnce({ content: "1. `AC-083-02` (proof: screenshot) x" });
+
+    const criteria = await fetchPrProofCriteria(
+      { listPullRequestFiles, getFileContent },
+      "acme/app",
+      61,
+    );
+
+    expect(criteria).toEqual([
+      { id: "AC-083-01", proofKind: "log" },
+      { id: "AC-083-02", proofKind: "video" },
+    ]);
+  });
 });

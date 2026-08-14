@@ -282,4 +282,86 @@ describe("renderComment — evidence", () => {
     expect(waiting).toContain("**⏳ Waiting for session evidence**");
     expect(waiting).toContain("**Evidence** · 1 artifact");
   });
+
+  it("caps the artifacts table with a counted overflow line, singular and plural", () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        artifact({
+          id: `a-${String(i).padStart(2, "0")}`,
+          filename: `f-${String(i).padStart(2, "0")}.log`,
+          kind: "log",
+          emittedAt: `2026-07-10T${String(10 + Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}:00.000Z`,
+        }),
+      );
+
+    const singular = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+      criteria: [],
+      artifacts: many(31),
+    });
+    expect(singular).toContain("**Evidence** · 31 artifacts");
+    expect(singular).toContain("f-29.log");
+    expect(singular).not.toContain("f-30.log");
+    expect(singular).toContain("_…and 1 more artifact — see the dashboard._");
+
+    const plural = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+      criteria: [],
+      artifacts: many(33),
+    });
+    expect(plural).toContain("_…and 3 more artifacts — see the dashboard._");
+  });
+
+  it("renders the artifact label byte-exactly, escaping the filename inside the link", () => {
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+      criteria: [],
+      artifacts: [
+        artifact({ id: "a1", filename: "shot|v2].png", kind: "screenshot", caption: "c" }),
+      ],
+    });
+
+    expect(body).toContain(
+      "| [screenshot · shot\\|v2\\].png](https://app.outerlayer.example/orgs/acme/apps/api/env/production/agents/artifacts/a1?src=pr-comment) | c |",
+    );
+  });
+
+  it("sorts criterion rows by id regardless of input order, joins multiple matching proofs, and lists mismatched kinds sorted", () => {
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+      criteria: [
+        { id: "REQ-b", proofKind: "video" },
+        { id: "REQ-a", proofKind: "log" },
+      ],
+      artifacts: [
+        artifact({ id: "l2", filename: "two.log", kind: "log", criterionId: "REQ-a", emittedAt: "2026-07-10T09:20:00.000Z" }),
+        artifact({ id: "l1", filename: "one.log", kind: "log", criterionId: "REQ-a", emittedAt: "2026-07-10T09:10:00.000Z" }),
+        artifact({ id: "s1", filename: "still.png", kind: "screenshot", criterionId: "REQ-b" }),
+        artifact({ id: "r1", filename: "cov.html", kind: "report", criterionId: "REQ-b" }),
+      ],
+    });
+
+    const aRow = body.indexOf("| `REQ-a` |");
+    const bRow = body.indexOf("| `REQ-b` |");
+    expect(aRow).toBeGreaterThan(-1);
+    expect(bRow).toBeGreaterThan(aRow);
+    // Both matching proofs, comma-joined in artifact order.
+    expect(body).toContain("[log · one.log](");
+    expect(body).toMatch(/\| `REQ-a` \| \[log · one\.log\]\([^)]+\), \[log · two\.log\]\([^)]+\) \|/);
+    // Mismatched kinds listed sorted, never as a proof link.
+    expect(body).toContain("| `REQ-b` | video required · report, screenshot attached |");
+  });
+
+  it("tie-breaks equal emit times by id, and a backtick in a criterion id cannot end its code span", () => {
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+      criteria: [{ id: "REQ`x", proofKind: "log" }],
+      artifacts: [
+        artifact({ id: "z-second", filename: "z.log", kind: "log", emittedAt: "2026-07-10T09:00:00.000Z" }),
+        artifact({ id: "a-first", filename: "a.log", kind: "log", emittedAt: "2026-07-10T09:00:00.000Z" }),
+      ],
+    });
+
+    const aIndex = body.indexOf("a.log");
+    const zIndex = body.indexOf("z.log");
+    expect(aIndex).toBeGreaterThan(-1);
+    expect(zIndex).toBeGreaterThan(aIndex);
+    expect(body).toContain("`REQx`");
+    expect(body).not.toContain("REQ`x");
+  });
 });

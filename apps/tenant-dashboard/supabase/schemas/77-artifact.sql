@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS public.artifact (
     -- plus the turn the emit call was recorded in (NULL when unresolved).
     session_id TEXT NOT NULL DEFAULT '',
     trace_id TEXT NOT NULL DEFAULT '',
-    turn_index INTEGER,
+    turn_index BIGINT,
 
     -- PR anchor. `repository` is the canonical lowercase owner/repo the PR
     -- comment keys on; '' until resolved for session/branch-anchored rows.
