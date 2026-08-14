@@ -229,6 +229,35 @@ describe("matcher discipline", () => {
     ]);
   });
 
+  it("refuses no-op invocations as proof: --help, --dry-run, --version", () => {
+    for (const flag of ["--help", "--dry-run", "--version"]) {
+      const spans = [run(`supabase migration up ${flag}`, 5)];
+      expect(customValidationFacts([custom()], spans, TRACES, MIGRATION_FILES, null)).toEqual([
+        {
+          id: "custom",
+          validatorId: "migration-must-run",
+          status: "flag",
+          class: "amber",
+          sentence: "The migration was actually run — not proven",
+          refs: [],
+        },
+      ]);
+    }
+    // A no-op flag only disqualifies that invocation — a real run beside it
+    // still proves, and ordinary flags never disqualify anything.
+    const helped = [run("supabase migration up --help", 3), run("supabase migration up --local", 7)];
+    expect(customValidationFacts([custom()], helped, TRACES, MIGRATION_FILES, null)).toEqual([
+      {
+        id: "custom",
+        validatorId: "migration-must-run",
+        status: "pass",
+        class: "amber",
+        sentence: "The migration was actually run",
+        refs: [{ traceId: "trace-a", turnIndex: 7 }],
+      },
+    ]);
+  });
+
   it("refuses failed runs as proof: error status and output-detected failures", () => {
     const errored = [run("supabase migration up", 5, "error")];
     expect(

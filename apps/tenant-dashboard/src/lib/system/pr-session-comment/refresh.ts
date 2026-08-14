@@ -25,7 +25,7 @@ import {
   type VerificationFact,
 } from "./evaluate";
 import { customValidationFacts } from "@/lib/system/verdict/custom";
-import { parseEvidencePolicy } from "@/lib/system/verdict/policy";
+import { inlineText, parseEvidencePolicy } from "@/lib/system/verdict/policy";
 import { readPolicySource } from "@/lib/system/verdict/policy-source";
 import type { TimelineSpan } from "@/lib/system/verdict/types";
 import { isTestFilePath } from "@/lib/system/verdict/classify";
@@ -687,9 +687,12 @@ export async function refreshPrSessionComment(
       }
     }
 
-    // The PR's changed-file list serves two consumers: red-then-green's
-    // "does the diff add tests" gate and the Evidence block's proof-criteria
-    // scope. Fetched at most once; absent or unreadable suppresses both.
+    // The PR's changed-file list serves three consumers: red-then-green's
+    // "does the diff add tests" gate, the Evidence block's proof-criteria
+    // scope, and custom validators' `when.paths` scoping. Fetched at most
+    // once; absent or unreadable suppresses all three. (The fetch gate does
+    // not consult the policy: without `chQuery` there are no spans, so a
+    // path-scoped custom could never produce a row anyway.)
     let prFiles: { filename: string; changeStatus: string }[] | null = null;
     const wantsFilesForFacts = rows.length > 0 && chQuery !== null;
     const wantsFilesForCriteria = artifacts.length > 0 && githubClient.getFileContent !== undefined;
@@ -740,17 +743,31 @@ export async function refreshPrSessionComment(
           if (policy.errors.length > 0) {
             const first = policy.errors[0]!;
             const remainder = policy.errors.length - 1;
+            // The path is quoted into a backticked code span; git allows
+            // backticks and newlines in filenames, and either would let a
+            // filename break out of the span and forge comment content.
+            const file = inlineText(first.file).replaceAll("`", "'");
             policyError = {
               id: "policy-error",
               status: "flag",
               class: "amber",
               message:
-                `\`${first.file}\` — ${first.message}` +
+                `\`${file}\` — ${first.message}` +
                 (remainder > 0 ? ` (and ${remainder} more)` : ""),
             };
           }
         }
-      } catch {
+      } catch (error) {
+        // Degrading to the built-in defaults is the contract for a policy
+        // that cannot be read, but readPolicySource already absorbs those —
+        // a throw reaching here is a bug in the policy pipeline, and
+        // without this line a regression would silently disable the
+        // feature in production.
+        await serverLogger.error(error instanceof Error ? error : new Error(String(error)), {
+          context: "pr_session_comment.policy_read_failed",
+          repository,
+          prNumber,
+        });
         customFacts = [];
         policyError = null;
         factLevels = undefined;

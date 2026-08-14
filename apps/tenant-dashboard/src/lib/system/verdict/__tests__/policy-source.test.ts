@@ -71,6 +71,34 @@ describe("readPolicySource", () => {
     await expect(readPolicySource(nothingAdopted, REPO, 42)).resolves.toEqual(null);
   });
 
+  it("reads at most 20 validator files and surfaces the overflow paths in path order", async () => {
+    const entries = Array.from({ length: 22 }, (_, index) => {
+      const name = `v-${String(index + 1).padStart(2, "0")}.yaml`;
+      return { path: `.outerlayer/validators/${name}`, name, type: "file" };
+    });
+    // Listed shuffled so the cap provably applies after the path sort.
+    const fake = client({ listDirectory: vi.fn(async () => [...entries].reverse()) });
+    const source = await readPolicySource(fake, REPO, 42);
+
+    expect(source?.validatorFiles.map((file) => file.path)).toEqual(
+      entries.slice(0, 20).map((entry) => entry.path),
+    );
+    expect(source?.ignoredValidatorPaths).toEqual([
+      ".outerlayer/validators/v-21.yaml",
+      ".outerlayer/validators/v-22.yaml",
+    ]);
+    expect(fake.getFileContent).not.toHaveBeenCalledWith(
+      REPO,
+      ".outerlayer/validators/v-21.yaml",
+      "main",
+    );
+  });
+
+  it("omits the overflow field entirely when every file fits the cap", async () => {
+    const source = await readPolicySource(client(), REPO, 42);
+    expect(source).not.toHaveProperty("ignoredValidatorPaths");
+  });
+
   it("keeps the validator files when only the policy file is absent, and vice versa", async () => {
     const noPolicyFile = client({
       getFileContent: vi.fn(async (_repo: string, path: string) => {

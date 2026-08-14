@@ -18,9 +18,9 @@ import type { FactFamily } from "./types";
  * unknown preset — are load errors, not silent no-ops at check time.
  */
 
-/** `off` removes the row entirely (the validator is not evaluated for
- * display); `info` renders the row but its flag never counts toward the
- * verdict; `warn` is full participation. */
+/** `off` removes the row entirely (the result is dropped before display);
+ * `info` renders the row but its flag never counts toward the verdict;
+ * `warn` is full participation. */
 type PolicyLevel = "warn" | "info" | "off";
 
 /** The one preset this engine ships. A policy naming anything else is
@@ -117,12 +117,34 @@ export interface PolicyFile {
 export interface PolicySource {
   policyYaml: PolicyFile | null;
   validatorFiles: PolicyFile[];
+  /** Validator files past the read cap, in path order. A validator that
+   * silently never evaluates is the failure mode this feature exists to
+   * prevent, so the overflow becomes a load error rather than a quiet
+   * omission. */
+  ignoredValidatorPaths?: string[];
 }
 
 const LEVELS: ReadonlySet<string> = new Set(["warn", "info", "off"]);
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 const EMIT_NAME_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
 const MAX_ROW_LENGTH = 140;
+
+/** More validator files than this is not a policy, it's a bulk import;
+ * reads stay bounded and the overflow surfaces as a load error. */
+export const MAX_VALIDATOR_FILES = 20;
+
+const CONTROL_CHARS = /\p{Cc}/u;
+
+/**
+ * Foreign strings quoted into error messages render inside the PR comment,
+ * where a newline would let policy content forge extra rows and an
+ * unbounded value would flood the comment. Control characters collapse to
+ * spaces and long values truncate — the quoted copy stays one honest line.
+ */
+export function inlineText(raw: string, max = 80): string {
+  const flat = raw.replace(/\p{Cc}+/gu, " ");
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -139,7 +161,7 @@ function parseCustomFile(
   try {
     doc = parse(file.content);
   } catch (parseError) {
-    return { error: `not valid YAML (${(parseError as Error).message.split("\n")[0]})` };
+    return { error: `not valid YAML (${inlineText((parseError as Error).message.split("\n")[0]!)})` };
   }
   if (!isRecord(doc)) return { error: "expected a YAML mapping at the top level" };
 
@@ -149,18 +171,24 @@ function parseCustomFile(
   }
   const kind = doc["kind"] ?? "validation";
   if (kind !== "validation" && kind !== "signal") {
-    return { error: `\`kind\` must be "validation" or "signal", got "${String(kind)}"` };
+    return { error: `\`kind\` must be "validation" or "signal", got "${inlineText(String(kind))}"` };
   }
-  const row = doc["row"];
-  if (typeof row !== "string" || row.trim().length === 0) {
+  const rawRow = doc["row"];
+  if (typeof rawRow !== "string" || rawRow.trim().length === 0) {
     return { error: "`row` is required — it is the sentence the comment renders" };
+  }
+  const row = rawRow.trim();
+  // The row is rendered verbatim into the comment; a newline in it could
+  // forge extra rows (a fake ✓ line), so multi-line copy is a load error.
+  if (CONTROL_CHARS.test(row)) {
+    return { error: "`row` must be a single line without control characters" };
   }
   if (row.length > MAX_ROW_LENGTH) {
     return { error: `\`row\` is longer than ${MAX_ROW_LENGTH} characters` };
   }
   const level = doc["level"] ?? "warn";
   if (typeof level !== "string" || !LEVELS.has(level)) {
-    return { error: `\`level\` must be warn, info, or off — got "${String(level)}"` };
+    return { error: `\`level\` must be warn, info, or off — got "${inlineText(String(level))}"` };
   }
 
   let whenPaths: string[] | null = null;
@@ -176,7 +204,7 @@ function parseCustomFile(
     }
     const unknownKey = Object.keys(when).find((key) => key !== "paths");
     if (unknownKey) {
-      return { error: `\`when.${unknownKey}\` is not supported yet — only \`when.paths\`` };
+      return { error: `\`when.${inlineText(unknownKey)}\` is not supported yet — only \`when.paths\`` };
     }
   }
 
@@ -203,7 +231,7 @@ function parseCustomFile(
     if (!Array.isArray(doc["needs"])) return { error: "`needs` must be a list" };
     for (const entry of doc["needs"]) {
       const family = normalizeFactFamily(entry);
-      if (family === null) return { error: `\`needs\` entry "${String(entry)}" is not a fact family` };
+      if (family === null) return { error: `\`needs\` entry "${inlineText(String(entry))}" is not a fact family` };
       needs.add(family);
     }
   }
@@ -212,7 +240,7 @@ function parseCustomFile(
     custom: {
       id,
       kind,
-      row: row.trim(),
+      row,
       level: level as PolicyLevel,
       whenPaths,
       require: requireParsed.clause,
@@ -268,16 +296,16 @@ function parseCondition(raw: unknown): { condition: RequireCondition } | { error
     }
     const status = value["status"] ?? "ok";
     if (status !== "ok") {
-      return { error: `\`session.ran.status\` supports only "ok" — got "${String(status)}"` };
+      return { error: `\`session.ran.status\` supports only "ok" — got "${inlineText(String(status))}"` };
     }
     const unknownKey = Object.keys(value).find((k) => k !== "command" && k !== "status");
-    if (unknownKey) return { error: `\`session.ran.${unknownKey}\` is not supported yet` };
+    if (unknownKey) return { error: `\`session.ran.${inlineText(unknownKey)}\` is not supported yet` };
     return { condition: { kind: "session-ran", command: value["command"].trim() } };
   }
   if (key === "validator") {
     if (typeof value !== "string" || !REQUIRABLE_ID_SET.has(value)) {
       return {
-        error: `\`validator: ${String(value)}\` cannot be required — only red-then-green and no-test-tampering can, for now`,
+        error: `\`validator: ${inlineText(String(value))}\` cannot be required — only red-then-green and no-test-tampering can, for now`,
       };
     }
     return { condition: { kind: "validator", id: value as RequirableValidatorId } };
@@ -288,7 +316,7 @@ function parseCondition(raw: unknown): { condition: RequireCondition } | { error
     }
     return { condition: { kind: "emitted", name: value } };
   }
-  return { error: `"${key}" is not a condition — use session.ran, validator, or emitted` };
+  return { error: `"${inlineText(key)}" is not a condition — use session.ran, validator, or emitted` };
 }
 
 /**
@@ -320,6 +348,19 @@ export function parseEvidencePolicy(source: PolicySource): EvidencePolicy {
     if (parsed.emittedRefs.length > 0) {
       emittedRefsByFile.push({ file: file.path, customId: parsed.custom.id, names: parsed.emittedRefs });
     }
+  }
+
+  // Files past the read cap were never parsed — that must fail loudly, not
+  // leave a validator silently unenforced. One error covers them all.
+  const ignored = source.ignoredValidatorPaths ?? [];
+  if (ignored.length > 0) {
+    const others = ignored.length - 1;
+    errors.push({
+      file: ignored[0]!,
+      message:
+        `not read — a policy reads at most ${MAX_VALIDATOR_FILES} validator files` +
+        (others > 0 ? ` (along with ${others} more)` : ""),
+    });
   }
 
   // Emitted names resolve against the whole policy's declarations, so the
@@ -363,7 +404,7 @@ function applyPolicyFile(
   } catch (parseError) {
     errors.push({
       file: file.path,
-      message: `not valid YAML (${(parseError as Error).message.split("\n")[0]})`,
+      message: `not valid YAML (${inlineText((parseError as Error).message.split("\n")[0]!)})`,
     });
     return;
   }
@@ -376,7 +417,7 @@ function applyPolicyFile(
   if (doc["extends"] !== undefined && doc["extends"] !== RECOMMENDED_PRESET) {
     errors.push({
       file: file.path,
-      message: `unknown preset "${String(doc["extends"])}" — this engine ships ${RECOMMENDED_PRESET}`,
+      message: `unknown preset "${inlineText(String(doc["extends"]))}" — this engine ships ${RECOMMENDED_PRESET}`,
     });
   }
 
@@ -389,13 +430,13 @@ function applyPolicyFile(
   const knownIds = new Set<string>([...BUILTIN_VALIDATOR_IDS, ...customs.map((c) => c.id)]);
   for (const [id, level] of Object.entries(overrides)) {
     if (!knownIds.has(id)) {
-      errors.push({ file: file.path, message: `\`validators.${id}\` does not name a validator` });
+      errors.push({ file: file.path, message: `\`validators.${inlineText(id)}\` does not name a validator` });
       continue;
     }
     if (typeof level !== "string" || !LEVELS.has(level)) {
       errors.push({
         file: file.path,
-        message: `\`validators.${id}\` must be warn, info, or off — got "${String(level)}"`,
+        message: `\`validators.${inlineText(id)}\` must be warn, info, or off — got "${inlineText(String(level))}"`,
       });
       continue;
     }

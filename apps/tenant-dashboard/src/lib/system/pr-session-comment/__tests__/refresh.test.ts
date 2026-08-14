@@ -1772,4 +1772,31 @@ require:
     );
     expect(body).not.toContain("more)");
   });
+
+  // Git allows backticks in filenames; unsanitized, one would break out of
+  // the error row's code span and render attacker-shaped markdown.
+  it("neutralizes a backtick in a policy file's name in the error row", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...policyMethods({
+        ".outerlayer/validators/bad`break.yaml": "id: Bad_Slug\nrow: r\n",
+      }),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(7500));
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      "⚠ **The policy file has an error** — `.outerlayer/validators/bad'break.yaml` — `id` must be a lowercase-dashed slug",
+    );
+    expect(body).not.toContain("bad`break");
+  });
 });
