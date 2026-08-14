@@ -109,14 +109,15 @@ export function customValidationFacts(
  * doing anything, so a word-prefix match on them would let the cheapest
  * possible command satisfy a proof. Only the unambiguous long forms are
  * listed — `-h` commonly means a host, not help, and a false suppression
- * here would flag work that genuinely happened. */
-const NO_RUN_FLAGS: ReadonlySet<string> = new Set(["--help", "--dry-run", "--version"]);
-
+ * here would flag work that genuinely happened. (Function-scoped so the
+ * mutation gate can attribute coverage; module-level constants read as
+ * unkillable static mutants.) */
 function argsNegateRun(argsTail: string): boolean {
+  const noRunFlags = ["--help", "--dry-run", "--version"];
   return argsTail
     .trim()
     .split(/\s+/)
-    .some((token) => NO_RUN_FLAGS.has(token));
+    .some((token) => noRunFlags.includes(token));
 }
 
 function evaluateCondition(

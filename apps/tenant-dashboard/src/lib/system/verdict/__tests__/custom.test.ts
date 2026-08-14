@@ -243,6 +243,12 @@ describe("matcher discipline", () => {
         },
       ]);
     }
+    // One no-op flag anywhere in the tail disqualifies the invocation,
+    // however many ordinary flags ride along.
+    const mixed = [run("supabase migration up --local --help", 5)];
+    expect(customValidationFacts([custom()], mixed, TRACES, MIGRATION_FILES, null)[0]!.status).toEqual(
+      "flag",
+    );
     // A no-op flag only disqualifies that invocation — a real run beside it
     // still proves, and ordinary flags never disqualify anything.
     const helped = [run("supabase migration up --help", 3), run("supabase migration up --local", 7)];

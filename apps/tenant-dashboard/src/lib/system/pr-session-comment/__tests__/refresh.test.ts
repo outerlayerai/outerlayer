@@ -1799,4 +1799,39 @@ require:
     );
     expect(body).not.toContain("bad`break");
   });
+
+  // A throw REACHING refresh's policy catch is a pipeline bug, and the log
+  // line is what keeps such a regression from silently disabling the
+  // feature — so the catch path is proven: logged with its exact context,
+  // comment still posted on the built-in defaults.
+  it("logs and degrades to defaults when the policy pipeline itself throws", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      // A throwing property GETTER detonates inside readPolicySource's own
+      // method probe — before any of its per-read catches can absorb it.
+      get getPullRequestBaseBranch(): (repo: string, prNumber: number) => Promise<string | null> {
+        throw new Error("policy pipeline exploded");
+      },
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(8600));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 8600 });
+    expect(mockLoggerError).toHaveBeenCalledWith(expect.any(Error), {
+      context: "pr_session_comment.policy_read_failed",
+      repository: REPO,
+      prNumber: PR,
+    });
+    expect(githubClient.createIssueComment.mock.calls[0]![2]).not.toContain(
+      "The policy file has an error",
+    );
+  });
 });
