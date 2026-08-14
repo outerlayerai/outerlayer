@@ -139,5 +139,7 @@ export const appPaths = {
       `${envBase(orgName, appName, envName)}/agents/sessions`,
     session: (orgName: string, appName: string, envName: string, traceId: string) =>
       `${envBase(orgName, appName, envName)}/agents/sessions/${traceId}`,
+    artifact: (orgName: string, appName: string, envName: string, artifactId: string) =>
+      `${envBase(orgName, appName, envName)}/agents/artifacts/${artifactId}`,
   },
 };

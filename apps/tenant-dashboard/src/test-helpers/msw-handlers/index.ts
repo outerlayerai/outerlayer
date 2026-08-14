@@ -42,6 +42,11 @@ import {
   prSessionCommentHandlers,
   resetPrSessionCommentMswState,
 } from './pr-session-comment';
+import { artifactHandlers, resetArtifactMswState } from './artifact';
+import {
+  prEvidenceEvaluationHandlers,
+  resetPrEvidenceEvaluationMswState,
+} from './pr-evidence-evaluation';
 
 export {
   seedPullRequestSessionMswState,
@@ -49,6 +54,12 @@ export {
   type PullRequestMswRow,
   type PullRequestSessionMswRow,
 } from './pull-request-session';
+
+export {
+  seedArtifactMswRows,
+  getArtifactMswRows,
+  type ArtifactMswRow,
+} from './artifact';
 
 export { seedApiKeysMswState } from './api-keys';
 export {
@@ -131,6 +142,10 @@ export {
   seedPrSessionCommentReadError,
   type PrSessionCommentMswRow,
 } from './pr-session-comment';
+export {
+  seedPrEvidenceEvaluationMswState,
+  getPrEvidenceEvaluationRows,
+} from './pr-evidence-evaluation';
 
 // MSW resolves handlers in registration order; the FIRST matching handler
 // wins. We register managed-deployment-tables BEFORE the shared supabase
@@ -156,6 +171,8 @@ export const mswHandlers = [
   ...pullRequestSessionHandlers,
   ...aiCostConfigHandlers,
   ...prSessionCommentHandlers,
+  ...artifactHandlers,
+  ...prEvidenceEvaluationHandlers,
 ];
 
 export function resetMswState() {
@@ -179,4 +196,6 @@ export function resetMswState() {
   resetAppsListMswState();
   resetAiCostConfigMswState();
   resetPrSessionCommentMswState();
+  resetArtifactMswState();
+  resetPrEvidenceEvaluationMswState();
 }

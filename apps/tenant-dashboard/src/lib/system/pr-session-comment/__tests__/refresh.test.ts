@@ -27,6 +27,7 @@ import {
   seedPrSessionCommentMswState,
   seedPrSessionCommentUpsertErrors,
   getPrSessionCommentRows,
+  getPrEvidenceEvaluationRows,
   type PullRequestSessionMswRow,
 } from "@/test-helpers/msw-handlers";
 
@@ -59,6 +60,8 @@ import { refreshPrSessionComment } from "../refresh";
 import type {
   IssueCommentListResult,
   IssueCommentResult,
+  PullRequestCommitListResult,
+  PullRequestFileListResult,
 } from "@/lib/system/git/github/client";
 import { PR_SESSION_COMMENT_MARKER } from "../render";
 
@@ -139,6 +142,8 @@ function chRow(over: Record<string, unknown>) {
     ApiErrorCount: 0,
     ErrorCount: 0,
     AppId: "app-1",
+    AgentType: "claude-code",
+    OutcomeCommitShas: [],
     ...over,
   };
 }
@@ -147,12 +152,43 @@ function chRow(over: Record<string, unknown>) {
  * and the topics query (`trace_facets`) from separate row sets, dispatched
  * by a substring check on the SQL — the same seam `readLinkedSessions` and
  * `readTopicLabels` are independently tested against. */
-function fakeChQuery(sessionRows: Record<string, unknown>[], topicRows: Record<string, unknown>[] = []) {
+function fakeChQuery(
+  sessionRows: Record<string, unknown>[],
+  topicRows: Record<string, unknown>[] = [],
+  spanRows: Record<string, unknown>[] = [],
+) {
   return vi.fn(async (sql: string) => {
     if (sql.includes("agent_session_summary")) return sessionRows;
     if (sql.includes("trace_facets")) return topicRows;
+    if (sql.includes("otel_traces")) return spanRows;
     return [];
   });
+}
+
+/** A tool-call span row as `readVerificationSpans` reads it — Input carries
+ * the ingest envelope whose content is the agent's own tool input (for Bash,
+ * itself JSON with a `command` key). */
+function spanRow(
+  traceId: string,
+  turnIndex: number,
+  tool: { command?: string; file?: string; status?: string; output?: string },
+) {
+  const metadata: Record<string, string> = {
+    turnIndex: String(turnIndex),
+    toolName: tool.file ? "Edit" : "Bash",
+    toolStatus: tool.status ?? "ok",
+    ...(tool.file ? { isEdit: "1", file: tool.file } : {}),
+  };
+  return {
+    TraceId: traceId,
+    SpanName: `agent.tool.${metadata["toolName"]}`,
+    StatusMessage: tool.status === "error" ? "assertion failed" : "",
+    Input: tool.command
+      ? JSON.stringify([{ role: "user", content: JSON.stringify({ command: tool.command }) }])
+      : "",
+    Output: tool.output ?? "",
+    Metadata: metadata,
+  };
 }
 
 function fakeGithubClient() {
@@ -166,6 +202,19 @@ function fakeGithubClient() {
     listIssueComments:
       vi.fn<(repo: string, issueNumber: number) => Promise<IssueCommentListResult>>(
         async () => ({ status: "ok", comments: [] }),
+      ),
+    /** The provenance fact's input. Defaults to zero commits, which omits
+     * the fact entirely — tests that exercise the fact seed real shas. */
+    listPullRequestCommits:
+      vi.fn<(repo: string, prNumber: number) => Promise<PullRequestCommitListResult>>(
+        async () => ({ status: "ok", commits: [] }),
+      ),
+    /** Red-then-green's diff gate. Defaults to an empty file list — no test
+     * files added, so the rule stays conservatively quiet unless a test
+     * seeds real files. */
+    listPullRequestFiles:
+      vi.fn<(repo: string, prNumber: number) => Promise<PullRequestFileListResult>>(
+        async () => ({ status: "ok", files: [] }),
       ),
   };
 }
@@ -247,15 +296,36 @@ describe("refreshPrSessionComment", () => {
     });
   });
 
-  // AC-057-04, second half: the empty state is not a terminal state. The
-  // webhook posts "no agent sessions linked yet" the moment a PR opens, and
-  // the sessions that build the branch sync minutes to hours later — so the
-  // upgrade IN PLACE (same comment id, edited, never a second comment) is
-  // the criterion, not the empty state on its own.
-  it("upgrades the empty-state comment in place to the session table when links arrive", async () => {
+  // AC-082-06 + AC-057-04: a human-only PR — no confirmed session, no
+  // pending candidate link — gets NO comment. Not an empty-state comment,
+  // not an identity row, not a GitHub call.
+  it("posts nothing at all for a PR with no candidate session links", async () => {
     enableFeature();
-    // A PR of a connected repo with nothing linked yet.
     seedPullRequestSessionMswState({ links: [] });
+    const githubClient = fakeGithubClient();
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "skipped-no-links" });
+    expect(githubClient.createIssueComment).not.toHaveBeenCalled();
+    expect(githubClient.updateIssueComment).not.toHaveBeenCalled();
+    expect(getPrSessionCommentRows()).toEqual([]);
+    // No evaluation recorded either: there was nothing to evaluate.
+    expect(getPrEvidenceEvaluationRows()).toEqual([]);
+  });
+
+  // AC-082-05 + AC-057-04: a PR whose links are all pending shows the
+  // waiting copy, and upgrades IN PLACE (same comment id, edited, never a
+  // second comment) — verdict, provenance fact, and metadata appear without
+  // any human action once a link confirms.
+  it("posts the waiting state for pending-only links and upgrades it in place when a link confirms", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "pending" })],
+    });
     const githubClient = fakeGithubClient();
     githubClient.createIssueComment.mockResolvedValue(okComment(4242));
 
@@ -266,18 +336,27 @@ describe("refreshPrSessionComment", () => {
 
     expect(first).toEqual({ status: "created", commentId: 4242 });
     const createdBody = githubClient.createIssueComment.mock.calls[0]![2];
-    expect(createdBody).toContain("No agent sessions linked yet.");
+    expect(createdBody).toMatch(/waiting for session evidence/i);
     expect(createdBody).not.toContain("| Session | Topics |");
 
-    // The session that built the branch finishes and syncs.
+    // The session that built the branch finishes syncing; its link confirms.
     seedPullRequestSessionMswState({
       links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
     });
     githubClient.updateIssueComment.mockResolvedValue(okComment(4242));
+    githubClient.listPullRequestCommits.mockResolvedValue({
+      status: "ok",
+      commits: [{ sha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d" }],
+    });
 
     const second = await refreshPrSessionComment(
       { tenantId: TENANT, repository: REPO, prNumber: PR },
-      { chQuery: fakeChQuery([chRow({ TraceId: "t1", Title: "Fix flaky auth test" })]), githubClient },
+      {
+        chQuery: fakeChQuery([
+          chRow({ TraceId: "t1", Title: "Fix flaky auth test", OutcomeCommitShas: ["1a2b3c4d"] }),
+        ]),
+        githubClient,
+      },
     );
 
     expect(second).toEqual({ status: "updated", commentId: 4242 });
@@ -286,13 +365,154 @@ describe("refreshPrSessionComment", () => {
     expect(githubClient.updateIssueComment).toHaveBeenCalledTimes(1);
 
     const updatedBody = githubClient.updateIssueComment.mock.calls[0]![2];
+    expect(updatedBody).toContain("Everything checks out");
+    expect(updatedBody).toContain("1 of 1 commits came from recorded sessions");
     expect(updatedBody).toContain("| Session | Topics |");
     expect(updatedBody).toContain("Fix flaky auth test");
-    expect(updatedBody).not.toContain("No agent sessions linked yet.");
+    expect(updatedBody).not.toMatch(/waiting for session evidence/i);
     // Still one identity row for this PR, carrying the original comment id.
     expect(getPrSessionCommentRows()).toEqual([
       expect.objectContaining({ github_comment_id: 4242 }),
     ]);
+  });
+
+  // AC-082-08: every evaluation's facts and verdict land in
+  // `pr_evidence_evaluation`, keyed by PR — recorded at evaluation time, so
+  // "did flagged PRs go bad more often" is answerable from day one.
+  it("records the evaluation's verdict and facts per PR", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+    githubClient.listPullRequestCommits.mockResolvedValue({
+      status: "ok",
+      commits: [
+        { sha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d" },
+        { sha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" },
+      ],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery([chRow({ TraceId: "t1", OutcomeCommitShas: ["1a2b3c4d"] })]),
+        githubClient,
+      },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    expect(getPrEvidenceEvaluationRows()).toEqual([
+      expect.objectContaining({
+        tenant_id: TENANT,
+        repository: REPO,
+        pr_number: PR,
+        verdict: "flag",
+        pending_link_count: 0,
+        facts: [
+          {
+            id: "commits-from-sessions",
+            status: "flag",
+            class: "amber",
+            matchedCommitCount: 1,
+            totalCommitCount: 2,
+            unrecordedShas: ["deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"],
+          },
+        ],
+      }),
+    ]);
+  });
+
+  // AC-082-08 + AC-082-07: re-evaluating unchanged inputs appends nothing —
+  // the stored history is the sequence of DISTINCT evaluations, and a
+  // changed verdict appends a new row rather than overwriting the old one.
+  it("appends a new evaluation row only when the verdict or facts change", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+    githubClient.updateIssueComment.mockResolvedValue(okComment(4242));
+    githubClient.listPullRequestCommits.mockResolvedValue({
+      status: "ok",
+      commits: [{ sha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d" }],
+    });
+    const sessionRows = () => [chRow({ TraceId: "t1", OutcomeCommitShas: ["1a2b3c4d"] })];
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery(sessionRows()), githubClient },
+    );
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery(sessionRows()), githubClient },
+    );
+
+    // Identical evaluation twice — one row.
+    expect(getPrEvidenceEvaluationRows()).toHaveLength(1);
+    expect(getPrEvidenceEvaluationRows()[0]).toMatchObject({ verdict: "pass" });
+
+    // A new commit lands with no recorded session — the verdict flips.
+    githubClient.listPullRequestCommits.mockResolvedValue({
+      status: "ok",
+      commits: [
+        { sha: "1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d" },
+        { sha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" },
+      ],
+    });
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery(sessionRows()), githubClient },
+    );
+
+    expect(getPrEvidenceEvaluationRows()).toHaveLength(2);
+    expect(getPrEvidenceEvaluationRows()[1]).toMatchObject({ verdict: "flag" });
+  });
+
+  // AC-082-08: the record happens at evaluation time, independent of the
+  // GitHub write — a verdict on a not-yet-permitted installation still
+  // counts for the outcomes measurement.
+  it("records the evaluation even when posting is not permitted", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue({ status: "not_permitted" });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "not-permitted" });
+    expect(getPrEvidenceEvaluationRows()).toEqual([
+      expect.objectContaining({ verdict: "pass", pr_number: PR }),
+    ]);
+  });
+
+  // An unreadable commit list (403/404, or an older client with no commits
+  // method) must cost the FACT, never the comment.
+  it("still posts the comment, with the provenance fact omitted, when the commit list is unreadable", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+    githubClient.listPullRequestCommits.mockResolvedValue({ status: "not_permitted" });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("Everything checks out");
+    expect(body).not.toContain("commits came from recorded sessions");
   });
 
   // AC-057-02: the comment is created once, then edited in place when a
@@ -1237,5 +1457,162 @@ describe("refreshPrSessionComment", () => {
       claimed_at: null,
       needs_refresh: false,
     });
+  });
+
+  // AC-083-11: the full production path — span rows read back through the
+  // ClickHouse seam, evaluated by the fact layer, rendered as comment rows
+  // with the validator's sentence verbatim and the backing turns.
+  it("renders verification rows from session tool-call spans", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [
+        { filename: "src/lib/system/verdict/__tests__/evidence.test.ts", changeStatus: "added" },
+        { filename: "src/lib/system/verdict/evidence.ts", changeStatus: "modified" },
+      ],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [
+            spanRow("t1", 61, { command: "vitest run", status: "error" }),
+            spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+            spanRow("t1", 63, { command: "vitest run" }),
+          ],
+        ),
+        githubClient,
+      },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("Everything checks out");
+    expect(body).toContain("✓ **New tests failed first, then passed** — turns 61 → 63");
+  });
+
+  // AC-083-12: a bypassed git command in the session voids the verdict —
+  // the comment opens with the red "can't verify" copy, not an amber ask.
+  it("derives the unverifiable verdict from a check-bypass span", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(4242));
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [
+            spanRow("t1", 12, { file: "src/lib/a.test.ts" }),
+            spanRow("t1", 88, { command: "git push --no-verify" }),
+          ],
+        ),
+        githubClient,
+      },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 4242 });
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("We can't verify this PR");
+    expect(body).toContain("✕ **A git command skipped the repo's checks** — turn 88");
+  });
+
+  // The files read is optional and degradable: a client without the method,
+  // and a client answering not_permitted, must both suppress red-then-green
+  // (no approximation) while the rest of the comment still renders.
+  it("suppresses red-then-green when the file list is unavailable, however that happens", async () => {
+    const spanRows = [
+      spanRow("t1", 61, { command: "vitest run", status: "error" }),
+      spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+      spanRow("t1", 63, { command: "vitest run" }),
+    ];
+
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const noMethod = fakeGithubClient();
+    Reflect.deleteProperty(noMethod, "listPullRequestFiles");
+    noMethod.createIssueComment.mockResolvedValue(okComment(111));
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], spanRows), githubClient: noMethod },
+    );
+    expect(result).toEqual({ status: "created", commentId: 111 });
+    expect(noMethod.createIssueComment.mock.calls[0]![2]).not.toContain(
+      "New tests failed first, then passed",
+    );
+  });
+
+  it("suppresses red-then-green when the file list read is not permitted", async () => {
+    const spanRows = [
+      spanRow("t1", 61, { command: "vitest run", status: "error" }),
+      spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+      spanRow("t1", 63, { command: "vitest run" }),
+    ];
+
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const notPermitted = fakeGithubClient();
+    notPermitted.createIssueComment.mockResolvedValue(okComment(222));
+    notPermitted.listPullRequestFiles.mockResolvedValue({ status: "not_permitted" });
+    const permResult = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], spanRows), githubClient: notPermitted },
+    );
+    expect(permResult).toEqual({ status: "created", commentId: 222 });
+    expect(notPermitted.createIssueComment.mock.calls[0]![2]).not.toContain(
+      "New tests failed first, then passed",
+    );
+  });
+
+  // A PR whose only "test" change is a DELETED test file adds no tests, so
+  // the fail→pass pair in the session stays unproven and produces no row.
+  it("does not count removed test files as the diff adding tests", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(333));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "src/lib/old.test.ts", changeStatus: "removed" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [
+            spanRow("t1", 61, { command: "vitest run", status: "error" }),
+            spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+            spanRow("t1", 63, { command: "vitest run" }),
+          ],
+        ),
+        githubClient,
+      },
+    );
+
+    expect(githubClient.createIssueComment.mock.calls[0]![2]).not.toContain(
+      "New tests failed first, then passed",
+    );
   });
 });

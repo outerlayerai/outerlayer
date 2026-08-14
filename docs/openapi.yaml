@@ -2694,6 +2694,244 @@ paths:
       summary: "List repositories accessible to the app's git installation"
       tags:
         - "Apps"
+  /v1/artifacts:
+    post:
+      description: "Accepts one artifact — a screenshot, recording, report, or log emitted as proof that a change works — plus its content-addressed blob. The artifact anchors to a pull request directly (prNumber), through the recorded session that produced it, or through git context resolved to a PR later; a request with no anchor at all is refused and nothing is stored. `kind` is inferred from the media type and provenance (session / ci / local) is derived from the submission path — neither can be supplied by the caller. Retrying with the same clientArtifactId returns the already-stored artifact."
+      operationId: "emit-artifact"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                artifact:
+                  properties:
+                    bytes:
+                      minimum: 0
+                      type: "integer"
+                    caption:
+                      maxLength: 500
+                      type: "string"
+                    ci:
+                      type: "boolean"
+                    clientArtifactId:
+                      pattern: "^[A-Za-z0-9_.:-]{1,64}$"
+                      type: "string"
+                    commitSha:
+                      type: "string"
+                    criterionId:
+                      pattern: "^[A-Za-z0-9_.:-]{1,64}$"
+                      type: "string"
+                    emittedAt:
+                      type: "string"
+                    filename:
+                      maxLength: 120
+                      minLength: 1
+                      type: "string"
+                    gitBranch:
+                      type: "string"
+                    gitRepo:
+                      type: "string"
+                    mediaType:
+                      maxLength: 100
+                      minLength: 1
+                      type: "string"
+                    prNumber:
+                      exclusiveMinimum: true
+                      minimum: 0
+                      type: "integer"
+                    repository:
+                      type: "string"
+                    session:
+                      properties:
+                        sessionId:
+                          minLength: 1
+                          type: "string"
+                        turnIndex:
+                          minimum: 0
+                          type: "integer"
+                      required:
+                        - "sessionId"
+                      type: "object"
+                    sha256:
+                      pattern: "^[0-9a-f]{64}$"
+                      type: "string"
+                  required:
+                    - "clientArtifactId"
+                    - "filename"
+                    - "mediaType"
+                    - "bytes"
+                    - "sha256"
+                    - "caption"
+                    - "emittedAt"
+                  type: "object"
+                blob:
+                  properties:
+                    data:
+                      minLength: 1
+                      type: "string"
+                  required:
+                    - "data"
+                  type: "object"
+                schemaVersion:
+                  enum:
+                    - 1
+                  type: "number"
+              required:
+                - "schemaVersion"
+                - "artifact"
+                - "blob"
+              type: "object"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    properties:
+                      id:
+                        type: "string"
+                      kind:
+                        enum:
+                          - "video"
+                          - "screenshot"
+                          - "report"
+                          - "log"
+                          - "file"
+                        type: "string"
+                      prNumber:
+                        nullable: true
+                        type: "integer"
+                      provenance:
+                        enum:
+                          - "session"
+                          - "ci"
+                          - "local"
+                        type: "string"
+                      repository:
+                        type: "string"
+                      verification:
+                        enum:
+                          - "pending"
+                          - "confirmed"
+                          - "unmatched"
+                        type: "string"
+                    required:
+                      - "id"
+                      - "kind"
+                      - "provenance"
+                      - "verification"
+                      - "prNumber"
+                      - "repository"
+                    type: "object"
+                required:
+                  - "data"
+                type: "object"
+          description: "The stored artifact (the existing row on an idempotent retry)."
+        "400":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Malformed body, sha256 mismatch, unknown session binding, or nothing to attach to."
+        "401":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Missing or invalid API key."
+        "413":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Blob or request exceeds the byte ceiling."
+        "429":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Monthly storage cap exceeded."
+        "503":
+          content:
+            application/json:
+              schema:
+                properties:
+                  error:
+                    properties:
+                      code:
+                        type: "string"
+                      message:
+                        type: "string"
+                    required:
+                      - "code"
+                      - "message"
+                    type: "object"
+                required:
+                  - "error"
+                type: "object"
+          description: "Ingest temporarily unavailable; retry after the interval."
+          headers:
+            Retry-After:
+              required: false
+              schema:
+                minimum: 0
+                type: "integer"
+      summary: "Emit an artifact (evidence for a pull request)"
+      tags:
+        - "Artifacts"
   /v1/blobs:
     get:
       description: "Returns the full content of a span field payload (input/output/...) that was offloaded to object storage at ingest. Reference the object via a BlobRefs[].blob_id from a span. Tenant-scoped."
@@ -8431,6 +8669,8 @@ servers:
 tags:
   - description: "Coding-agent session ingest (outerlayer sync) and content-addressed session images."
     name: "Agents"
+  - description: "Evidence artifacts (screenshots, recordings, reports, logs) emitted as proof of a change and anchored to pull requests."
+    name: "Artifacts"
   - description: "Query individual spans across traces."
     name: "Spans"
   - description: "Create, retrieve, list, and delete score records for spans and traces."

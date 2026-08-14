@@ -70,6 +70,14 @@ GRANT SELECT ON public.tenant_entitlement_override  TO gateway;
 GRANT SELECT, INSERT, UPDATE ON public.worker_run          TO gateway;
 GRANT SELECT, INSERT, UPDATE ON public.worker_workspace    TO gateway;
 
+-- Artifacts: /v1/artifacts ingests exhibit records (INSERT), retries update
+-- the same client id (UPDATE via upsert), and the retention job reads and
+-- flags aged-out rows whose blob bytes it deleted (SELECT, UPDATE).
+GRANT SELECT, INSERT, UPDATE ON public.artifact            TO gateway;
+-- Anchor resolution at ingest confirms a claimed PR number against the
+-- webhook-fed pull_request record; read-only.
+GRANT SELECT ON public.pull_request                        TO gateway;
+
 -- git_connection: column-level grant — webhook_secret is withheld because it
 -- is never needed by any gateway code path (webhook verification runs under
 -- service_role, not this role).
@@ -250,6 +258,23 @@ CREATE POLICY "gateway_tenant_delete_app" ON public.app
 -- Cloud workers: tenant-scoped run + environment access for the
 -- /v1/workers routes. Permission checks (worker_run.read / worker_run.insert)
 -- happen at the Hono middleware layer, matching every other table here.
+CREATE POLICY "gateway_tenant_read_artifact" ON public.artifact
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
+CREATE POLICY "gateway_tenant_insert_artifact" ON public.artifact
+    FOR INSERT TO gateway
+    WITH CHECK (tenant_id = public.tenant_id());
+
+CREATE POLICY "gateway_tenant_update_artifact" ON public.artifact
+    FOR UPDATE TO gateway
+    USING (tenant_id = public.tenant_id())
+    WITH CHECK (tenant_id = public.tenant_id());
+
+CREATE POLICY "gateway_tenant_read_pull_request" ON public.pull_request
+    FOR SELECT TO gateway
+    USING (tenant_id = public.tenant_id());
+
 CREATE POLICY "gateway_tenant_read_worker_run" ON public.worker_run
     FOR SELECT TO gateway
     USING (tenant_id = public.tenant_id());

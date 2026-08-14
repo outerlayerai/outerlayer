@@ -344,8 +344,9 @@ export async function handlePullRequestEvent(
 
   // Refresh the PR session comment — ONCE per distinct tenant, and AFTER
   // every connection's reconciliation, so the rendered body reflects all the
-  // links this event just materialized (an empty result still renders the
-  // "No agent sessions linked yet" empty state; see COMMENT_REFRESH_ACTIONS
+  // links this event just materialized (a PR with no candidate links at all
+  // resolves to `skipped-no-links` inside the refresh — a human-only PR gets
+  // no comment; see COMMENT_REFRESH_ACTIONS
   // above). Deferred to `after()` so the response can ack the delivery
   // first: each refresh can do a ClickHouse read, several Supabase reads, an
   // App-token mint, and up to two GitHub writes, which does not reliably fit

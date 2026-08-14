@@ -130,14 +130,14 @@ describe("readLinkedSessions", () => {
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
     expect(result).not.toBeNull();
-    expect(result!.map((r) => r.traceId)).toEqual(["t-enabled"]);
+    expect(result!.sessions.map((r) => r.traceId)).toEqual(["t-enabled"]);
     // The ClickHouse scan is only ever asked about the enabled app's trace —
     // the disabled app's session never entered the query at all.
     const [, params] = chQuery.mock.calls[0]!;
     expect(params.traceIds).toEqual(["t-enabled"]);
   });
 
-  it("excludes a pending (unverified) link, keeping only verification = 'confirmed' rows", async () => {
+  it("excludes a pending (unverified) link from the session rows, counting it as pending instead", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
     ]);
@@ -154,10 +154,114 @@ describe("readLinkedSessions", () => {
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
     expect(result).not.toBeNull();
-    expect(result!.map((r) => r.traceId)).toEqual(["t-confirmed"]);
+    expect(result!.sessions.map((r) => r.traceId)).toEqual(["t-confirmed"]);
     // Only the confirmed trace ever reached ClickHouse.
     const [, params] = chQuery.mock.calls[0]!;
     expect(params.traceIds).toEqual(["t-confirmed"]);
+    // The pending link is counted (the waiting state's input); the
+    // unmatched ghost is not a candidate and counts nowhere.
+    expect(result!.pendingLinkCount).toBe(1);
+  });
+
+  // The candidate filter must be IN THE QUERY, not applied after the fact: a
+  // read without it walks unmatched ghosts (and anything a future state
+  // adds) into memory on every refresh. Asserted on the request URL, so a
+  // lenient fake can't make a dropped filter pass.
+  it("sends the pending+confirmed verification filter in the pull_request_session query", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    let verificationParam: string | null = null;
+    server.use(
+      http.get(`${SUPABASE_URL}/rest/v1/pull_request_session`, ({ request }) => {
+        verificationParam = new URL(request.url).searchParams.get("verification");
+        return HttpResponse.json([]);
+      }),
+    );
+
+    await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery: vi.fn() });
+
+    expect(verificationParam).toBe("in.(pending,confirmed)");
+  });
+
+  it("counts pending-only links without touching ClickHouse, and never counts unmatched ones", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-1", trace_id: "t-pending-1", method: "pr_link", verification: "pending" }),
+        link({ id: "l2", app_id: "app-1", trace_id: "t-pending-2", method: "branch", verification: "pending" }),
+        link({ id: "l3", app_id: "app-1", trace_id: "t-ghost", method: "branch", verification: "unmatched" }),
+      ],
+    });
+    const chQuery = vi.fn();
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result).toEqual({ sessions: [], pendingLinkCount: 2 });
+    expect(chQuery).not.toHaveBeenCalled();
+  });
+
+  // The link table fans out per app, so one trace can be confirmed under one
+  // app and pending under another. That session already renders — counting
+  // it as pending too would show "waiting" next to its own row.
+  it("does not count a trace as pending when it is confirmed under another app", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-a", repository: REPO, pr_comments_enabled: true },
+      { tenant_id: TENANT, app_id: "app-b", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-a", trace_id: "t1", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l2", app_id: "app-b", trace_id: "t1", method: "branch", verification: "pending" }),
+      ],
+    });
+    const chQuery = vi.fn().mockResolvedValue([chRow({ TraceId: "t1", AppId: "app-a" })]);
+    seedSupabaseMswState({ apps: [{ id: "app-a", tenant_id: TENANT, name: "api" }] });
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result!.sessions.map((r) => r.traceId)).toEqual(["t1"]);
+    expect(result!.pendingLinkCount).toBe(0);
+  });
+
+  // The provenance fact's session-side input, plus the metadata line's agent
+  // breakdown — both coerced at the ClickHouse boundary like every other
+  // field, with absent values degrading to empty rather than throwing.
+  it("carries AgentType and OutcomeCommitShas through, defaulting them when absent", async () => {
+    seedGitConnections([
+      { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
+    ]);
+    seedPullRequestSessionMswState({
+      links: [
+        link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" }),
+        link({ id: "l2", app_id: "app-1", trace_id: "t2", method: "pr_link", verification: "confirmed" }),
+      ],
+    });
+    const chQuery = vi.fn().mockResolvedValue([
+      chRow({
+        TraceId: "t1",
+        AppId: "app-1",
+        AgentType: "claude-code",
+        OutcomeCommitShas: ["1a2b3c4d5e6f7a8b", "9f8e7d6c5b4a3f2e"],
+        StartedAt: "2026-07-01 09:00:00.000",
+      }),
+      // No AgentType / OutcomeCommitShas keys at all — an older rollup row.
+      chRow({ TraceId: "t2", AppId: "app-1", StartedAt: "2026-07-02 09:00:00.000" }),
+    ]);
+    seedSupabaseMswState({ apps: [{ id: "app-1", tenant_id: TENANT, name: "api" }] });
+
+    const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
+
+    expect(result!.sessions.map((r) => [r.agentType, r.recordedCommitShas])).toEqual([
+      ["claude-code", ["1a2b3c4d5e6f7a8b", "9f8e7d6c5b4a3f2e"]],
+      ["", []],
+    ]);
+    // The select actually asks ClickHouse for both columns.
+    const [sql] = chQuery.mock.calls[0]!;
+    expect(sql).toContain("AgentType");
+    expect(sql).toContain("OutcomeCommitShas");
   });
 
   // git_connection.repository is stamped verbatim at link time — a URL-form
@@ -177,7 +281,7 @@ describe("readLinkedSessions", () => {
 
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ sessions: [], pendingLinkCount: 0 });
   });
 
   // The git_connection read is NOT filtered by repository at all (see the
@@ -210,7 +314,7 @@ describe("readLinkedSessions", () => {
 
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
-    expect(result!.map((r) => r.traceId)).toEqual(["t-match"]);
+    expect(result!.sessions.map((r) => r.traceId)).toEqual(["t-match"]);
     // The other repo's app never even entered the ClickHouse scan.
     const [, params] = chQuery.mock.calls[0]!;
     expect(params.traceIds).toEqual(["t-match"]);
@@ -224,10 +328,10 @@ describe("readLinkedSessions", () => {
 
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ sessions: [], pendingLinkCount: 0 });
   });
 
-  it("returns [] (not null) when the feature is on but nothing is confirmed-linked yet", async () => {
+  it("returns zero sessions (not null) when the feature is on but nothing is linked yet", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
     ]);
@@ -235,7 +339,7 @@ describe("readLinkedSessions", () => {
 
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ sessions: [], pendingLinkCount: 0 });
     expect(chQuery).not.toHaveBeenCalled();
   });
 
@@ -278,8 +382,8 @@ describe("readLinkedSessions", () => {
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
     expect(result).not.toBeNull();
-    expect(result!.map((r) => r.traceId)).toEqual(["t-older", "t-newer"]);
-    expect(result![1]).toMatchObject({
+    expect(result!.sessions.map((r) => r.traceId)).toEqual(["t-older", "t-newer"]);
+    expect(result!.sessions[1]).toMatchObject({
       traceId: "t-newer",
       appId: "app-1",
       appName: "api",
@@ -290,7 +394,7 @@ describe("readLinkedSessions", () => {
       models: ["haiku-4.5", "opus-5"],
       apiErrorCount: 2,
     });
-    expect(result![0]).toMatchObject({
+    expect(result!.sessions[0]).toMatchObject({
       traceId: "t-older",
       method: "pr_link",
       title: "Older session",
@@ -327,7 +431,7 @@ describe("readLinkedSessions", () => {
 
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
-    expect(result!.map((r) => r.traceId)).toEqual(["t-first", "t-second", "t-third"]);
+    expect(result!.sessions.map((r) => r.traceId)).toEqual(["t-first", "t-second", "t-third"]);
   });
 
   it("maps each session to its OWN app's name and default env when two apps share the repo", async () => {
@@ -368,7 +472,7 @@ describe("readLinkedSessions", () => {
 
     expect(result).not.toBeNull();
     // Oldest-first, so t-b (Jul 1) precedes t-a (Jul 2).
-    expect(result!.map((r) => [r.traceId, r.appName, r.envName])).toEqual([
+    expect(result!.sessions.map((r) => [r.traceId, r.appName, r.envName])).toEqual([
       ["t-b", "worker", "staging"],
       ["t-a", "api", "production"],
     ]);
@@ -399,7 +503,7 @@ describe("readLinkedSessions", () => {
 
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
-    expect(result!.map((r) => r.traceId)).toEqual(["t-ours"]);
+    expect(result!.sessions.map((r) => r.traceId)).toEqual(["t-ours"]);
     const [, params] = chQuery.mock.calls[0]!;
     expect(params.traceIds).toEqual(["t-ours"]);
   });
@@ -455,7 +559,7 @@ describe("readLinkedSessions", () => {
     );
   });
 
-  it("returns [] (not a throw) when there are zero confirmed links, even with no ClickHouse client", async () => {
+  it("returns zero sessions (not a throw) when there are zero confirmed links, even with no ClickHouse client", async () => {
     seedGitConnections([
       { tenant_id: TENANT, app_id: "app-1", repository: REPO, pr_comments_enabled: true },
     ]);
@@ -464,7 +568,7 @@ describe("readLinkedSessions", () => {
     // state, resolved before ClickHouse ever enters the picture.
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({ sessions: [], pendingLinkCount: 0 });
   });
 
   it("throws when the caller explicitly passes a null chQuery despite confirmed links existing", async () => {
@@ -566,11 +670,11 @@ describe("readLinkedSessions", () => {
 
     const result = await readLinkedSessions({ tenantId: TENANT, repository: REPO, prNumber: PR }, { chQuery });
 
-    expect(result!.map((r) => r.method)).toEqual(["pr_link", "pr_link"]);
+    expect(result!.sessions.map((r) => r.method)).toEqual(["pr_link", "pr_link"]);
     // The session id, like the method, follows the winning pr_link row —
     // regardless of whether it arrived before or after the branch row.
-    expect(result!.map((r) => r.sessionId)).toEqual(["s-t1-pr-link", "s-t2-pr-link"]);
+    expect(result!.sessions.map((r) => r.sessionId)).toEqual(["s-t1-pr-link", "s-t2-pr-link"]);
     // A truthy ErrorCount must pass through as-is, not collapse to 0.
-    expect(result![0]!.errorCount).toBe(7);
+    expect(result!.sessions[0]!.errorCount).toBe(7);
   });
 });

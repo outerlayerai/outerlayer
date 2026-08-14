@@ -109,15 +109,18 @@ very different things. Do not guess — check in this order:
    treats "no app has `pr_comments_enabled` for this repo" as a clean no-op —
    `refreshPrSessionComment` returns `{ status: "skipped-disabled" }`, and no
    `not_permitted` event is logged, because GitHub was never called.
-3. **No sessions linked yet.** The permission is approved, the toggle is on,
-   and the comment exists and correctly says "No agent sessions linked yet."
-   This is the everyday empty state for a freshly opened PR before any agent
-   session has been reconciled onto it (`pull_request_session`,
-   `verification = 'confirmed'`) — not a failure of anything.
+3. **No confirmed sessions yet.** The permission is approved, the toggle is
+   on, and either the comment says it is waiting for session evidence (a
+   candidate link is pending) or there is no comment at all because the PR
+   has no candidate session links (`pull_request_session` has nothing
+   `pending` or `confirmed` for it) — a human-only PR gets no comment,
+   `refreshPrSessionComment` returns `{ status: "skipped-no-links" }`. Not a
+   failure of anything.
 
 In short: **missing entirely** and **not_permitted in the logs** point at (1);
-**present but `skipped-disabled` / toggle off** points at (2); **present,
-rendered, and empty** is (3) and needs no action.
+**present but `skipped-disabled` / toggle off** points at (2); **waiting for
+session evidence, or missing with `skipped-no-links`** is (3) and needs no
+action.
 
 ## The visibility surface: querying `pr_session_comment.not_permitted`
 

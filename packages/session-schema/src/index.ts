@@ -37,6 +37,22 @@ export {
 } from "./tiers.js";
 export type { CaptureTier } from "./tiers.js";
 export { canonicalStringify } from "./canonical.js";
+export {
+  ARTIFACT_KINDS,
+  ARTIFACT_PROVENANCES,
+  ARTIFACT_MAX_CAPTION_LENGTH,
+  ARTIFACT_MAX_FILENAME_LENGTH,
+  ArtifactCriterionIdSchema,
+  ArtifactSpoolRecordSchema,
+  inferArtifactKind,
+  mediaTypeForArtifactPath,
+} from "./artifact.js";
+export type {
+  ArtifactKind,
+  ArtifactProvenance,
+  ArtifactSpoolRecord,
+  EmitArtifactRequest,
+} from "./artifact.js";
 export { agentSessionJsonSchema, AGENT_SESSION_SCHEMA_ID } from "./json-schema.js";
 export {
   spanTreeFromSession,

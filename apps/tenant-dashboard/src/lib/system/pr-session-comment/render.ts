@@ -1,14 +1,25 @@
+import { getAgentDescriptor } from "@/lib/worker-agents";
+
+import type { EvidenceEvaluation, EvidenceFact } from "./evaluate";
 import type { LinkedSessionRow } from "./read";
+import type { PrArtifactRow } from "./artifacts-read";
+import type { CriterionRequirement } from "./criteria";
 
 /**
- * The renderer behind the PR session comment: `rows` (from
+ * The renderer behind the PR evidence comment: `rows` (from
  * `readLinkedSessions`) + `topics` (from `readTopicLabels`) + `links` (this
- * module's own data param, see {@link RenderLinks}) → a single markdown
- * string.
+ * module's own data param, see {@link RenderLinks}) + `evaluation` (from
+ * `evaluateEvidence`) → a single markdown string.
+ *
+ * Layout, per the comment design: a verdict line first, then one aggregated
+ * metadata line (session count when more than one, agent breakdown, summed
+ * duration and cost, a session link), then the stated facts, then the
+ * per-session detail table the comment has always carried.
  *
  * PURE. No I/O, no supabase or ClickHouse client imports — this is what lets
  * the acceptance suite prove the comment's user-visible guarantees against
- * plain objects, no server, no database.
+ * plain objects, no server, no database. Determinism is part of the
+ * contract: unchanged inputs render a byte-identical body.
  *
  * PRIVACY: `LinkedSessionRow` and `readTopicLabels`'s map never carry a human
  * name, an actor/author/profile field, or transcript content (topic labels
@@ -57,6 +68,17 @@ export const PR_SESSION_COMMENT_MARKER = "<!-- outerlayer:pr-session-comment -->
 const ERROR_STORM_THRESHOLD = 3;
 
 /**
+ * How many unrecorded commit shas a flagged provenance fact names inline
+ * before summarizing the rest as a count. The fact must NAME the unrecorded
+ * commits, but a pathological PR (hundreds of unrecorded commits) must not
+ * turn the fact line into the whole comment.
+ */
+const MAX_NAMED_UNRECORDED_SHAS = 10;
+
+/** Display length for a named commit sha — git's own abbreviation habit. */
+const SHA_DISPLAY_LENGTH = 7;
+
+/**
  * Caller-supplied data needed to compose deep links. Kept a plain data
  * parameter (never resolved here) so this module stays pure: the read layer
  * resolves `appId`/`appName`/`envName` per row but deliberately does not
@@ -76,6 +98,22 @@ export interface RenderLinks {
 }
 
 const DEFAULT_SOURCE_TAG = "pr-comment";
+
+/**
+ * Evidence inputs for the comment: artifacts anchored to the PR and the
+ * proof requirements its changed acceptance files declare. Both are plain
+ * data — the read layer and the criteria fetch own all I/O — so the renderer
+ * stays pure and the evidence guarantees are provable against objects.
+ */
+export interface RenderEvidence {
+  artifacts: PrArtifactRow[];
+  criteria: CriterionRequirement[];
+}
+
+/** Artifacts rendered before the overflow line takes over. A PR with more
+ * exhibits than this is a documentation dump, not evidence; the dashboard
+ * holds the full list. */
+const MAX_RENDERED_ARTIFACTS = 30;
 
 /** URL path segments are tenant-authored (`appName`, `envName`) or
  * ClickHouse-derived (`traceId`). An unencoded `)` in any of them closes the
@@ -141,7 +179,7 @@ function formatDurationMinutes(totalMinutes: number): string {
  * not of reality: a session whose cost was never captured arrives here as 0,
  * and printing "$0.00" for it claims the work was free. Zero and unknown are
  * indistinguishable in the data, so the honest rendering is the one that
- * doesn't assert. Header totals still sum the numbers as they are.
+ * doesn't assert. Totals still sum the numbers as they are.
  */
 function formatCost(costUsd: number): string {
   if (!Number.isFinite(costUsd) || costUsd <= 0) return "—";
@@ -179,6 +217,228 @@ function isCertainMethod(method: LinkedSessionRow["method"]): boolean {
   }
 }
 
+/**
+ * The verdict line — the first thing a reviewer reads. Copy is verbatim from
+ * the comment design and is the product's voice; changing a word here is a
+ * design decision, not a refactor. The one deliberate departure: the design
+ * writes "Look at {N} things" with N ≥ 2 in every mock, and a count of one
+ * renders the grammatical "1 thing" rather than a machine's "1 things".
+ */
+function verdictLine(evaluation: EvidenceEvaluation): string {
+  switch (evaluation.verdict) {
+    case "pass":
+      return "**✅ Everything checks out — a quick review should be enough**";
+    case "flag": {
+      const noun = evaluation.flaggedCount === 1 ? "thing" : "things";
+      return `**⚠️ Look at ${evaluation.flaggedCount} ${noun} before merging**`;
+    }
+    case "unverifiable":
+      return "**❌ We can't verify this PR — review it fully**";
+    case "waiting":
+      return "**⏳ Waiting for session evidence**";
+    default: {
+      const exhaustive: never = evaluation.verdict;
+      void exhaustive;
+      return "**⏳ Waiting for session evidence**";
+    }
+  }
+}
+
+/**
+ * Display name for a session's agent. Known ids resolve through the shared
+ * agent registry ("claude-code" → "Claude Code"); unknown ones render their
+ * raw id ESCAPED — `AgentType` arrives from transcript capture, sanitized at
+ * no hop on the way here, same trust level as titles and model names.
+ */
+function agentDisplayName(agentType: string): string {
+  const raw = agentType.trim();
+  if (!raw) return "unknown agent";
+  return getAgentDescriptor(raw)?.displayName ?? escapeMarkdownCell(raw);
+}
+
+/**
+ * The agent breakdown for the metadata line: "Claude Code" for one session,
+ * "Claude Code ×2 · Codex" across several. Ordered by count (desc) then name
+ * so unchanged inputs render identically regardless of row arrival order.
+ */
+function agentBreakdown(rows: LinkedSessionRow[]): string {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const name = agentDisplayName(row.agentType);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+    .join(" · ");
+}
+
+/**
+ * The aggregated metadata line under the verdict: session count (only when
+ * more than one — a lone session's count is noise), agent breakdown, summed
+ * duration and cost, and a session link (the session itself when there is
+ * one; the whole table already links each when there are several, and the
+ * footer carries the dashboard doorway either way).
+ */
+function metadataBlock(rows: LinkedSessionRow[], links: RenderLinks): string {
+  const totalMinutes = rows.reduce(
+    (sum, row) => sum + durationMinutes(row.startedAt, row.endedAt),
+    0,
+  );
+  // Totals are sums over every linked session, never a per-PR cost claim —
+  // a session spanning 3 PRs counts fully in all 3. The label below carries
+  // that exact phrase, so a reader never mistakes it for a per-PR
+  // attribution.
+  const totalCost = rows.reduce((sum, row) => sum + row.costUsd, 0);
+
+  const parts: string[] = [];
+  if (rows.length > 1) parts.push(`${rows.length} sessions`);
+  parts.push(agentBreakdown(rows));
+  parts.push(formatDurationMinutes(totalMinutes));
+  parts.push(formatCost(totalCost));
+  const only = rows.length === 1 ? rows[0] : undefined;
+  if (only) parts.push(`[open session](${sessionDeepLink(links, only)})`);
+
+  const line = parts.join(" · ");
+  return rows.length > 1 ? `${line}\n_Totals are sums over linked sessions._` : line;
+}
+
+/** A 7-char display prefix for a commit sha. Hex-filtered, not merely
+ * escaped: shas reach us from the GitHub API, but a backtick span offers no
+ * escaping at all, so anything that isn't hex simply doesn't render. */
+function shaDisplay(sha: string): string {
+  return sha.replace(/[^0-9a-f]/gi, "").slice(0, SHA_DISPLAY_LENGTH).toLowerCase();
+}
+
+/**
+ * One line per stated fact. The fact sentence is the design's copy verbatim
+ * — "{k} of {n} commits came from recorded sessions" — and a flagged
+ * provenance fact NAMES the unrecorded commits (capped, with the remainder
+ * counted) rather than leaving the reviewer to diff the commit list.
+ */
+function factLine(fact: EvidenceFact): string {
+  switch (fact.id) {
+    case "commits-from-sessions": {
+      const sentence = `**${fact.matchedCommitCount} of ${fact.totalCommitCount} commits came from recorded sessions**`;
+      if (fact.status === "pass") return `✓ ${sentence}`;
+      const named = fact.unrecordedShas.slice(0, MAX_NAMED_UNRECORDED_SHAS).map(
+        (sha) => `\`${shaDisplay(sha)}\``,
+      );
+      const remainder = fact.unrecordedShas.length - named.length;
+      const list = remainder > 0 ? `${named.join(", ")} …and ${remainder} more` : named.join(", ");
+      return `⚠ ${sentence} — unrecorded: ${list}`;
+    }
+    case "red-then-green":
+    case "no-test-tampering": {
+      // The sentence is the validator's summary verbatim — the row may only
+      // claim what the matcher proved, so no copy is added here. ✕ is
+      // reserved for red-class facts (the ones that void the verdict).
+      const mark = fact.status === "pass" ? "✓" : fact.class === "red" ? "✕" : "⚠";
+      const turns = fact.refs
+        .map((ref) => ref.turnIndex)
+        .filter((turn): turn is number => turn !== null);
+      const suffix =
+        turns.length === 0
+          ? ""
+          : ` — ${turns.length === 1 ? `turn ${turns[0]}` : `turns ${turns.join(" → ")}`}`;
+      return `${mark} **${fact.sentence}**${suffix}`;
+    }
+    default: {
+      const exhaustive: never = fact;
+      void exhaustive;
+      return "";
+    }
+  }
+}
+
+/**
+ * The waiting body: candidate links exist but none has confirmed yet, so
+ * there is nothing to judge and the comment says so instead of judging on no
+ * evidence. Replaced in place — same comment, new body — when a link
+ * confirms.
+ */
+function waitingLine(pendingLinkCount: number): string {
+  const noun = pendingLinkCount === 1 ? "session link is" : "session links are";
+  return `**⏳ Waiting for session evidence** — ${pendingLinkCount} ${noun} pending confirmation. This comment updates when the session syncs.`;
+}
+
+/**
+ * Renders the PR evidence comment body from linked-session rows, their topic
+ * labels, the link-composition data, and the evidence evaluation. Pure — no
+ * I/O.
+ *
+ * A PR with no candidate session links at all never reaches this function:
+ * the orchestrator skips it entirely (a human-only PR gets no comment).
+ */
+export function renderComment(
+  rows: LinkedSessionRow[],
+  topics: Map<string, string[]>,
+  links: RenderLinks,
+  evaluation: EvidenceEvaluation,
+  evidence?: RenderEvidence,
+): string {
+  const evidenceBlock = evidence ? renderEvidence(evidence, links) : null;
+
+  if (evaluation.verdict === "waiting" || rows.length === 0) {
+    // No confirmed session to judge. Pending candidates say so; either way
+    // artifacts already anchored to the PR (a CI emit needs no session)
+    // still surface — evidence is evidence of the PR, not of a session.
+    const parts: string[] = [];
+    if (evaluation.pendingLinkCount > 0) parts.push(waitingLine(evaluation.pendingLinkCount));
+    if (evidenceBlock) parts.push(evidenceBlock);
+    parts.push(PR_SESSION_COMMENT_MARKER);
+    return parts.join("\n\n");
+  }
+
+  // Verdict first, metadata second, facts third — the design's reading
+  // order: conclusion, context, evidence.
+  const prelude: string[] = [verdictLine(evaluation), metadataBlock(rows, links)];
+  const factLines = evaluation.facts.map(factLine).filter((line) => line !== "");
+  if (factLines.length > 0) prelude.push(factLines.join("\n"));
+
+  const tableHeader = "| Session | Topics | Duration | Cost | Models |\n| ------- | ------ | -------- | ---- | ------ |";
+  const tableRows = rows.map((row) => renderRow(row, topics, links));
+
+  // Rows can span more than one app in the tenant, but the whole-PR link
+  // always renders: the multi-app PR is the one most likely to have a lead
+  // asking "how did this get built?", and leaving it with no doorway at all
+  // was the worse of the two failures. It points at the app/env of the first
+  // row — one real scope rather than none.
+  //
+  // TODO: this link can only scope to ONE app/env, because the sessions
+  // list's `?pr=` filter is pinned to a single `app_id`
+  // (`features/agent-sessions/service.ts` — the other half of this coupling
+  // is commented there). So on a multi-app PR the page a reader lands on
+  // shows a SUBSET of the rows above, with smaller totals, which is a real
+  // "every figure matches the dashboard exactly" gap. The fix is
+  // a tenant-scoped `?pr=` route, or a per-session route that doesn't need
+  // an app in the path; until then this is a knowingly-accepted mismatch.
+  const firstRow = rows[0];
+  const footer = firstRow
+    ? `Full transcripts in the [session dashboard](${sessionsListLink(links, firstRow.appName, firstRow.envName)}).`
+    : null;
+
+  // The evidence block is fixed content the session-table fitter must leave
+  // room for — evidence links are the exhibits reviewers came for, so the
+  // table truncates before evidence ever would.
+  const evidenceReservation = evidenceBlock ? evidenceBlock.length + "\n\n".length : 0;
+  const fitted = fitTableRows(tableRows, prelude, tableHeader, footer, evidenceReservation);
+  const bodyParts = [...prelude];
+  if (fitted.rows.length > 0) {
+    bodyParts.push(`${tableHeader}\n${fitted.rows.join("\n")}`);
+  }
+  if (fitted.omitted > 0) {
+    const word = fitted.omitted === 1 ? "session" : "sessions";
+    bodyParts.push(`_…and ${fitted.omitted} more ${word} — see the dashboard._`);
+  }
+  if (evidenceBlock) bodyParts.push(evidenceBlock);
+  if (footer) bodyParts.push(footer);
+  // Last, so it never displaces content a reader sees, and so the fitter's
+  // reservation for it (below) is a plain constant.
+  bodyParts.push(PR_SESSION_COMMENT_MARKER);
+  return bodyParts.join("\n\n");
+}
+
 function renderRow(
   row: LinkedSessionRow,
   topics: Map<string, string[]>,
@@ -203,79 +463,125 @@ function renderRow(
   return `| [${label}](${url})${badge} | ${topicsCell} | ${duration} | ${cost} | ${models} |`;
 }
 
+function artifactDeepLink(links: RenderLinks, artifact: PrArtifactRow): string {
+  const src = links.sourceTag ?? DEFAULT_SOURCE_TAG;
+  return `${links.baseUrl}/orgs/${urlSegment(links.orgName)}/apps/${urlSegment(artifact.appName)}/env/${urlSegment(artifact.envName)}/agents/artifacts/${urlSegment(artifact.id)}?src=${urlSegment(src)}`;
+}
+
 /**
- * Renders the PR session comment body from linked-session rows, their topic
- * labels, and the link-composition data. Pure — no I/O.
+ * The one ordering the Artifacts subgroup ever renders in: artifacts bound
+ * to a criterion first, then by emit time, ties broken by id. A total order
+ * over fields that never change after ingest — re-rendering unchanged
+ * records is byte-identical by construction.
  */
-export function renderComment(
-  rows: LinkedSessionRow[],
-  topics: Map<string, string[]>,
+function orderArtifacts(artifacts: PrArtifactRow[]): PrArtifactRow[] {
+  return [...artifacts].sort((a, b) => {
+    const aBound = a.criterionId !== "" ? 0 : 1;
+    const bBound = b.criterionId !== "" ? 0 : 1;
+    if (aBound !== bBound) return aBound - bBound;
+    if (a.emittedAt !== b.emittedAt) return a.emittedAt < b.emittedAt ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
+/** Criterion ids are shape-constrained at ingest and by the spec parser, but
+ * the renderer still neutralizes them for a code span: a backtick would end
+ * the span early, and `escapeMarkdownCell` covers the rest. */
+function criterionSpan(id: string): string {
+  return `\`${escapeMarkdownCell(id.replace(/`/g, ""))}\``;
+}
+
+function artifactLabel(artifact: PrArtifactRow, links: RenderLinks): string {
+  // Kind comes from the server's media-type allowlist, so printing it as the
+  // link's prefix is a claim the store can back — never author-supplied.
+  const label = `${artifact.kind} · ${escapeMarkdownCell(artifact.filename)}`;
+  // Session provenance is the default reading of agent evidence; only the
+  // other submission paths get labeled.
+  const provenance = artifact.provenance === "session" ? "" : ` \`${artifact.provenance}\``;
+  return `[${label}](${artifactDeepLink(links, artifact)})${provenance}`;
+}
+
+/**
+ * The proof cell for one criterion: its bound artifacts of the required kind
+ * as links, or the exact mismatch wording — "video required · screenshot
+ * attached" / "video required · none attached". A wrong kind never upgrades:
+ * only a kind-matching artifact renders as a link.
+ */
+function renderProofCell(
+  criterion: CriterionRequirement,
+  artifacts: PrArtifactRow[],
   links: RenderLinks,
 ): string {
-  // A connected repo's PR always gets this slot, even with zero linked
-  // sessions — that's what makes a *missing* comment legible as "app not
-  // connected" rather than "no sessions yet".
-  if (rows.length === 0) {
-    return `No agent sessions linked yet.\n\n${PR_SESSION_COMMENT_MARKER}`;
+  const bound = artifacts.filter((a) => a.criterionId === criterion.id);
+  const matching = bound.filter((a) => a.kind === criterion.proofKind);
+  if (matching.length > 0) {
+    return matching.map((a) => artifactLabel(a, links)).join(", ");
   }
+  if (bound.length > 0) {
+    const attachedKinds = [...new Set(bound.map((a) => a.kind))].sort().join(", ");
+    return `${criterion.proofKind} required · ${attachedKinds} attached`;
+  }
+  return `${criterion.proofKind} required · none attached`;
+}
 
-  const totalMinutes = rows.reduce(
-    (sum, row) => sum + durationMinutes(row.startedAt, row.endedAt),
-    0,
+/**
+ * The Evidence block: a summary line carrying the artifact count, a Criteria
+ * table when the PR's acceptance files declare proof requirements, and an
+ * Artifacts table listing each exhibit as a link. Links only — bytes never
+ * render inline (no `![`/`<img`); the dashboard page behind the link mints
+ * per-viewer expiring blob tokens. Returns null when there is no evidence at
+ * all, so a PR without artifacts shows no Evidence section.
+ */
+function renderEvidence(evidence: RenderEvidence, links: RenderLinks): string | null {
+  const artifacts = orderArtifacts(evidence.artifacts);
+  const criteria = [...evidence.criteria].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
-  // Header totals are sums over every linked session, never a per-PR cost
-  // claim — a session spanning 3 PRs counts fully in all 3.
-  // The header carries that exact phrase, so a
-  // reader never mistakes it for a per-PR attribution.
-  const totalCost = rows.reduce((sum, row) => sum + row.costUsd, 0);
-  const sessionWord = rows.length === 1 ? "session" : "sessions";
-  const header = `### Agent sessions behind this PR — ${rows.length} linked ${sessionWord} · ${formatDurationMinutes(totalMinutes)} · ${formatCost(totalCost)}\n_Totals are sums over linked sessions._`;
+  if (artifacts.length === 0 && criteria.length === 0) return null;
 
-  const tableHeader = "| Session | Topics | Duration | Cost | Models |\n| ------- | ------ | -------- | ---- | ------ |";
-  const tableRows = rows.map((row) => renderRow(row, topics, links));
+  const parts: string[] = [];
+  const artifactWord = artifacts.length === 1 ? "artifact" : "artifacts";
+  parts.push(
+    artifacts.length > 0
+      ? `**Evidence** · ${artifacts.length} ${artifactWord}`
+      : `**Evidence**`,
+  );
 
-  // Rows can span more than one app in the tenant, but the whole-PR link
-  // always renders: the multi-app PR is the one most likely to have a lead
-  // asking "how did this get built?", and leaving it with no doorway at all
-  // was the worse of the two failures. It points at the app/env of the first
-  // row — one real scope rather than none.
-  //
-  // TODO: this link can only scope to ONE app/env, because the sessions
-  // list's `?pr=` filter is pinned to a single `app_id`
-  // (`features/agent-sessions/service.ts` — the other half of this coupling
-  // is commented there). So on a multi-app PR the page a reader lands on
-  // shows a SUBSET of the rows above, with smaller totals, which is a real
-  // "every figure matches the dashboard exactly" gap. The fix is
-  // a tenant-scoped `?pr=` route, or a per-session route that doesn't need
-  // an app in the path; until then this is a knowingly-accepted mismatch.
-  const firstRow = rows[0];
-  const footer = firstRow
-    ? `Full transcripts in the [session dashboard](${sessionsListLink(links, firstRow.appName, firstRow.envName)}).`
-    : null;
-
-  const fitted = fitTableRows(tableRows, header, tableHeader, footer);
-  const bodyParts = [header];
-  if (fitted.rows.length > 0) {
-    bodyParts.push(`${tableHeader}\n${fitted.rows.join("\n")}`);
+  if (criteria.length > 0) {
+    const criteriaHeader = "| Criterion | Proof |\n| --------- | ----- |";
+    const criteriaRows = criteria.map(
+      (c) => `| ${criterionSpan(c.id)} | ${renderProofCell(c, artifacts, links)} |`,
+    );
+    parts.push(`${criteriaHeader}\n${criteriaRows.join("\n")}`);
   }
-  if (fitted.omitted > 0) {
-    const word = fitted.omitted === 1 ? "session" : "sessions";
-    bodyParts.push(`_…and ${fitted.omitted} more ${word} — see the dashboard._`);
+
+  if (artifacts.length > 0) {
+    const shown = artifacts.slice(0, MAX_RENDERED_ARTIFACTS);
+    const artifactsHeader = "**Artifacts**\n\n| Artifact | Caption |\n| -------- | ------- |";
+    const artifactRows = shown.map((a) => {
+      const caption = a.caption.trim() === "" ? "—" : escapeMarkdownCell(a.caption);
+      const forSuffix = a.criterionId === "" ? "" : ` · for ${criterionSpan(a.criterionId)}`;
+      return `| ${artifactLabel(a, links)} | ${caption}${forSuffix} |`;
+    });
+    parts.push(`${artifactsHeader}\n${artifactRows.join("\n")}`);
+    const omitted = artifacts.length - shown.length;
+    if (omitted > 0) {
+      const word = omitted === 1 ? "artifact" : "artifacts";
+      parts.push(`_…and ${omitted} more ${word} — see the dashboard._`);
+    }
   }
-  if (footer) bodyParts.push(footer);
-  // Last, so it never displaces content a reader sees, and so the fitter's
-  // reservation for it (below) is a plain constant.
-  bodyParts.push(PR_SESSION_COMMENT_MARKER);
-  return bodyParts.join("\n\n");
+
+  return parts.join("\n\n");
 }
 
 /**
  * Fits as many table rows as the GitHub body limit allows, keeping the
- * header, the table header, the overflow line, and the footer.
+ * prelude (verdict, metadata, facts), the table header, the overflow line,
+ * and the footer.
  *
  * Over the ceiling the comment degrades to "the most recent N sessions, and
  * a count of the rest" rather than dropping the table entirely — the same
- * ceiling, a far more useful comment than a cost total with no idea which
+ * ceiling, a far more useful comment than a verdict with no idea which
  * sessions produced it.
  *
  * Which N is load-bearing. `readLinkedSessions` returns rows OLDEST-first so
@@ -289,20 +595,22 @@ export function renderComment(
  */
 function fitTableRows(
   tableRows: string[],
-  header: string,
+  prelude: string[],
   tableHeader: string,
   footer: string | null,
+  extraFixed = 0,
 ): { rows: string[]; omitted: number } {
   const separators = "\n\n".length;
   const fixed =
-    header.length +
-    separators +
+    prelude.reduce((sum, part) => sum + part.length + separators, 0) +
     tableHeader.length +
     (footer ? separators + footer.length : 0) +
     // The marker is appended unconditionally by the caller and must be
     // inside the ceiling, not pushed over it by the last row that fits.
     separators +
-    PR_SESSION_COMMENT_MARKER.length;
+    PR_SESSION_COMMENT_MARKER.length +
+    // Evidence block reservation — see the caller.
+    extraFixed;
   // Reserved unconditionally, so dropping the last row can never push the
   // body back over the limit by adding this line.
   const overflowLine = `_…and ${tableRows.length} more sessions — see the dashboard._`;
@@ -324,8 +632,8 @@ function fitTableRows(
 
   // Degenerate case — not even one row fits (a single pathological title
   // near the 64 KB ceiling). `kept` stays empty and the caller drops the
-  // table header with it, leaving the totals, the "…and N more" line, and
-  // the link: the fallback, reached only where truncating genuinely can't
-  // help.
+  // table header with it, leaving the verdict, the metadata, the "…and N
+  // more" line, and the link: the fallback, reached only where truncating
+  // genuinely can't help.
   return { rows: kept, omitted: tableRows.length - kept.length };
 }

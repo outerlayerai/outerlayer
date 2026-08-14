@@ -81,6 +81,37 @@ const ISSUE_COMMENTS_PAGE_SIZE = 100;
 const ISSUE_COMMENTS_MAX_PAGES = 5;
 
 /**
+ * Result of listing a pull request's commits. `not_permitted` mirrors
+ * {@link IssueCommentResult}: a 403 must degrade silently on an installation
+ * whose admin has not approved the needed permission. `unavailable` is a 404
+ * — the PR isn't addressable from this installation — and likewise means
+ * "commits unknown", never an error the caller should surface.
+ */
+export type PullRequestCommitListResult =
+  | { status: 'ok'; commits: { sha: string }[] }
+  | { status: 'not_permitted' }
+  | { status: 'unavailable' };
+
+/**
+ * Same tri-state contract as {@link PullRequestCommitListResult}: a 403/404
+ * is "files unknown", never an error the caller should surface. `status` is
+ * GitHub's per-file change status (`added`/`modified`/`removed`/…), which is
+ * what lets a caller distinguish "adds tests" from "deletes tests".
+ */
+export type PullRequestFileListResult =
+  | { status: 'ok'; files: { filename: string; changeStatus: string }[] }
+  | { status: 'not_permitted' }
+  | { status: 'unavailable' };
+
+/**
+ * Page size and page ceiling for {@link GitHubProvider.listPullRequestCommits}.
+ * GitHub's list-PR-commits endpoint returns at most 250 commits regardless
+ * of pagination, so 100 × 3 covers everything the API will ever hand back.
+ */
+const PR_COMMITS_PAGE_SIZE = 100;
+const PR_COMMITS_MAX_PAGES = 3;
+
+/**
  * Maximum number of times a non-fast-forward push is retried before the
  * caller surfaces a "retry — concurrent commit" error.
  */
@@ -1339,6 +1370,85 @@ export class GitHubProvider implements GitProvider {
     } catch (error: unknown) {
       if ((error as { status?: number }).status === 403) {
         return { status: 'not_permitted' };
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
+  /**
+   * List a pull request's commits — `GET
+   * /repos/{owner}/{repo}/pulls/{pull_number}/commits`, bounded to
+   * {@link PR_COMMITS_MAX_PAGES} (the endpoint itself caps at 250 commits).
+   *
+   * Exists for the evidence comment's commit-provenance fact: the PR's own
+   * commit shas, matched against the linked sessions' recorded commits. A
+   * 403 returns `not_permitted` and a 404 `unavailable` — both mean the
+   * fact simply cannot be computed, and the caller omits it rather than
+   * failing the comment.
+   */
+  async listPullRequestCommits(
+    repo: string,
+    prNumber: number
+  ): Promise<PullRequestCommitListResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+    const commits: { sha: string }[] = [];
+
+    try {
+      for (let page = 1; page <= PR_COMMITS_MAX_PAGES; page += 1) {
+        const response = await this.octokit.rest.pulls.listCommits({
+          owner,
+          repo: repoName,
+          pull_number: prNumber,
+          per_page: PR_COMMITS_PAGE_SIZE,
+          page,
+        });
+        for (const commit of response.data) {
+          commits.push({ sha: commit.sha });
+        }
+        if (response.data.length < PR_COMMITS_PAGE_SIZE) break;
+      }
+      return { status: 'ok', commits };
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 403) {
+        return { status: 'not_permitted' };
+      }
+      if (status === 404) {
+        return { status: 'unavailable' };
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
+  async listPullRequestFiles(
+    repo: string,
+    prNumber: number
+  ): Promise<PullRequestFileListResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+    const files: { filename: string; changeStatus: string }[] = [];
+
+    try {
+      for (let page = 1; page <= PR_COMMITS_MAX_PAGES; page += 1) {
+        const response = await this.octokit.rest.pulls.listFiles({
+          owner,
+          repo: repoName,
+          pull_number: prNumber,
+          per_page: PR_COMMITS_PAGE_SIZE,
+          page,
+        });
+        for (const file of response.data) {
+          files.push({ filename: file.filename, changeStatus: file.status });
+        }
+        if (response.data.length < PR_COMMITS_PAGE_SIZE) break;
+      }
+      return { status: 'ok', files };
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 403) {
+        return { status: 'not_permitted' };
+      }
+      if (status === 404) {
+        return { status: 'unavailable' };
       }
       throw this.handleError(error, repo);
     }

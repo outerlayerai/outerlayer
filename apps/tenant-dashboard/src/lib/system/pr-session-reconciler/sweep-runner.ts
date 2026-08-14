@@ -7,6 +7,7 @@ import {
   type ReconcileCounts,
   type ChangedPrTarget,
 } from "./reconciler";
+import { reconcileArtifacts, type ArtifactReconcileCounts } from "./artifact-reconcile";
 import { sweepChQuery } from "./ch-query";
 
 /**
@@ -23,12 +24,22 @@ export async function runPrSessionSweep(input: {
   sinceHours: number;
 }): Promise<
   | { skipped: true }
-  | { skipped: false; counts: ReconcileCounts; changed: ChangedPrTarget[] }
+  | {
+      skipped: false;
+      counts: ReconcileCounts;
+      artifactCounts: ArtifactReconcileCounts;
+      changed: ChangedPrTarget[];
+    }
 > {
   const chQuery = sweepChQuery();
   if (!chQuery) return { skipped: true as const };
   const admin = getAdminDataClient();
   const { changed, ...counts } = await reconcileRecentSessions(admin, chQuery, input);
-  const targets = await resolveChangedLinkTargets(admin, changed);
-  return { skipped: false as const, counts, changed: targets };
+  // Artifact resolution rides the same tick: it reads the session links the
+  // pass above just confirmed, so ordering matters — artifacts after
+  // sessions, never the reverse.
+  const artifacts = await reconcileArtifacts(admin);
+  const combined = [...changed, ...artifacts.changed];
+  const targets = await resolveChangedLinkTargets(admin, combined);
+  return { skipped: false as const, counts, artifactCounts: artifacts.counts, changed: targets };
 }

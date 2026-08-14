@@ -54,6 +54,11 @@ describe('createS3BlobStorage (SigV4 over fetch)', () => {
         store.set(req.url, new Uint8Array(await req.arrayBuffer()));
         return new Response(null, { status: 200 });
       }
+      if (req.method === 'DELETE') {
+        // S3 answers 204 whether or not the key existed.
+        store.delete(req.url);
+        return new Response(null, { status: 204 });
+      }
       const found = store.get(req.url);
       if (!found) return new Response('NoSuchKey', { status: 404 });
       return new Response(found, { status: 200 });
@@ -97,6 +102,31 @@ describe('createS3BlobStorage (SigV4 over fetch)', () => {
       createS3BlobStorage(CONN).put('tnt/x', new Uint8Array([1]), 'application/octet-stream')
     ).rejects.toThrow('S3 put tnt/x failed (500)');
   });
+
+  it('deletes an object with a signed DELETE, after which a get misses', async () => {
+    const storage = createS3BlobStorage(CONN);
+    await storage.put('tnt/app/blob', new Uint8Array([1, 2, 3]), 'image/png');
+
+    await storage.delete('tnt/app/blob');
+
+    expect(await storage.get('tnt/app/blob')).toBeNull();
+    const del = requests.find((r) => r.method === 'DELETE')!;
+    expect(del.url).toBe('http://127.0.0.1:9300/trace-blobs/tnt/app/blob');
+    expect(del.headers.get('authorization')).toMatch(/^AWS4-HMAC-SHA256 Credential=minioadmin\//);
+  });
+
+  it('treats deleting an absent object as an idempotent no-op (404 as well as 204)', async () => {
+    // The shared mock answers 204 for any DELETE — the faithful S3 shape.
+    await expect(createS3BlobStorage(CONN).delete('tnt/never-stored')).resolves.toBeUndefined();
+    // A gateway that answers 404 instead must read the same way.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('NoSuchKey', { status: 404 })));
+    await expect(createS3BlobStorage(CONN).delete('tnt/never-stored')).resolves.toBeUndefined();
+  });
+
+  it('throws on a non-404 delete failure, surfacing the status', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('AccessDenied', { status: 403 })));
+    await expect(createS3BlobStorage(CONN).delete('tnt/x')).rejects.toThrow('S3 delete tnt/x failed (403)');
+  });
 });
 
 describe('createBlobStorage (factory)', () => {
@@ -107,6 +137,13 @@ describe('createBlobStorage (factory)', () => {
     expect(put).toHaveBeenCalledWith('k', new Uint8Array([1]), {
       httpMetadata: { contentType: 'text/plain' },
     });
+  });
+
+  it('routes deletes to the R2 binding by key', async () => {
+    const del = vi.fn(async () => {});
+    const env = { TRACE_BLOBS: { put: vi.fn(), get: vi.fn(), delete: del } } as unknown as Env;
+    await createBlobStorage(env).delete('tnt/app/blob');
+    expect(del).toHaveBeenCalledWith('tnt/app/blob');
   });
 
   it('wires the S3 adapter when backend=s3 with a complete connection', async () => {

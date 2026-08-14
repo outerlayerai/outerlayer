@@ -3,13 +3,20 @@
 
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { Socket } from "node:net";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, utimesSync, realpathSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, utimesSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSync, SyncConfigError, SyncTransportError, cloudConfigPath } from "../sync-cmd.js";
 import { hookExecSpoolPath } from "../hook-wrap-fast.js";
 import { readHookExecWatermark } from "../hook-exec-merge.js";
+import {
+  artifactBlobsDir,
+  artifactsSpoolPath,
+  artifactsWatermarkPath,
+  readArtifactsWatermark,
+} from "../artifact-spool.js";
 
 let root: string;
 let home: string;
@@ -950,5 +957,232 @@ describe("runSync — hook-exec merge", () => {
     };
     const session = payload.sessions.find((s) => s.id === "s1")!;
     expect(session.events.filter((e) => e.type === "hook_executed")).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// artifact spool → POST /v1/artifacts, uploaded at sync time
+// ---------------------------------------------------------------------------
+
+const ART_BYTES = Buffer.from("png-bytes-of-the-proof-shot");
+const ART_SHA = createHash("sha256").update(ART_BYTES).digest("hex");
+
+function spoolArtifact(record: Record<string, unknown>, blobBytes?: Buffer): void {
+  mkdirSync(artifactBlobsDir(home), { recursive: true });
+  appendFileSync(artifactsSpoolPath(home), JSON.stringify(record) + "\n");
+  if (blobBytes) writeFileSync(join(artifactBlobsDir(home), String(record.sha256)), blobBytes);
+}
+
+function artifactRecord(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    rec: "artifact",
+    artifactId: "11111111-2222-4333-8444-555555555555",
+    t: new Date().toISOString(),
+    sessionId: "s1",
+    cwd: "/home/x/acme",
+    gitRepo: "github.com/x/acme",
+    gitBranch: "main",
+    commitSha: "c".repeat(40),
+    prNumber: 61,
+    filename: "shot.png",
+    mediaType: "image/png",
+    bytes: ART_BYTES.length,
+    sha256: ART_SHA,
+    caption: "checkout works end to end",
+    criterionId: "AC-084-02",
+    ...over,
+  };
+}
+
+/** okFetch for the session batch endpoint plus an artifact endpoint that
+ * answers with the given status. */
+function fetchWithArtifacts(calls: FetchCall[], artifactStatus = 200): typeof fetch {
+  const ok = okFetch(calls);
+  return (async (url: URL | RequestInfo, init?: RequestInit) => {
+    if (String(url).endsWith("/v1/artifacts")) {
+      calls.push({ url: String(url), init: init! });
+      return new Response(JSON.stringify({ data: { artifactId: "art-1", provenance: "session" } }), {
+        status: artifactStatus,
+      });
+    }
+    return ok(url, init);
+  }) as typeof fetch;
+}
+
+/** A transcript whose assistant turn's tool call ran the emitting command —
+ * the text `resolveArtifactTurnIndex` locates the turn by. */
+function transcriptWithEmitCall(id: string, filename: string): void {
+  transcript(id, [
+    userLine(id, "prove it works"),
+    {
+      sessionId: id,
+      type: "assistant",
+      version: "2.1.193",
+      cwd: "/home/x/acme",
+      gitBranch: "main",
+      timestamp: "2026-07-10T10:00:00.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-8",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "Bash",
+            input: { command: `outerlayer emit artifact ${filename} --caption "proof"` },
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      },
+    },
+  ]);
+}
+
+describe("runSync — artifact upload", () => {
+  // proves AC-084-02 — a spooled artifact whose session is in this run's
+  // scan uploads bound to that session with the emitting turn resolved from
+  // the tool-call text; success advances the artifact watermark and removes
+  // the spooled blob bytes.
+  it("uploads with session.sessionId + resolved turnIndex, advances the watermark, deletes the blob", async () => {
+    transcriptWithEmitCall("s1", "shot.png");
+    const record = artifactRecord();
+    spoolArtifact(record, ART_BYTES);
+
+    const calls: FetchCall[] = [];
+    const result = await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(calls) });
+    expect(result.synced).toBe(1);
+
+    // Sessions ship BEFORE artifacts — the server validates the session id.
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://gw.outerlayer.test/v1/agents/sync",
+      "https://gw.outerlayer.test/v1/artifacts",
+    ]);
+    const headers = calls[1]!.init.headers as Record<string, string>;
+    expect(headers.authorization).toBe(`Bearer ${CREDS.apiKey}`);
+    expect(headers["x-outerlayer-app-id"]).toBe(CREDS.appId);
+
+    const payload = JSON.parse(String(calls[1]!.init.body)) as {
+      schemaVersion: number;
+      artifact: Record<string, unknown>;
+      blob: { data: string };
+    };
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.artifact).toEqual({
+      clientArtifactId: "11111111-2222-4333-8444-555555555555",
+      filename: "shot.png",
+      mediaType: "image/png",
+      bytes: ART_BYTES.length,
+      sha256: ART_SHA,
+      caption: "checkout works end to end",
+      criterionId: "AC-084-02",
+      emittedAt: record.t,
+      prNumber: 61,
+      gitRepo: "github.com/x/acme",
+      gitBranch: "main",
+      commitSha: "c".repeat(40),
+      session: { sessionId: "s1", turnIndex: 1 },
+    });
+    expect(payload.blob.data).toBe(ART_BYTES.toString("base64"));
+
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(false);
+  });
+
+  it("a session synced in an EARLIER run still uploads — session id only, no turnIndex", async () => {
+    spoolArtifact(artifactRecord({ sessionId: "ghost-session" }), ART_BYTES);
+    const calls: FetchCall[] = [];
+    const result = await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(calls) });
+    expect(result.synced).toBe(0);
+    expect(calls.map((c) => c.url)).toEqual(["https://gw.outerlayer.test/v1/artifacts"]);
+    const payload = JSON.parse(String(calls[0]!.init.body)) as { artifact: { session: unknown } };
+    expect(payload.artifact.session).toEqual({ sessionId: "ghost-session" });
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+  });
+
+  it("dry-run lists the pending artifact, touches no watermark, and makes no artifact POST", async () => {
+    transcriptWithEmitCall("s1", "shot.png");
+    spoolArtifact(artifactRecord({ t: "2026-08-14T09:00:00.000Z" }), ART_BYTES);
+
+    const calls: FetchCall[] = [];
+    const result = await runSync({ ...CREDS, dryRun: true, json: true, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(calls) });
+
+    const parsed = JSON.parse(result.output) as { artifacts: unknown };
+    expect(parsed.artifacts).toEqual({
+      pending: 1,
+      records: [{ filename: "shot.png", kind: "screenshot", sessionId: "s1", emittedAt: "2026-08-14T09:00:00.000Z" }],
+    });
+    expect(calls).toEqual([]);
+    expect(existsSync(artifactsWatermarkPath(home))).toBe(false);
+    expect(readArtifactsWatermark(home)).toBe(0);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(true);
+  });
+
+  it("dry-run human output includes the pending-artifact rows", async () => {
+    transcriptWithEmitCall("s1", "shot.png");
+    spoolArtifact(artifactRecord(), ART_BYTES);
+    const result = await runSync({ ...CREDS, dryRun: true, root, home, ...hermetic, quiet: true, env: {} });
+    expect(result.output).toContain("artifacts    1 pending upload");
+    expect(result.output).toContain("screenshot  shot.png");
+  });
+
+  it("a failed artifact upload holds the watermark back and leaves the blob in place", async () => {
+    transcriptWithEmitCall("s1", "shot.png");
+    spoolArtifact(artifactRecord(), ART_BYTES);
+
+    const calls: FetchCall[] = [];
+    const result = await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(calls, 500) });
+
+    // The sync itself still succeeds — artifacts never fail the session run.
+    expect(result.synced).toBe(1);
+    expect(readArtifactsWatermark(home)).toBe(0);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(true);
+
+    // The next sync retries the held record.
+    const retryCalls: FetchCall[] = [];
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(retryCalls) });
+    expect(retryCalls.map((c) => c.url)).toEqual(["https://gw.outerlayer.test/v1/artifacts"]);
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(false);
+  });
+
+  it("a record still failing after 14 days is dropped — the watermark advances past it", async () => {
+    spoolArtifact(artifactRecord({ t: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString() }), ART_BYTES);
+    const calls: FetchCall[] = [];
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(calls, 500) });
+    expect(calls.map((c) => c.url)).toEqual(["https://gw.outerlayer.test/v1/artifacts"]);
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+  });
+
+  it("a record whose blob file is missing is dropped without any POST", async () => {
+    spoolArtifact(artifactRecord());
+    const calls: FetchCall[] = [];
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: fetchWithArtifacts(calls) });
+    expect(calls).toEqual([]);
+    expect(readArtifactsWatermark(home)).toBe(readFileSync(artifactsSpoolPath(home)).length);
+  });
+
+  it("a blob shared by an uploaded and a held record survives for the retry", async () => {
+    // Two records, same sha; the artifact endpoint accepts the first and
+    // rejects the second — the shared blob must NOT be deleted.
+    spoolArtifact(artifactRecord({ artifactId: "11111111-2222-4333-8444-555555555551", sessionId: "ghost-a" }), ART_BYTES);
+    spoolArtifact(artifactRecord({ artifactId: "11111111-2222-4333-8444-555555555552", sessionId: "ghost-b" }));
+    let artifactPosts = 0;
+    const flaky = (async (url: URL | RequestInfo) => {
+      if (String(url).endsWith("/v1/artifacts")) {
+        artifactPosts += 1;
+        return artifactPosts === 1
+          ? new Response(JSON.stringify({ data: { artifactId: "a", provenance: "session" } }), { status: 200 })
+          : new Response("{}", { status: 500 });
+      }
+      return new Response(JSON.stringify({ data: { accepted: [], rejected: [], blobsStored: 0 } }), { status: 200 });
+    }) as typeof fetch;
+
+    await runSync({ ...CREDS, root, home, ...hermetic, quiet: true, env: {}, fetchImpl: flaky });
+
+    expect(artifactPosts).toBe(2);
+    expect(existsSync(join(artifactBlobsDir(home), ART_SHA))).toBe(true);
+    // Held back to the SECOND record's offset — past the first line only.
+    const firstLineBytes = readFileSync(artifactsSpoolPath(home), "utf8").split("\n")[0]!.length + 1;
+    expect(readArtifactsWatermark(home)).toBe(firstLineBytes);
   });
 });
