@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 
 import { createMswRestClient } from "@/test-helpers/rest-client";
+import type { VerifiedAppId } from "@/lib/analytics/tenant-context";
 import { seedArtifactMswRows, type ArtifactMswRow } from "@/test-helpers/msw-handlers";
 import { OAUTH_STATE_SECRET } from "@/config-global.server";
 
@@ -17,9 +18,10 @@ function ctx(overrides: { appId?: string } = {}): AgentSessionsContext {
   return {
     userId: "user-1",
     tenantId: "tenant-1",
-    appId: overrides.appId ?? "app-1",
+    appId: (overrides.appId ?? "app-1") as VerifiedAppId,
+    dataRetentionDays: -1,
     db: createMswRestClient(),
-  } as unknown as AgentSessionsContext;
+  };
 }
 
 const row = (over: Partial<ArtifactMswRow>): ArtifactMswRow => ({
