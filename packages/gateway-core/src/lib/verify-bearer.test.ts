@@ -65,6 +65,9 @@ async function mintUserJwt(opts: {
    * (a connector token) — same claims otherwise, since that's the point:
    * it must be indistinguishable except for this one claim. */
   clientId?: string;
+  /** Override the `aud` claim (Supabase mints `'authenticated'`). `null`
+   * omits the claim entirely. */
+  aud?: string | string[] | null;
 } = {}): Promise<string> {
   const sub = opts.sub ?? TEST_USER_ID;
   const tenantId = opts.tenantId;
@@ -73,10 +76,11 @@ async function mintUserJwt(opts: {
 
   const header = { alg: 'HS256', typ: 'JWT' };
   const iat = Math.floor(Date.now() / 1000);
+  const aud = opts.aud === undefined ? 'authenticated' : opts.aud;
   const payload = {
     sub,
     role,
-    aud: 'authenticated',
+    ...(aud !== null ? { aud } : {}),
     iat,
     exp: iat + ttl,
     ...(tenantId !== undefined ? { app_metadata: { tenant_id: tenantId } } : {}),
@@ -133,6 +137,28 @@ describe('verifyBearerJwt', () => {
     expect(result!.sub).toBe(TEST_USER_ID);
     expect(result!.role).toBe('authenticated');
     expect(result!.app_metadata?.tenant_id).toBe(TEST_TENANT_ID);
+  });
+
+  it("rejects a token whose aud does not include 'authenticated'", async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: 'some-other-resource' });
+    expect(await verifyBearerJwt(FAKE_ENV, token)).toBeNull();
+  });
+
+  it("rejects a token whose aud ARRAY omits 'authenticated'", async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: ['other-a', 'other-b'] });
+    expect(await verifyBearerJwt(FAKE_ENV, token)).toBeNull();
+  });
+
+  it("accepts an aud array that includes 'authenticated'", async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: ['authenticated', 'other'] });
+    const result = await verifyBearerJwt(FAKE_ENV, token);
+    expect(result?.sub).toBe(TEST_USER_ID);
+  });
+
+  it('accepts a token with no aud claim at all (older GoTrue shapes)', async () => {
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID, aud: null });
+    const result = await verifyBearerJwt(FAKE_ENV, token);
+    expect(result?.sub).toBe(TEST_USER_ID);
   });
 
   it('returns null for a token signed with a different secret', async () => {
@@ -342,6 +368,45 @@ describe('resolveBearerUser', () => {
     expect(result.user.permissions).toEqual([]);
     // The JWT is forwarded so handlers can reuse it for Supabase calls.
     expect(result.userJwt).toBe(token);
+  });
+
+  it("carries the tenant's Stripe ids so the rate limiter tiers a bearer caller as paid", async () => {
+    seedGatewaySupabaseMswState({
+      billings: [{
+        tenant_id: TEST_TENANT_ID,
+        tier_id: 'team',
+        stripe_customer_id: 'cus_123',
+        stripe_subscription_id: 'sub_456',
+      }],
+    });
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.stripeCustomerId).toBe('cus_123');
+    expect(result.user.stripeSubscriptionId).toBe('sub_456');
+  });
+
+  it('degrades the Stripe ids to empty strings (free tier) when the tenant has no billing row', async () => {
+    seedGatewaySupabaseMswState({
+      billings: [{
+        tenant_id: 'some-other-tenant',
+        tier_id: 'team',
+        stripe_subscription_id: 'sub_456',
+      }],
+    });
+    const token = await mintUserJwt({ tenantId: TEST_TENANT_ID });
+
+    const result = await resolveBearerUser({ env: FAKE_ENV, token, appId: TEST_APP_ID });
+
+    // The stricter tier, not a failed auth: billing is a rate-limit input,
+    // never an authentication input.
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.user.stripeSubscriptionId).toBe('');
+    expect(result.user.stripeCustomerId).toBe('');
   });
 
   it('rejects a token signed with a different secret (401) with the OPAQUE message', async () => {

@@ -116,7 +116,7 @@ interface SupabaseUserClaims {
   role: string;
   exp: number;
   iat?: number;
-  aud?: string;
+  aud?: string | string[];
   app_metadata?: { tenant_id?: string };
   /**
    * Present on tokens Supabase's OAuth 2.1 server issues to a connector
@@ -314,6 +314,21 @@ export async function verifyBearerJwt(
   }
   if (!payload.sub || !payload.role || typeof payload.exp !== 'number') return null;
 
+  // -- Audience: when present, must include 'authenticated' --
+  // Supabase mints every user JWT (session and OAuth-connector alike) with
+  // `aud: 'authenticated'`; it has no per-resource audiences (RFC 8707
+  // resource indicators), so this pins the only shape a legitimate token can
+  // have rather than selecting among resources. `iss` is deliberately NOT
+  // checked: the project is already pinned by the signature (the JWKS /
+  // symmetric secret are project-scoped), and the URL GoTrue embeds in `iss`
+  // is the deployment's public URL, which legitimately differs from the
+  // gateway's `SUPABASE_API_BASE_URL` on split-horizon self-host topologies.
+  const aud = payload.aud;
+  if (aud !== undefined) {
+    const audiences = Array.isArray(aud) ? aud : [aud];
+    if (!audiences.includes('authenticated')) return null;
+  }
+
   // -- Expiry (no clock skew tolerance — Supabase JWTs are 1h, plenty of slack) --
   if (payload.exp * 1000 <= Date.now()) return null;
 
@@ -437,6 +452,8 @@ export async function resolveBearerUser(params: {
     return identity;
   }
 
+  const admin = createSupabaseAdminClient(env);
+
   // Tenant-scoped fast path: no app lookup, return identity-only context.
   // The route handler reads `user.tenantId` and never
   // dereferences `user.appId` — see `apps.ts::getTenantScope` which
@@ -459,24 +476,40 @@ export async function resolveBearerUser(params: {
     return { ok: true, user, userJwt: identity.userJwt };
   }
 
-  const admin = createSupabaseAdminClient(env);
-  const appResult = await admin
-    .from('app')
-    .select('id, tenant_id, name')
-    .eq('id', appId)
-    .eq('tenant_id', identity.tenantId)
-    .single();
+  // Billing read alongside the app lookup: `enforceRateLimit` picks the
+  // free/paid tier off `user.stripeSubscriptionId`, so leaving it empty
+  // would throttle every bearer caller — including a paid tenant's chat
+  // connector, the primary consumer of the MCP mounts — at free-tier caps.
+  // A missing/failed read degrades to '' (free tier): the stricter cap,
+  // and the limiter itself still fails open on infrastructure errors.
+  const [appResult, billingResult] = await Promise.all([
+    admin
+      .from('app')
+      .select('id, tenant_id, name')
+      .eq('id', appId)
+      .eq('tenant_id', identity.tenantId)
+      .single(),
+    admin
+      .from('billing')
+      .select('stripe_customer_id, stripe_subscription_id')
+      .eq('tenant_id', identity.tenantId)
+      .maybeSingle(),
+  ]);
 
   if (appResult.error || !appResult.data) {
     return { ok: false, status: 401, message: 'Not authorized' };
   }
 
+  const billing = billingResult.data as
+    | { stripe_customer_id?: string | null; stripe_subscription_id?: string | null }
+    | null;
+
   const user: UserMeta = {
     appId: appResult.data.id,
     tenantId: appResult.data.tenant_id,
     appName: appResult.data.name ?? '',
-    stripeCustomerId: '',
-    stripeSubscriptionId: '',
+    stripeCustomerId: billing?.stripe_customer_id ?? '',
+    stripeSubscriptionId: billing?.stripe_subscription_id ?? '',
     branchId: '',
     gatewayUserId: identity.userId,
     // Permissions resolved by RLS downstream. Middleware does an

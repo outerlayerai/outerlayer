@@ -121,8 +121,16 @@ function isMcpRoute(c: Context): boolean {
  * Bearer-only: API keys already have `/v1/mcp` with header-or-derive
  * resolution; this mount exists specifically for the case that has no
  * header to derive from or supply.
+ *
+ * The capture is constrained to UUID shape: the segment is echoed into the
+ * `WWW-Authenticate: Bearer resource_metadata="…"` challenge on 401s, where
+ * an unconstrained value (a `"`, a space) could corrupt the quoted header
+ * value. No real app id is non-UUID, so a non-matching segment simply makes
+ * this a normal (non-MCP) route: connector tokens are rejected and no
+ * caller-controlled bytes reach a response header.
  */
-const APP_SCOPED_MCP_ROUTE_RE = /^\/v1\/apps\/([^/]+)\/mcp$/;
+const APP_SCOPED_MCP_ROUTE_RE =
+  /^\/v1\/apps\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/mcp$/;
 
 /** Returns the `{appId}` path segment when the request targets the
  * per-app MCP mount, or null otherwise. */

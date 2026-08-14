@@ -56,9 +56,11 @@ export class GetOAuthProtectedResourceMetadata extends BaseRoute {
  * resource audience needs a metadata document whose `resource` matches THIS
  * mount, not the bare `/v1/mcp` one {@link GetOAuthProtectedResourceMetadata}
  * serves. Discovery is unauthenticated and precedes any DB lookup, so the
- * `appId` segment is echoed straight through — never checked against the
- * apps table — the same way the mount's own auth middleware treats it as an
- * opaque path segment before authentication resolves the real app.
+ * `appId` segment is never checked against the apps table — the same way
+ * the mount's own auth middleware treats it as an opaque path segment
+ * before authentication resolves the real app. It IS constrained to UUID
+ * shape before being echoed into the `resource` value, so no free-form
+ * caller bytes land in an audience identifier.
  */
 export class GetAppScopedOAuthProtectedResourceMetadata extends BaseRoute {
   schema = {
@@ -69,7 +71,7 @@ export class GetAppScopedOAuthProtectedResourceMetadata extends BaseRoute {
       'RFC 9728 protected-resource metadata for /v1/apps/{appId}/mcp. Points MCP ' +
       'clients at the Supabase-backed authorization server; unauthenticated.',
     request: {
-      params: z.object({ appId: z.string().min(1) }),
+      params: z.object({ appId: z.string().uuid() }),
     },
     security: [],
     responses: {

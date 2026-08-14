@@ -53,6 +53,8 @@ type EntitlementOverrideRow = {
 type BillingRow = {
   tenant_id: string;
   tier_id: string;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
 };
 
 type ApiKeyRow = {

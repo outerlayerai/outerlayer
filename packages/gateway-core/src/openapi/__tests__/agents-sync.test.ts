@@ -1394,20 +1394,22 @@ describe('GetAgentBlobByToken', () => {
     expect(res.status).toBe(200);
   });
 
-  it('falls back to matching against the caller\'s tenantId for a bearer caller with no apiKeyId', async () => {
-    // Bearer callers have no key id — the route's own fallback binds them to
-    // their tenantId instead, so a token minted with keyId=tenantId matches.
+  it('403s a keyId-less machine-key caller even when the token was bound to their tenantId', async () => {
+    // A machine key with no apiKeyId has NO binding unique to it — a
+    // tenantId binding would be shared by every such key in the tenant+app,
+    // so one key's signed URL would verify for another's request. The route
+    // fails closed instead: no fallback identity ever matches.
     blobStore.set(agentBlobKey('tenant-1', 'app-1', helloSha), { bytes: helloBytes, contentType: 'image/png' });
     verifyResult = { ok: true, claims: { ...matchingClaims, keyId: 'tenant-1', exp: 9_999_999_999 } };
-    const { ctx, route } = blobTokenCtx('tok-1', { apiKeyId: undefined });
-    const res = (await route.handle(ctx)) as Response;
-    expect(res.status).toBe(200);
+    const { ctx, captured, route } = blobTokenCtx('tok-1', { apiKeyId: undefined });
+    await route.handle(ctx);
+    expect(captured.status).toBe(403);
   });
 
-  it('rejects an api-key caller whose token was bound to the tenantId fallback, not their own key', async () => {
-    // The inverse of the fallback case: an api-key user has apiKeyId set, so
-    // keyId must match apiKeyId, not tenantId — a token minted for the
-    // fallback identity must not authorize a real api-key caller.
+  it('rejects an api-key caller whose token was bound to their tenantId, not their own key', async () => {
+    // An api-key user has apiKeyId set, so keyId must match apiKeyId — a
+    // token carrying the tenant id as its binding must not authorize a
+    // real api-key caller.
     verifyResult = { ok: true, claims: { ...matchingClaims, keyId: 'tenant-1', exp: 9_999_999_999 } };
     const { ctx, captured, route } = blobTokenCtx('tok-1', { apiKeyId: 'key_abc' });
     await route.handle(ctx);

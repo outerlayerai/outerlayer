@@ -145,25 +145,37 @@ function buildActorNameResolver(c: AppContext): ActorNameResolver {
 /**
  * The blob-token binding key for this caller (see `lib/agent-blob-token.ts`'s
  * `keyId`): a machine key's own id, or — for a bearer caller, who has no key
- * id — the SAME resolved membership id `policy` was built from. Two bearer
- * callers in the same tenant+app must never share a binding, or either one's
- * signed image URL verifies for the other's request too; falling back to
- * `tenantId` (as this used to) is exactly that shared binding. Takes the
+ * id — the SAME resolved membership id `policy` was built from. Two callers
+ * in the same tenant+app must never share a binding, or either one's signed
+ * image URL verifies for the other's request too — so a machine key with no
+ * `apiKeyId` (legacy keys predating per-key ids) gets `null`: no binding
+ * exists that is unique to that key, and any per-tenant fallback IS the
+ * shared binding. `null` fails closed on both sides — the signer emits no
+ * image refs, and the blob-token verify can never match it. Takes the
  * already-resolved `policy` rather than re-resolving membership itself so a
  * request that calls both `sessionPolicy` and this only queries once.
  */
-export function blobTokenKeyId(user: { tenantId: string; apiKeyId?: string }, policy: SessionAccessPolicy): string {
-  return policy.kind === 'dashboard-member' ? policy.membershipId : (user.apiKeyId ?? user.tenantId);
+export function blobTokenKeyId(
+  user: { tenantId: string; apiKeyId?: string },
+  policy: SessionAccessPolicy,
+): string | null {
+  return policy.kind === 'dashboard-member' ? policy.membershipId : (user.apiKeyId ?? null);
 }
 
 function buildImageRefSigner(c: AppContext, policy: SessionAccessPolicy): ImageRefSigner {
   const user = c.get('user');
+  const keyId = blobTokenKeyId(user, policy);
+  if (keyId === null) {
+    // No per-caller binding available — omit image refs entirely rather than
+    // mint tokens that would either never verify or verify for sibling keys.
+    return { async sign() { return []; } };
+  }
   return {
     async sign(images) {
       return signAgentBlobRefs(c.env.OAUTH_STATE_SECRET, images, {
         tenantId: user.tenantId,
         appId: user.appId,
-        keyId: blobTokenKeyId(user, policy),
+        keyId,
       });
     },
   };

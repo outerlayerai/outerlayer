@@ -1250,7 +1250,7 @@ describe('authMiddleware', () => {
       const mockResolveBearer = vi.fn().mockResolvedValue({
         ok: true,
         user: {
-          appId: 'app-from-path',
+          appId: '6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e',
           tenantId: 'tenant-from-path',
           appName: 'Path App',
           stripeCustomerId: '',
@@ -1271,7 +1271,7 @@ describe('authMiddleware', () => {
       const { c, next, setSpy } = createMockHonoContext({
         headers: { Authorization: 'Bearer user.jwt.here' },
         method: 'POST',
-        path: '/v1/apps/app-from-path/mcp',
+        path: '/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e/mcp',
         routePath: '/v1/*',
       });
 
@@ -1280,14 +1280,14 @@ describe('authMiddleware', () => {
       expect(mockResolveBearer).toHaveBeenCalledWith(
         expect.objectContaining({
           token: 'user.jwt.here',
-          appId: 'app-from-path',
+          appId: '6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e',
           allowConnectorToken: true,
         }),
       );
       expect(next).toHaveBeenCalledOnce();
       expect(setSpy).toHaveBeenCalledWith(
         'user',
-        expect.objectContaining({ appId: 'app-from-path', authMode: 'bearer' }),
+        expect.objectContaining({ appId: '6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e', authMode: 'bearer' }),
       );
       vi.doUnmock('../../lib/verify-bearer');
     });
@@ -1296,7 +1296,7 @@ describe('authMiddleware', () => {
       const mockResolveBearer = vi.fn().mockResolvedValue({
         ok: true,
         user: {
-          appId: 'app-from-path',
+          appId: '6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e',
           tenantId: 'tenant-from-path',
           appName: 'Path App',
           stripeCustomerId: '',
@@ -1320,14 +1320,14 @@ describe('authMiddleware', () => {
           'X-Outerlayer-App-Id': 'app-header-lies',
         },
         method: 'POST',
-        path: '/v1/apps/app-from-path/mcp',
+        path: '/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e/mcp',
         routePath: '/v1/*',
       });
 
       await freshAuth(c as any, next);
 
       expect(mockResolveBearer).toHaveBeenCalledWith(
-        expect.objectContaining({ appId: 'app-from-path' }),
+        expect.objectContaining({ appId: '6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e' }),
       );
       vi.doUnmock('../../lib/verify-bearer');
     });
@@ -1336,7 +1336,7 @@ describe('authMiddleware', () => {
       const { c, next, jsonSpy } = createMockHonoContext({
         headers: { Authorization: 'sk_outerlayer_some_key' },
         method: 'POST',
-        path: '/v1/apps/app-from-path/mcp',
+        path: '/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e/mcp',
         routePath: '/v1/*',
       });
 
@@ -1352,7 +1352,7 @@ describe('authMiddleware', () => {
         401,
         {
           'WWW-Authenticate':
-            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/app-from-path/mcp"',
+            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e/mcp"',
         },
       );
       expect(next).not.toHaveBeenCalled();
@@ -1361,7 +1361,7 @@ describe('authMiddleware', () => {
     it('401s with the RFC 9728 challenge when the auth header is missing entirely', async () => {
       const { c, next, jsonSpy } = createMockHonoContext({
         method: 'POST',
-        path: '/v1/apps/app-from-path/mcp',
+        path: '/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e/mcp',
         routePath: '/v1/*',
       });
 
@@ -1372,7 +1372,7 @@ describe('authMiddleware', () => {
         401,
         {
           'WWW-Authenticate':
-            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/app-from-path/mcp"',
+            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e/mcp"',
         },
       );
       expect(next).not.toHaveBeenCalled();
@@ -1394,7 +1394,7 @@ describe('authMiddleware', () => {
       const { c, next, jsonSpy } = createMockHonoContext({
         headers: { Authorization: 'Bearer user.jwt.here' },
         method: 'POST',
-        path: '/v1/apps/some-other-app/mcp',
+        path: '/v1/apps/2a7cd541-8c7e-4f39-9d3e-5a1f2b3c4d5f/mcp',
         routePath: '/v1/*',
       });
 
@@ -1405,7 +1405,7 @@ describe('authMiddleware', () => {
         401,
         {
           'WWW-Authenticate':
-            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/some-other-app/mcp"',
+            'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/v1/apps/2a7cd541-8c7e-4f39-9d3e-5a1f2b3c4d5f/mcp"',
         },
       );
       expect(next).not.toHaveBeenCalled();
@@ -1416,7 +1416,7 @@ describe('authMiddleware', () => {
       const mockResolveBearer = vi.fn().mockResolvedValue({
         ok: true,
         user: {
-          appId: 'app-from-path',
+          appId: '6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e',
           tenantId: 'tenant-from-path',
           appName: 'Path App',
           stripeCustomerId: '',
@@ -1437,14 +1437,14 @@ describe('authMiddleware', () => {
       const { c, next, setSpy } = createMockHonoContext({
         headers: { Authorization: 'Bearer user.jwt.here' },
         method: 'POST',
-        path: '/v1/apps/app-from-path/mcp',
+        path: '/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e/mcp',
         routePath: '/v1/*',
       });
 
       await freshAuth(c as any, next);
 
       expect(mockResolveBearer).toHaveBeenCalledWith(
-        expect.objectContaining({ appId: 'app-from-path', appScopedTenantFallback: true }),
+        expect.objectContaining({ appId: '6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e', appScopedTenantFallback: true }),
       );
       expect(next).toHaveBeenCalledOnce();
       expect(setSpy).toHaveBeenCalledWith(
@@ -1461,7 +1461,7 @@ describe('authMiddleware', () => {
       const { c, next, jsonSpy } = createMockHonoContext({
         headers: { Authorization: 'sk_outerlayer_some_key' },
         method: 'GET',
-        path: '/v1/apps/app-from-path',
+        path: '/v1/apps/6e8bd430-9b6d-4f39-9d3e-5a1f2b3c4d5e',
         routePath: '/v1/*',
       });
 
