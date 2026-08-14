@@ -10,13 +10,16 @@ import {
   GitHubProvider,
   type IssueCommentListResult,
   type IssueCommentResult,
+  type PullRequestCommitListResult,
 } from "@/lib/system/git/github/client";
 import { tenantChQuery } from "@/lib/system/pr-session-reconciler/ch-query";
 import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 
 import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
 
+import { evaluateEvidence } from "./evaluate";
 import { LinksUnreadableError, LINKS_UNREADABLE_REASON, readLinkedSessions } from "./read";
+import { recordEvidenceEvaluation } from "./record";
 import { readTopicLabels } from "./topics";
 import { PR_SESSION_COMMENT_MARKER, renderComment, type RenderLinks } from "./render";
 
@@ -46,9 +49,14 @@ import { PR_SESSION_COMMENT_MARKER, renderComment, type RenderLinks } from "./re
  * fails loudly here instead of quietly creating a duplicate.
  *
  * Algorithm:
- *   1. `readLinkedSessions` → `null` (no enabled app) ⇒ no-op.
- *   2. `readTopicLabels` for the returned trace ids.
- *   3. `renderComment`.
+ *   1. `readLinkedSessions` → `null` (no enabled app) ⇒ no-op; zero
+ *      confirmed sessions AND zero pending candidate links ⇒ no-op too — a
+ *      human-only PR gets no comment at all.
+ *   2. `readTopicLabels` for the returned trace ids; resolve the GitHub
+ *      client and read the PR's commits (the provenance fact's input — an
+ *      unreadable commit list omits the fact, never fails the refresh).
+ *   3. `evaluateEvidence` → record the evaluation (`pr_evidence_evaluation`,
+ *      best-effort, deduped against the latest recorded one) → `renderComment`.
  *   4. Hash the body. Equal to the stored `last_body_hash` AND a comment id
  *      is stored AND that id was confirmed recently ⇒ return WITHOUT
  *      touching GitHub — three trigger paths hit one comment, and
@@ -90,6 +98,11 @@ type RefreshPrSessionCommentResult =
   /** No app has `pr_comments_enabled` for this repo — `readLinkedSessions`
    * returned `null`. Not an error: most repos never opt in. */
   | { status: "skipped-disabled" }
+  /** The feature is on but this PR has no candidate session links at all —
+   * no confirmed session and nothing pending. A human-only PR is left
+   * alone: no comment is posted, and one posted earlier (when candidates
+   * existed) is left as-is rather than rewritten to say less. */
+  | { status: "skipped-no-links" }
   /** The GitHub App lacks `issues: write` on this installation. Silent by
    * design — logged as a structured event, never thrown. */
   | { status: "not-permitted" }
@@ -119,6 +132,10 @@ interface PrSessionCommentGithubClient {
    * {@link findPostedComment}. Optional so a test fake can omit it; when
    * absent, a claim takeover degrades to posting fresh. */
   listIssueComments?(repo: string, issueNumber: number): Promise<IssueCommentListResult>;
+  /** The PR's own commits — the commit-provenance fact's input. Optional so
+   * a test fake can omit it; when absent (or not `ok`), the fact is omitted
+   * from the evaluation rather than asserted either way. */
+  listPullRequestCommits?(repo: string, prNumber: number): Promise<PullRequestCommitListResult>;
 }
 
 interface RefreshPrSessionCommentDeps {
@@ -565,11 +582,20 @@ export async function refreshPrSessionComment(
     // its back. Only an absent key means "resolve ours".
     const chQuery = ("chQuery" in deps ? deps.chQuery : tenantChQuery({ tenantId })) ?? null;
 
-    const rows = await readLinkedSessions({ tenantId, repository, prNumber }, { chQuery });
+    const reads = await readLinkedSessions({ tenantId, repository, prNumber }, { chQuery });
     // The "no app connected" no-op — the read layer already proved
     // no app has pr_comments_enabled for this repo. Never post or edit.
-    if (rows === null) {
+    if (reads === null) {
       return { status: "skipped-disabled" };
+    }
+    const { sessions: rows, pendingLinkCount } = reads;
+    // A human-only PR — no confirmed session, no pending candidate — gets
+    // no comment. Deliberately BEFORE any identity-row read: this is the
+    // common case on a connected repo, and it must not create rows, mint
+    // tokens, or touch GitHub. A comment posted earlier (when candidates
+    // existed) is left in place rather than rewritten to say less.
+    if (rows.length === 0 && pendingLinkCount === 0) {
+      return { status: "skipped-no-links" };
     }
 
     const traceIds = rows.map((row) => row.traceId);
@@ -591,11 +617,48 @@ export async function refreshPrSessionComment(
       prNumber,
     };
 
+    // The GitHub client is resolved BEFORE rendering now (it used to wait
+    // until after the hash short-circuit): the PR's commit list is a render
+    // input, so a refresh with confirmed sessions costs one commits GET even
+    // when the body turns out unchanged. Reads are cheap against GitHub's
+    // limits — it is the writes the short-circuit exists to save.
+    let githubClient: PrSessionCommentGithubClient;
+    if (deps.githubClient) {
+      // Test seam — bypasses the installation lookup entirely, since the
+      // fake client needs no real GitHub App installation id.
+      githubClient = deps.githubClient;
+    } else {
+      const installationId = await resolveInstallationId(admin, tenantId, repository);
+      if (installationId === null) {
+        return { status: "failed", reason: "no installation id for this repository" };
+      }
+      githubClient = await resolveGithubClient(installationId);
+    }
+
+    // The provenance fact's input. `null` = "could not be read" (no client
+    // method, a 403/404) — the fact is omitted rather than asserted either
+    // way, and the comment still posts. Skipped entirely with no confirmed
+    // sessions: there is nothing to match commits against.
+    let prCommitShas: string[] | null = null;
+    if (rows.length > 0 && githubClient.listPullRequestCommits) {
+      const commitsResult = await githubClient.listPullRequestCommits(repository, prNumber);
+      if (commitsResult.status === "ok") {
+        prCommitShas = commitsResult.commits.map((c) => c.sha);
+      }
+    }
+
+    const evaluation = evaluateEvidence({ sessions: rows, pendingLinkCount, prCommitShas });
+    // Recorded at evaluation time, before the GitHub write and regardless of
+    // its outcome — a verdict on a not-yet-permitted installation is still a
+    // verdict, and the outcomes measurement needs those too. Best-effort:
+    // never throws (see record.ts).
+    await recordEvidenceEvaluation(admin, { tenantId, repository, prNumber }, evaluation);
+
     // Rows/topics are re-read from ClickHouse on every call, so
     // the rendered body always reflects present state, never a first-sight
     // snapshot — a session that accrues more work produces a different body
     // (and therefore a different hash) on the very next refresh.
-    const body = renderComment(rows, topics, links);
+    const body = renderComment(rows, topics, links, evaluation);
     const bodyHash = hashBody(body);
 
     const { data: existing, error: readError } = await admin
@@ -630,22 +693,9 @@ export async function refreshPrSessionComment(
       return { status: "unchanged", commentId: existing.github_comment_id };
     }
     // Nothing has ever been posted and the body still renders identically
-    // (the empty state, refreshed twice before its first post): there is no
-    // comment to check and nothing new to say, but a create still has to
+    // (the waiting state, refreshed twice before its first post): there is
+    // no comment to check and nothing new to say, but a create still has to
     // happen — fall through.
-
-    let githubClient: PrSessionCommentGithubClient;
-    if (deps.githubClient) {
-      // Test seam — bypasses the installation lookup entirely, since the
-      // fake client needs no real GitHub App installation id.
-      githubClient = deps.githubClient;
-    } else {
-      const installationId = await resolveInstallationId(admin, tenantId, repository);
-      if (installationId === null) {
-        return { status: "failed", reason: "no installation id for this repository" };
-      }
-      githubClient = await resolveGithubClient(installationId);
-    }
 
     let commentId = existing?.github_comment_id ?? null;
     // The stored id GitHub has told us no longer exists, kept so the claim
