@@ -25,17 +25,19 @@ CREATE TABLE IF NOT EXISTS public.emitted_result (
     emitted_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT uq_emitted_result_client UNIQUE (app_id, client_emit_id)
+    CONSTRAINT uq_emitted_result_client UNIQUE (app_id, client_emit_id),
+
+    -- Inline rather than a later ALTER: the table is brand-new and empty
+    -- here, and a standalone ADD CONSTRAINT ... FOREIGN KEY takes a
+    -- write-blocking lock on the referenced table.
+    CONSTRAINT emitted_result_tenant_app_fk
+        FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_emitted_result_pr
     ON public.emitted_result (tenant_id, repository, pr_number);
 CREATE INDEX IF NOT EXISTS idx_emitted_result_tenant_id
     ON public.emitted_result (tenant_id);
-
-ALTER TABLE public.emitted_result
-    ADD CONSTRAINT emitted_result_tenant_app_fk
-    FOREIGN KEY (tenant_id, app_id) REFERENCES public.app (tenant_id, id) ON DELETE CASCADE;
 
 ALTER TABLE public.emitted_result ENABLE ROW LEVEL SECURITY;
 
