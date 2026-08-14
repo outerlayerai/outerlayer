@@ -431,13 +431,13 @@ export function renderComment(
   // which leaves room for everything that renders unconditionally: the
   // prelude, the footer, the marker, and the session table's header plus
   // its worst-case overflow line.
+  // `rows` is non-empty on this path (the empty case returned above), so
+  // the reserve is unconditional.
   const sessionReserve =
-    tableRows.length > 0
-      ? tableHeader.length +
-        separators +
-        `_…and ${tableRows.length} more sessions — see the dashboard._`.length +
-        separators
-      : 0;
+    tableHeader.length +
+    separators +
+    `_…and ${tableRows.length} more sessions — see the dashboard._`.length +
+    separators;
   const fixedWithoutEvidence =
     prelude.reduce((sum, part) => sum + part.length + separators, 0) +
     (footer ? footer.length + separators : 0) +

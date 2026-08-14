@@ -175,18 +175,19 @@ export async function reconcileArtifacts(
     ];
     const prNumbers = [...new Set([...claimedPrs, ...sessionPrs])];
     const prRowByNumber = new Map<number, PullRequestWindowRow>();
+    // Both reads project the same columns from the same table, so a PR
+    // returned by both writes identical rows — last write wins, harmlessly.
     const collectPrRows = (prs: Record<string, unknown>[] | null) => {
-      for (const p of prs ?? []) {
+      if (!prs) return;
+      for (const p of prs) {
         const prNumber = Number(p.pr_number);
-        if (!prRowByNumber.has(prNumber)) {
-          prRowByNumber.set(prNumber, {
-            pr_number: prNumber,
-            head_branch: String(p.head_branch ?? ""),
-            opened_at: (p.opened_at as string | null) ?? null,
-            closed_at: (p.closed_at as string | null) ?? null,
-            merged_at: (p.merged_at as string | null) ?? null,
-          });
-        }
+        prRowByNumber.set(prNumber, {
+          pr_number: prNumber,
+          head_branch: String(p.head_branch ?? ""),
+          opened_at: (p.opened_at as string | null) ?? null,
+          closed_at: (p.closed_at as string | null) ?? null,
+          merged_at: (p.merged_at as string | null) ?? null,
+        });
       }
     };
     if (prNumbers.length > 0) {

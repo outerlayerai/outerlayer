@@ -332,7 +332,9 @@ describe("renderComment — evidence", () => {
       artifacts: [
         artifact({ id: "l2", filename: "two.log", kind: "log", criterionId: "REQ-a", emittedAt: "2026-07-10T09:20:00.000Z" }),
         artifact({ id: "l1", filename: "one.log", kind: "log", criterionId: "REQ-a", emittedAt: "2026-07-10T09:10:00.000Z" }),
-        artifact({ id: "s1", filename: "still.png", kind: "screenshot", criterionId: "REQ-b" }),
+        // ids chosen so artifact order puts screenshot BEFORE report — the
+        // sorted listing below is then provably the sort, not input order.
+        artifact({ id: "a1", filename: "still.png", kind: "screenshot", criterionId: "REQ-b" }),
         artifact({ id: "r1", filename: "cov.html", kind: "report", criterionId: "REQ-b" }),
       ],
     });
@@ -350,34 +352,34 @@ describe("renderComment — evidence", () => {
 
   it("renders an artifact whose app has no default environment as an unlinked label — never an empty URL segment", () => {
     const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
-      criteria: [{ id: "AC-084-14", proofKind: "screenshot" }],
+      criteria: [{ id: "REQ-noenv", proofKind: "screenshot" }],
       artifacts: [
         artifact({
           id: "a1",
           filename: "shot.png",
           kind: "screenshot",
           caption: "c",
-          criterionId: "AC-084-14",
+          criterionId: "REQ-noenv",
           envName: "",
         }),
       ],
     });
 
-    expect(body).toContain("| screenshot · shot.png | c · for `AC-084-14` |");
-    expect(body).toContain("| `AC-084-14` | screenshot · shot.png |");
+    expect(body).toContain("| screenshot · shot.png | c · for `REQ-noenv` |");
+    expect(body).toContain("| `REQ-noenv` | screenshot · shot.png |");
     expect(body).not.toContain("/env//");
     expect(body).not.toContain("agents/artifacts/a1");
   });
 
   it("escapes a hostile kind everywhere it is interpolated — labels and the attached-kinds listing", () => {
     const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
-      criteria: [{ id: "AC-084-15", proofKind: "video" }],
+      criteria: [{ id: "REQ-hostile", proofKind: "video" }],
       artifacts: [
         artifact({
           id: "a1",
           filename: "shot.png",
           kind: "x](https://evil.example) | forged",
-          criterionId: "AC-084-15",
+          criterionId: "REQ-hostile",
         }),
       ],
     });
@@ -395,8 +397,10 @@ describe("renderComment — evidence", () => {
     // ingest schema's caps), at the read layer's 200-artifact ceiling, plus
     // the criteria parser's 100-requirement ceiling with every criterion
     // carrying a max-size bound proof.
+    // Non-`AC-` ids: the renderer accepts any id, and the acceptance
+    // coverage gate must not read these fixtures as criterion citations.
     const filename = (i: number) => `${String(i).padStart(3, "0")}-${"f".repeat(116)}`.slice(0, 120);
-    const criterionId = (i: number) => `AC-084-${String(i % 100).padStart(2, "0")}`;
+    const criterionId = (i: number) => `REQ-${String(i % 100).padStart(2, "0")}`;
     const artifacts = Array.from({ length: 200 }, (_, i) =>
       artifact({
         id: `a-${String(i).padStart(3, "0")}`,
@@ -424,9 +428,9 @@ describe("renderComment — evidence", () => {
     expect(first.length).toBeLessThanOrEqual(65_536);
     expect(second).toBe(first);
     // The criteria table — the proof-status summary — survives whole; the
-    // artifacts list is what sheds, and its elision is counted, never silent.
-    expect(first).toContain("| `AC-084-99` |");
-    expect(first).toMatch(/_…and \d+ more artifacts — see the dashboard\._/);
+    // artifacts list is what sheds, and its elision is exactly counted.
+    expect(first).toContain("| `REQ-99` |");
+    expect(first).toContain("_…and 181 more artifacts — see the dashboard._");
     // The comment still carries its prelude, marker, and footer.
     expect(first).toContain("**✅ Everything checks out");
     expect(first).toContain("<!-- outerlayer:pr-session-comment -->");
@@ -452,11 +456,95 @@ describe("renderComment — evidence", () => {
 
     expect(first.length).toBeLessThanOrEqual(65_536);
     expect(second).toBe(first);
-    expect(first).toMatch(/_…and \d+ more criteria not shown\._/);
+    // Exact count: the fit is deterministic, so the elided remainder is a
+    // fixed number — any drift in the byte budget or the reserve changes it.
+    expect(first).toContain("_…and 1649 more criteria not shown._");
     // Sorted head-first fit: the earliest ids survive.
     expect(first).toContain("| `REQ-0000` |");
     expect(first).not.toContain("| `REQ-2999` |");
     expect(first).toContain("<!-- outerlayer:pr-session-comment -->");
+  });
+
+  it("renders a whitespace-only caption as an em dash, same as an empty one", () => {
+    const body = renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+      criteria: [],
+      artifacts: [artifact({ id: "a1", filename: "shot.png", kind: "screenshot", caption: "   " })],
+    });
+
+    const artifactRow = body.split("\n").find((line) => line.includes("shot.png"))!;
+    expect(artifactRow).toMatch(/\| — \|$/);
+  });
+
+  describe("byte-boundary discipline", () => {
+    // Largest payload size whose rendered body does NOT contain `marker`,
+    // found against the renderer itself — the assertions below then pin the
+    // exact byte behavior at that boundary. The pinned lengths are part of
+    // the contract: a body over GitHub's limit 422s permanently, so budget
+    // arithmetic drifting by even one byte must fail here.
+    function largestWithout(bodyFor: (n: number) => string, marker: string): number {
+      let lo = 1;
+      let hi = 70_000;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi + 1) / 2);
+        if (bodyFor(mid).includes(marker)) hi = mid - 1;
+        else lo = mid;
+      }
+      return lo;
+    }
+
+    it("fills the main path to a fixed byte boundary on the criteria table", () => {
+      const bodyFor = (n: number) =>
+        renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+          criteria: [{ id: "R".repeat(n), proofKind: "log" }],
+          artifacts: [],
+        });
+      const L = largestWithout(bodyFor, "not shown");
+      const at = bodyFor(L);
+      const over = bodyFor(L + 1);
+
+      expect(at.length).toBe(65_436);
+      expect(at).not.toContain("not shown");
+      // Evidence outranks the session table: the saturated criteria row
+      // renders whole and the lone session sheds instead.
+      expect(at).toContain("_…and 1 more session — see the dashboard._");
+      // One byte more and the row cannot fit at all: the header goes with
+      // it and only the counted (singular) elision line renders.
+      expect(over).toContain("_…and 1 more criterion not shown._");
+      expect(over).not.toContain("| Criterion |");
+      expect(over.length).toBeLessThanOrEqual(65_536);
+    });
+
+    it("fills the waiting path to exactly the GitHub body limit", () => {
+      const bodyFor = (n: number) =>
+        renderComment(
+          [],
+          new Map(),
+          LINKS,
+          { verdict: "waiting", facts: [], flaggedCount: 0, pendingLinkCount: 1 },
+          { criteria: [{ id: "R".repeat(n), proofKind: "log" }], artifacts: [] },
+        );
+      const L = largestWithout(bodyFor, "not shown");
+
+      expect(bodyFor(L).length).toBe(65_536);
+      expect(bodyFor(L + 1)).toContain("_…and 1 more criterion not shown._");
+      expect(bodyFor(L + 1).length).toBeLessThanOrEqual(65_536);
+    });
+
+    it("fills the artifacts table to the same fixed boundary", () => {
+      const bodyFor = (n: number) =>
+        renderComment([sessionRow("t1")], new Map(), LINKS, PASS_EVAL, {
+          criteria: [],
+          artifacts: [artifact({ id: "a1", filename: "f".repeat(n), kind: "log" })],
+        });
+      const L = largestWithout(bodyFor, "more artifact — see");
+      const at = bodyFor(L);
+      const over = bodyFor(L + 1);
+
+      expect(at.length).toBe(65_436);
+      expect(over).toContain("_…and 1 more artifact — see the dashboard._");
+      expect(over).not.toContain("**Artifacts**");
+      expect(over.length).toBeLessThanOrEqual(65_536);
+    });
   });
 
   it("sheds session table rows before evidence when both compete for the ceiling", () => {
