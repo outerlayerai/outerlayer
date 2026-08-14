@@ -159,15 +159,18 @@ describe("refreshPrSessionComment — evidence", () => {
     expect(body).toContain("gate output");
   });
 
-  it("skips the criteria content reads entirely when the PR has no artifacts", async () => {
+  it("skips the criteria content reads when the PR touches no acceptance files", async () => {
     const githubClient = {
       createIssueComment: vi.fn<(repo: string, issueNumber: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9002)),
       updateIssueComment: vi.fn<(repo: string, commentId: number, body: string) => Promise<IssueCommentResult>>(async () => okComment(9002)),
-      // The verification facts still read the changed-file list; the
-      // criteria path must add no content fetches on top.
+      // The verification facts still read the changed-file list; a diff
+      // with no acceptance files must add no content fetches on top —
+      // criteria reads no longer require artifacts (a `proof: test`
+      // criterion surfaces without any), so the cost boundary is the
+      // acceptance-file filter itself.
       listPullRequestFiles: vi.fn(async () => ({
         status: "ok" as const,
-        files: [{ filename: "acceptance/082-artifacts.md", changeStatus: "added" }],
+        files: [{ filename: "src/lib/system/verdict/custom.ts", changeStatus: "modified" }],
       })),
       getFileContent: vi.fn(),
     };

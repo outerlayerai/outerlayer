@@ -40,7 +40,9 @@ export type EvidenceFact =
   | CommitProvenanceFact
   | VerificationFact
   | CustomValidationFact
-  | PolicyErrorFact;
+  | PolicyErrorFact
+  | IssueAskFact
+  | IssueAskErrorFact;
 
 /**
  * A verification validator's displayed result, produced by
@@ -93,6 +95,30 @@ export interface PolicyErrorFact {
   message: string;
 }
 
+/**
+ * A linked issue's "Validation required" entry, evaluated. Amber by
+ * construction — an unmet ask asks for a look; it can never make the PR
+ * unverifiable — and never leveled: issues tighten, they cannot be muted.
+ */
+export interface IssueAskFact {
+  id: "issue-ask";
+  status: "pass" | "flag";
+  class: "amber";
+  /** Pre-composed claim: what was asked and whether its proof exists. */
+  sentence: string;
+  issueNumber: number;
+  refs: Array<{ traceId: string; turnIndex: number | null }>;
+}
+
+/** A malformed or dangling ask — same fail-loudly contract as a broken
+ * policy file: one row, first problem named, remainder counted. */
+export interface IssueAskErrorFact {
+  id: "issue-ask-error";
+  status: "flag";
+  class: "amber";
+  message: string;
+}
+
 interface CommitProvenanceFact {
   id: "commits-from-sessions";
   /** `flag` when any PR commit matched no recorded session commit. */
@@ -140,6 +166,10 @@ interface EvaluateEvidenceInput {
   customFacts?: readonly CustomValidationFact[];
   /** The policy's load failure, if any — appended after every other fact. */
   policyError?: PolicyErrorFact | null;
+  /** Evaluated "Validation required" entries from the PR's linked issues. */
+  issueAskFacts?: readonly IssueAskFact[];
+  /** The asks' parse failure, if any — appended with the policy error. */
+  issueAskError?: IssueAskErrorFact | null;
   /** Display levels from the repo's policy, keyed by validator id
    * (`validatorId` for customs). `off` drops the fact before display;
    * `info` keeps the row but excludes its flag from the verdict; absent
@@ -148,9 +178,13 @@ interface EvaluateEvidenceInput {
   factLevels?: ReadonlyMap<string, "warn" | "info" | "off">;
 }
 
-/** The level key: built-ins by fact id, customs by their policy id. */
+/** The level key: built-ins by fact id, customs by their policy id. Error
+ * rows and issue asks are exempt — a policy cannot silence the row that
+ * reports it is broken, and issues tighten without being levelable. */
 function levelKeyOf(fact: EvidenceFact): string | null {
-  if (fact.id === "policy-error") return null;
+  if (fact.id === "policy-error" || fact.id === "issue-ask" || fact.id === "issue-ask-error") {
+    return null;
+  }
   return fact.id === "custom" ? fact.validatorId : fact.id;
 }
 
@@ -228,6 +262,7 @@ export function evaluateEvidence(input: EvaluateEvidenceInput): EvidenceEvaluati
   }
   assembled.push(...(input.verificationFacts ?? []));
   assembled.push(...(input.customFacts ?? []));
+  assembled.push(...(input.issueAskFacts ?? []));
 
   const levels = input.factLevels;
   const facts = levels
@@ -237,6 +272,7 @@ export function evaluateEvidence(input: EvaluateEvidenceInput): EvidenceEvaluati
       })
     : assembled;
   if (input.policyError) facts.push(input.policyError);
+  if (input.issueAskError) facts.push(input.issueAskError);
 
   const flagged = facts.filter((f) => {
     if (f.status !== "flag") return false;

@@ -23,7 +23,16 @@ export interface CriterionRequirement {
 /** Kinds a criterion may require — the artifact-kind vocabulary. The parser
  * ignores unknown kinds rather than rendering a requirement it could never
  * match. */
-const PROOF_KINDS = new Set(["video", "screenshot", "report", "log", "file"]);
+/** `test` is satisfied by a changed test file at the PR head citing the
+ * criterion's id — the spec-to-code binding — never by an artifact. */
+export const PROOF_KINDS: ReadonlySet<string> = new Set([
+  "video",
+  "screenshot",
+  "report",
+  "log",
+  "file",
+  "test",
+]);
 
 const PROOF_ANNOTATION = /`(AC-\d{3}-\d{2})`\s*\(proof:\s*([a-z]+)\)/g;
 
@@ -52,6 +61,13 @@ export function parseProofCriteria(markdown: string): CriterionRequirement[] {
 }
 
 const ACCEPTANCE_FILE = /^acceptance\/\d{3}-.*\.md$/;
+
+/** Test-file naming, mirrored from the verdict classifier's convention. */
+const TEST_FILE = /(?:\.test\.|\.spec\.|__tests__\/|(?:^|\/)tests?\/)/;
+
+/** Bounded like the acceptance reads: a PR changing more test files than
+ * this still proves citations from the first ten, in path order. */
+const MAX_CITATION_FILES = 10;
 /** A PR touching more acceptance files than this is bulk-moving specs, not
  * declaring proofs; content reads stay bounded. */
 const MAX_ACCEPTANCE_FILES = 5;
@@ -98,4 +114,39 @@ export async function fetchPrProofCriteria(
   return [...byId.entries()]
     .map(([id, proofKind]) => ({ id, proofKind }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * Which `proof: test` criteria are cited by a test file the PR changes,
+ * read at the PR's own head. Returns criterion id → citing path (first by
+ * path order). Only the DIFF's test files are scanned — the practical case
+ * is the proving test shipping with the change, and repo-wide content
+ * scans do not fit an API budget. Throws on provider errors; the caller
+ * degrades to rendering the requirement as uncited.
+ */
+export async function fetchCriterionTestCitations(
+  github: ProofCriteriaSource,
+  repo: string,
+  prNumber: number,
+  changedFiles: { filename: string; changeStatus: string }[],
+  criteria: readonly CriterionRequirement[],
+): Promise<Map<string, string>> {
+  const ids = criteria.filter((c) => c.proofKind === "test").map((c) => c.id);
+  const citations = new Map<string, string>();
+  if (ids.length === 0) return citations;
+
+  const testPaths = changedFiles
+    .filter((f) => f.changeStatus !== "removed" && TEST_FILE.test(f.filename))
+    .map((f) => f.filename)
+    .sort()
+    .slice(0, MAX_CITATION_FILES);
+  const headRef = `refs/pull/${prNumber}/head`;
+  for (const path of testPaths) {
+    if (citations.size === ids.length) break;
+    const file = await github.getFileContent(repo, path, headRef);
+    for (const id of ids) {
+      if (!citations.has(id) && file.content.includes(id)) citations.set(id, path);
+    }
+  }
+  return citations;
 }

@@ -93,6 +93,25 @@ export type PullRequestCommitListResult =
   | { status: 'unavailable' };
 
 /**
+ * A PR's declared closing issues ("Closes #N"), with the fields the
+ * evidence comment's issue integration reads. Two-state: any failure —
+ * REST-style 403/404 or a GraphQL error — is `unavailable`, never an error
+ * the caller should surface; the comment renders without issue context.
+ */
+export type PullRequestClosingIssuesResult =
+  | {
+      status: 'ok';
+      issues: {
+        number: number;
+        title: string;
+        body: string;
+        labels: string[];
+        typeName: string | null;
+      }[];
+    }
+  | { status: 'unavailable' };
+
+/**
  * Same tri-state contract as {@link PullRequestCommitListResult}: a 403/404
  * is "files unknown", never an error the caller should surface. `status` is
  * GitHub's per-file change status (`added`/`modified`/`removed`/…), which is
@@ -1101,6 +1120,67 @@ export class GitHubProvider implements GitProvider {
         return null;
       }
       throw this.handleError(error, repo);
+    }
+  }
+
+  /**
+   * The PR's closing-issue references via GraphQL — the only API surface
+   * that exposes the declared "Closes #N" links. Bounded (first 5 issues,
+   * 20 labels each): a PR closing more is a batch operation, not a spec.
+   */
+  async getPullRequestClosingIssues(
+    repo: string,
+    prNumber: number
+  ): Promise<PullRequestClosingIssuesResult> {
+    const [owner, repoName] = this.parseRepo(repo);
+    try {
+      const response = await this.octokit.graphql<{
+        repository: {
+          pullRequest: {
+            closingIssuesReferences: {
+              nodes: Array<{
+                number: number;
+                title: string;
+                body: string | null;
+                labels: { nodes: Array<{ name: string }> } | null;
+                issueType: { name: string } | null;
+              } | null>;
+            } | null;
+          } | null;
+        } | null;
+      }>(
+        `query ($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              closingIssuesReferences(first: 5) {
+                nodes {
+                  number
+                  title
+                  body
+                  labels(first: 20) { nodes { name } }
+                  issueType { name }
+                }
+              }
+            }
+          }
+        }`,
+        { owner, repo: repoName, number: prNumber }
+      );
+      const nodes = response.repository?.pullRequest?.closingIssuesReferences?.nodes ?? [];
+      return {
+        status: 'ok',
+        issues: nodes
+          .filter((node): node is NonNullable<typeof node> => node !== null)
+          .map((node) => ({
+            number: node.number,
+            title: node.title,
+            body: node.body ?? '',
+            labels: (node.labels?.nodes ?? []).map((label) => label.name),
+            typeName: node.issueType?.name ?? null,
+          })),
+      };
+    } catch {
+      return { status: 'unavailable' };
     }
   }
 

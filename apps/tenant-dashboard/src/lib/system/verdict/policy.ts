@@ -30,7 +30,7 @@ const RECOMMENDED_PRESET = "outerlayer:recommended@v1";
 /** Built-in validator ids a policy may level and a custom may require.
  * These are the registry entries of the recommended preset; every id here
  * has an implementation in `validators.ts` / `evaluate.ts`. */
-const BUILTIN_VALIDATOR_IDS = [
+export const BUILTIN_VALIDATOR_IDS = [
   "red-then-green",
   "no-test-tampering",
   "commits-from-sessions",
@@ -89,6 +89,11 @@ export interface CustomValidator {
   /** Path globs (`*`, `**`) against the PR's changed files. Absent means
    * the validator applies to every PR. */
   whenPaths: string[] | null;
+  /** Issue-context scope: the linked issue's type name (case-insensitive)
+   * and/or any-of labels. A scoped validator with no linked issue simply
+   * does not apply — absent, never a false fail. */
+  whenIssueType: string | null;
+  whenIssueLabels: string[] | null;
   require: RequireClause;
   /** Fact families the conditions read — auto-derived from the conditions
    * and unioned with an explicit `needs:` list. Missing families make the
@@ -164,6 +169,8 @@ function parseCustomFile(
   }
 
   let whenPaths: string[] | null = null;
+  let whenIssueType: string | null = null;
+  let whenIssueLabels: string[] | null = null;
   if (doc["when"] !== undefined) {
     const when = doc["when"];
     if (!isRecord(when)) return { error: "`when` must be a mapping" };
@@ -174,9 +181,31 @@ function parseCustomFile(
       }
       whenPaths = paths as string[];
     }
-    const unknownKey = Object.keys(when).find((key) => key !== "paths");
+    const issueType = when["issue.type"];
+    if (issueType !== undefined) {
+      if (typeof issueType !== "string" || issueType.trim().length === 0) {
+        return { error: "`when.issue.type` must be a non-empty string" };
+      }
+      whenIssueType = issueType.trim();
+    }
+    const issueLabels = when["issue.labels"];
+    if (issueLabels !== undefined) {
+      if (
+        !Array.isArray(issueLabels) ||
+        issueLabels.length === 0 ||
+        issueLabels.some((l) => typeof l !== "string" || l.length === 0)
+      ) {
+        return { error: "`when.issue.labels` must be a non-empty list of label names" };
+      }
+      whenIssueLabels = issueLabels as string[];
+    }
+    const unknownKey = Object.keys(when).find(
+      (key) => key !== "paths" && key !== "issue.type" && key !== "issue.labels",
+    );
     if (unknownKey) {
-      return { error: `\`when.${unknownKey}\` is not supported yet — only \`when.paths\`` };
+      return {
+        error: `\`when.${unknownKey}\` is not supported yet — only \`when.paths\`, \`when.issue.type\`, and \`when.issue.labels\``,
+      };
     }
   }
 
@@ -215,6 +244,8 @@ function parseCustomFile(
       row: row.trim(),
       level: level as PolicyLevel,
       whenPaths,
+      whenIssueType,
+      whenIssueLabels,
       require: requireParsed.clause,
       needs: [...needs],
     },

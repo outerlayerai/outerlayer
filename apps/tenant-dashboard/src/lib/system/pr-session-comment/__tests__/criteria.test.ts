@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 
-import { fetchPrProofCriteria, parseProofCriteria } from "../criteria";
+import { fetchCriterionTestCitations, fetchPrProofCriteria, parseProofCriteria } from "../criteria";
 
 describe("parseProofCriteria", () => {
   it("extracts id → kind pairs from proof annotations, sorted by id", () => {
@@ -115,5 +115,74 @@ describe("fetchPrProofCriteria", () => {
       { id: "AC-084-01", proofKind: "log" },
       { id: "AC-084-02", proofKind: "video" },
     ]);
+  });
+
+  // AC-086-08
+  it("parses the test proof kind and resolves citations from changed test files at head", async () => {
+    expect(parseProofCriteria("`AC-086-08` (proof: test)")).toEqual([
+      { id: "AC-086-08", proofKind: "test" },
+    ]);
+
+    const getFileContent = vi.fn(async (_repo: string, path: string, ref: string) => {
+      expect(ref).toEqual("refs/pull/61/head");
+      if (path === "src/lib/a.test.ts") return { content: "// AC-086-08\nit(...)" };
+      return { content: "no citations here" };
+    });
+    const citations = await fetchCriterionTestCitations(
+      { getFileContent },
+      "acme/api",
+      61,
+      [
+        { filename: "src/lib/b.test.ts", changeStatus: "modified" },
+        { filename: "src/lib/a.test.ts", changeStatus: "modified" },
+        { filename: "src/lib/a.ts", changeStatus: "modified" },
+        { filename: "src/lib/old.test.ts", changeStatus: "removed" },
+      ],
+      [
+        { id: "AC-086-08", proofKind: "test" },
+        { id: "AC-086-02", proofKind: "screenshot" },
+      ],
+    );
+    expect(citations).toEqual(new Map([["AC-086-08", "src/lib/a.test.ts"]]));
+    // Only the diff's live test files are read, in path order — and the
+    // scan stops as soon as every test-proof id has its citation.
+    expect(getFileContent.mock.calls.map((call) => call[1])).toEqual(["src/lib/a.test.ts"]);
+  });
+
+  it("reads every changed test file while any test-proof id is uncited", async () => {
+    const getFileContent = vi.fn(async (_repo: string, _path: string, _ref: string) => ({
+      content: "// AC-086-08 only",
+    }));
+    const citations = await fetchCriterionTestCitations(
+      { getFileContent },
+      "acme/api",
+      61,
+      [
+        { filename: "src/lib/a.test.ts", changeStatus: "modified" },
+        { filename: "src/lib/b.test.ts", changeStatus: "modified" },
+      ],
+      [
+        { id: "AC-086-08", proofKind: "test" },
+        { id: "AC-086-02", proofKind: "test" },
+      ],
+    );
+    expect(citations).toEqual(new Map([["AC-086-08", "src/lib/a.test.ts"]]));
+    expect(getFileContent.mock.calls.map((call) => call[1])).toEqual([
+      "src/lib/a.test.ts",
+      "src/lib/b.test.ts",
+    ]);
+  });
+
+  it("reads nothing when no criterion demands a test", async () => {
+    const getFileContent = vi.fn();
+    const citations = await fetchCriterionTestCitations(
+      { getFileContent },
+      "acme/api",
+      61,
+      [{ filename: "src/lib/a.test.ts", changeStatus: "modified" }],
+      [{ id: "AC-086-02", proofKind: "screenshot" }],
+    );
+    expect(citations).toEqual(new Map());
+    expect(getFileContent).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,7 @@ import {
   GitHubProvider,
   type IssueCommentListResult,
   type IssueCommentResult,
+  type PullRequestClosingIssuesResult,
   type PullRequestCommitListResult,
   type PullRequestFileListResult,
 } from "@/lib/system/git/github/client";
@@ -24,8 +25,14 @@ import {
   type PolicyErrorFact,
   type VerificationFact,
 } from "./evaluate";
-import { customValidationFacts } from "@/lib/system/verdict/custom";
-import { parseEvidencePolicy } from "@/lib/system/verdict/policy";
+import { customValidationFacts, type IssueScopeContext } from "@/lib/system/verdict/custom";
+import {
+  BUILTIN_VALIDATOR_IDS,
+  parseEvidencePolicy,
+  type CustomValidator,
+} from "@/lib/system/verdict/policy";
+import { issueAskFacts, parseIssueAsks, type LinkedIssue } from "./issue-asks";
+import { fetchCriterionTestCitations, PROOF_KINDS } from "./criteria";
 import { readPolicySource } from "@/lib/system/verdict/policy-source";
 import type { TimelineSpan } from "@/lib/system/verdict/types";
 import { isTestFilePath } from "@/lib/system/verdict/classify";
@@ -164,6 +171,13 @@ interface PrSessionCommentGithubClient {
    * judged under its own policy edits). Optional with `listDirectory`: a
    * fake omitting either simply gets the built-in defaults. */
   getPullRequestBaseBranch?(repo: string, prNumber: number): Promise<string | null>;
+  /** The PR's declared closing issues — the spec the comment names, the
+   * source of "Validation required" asks, and `when.issue.*` scope.
+   * Optional: a fake omitting it renders without issue context. */
+  getPullRequestClosingIssues?(
+    repo: string,
+    prNumber: number,
+  ): Promise<PullRequestClosingIssuesResult>;
   listDirectory?(
     repo: string,
     path: string,
@@ -717,6 +731,27 @@ export async function refreshPrSessionComment(
       verification = verificationFacts(spans, traceIds, diffAddsTests);
     }
 
+    // The PR's declared closing issues: the spec the comment names, the
+    // "Validation required" asks, and the context `when.issue.*` validators
+    // scope by. Unavailable reads degrade to "no issue context" — scoped
+    // validators stay absent and no ask rows render.
+    let linkedIssues: LinkedIssue[] | null = null;
+    if (rows.length > 0 && githubClient.getPullRequestClosingIssues) {
+      const issuesResult = await githubClient.getPullRequestClosingIssues(repository, prNumber);
+      if (issuesResult.status === "ok") linkedIssues = issuesResult.issues;
+    }
+    // An empty issue list builds an empty context, which scoped validators
+    // treat exactly like "no linked issue" — no special case needed.
+    const issueContext: IssueScopeContext | null =
+      linkedIssues === null
+        ? null
+        : {
+            typeNames: linkedIssues
+              .map((issue) => issue.typeName)
+              .filter((name): name is string => name !== null),
+            labels: [...new Set(linkedIssues.flatMap((issue) => issue.labels))],
+          };
+
     // The repo's own evidence policy: which validators display and at what
     // level, plus its custom validators. Read at the BASE branch; any
     // failure to read degrades to the built-in defaults — a config-error
@@ -724,18 +759,21 @@ export async function refreshPrSessionComment(
     let customFacts: CustomValidationFact[] = [];
     let policyError: PolicyErrorFact | null = null;
     let factLevels: ReadonlyMap<string, "warn" | "info" | "off"> | undefined;
+    let policyCustoms: readonly CustomValidator[] = [];
     if (rows.length > 0) {
       try {
         const policySource = await readPolicySource(githubClient, repository, prNumber);
         if (policySource) {
           const policy = parseEvidencePolicy(policySource);
           factLevels = policy.levels;
+          policyCustoms = policy.customs;
           customFacts = customValidationFacts(
             policy.customs,
             spans,
             traceIds,
             prFiles === null ? null : prFiles.map((file) => file.filename),
             diffAddsTests,
+            issueContext,
           );
           if (policy.errors.length > 0) {
             const first = policy.errors[0]!;
@@ -754,14 +792,29 @@ export async function refreshPrSessionComment(
         customFacts = [];
         policyError = null;
         factLevels = undefined;
+        policyCustoms = [];
       }
     }
+
+    // The linked issues' "Validation required" asks, resolved against the
+    // registry (built-ins plus the policy's customs) and evaluated against
+    // the same results the rows render. No issues parse to no asks.
+    const knownIds = new Set<string>([
+      ...BUILTIN_VALIDATOR_IDS,
+      ...policyCustoms.map((custom) => custom.id),
+    ]);
+    const { facts: askFacts, error: askError } = issueAskFacts(
+      parseIssueAsks(linkedIssues ?? [], knownIds, PROOF_KINDS),
+      verification,
+      customFacts,
+      presenceArtifacts,
+    );
 
     // Criterion proof requirements come from the PR's own changed acceptance
     // files (see criteria.ts) and are best-effort: a fetch failure degrades
     // to artifacts-without-criteria rather than blocking the comment.
     let criteria: CriterionRequirement[] = [];
-    if (artifacts.length > 0 && githubClient.getFileContent && prFiles !== null) {
+    if (githubClient.getFileContent && prFiles !== null) {
       try {
         criteria = await fetchPrProofCriteria(
           { getFileContent: githubClient.getFileContent.bind(githubClient) },
@@ -774,6 +827,23 @@ export async function refreshPrSessionComment(
       }
     }
 
+    // `proof: test` criteria bind spec to code: which changed test file at
+    // the PR head cites each id. Best-effort like the criteria fetch.
+    let testCitations: Map<string, string> | undefined;
+    if (githubClient.getFileContent && prFiles !== null) {
+      try {
+        testCitations = await fetchCriterionTestCitations(
+          { getFileContent: githubClient.getFileContent.bind(githubClient) },
+          repository,
+          prNumber,
+          prFiles,
+          criteria,
+        );
+      } catch {
+        testCitations = undefined;
+      }
+    }
+
     const evaluation = evaluateEvidence({
       sessions: rows,
       pendingLinkCount,
@@ -781,6 +851,8 @@ export async function refreshPrSessionComment(
       verificationFacts: verification,
       customFacts,
       policyError,
+      issueAskFacts: askFacts,
+      issueAskError: askError,
       ...(factLevels ? { factLevels } : {}),
     });
     // Recorded at evaluation time, before the GitHub write and regardless of
@@ -793,7 +865,14 @@ export async function refreshPrSessionComment(
     // the rendered body always reflects present state, never a first-sight
     // snapshot — a session that accrues more work produces a different body
     // (and therefore a different hash) on the very next refresh.
-    const body = renderComment(rows, topics, links, evaluation, { artifacts, criteria });
+    const body = renderComment(rows, topics, links, evaluation, {
+      artifacts,
+      criteria,
+      ...(linkedIssues !== null && linkedIssues.length > 0
+        ? { issues: linkedIssues.map(({ number, title }) => ({ number, title })) }
+        : {}),
+      ...(testCitations !== undefined ? { testCitations } : {}),
+    });
     const bodyHash = hashBody(body);
 
     const { data: existing, error: readError } = await admin

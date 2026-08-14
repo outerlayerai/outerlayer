@@ -29,6 +29,8 @@ function custom(over: Partial<CustomValidator> = {}): CustomValidator {
     row: "The migration was actually run",
     level: "warn",
     whenPaths: ["supabase/migrations/**"],
+    whenIssueType: null,
+    whenIssueLabels: null,
     require: {
       mode: "any",
       conditions: [{ kind: "session-ran", command: "supabase migration up" }],
@@ -211,6 +213,47 @@ describe("customValidationFacts", () => {
     const first = customValidationFacts([custom()], spans, TRACES, MIGRATION_FILES, null);
     const second = customValidationFacts([custom()], spans, TRACES, MIGRATION_FILES, null);
     expect(second).toEqual(first);
+  });
+});
+
+describe("issue-context scoping", () => {
+  const scoped = (over: Partial<CustomValidator> = {}) =>
+    custom({
+      id: "bugs-need-repro",
+      row: "The bug was reproduced before the fix",
+      whenPaths: null,
+      whenIssueType: "Bug",
+      require: { mode: "any", conditions: [{ kind: "validator", id: "red-then-green" }] },
+      needs: [],
+      ...over,
+    });
+  const spans = [run("vitest run", 5)];
+
+  // AC-086-05
+  it("applies a type-scoped validator only when a linked issue matches, case-insensitively", () => {
+    const matching = { typeNames: ["bug"], labels: [] };
+    expect(customValidationFacts([scoped()], spans, TRACES, null, true, matching)).toEqual([
+      {
+        id: "custom",
+        validatorId: "bugs-need-repro",
+        status: "flag",
+        class: "amber",
+        sentence: "The bug was reproduced before the fix — not proven",
+        refs: [],
+      },
+    ]);
+    const otherType = { typeNames: ["Feature"], labels: [] };
+    expect(customValidationFacts([scoped()], spans, TRACES, null, true, otherType)).toEqual([]);
+    // No linked issue at all: the scope cannot match — absent, never a fail.
+    expect(customValidationFacts([scoped()], spans, TRACES, null, true, null)).toEqual([]);
+  });
+
+  it("applies a label-scoped validator on any label overlap", () => {
+    const byLabel = scoped({ whenIssueType: null, whenIssueLabels: ["regression"] });
+    const overlap = { typeNames: [], labels: ["ui", "regression"] };
+    expect(customValidationFacts([byLabel], spans, TRACES, null, true, overlap)).toHaveLength(1);
+    const disjoint = { typeNames: [], labels: ["ui"] };
+    expect(customValidationFacts([byLabel], spans, TRACES, null, true, disjoint)).toEqual([]);
   });
 });
 

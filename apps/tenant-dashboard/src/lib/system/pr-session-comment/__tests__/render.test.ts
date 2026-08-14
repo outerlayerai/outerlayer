@@ -819,3 +819,125 @@ describe("policy fact rows", () => {
     );
   });
 });
+
+describe("issue integration rendering", () => {
+  const rows = [row({ traceId: "t1" })];
+  const evaluation = (facts: EvidenceEvaluation["facts"] = [], flagged = 0): EvidenceEvaluation => ({
+    verdict: flagged > 0 ? "flag" : "pass",
+    facts,
+    flaggedCount: flagged,
+    pendingLinkCount: 0,
+  });
+
+  // AC-086-01
+  it("names the closing issues under the verdict, and nothing without them", () => {
+    const withIssue = renderComment(rows, new Map(), LINKS, evaluation(), {
+      artifacts: [],
+      criteria: [],
+      issues: [{ number: 91, title: "Fix the flaky signup" }],
+    });
+    expect(withIssue).toContain("for #91 — Fix the flaky signup");
+    const two = renderComment(rows, new Map(), LINKS, evaluation(), {
+      artifacts: [],
+      criteria: [],
+      issues: [
+        { number: 91, title: "Fix the flaky signup" },
+        { number: 92, title: "Add the allowlist" },
+      ],
+    });
+    expect(two).toContain("for #91 — Fix the flaky signup · #92 — Add the allowlist");
+    const none = renderComment(rows, new Map(), LINKS, evaluation(), { artifacts: [], criteria: [] });
+    expect(none).not.toMatch(/^for /m);
+    expect(two).not.toContain("· and");
+  });
+
+  it("caps the issue line at three, trims titles, and counts the remainder exactly", () => {
+    const body = renderComment(rows, new Map(), LINKS, evaluation(), {
+      artifacts: [],
+      criteria: [],
+      issues: [
+        { number: 1, title: "  One  " },
+        { number: 2, title: "Two" },
+        { number: 3, title: "Three" },
+        { number: 4, title: "Four" },
+      ],
+    });
+    expect(body).toContain("for #1 — One · #2 — Two · #3 — Three · and 1 more");
+    expect(body).not.toContain("#4");
+  });
+
+  // AC-086-02
+  it("renders ask rows with their issue source and proof turns", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      evaluation(
+        [
+          {
+            id: "issue-ask",
+            status: "pass",
+            class: "amber",
+            sentence: "The issue asked for `red-then-green` — proven",
+            issueNumber: 91,
+            refs: [{ traceId: "t1", turnIndex: 61 }],
+          },
+          {
+            id: "issue-ask",
+            status: "flag",
+            class: "amber",
+            sentence: "Settings page renders — screenshot required, none attached",
+            issueNumber: 91,
+            refs: [],
+          },
+        ],
+        1,
+      ),
+    );
+    expect(body).toContain(
+      "✓ **The issue asked for `red-then-green` — proven** · asked in #91 — turn 61",
+    );
+    expect(body).toContain(
+      "⚠ **Settings page renders — screenshot required, none attached** · asked in #91",
+    );
+  });
+
+  // AC-086-07
+  it("renders the ask-error row naming the entry and problem", () => {
+    const body = renderComment(
+      rows,
+      new Map(),
+      LINKS,
+      evaluation(
+        [
+          {
+            id: "issue-ask-error",
+            status: "flag",
+            class: "amber",
+            message: '#91 "ghost-validator" — "ghost-validator" does not name a validator',
+          },
+        ],
+        1,
+      ),
+    );
+    expect(body).toContain(
+      '⚠ **The issue\'s asks have an error** — #91 "ghost-validator" — "ghost-validator" does not name a validator',
+    );
+  });
+
+  // AC-086-08
+  it("renders a test-proof criterion from its citation, never from artifacts", () => {
+    const criteria = [{ id: "AC-086-08", proofKind: "test" }];
+    const cited = renderComment(rows, new Map(), LINKS, evaluation(), {
+      artifacts: [],
+      criteria,
+      testCitations: new Map([["AC-086-08", "src/lib/signup.test.ts"]]),
+    });
+    expect(cited).toContain("| `AC-086-08` | cited by `src/lib/signup.test.ts` |");
+    const uncited = renderComment(rows, new Map(), LINKS, evaluation(), {
+      artifacts: [],
+      criteria,
+    });
+    expect(uncited).toContain("| `AC-086-08` | test required · none cites AC-086-08 |");
+  });
+});
