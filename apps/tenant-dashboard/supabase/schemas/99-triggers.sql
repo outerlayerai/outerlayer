@@ -67,6 +67,10 @@ CREATE OR REPLACE TRIGGER on_insert_api_key
     BEFORE INSERT ON public.api_key
     FOR EACH ROW EXECUTE FUNCTION public.set_tenant_id();
 
+CREATE OR REPLACE TRIGGER on_insert_artifact_set_tenant_id
+    BEFORE INSERT ON public.artifact
+    FOR EACH ROW EXECUTE FUNCTION public.set_tenant_id();
+
 CREATE OR REPLACE TRIGGER on_insert_git_branch_set_tenant_id
     BEFORE INSERT ON public.git_branch
     FOR EACH ROW EXECUTE FUNCTION public.set_tenant_id();

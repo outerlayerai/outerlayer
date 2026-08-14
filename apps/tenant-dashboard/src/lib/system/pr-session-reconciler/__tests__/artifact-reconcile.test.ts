@@ -100,6 +100,10 @@ describe("reconcileArtifacts", () => {
     });
   });
 
+  // proves AC-084-04 — the anchoring half: a local checkout's branch binds to
+  // the PR whose activity window contains the emit time (the CLI half of the
+  // criterion — emit-time git context and --pr — is proven in
+  // packages/cli/src/__tests__/emit-artifact-cmd.test.ts).
   it("confirms a claimed PR number once the provider record exists, and matches branch-tier artifacts by window", async () => {
     seedPullRequestSessionMswState({
       pullRequests: [
