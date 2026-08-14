@@ -1080,6 +1080,30 @@ export class GitHubProvider implements GitProvider {
    * per-PR GET carries them — so this exists for the enrichment backfill,
    * not the webhook path (the pull_request payload already has all three).
    */
+  /**
+   * The PR's base branch name — where the evidence policy is read from (a
+   * PR must not be judged under its own policy edits). Same typed
+   * degradation as the other PR reads: 403/404 mean "unknown", never an
+   * error the caller should surface.
+   */
+  async getPullRequestBaseBranch(repo: string, prNumber: number): Promise<string | null> {
+    const [owner, repoName] = this.parseRepo(repo);
+    try {
+      const { data } = await this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+        owner,
+        repo: repoName,
+        pull_number: prNumber,
+      });
+      return typeof data.base?.ref === 'string' ? data.base.ref : null;
+    } catch (error: unknown) {
+      const status = (error as { status?: number }).status;
+      if (status === 403 || status === 404) {
+        return null;
+      }
+      throw this.handleError(error, repo);
+    }
+  }
+
   async getPullRequestDiffStats(
     repo: string,
     prNumber: number

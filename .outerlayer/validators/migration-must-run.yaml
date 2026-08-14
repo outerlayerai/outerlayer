@@ -1,0 +1,12 @@
+# A schema change must be proven by an actual migration run in the session —
+# either applied directly or via a full local reset.
+id: migration-must-run
+kind: validation
+row: "The migration was actually run"
+level: warn
+when:
+  paths: ["apps/tenant-dashboard/supabase/migrations/**"]
+require:
+  any:
+    - session.ran: { command: "supabase migration up", status: ok }
+    - session.ran: { command: "supabase db reset", status: ok }

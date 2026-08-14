@@ -6,7 +6,12 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { evaluateEvidence, type VerificationFact } from "../evaluate";
+import {
+  evaluateEvidence,
+  type CustomValidationFact,
+  type PolicyErrorFact,
+  type VerificationFact,
+} from "../evaluate";
 
 const session = (recordedCommitShas: string[]) => ({ recordedCommitShas });
 
@@ -312,6 +317,102 @@ describe("evaluateEvidence with verification facts", () => {
       verificationFacts: [verification({ class: "red" })],
     });
 
+    expect(result.verdict).toBe("pass");
+  });
+});
+
+const customFact = (over: Partial<CustomValidationFact> = {}): CustomValidationFact => ({
+  id: "custom",
+  validatorId: "migration-must-run",
+  status: "flag",
+  class: "amber",
+  sentence: "The migration was actually run — not proven",
+  refs: [],
+  ...over,
+});
+
+const policyError: PolicyErrorFact = {
+  id: "policy-error",
+  status: "flag",
+  class: "amber",
+  message: "`.outerlayer/policy.yaml` — unknown preset",
+};
+
+describe("evaluateEvidence with policy facts and levels", () => {
+  // AC-085-08: a flagged custom asks for a look; it can never void the verdict.
+  it("counts a custom flag as amber — flag, never unverifiable", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      customFacts: [customFact()],
+    });
+    expect(result.verdict).toBe("flag");
+    expect(result.flaggedCount).toBe(1);
+    expect(result.facts).toEqual([customFact()]);
+  });
+
+  // AC-085-01
+  it("drops facts leveled off and keeps the rest untouched", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      verificationFacts: [
+        {
+          id: "red-then-green",
+          status: "pass",
+          class: "amber",
+          sentence: "New tests failed first, then passed",
+          refs: [],
+        },
+      ],
+      customFacts: [customFact()],
+      factLevels: new Map([
+        ["red-then-green", "off"],
+        ["migration-must-run", "warn"],
+      ]),
+    });
+    expect(result.facts).toEqual([customFact()]);
+    expect(result.verdict).toBe("flag");
+  });
+
+  // AC-085-09
+  it("keeps an info-leveled row but excludes its flag from the verdict", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      customFacts: [customFact()],
+      factLevels: new Map([["migration-must-run", "info"]]),
+    });
+    expect(result.facts).toEqual([customFact()]);
+    expect(result.flaggedCount).toBe(0);
+    expect(result.verdict).toBe("pass");
+  });
+
+  // AC-085-07: the error row flags, counts, and cannot be leveled away.
+  it("appends the policy error as a counted flag exempt from leveling", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: null,
+      policyError,
+      factLevels: new Map([["policy-error", "off"]]),
+    });
+    expect(result.facts).toEqual([policyError]);
+    expect(result.flaggedCount).toBe(1);
+    expect(result.verdict).toBe("flag");
+  });
+
+  it("levels the built-in provenance fact like any other row", () => {
+    const result = evaluateEvidence({
+      sessions: [session([])],
+      pendingLinkCount: 0,
+      prCommitShas: ["deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"],
+      factLevels: new Map([["commits-from-sessions", "off"]]),
+    });
+    expect(result.facts).toEqual([]);
     expect(result.verdict).toBe("pass");
   });
 });

@@ -18,7 +18,16 @@ import type { ChQueryFn } from "@/lib/system/pr-session-reconciler/reconciler";
 
 import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-key";
 
-import { evaluateEvidence, type VerificationFact } from "./evaluate";
+import {
+  evaluateEvidence,
+  type CustomValidationFact,
+  type PolicyErrorFact,
+  type VerificationFact,
+} from "./evaluate";
+import { customValidationFacts } from "@/lib/system/verdict/custom";
+import { parseEvidencePolicy } from "@/lib/system/verdict/policy";
+import { readPolicySource } from "@/lib/system/verdict/policy-source";
+import type { TimelineSpan } from "@/lib/system/verdict/types";
 import { isTestFilePath } from "@/lib/system/verdict/classify";
 import { verificationFacts } from "@/lib/system/verdict/evidence";
 import { readVerificationSpans } from "@/lib/system/verdict/span-source";
@@ -151,6 +160,15 @@ interface PrSessionCommentGithubClient {
    * PR has artifacts. Optional so a test fake can omit it; when absent, the
    * Evidence block renders artifacts without criterion proof rows. */
   getFileContent?(repo: string, path: string, ref: string): Promise<{ content: string }>;
+  /** The evidence policy is read at the PR's BASE branch (a PR must not be
+   * judged under its own policy edits). Optional with `listDirectory`: a
+   * fake omitting either simply gets the built-in defaults. */
+  getPullRequestBaseBranch?(repo: string, prNumber: number): Promise<string | null>;
+  listDirectory?(
+    repo: string,
+    path: string,
+    ref: string,
+  ): Promise<Array<{ path: string; name: string; type: string }>>;
 }
 
 interface RefreshPrSessionCommentDeps {
@@ -687,15 +705,56 @@ export async function refreshPrSessionComment(
     // unavailable the facts are simply absent — the same omission contract
     // as an unreadable commit list.
     let verification: VerificationFact[] = [];
+    let spans: TimelineSpan[] = [];
+    const diffAddsTests =
+      prFiles === null
+        ? null
+        : prFiles.some(
+            (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
+          );
     if (rows.length > 0 && chQuery) {
-      const diffAddsTests =
-        prFiles === null
-          ? null
-          : prFiles.some(
-              (file) => file.changeStatus !== "removed" && isTestFilePath(file.filename),
-            );
-      const spans = await readVerificationSpans(chQuery, traceIds);
+      spans = await readVerificationSpans(chQuery, traceIds);
       verification = verificationFacts(spans, traceIds, diffAddsTests);
+    }
+
+    // The repo's own evidence policy: which validators display and at what
+    // level, plus its custom validators. Read at the BASE branch; any
+    // failure to read degrades to the built-in defaults — a config-error
+    // row is reserved for a policy that exists but is broken.
+    let customFacts: CustomValidationFact[] = [];
+    let policyError: PolicyErrorFact | null = null;
+    let factLevels: ReadonlyMap<string, "warn" | "info" | "off"> | undefined;
+    if (rows.length > 0) {
+      try {
+        const policySource = await readPolicySource(githubClient, repository, prNumber);
+        if (policySource) {
+          const policy = parseEvidencePolicy(policySource);
+          factLevels = policy.levels;
+          customFacts = customValidationFacts(
+            policy.customs,
+            spans,
+            traceIds,
+            prFiles === null ? null : prFiles.map((file) => file.filename),
+            diffAddsTests,
+          );
+          if (policy.errors.length > 0) {
+            const first = policy.errors[0]!;
+            const remainder = policy.errors.length - 1;
+            policyError = {
+              id: "policy-error",
+              status: "flag",
+              class: "amber",
+              message:
+                `\`${first.file}\` — ${first.message}` +
+                (remainder > 0 ? ` (and ${remainder} more)` : ""),
+            };
+          }
+        }
+      } catch {
+        customFacts = [];
+        policyError = null;
+        factLevels = undefined;
+      }
     }
 
     // Criterion proof requirements come from the PR's own changed acceptance
@@ -720,6 +779,9 @@ export async function refreshPrSessionComment(
       pendingLinkCount,
       prCommitShas,
       verificationFacts: verification,
+      customFacts,
+      policyError,
+      ...(factLevels ? { factLevels } : {}),
     });
     // Recorded at evaluation time, before the GitHub write and regardless of
     // its outcome — a verdict on a not-yet-permitted installation is still a

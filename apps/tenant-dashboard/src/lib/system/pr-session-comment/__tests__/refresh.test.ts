@@ -1615,4 +1615,161 @@ describe("refreshPrSessionComment", () => {
       "New tests failed first, then passed",
     );
   });
+
+  /** Policy-read methods for the wiring tests below — the default fake
+   * omits them, which turns the policy feature off (built-in defaults). */
+  function policyMethods(files: Record<string, string>) {
+    return {
+      getPullRequestBaseBranch: vi.fn(async () => "main"),
+      listDirectory: vi.fn(async (_repo: string, path: string) =>
+        Object.keys(files)
+          .filter((file) => file.startsWith(`${path}/`))
+          .map((file) => ({ path: file, name: file.split("/").pop()!, type: "file" })),
+      ),
+      getFileContent: vi.fn(async (_repo: string, path: string, ref: string) => {
+        const content = files[path];
+        if (content === undefined || ref !== "main") throw new Error(`missing ${path}@${ref}`);
+        return { content };
+      }),
+    };
+  }
+
+  const MIGRATION_VALIDATOR = `id: migration-must-run
+kind: validation
+row: "The migration was actually run"
+when:
+  paths: ["supabase/migrations/**"]
+require:
+  session.ran: { command: "supabase migration up", status: ok }
+`;
+
+  // AC-085-03: the full production path — policy files at the base branch,
+  // a scoped custom, and the matched run rendered as its proof.
+  it("renders a custom validator row from the repo's policy files", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...policyMethods({ ".outerlayer/validators/migration-must-run.yaml": MIGRATION_VALIDATOR }),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(7100));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "supabase/migrations/20260815_add_flag.sql", changeStatus: "added" }],
+    });
+
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [spanRow("t1", 9, { command: "npx supabase migration up" })],
+        ),
+        githubClient,
+      },
+    );
+
+    expect(result).toEqual({ status: "created", commentId: 7100 });
+    expect(githubClient.getFileContent).toHaveBeenCalledWith(
+      REPO,
+      ".outerlayer/validators/migration-must-run.yaml",
+      "main",
+    );
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain("✓ **The migration was actually run** — turn 9");
+  });
+
+  // AC-085-01: `off` in the policy removes a built-in row entirely.
+  it("removes a built-in row the policy levels off", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...policyMethods({
+        ".outerlayer/policy.yaml": "validators:\n  red-then-green: off\n",
+      }),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(7200));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "src/lib/a.test.ts", changeStatus: "added" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [
+            spanRow("t1", 61, { command: "vitest run", status: "error" }),
+            spanRow("t1", 62, { file: "src/lib/a.ts" }),
+            spanRow("t1", 63, { command: "vitest run" }),
+          ],
+        ),
+        githubClient,
+      },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).not.toContain("New tests failed first, then passed");
+    expect(body).toContain("Everything checks out");
+  });
+
+  // AC-085-07: a policy that exists but is broken fails loudly as one row
+  // while the rest of the comment still renders.
+  it("renders a single policy-error row for a broken policy", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...policyMethods({
+        ".outerlayer/policy.yaml": "extends: someone-else:strict@v9\nvalidators:\n  ghost: warn\n",
+      }),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(7300));
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      '⚠ **The policy file has an error** — `.outerlayer/policy.yaml` — unknown preset "someone-else:strict@v9" — this engine ships outerlayer:recommended@v1 (and 1 more)',
+    );
+    expect(body).toContain("| Session | Topics |");
+  });
+
+  it("renders a single-error policy without a remainder count", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = {
+      ...fakeGithubClient(),
+      ...policyMethods({
+        ".outerlayer/validators/broken.yaml": "id: Bad_Slug\nrow: r\n",
+      }),
+    };
+    githubClient.createIssueComment.mockResolvedValue(okComment(7400));
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })]), githubClient },
+    );
+
+    const body = githubClient.createIssueComment.mock.calls[0]![2];
+    expect(body).toContain(
+      "⚠ **The policy file has an error** — `.outerlayer/validators/broken.yaml` — `id` must be a lowercase-dashed slug",
+    );
+    expect(body).not.toContain("more)");
+  });
 });

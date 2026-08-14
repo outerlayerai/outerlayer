@@ -316,6 +316,15 @@ function shaDisplay(sha: string): string {
  * provenance fact NAMES the unrecorded commits (capped, with the remainder
  * counted) rather than leaving the reviewer to diff the commit list.
  */
+/** "— turn 61" / "— turns 61 → 63" from a fact's refs; empty without turns. */
+function turnsSuffix(refs: ReadonlyArray<{ turnIndex: number | null }>): string {
+  const turns = refs
+    .map((ref) => ref.turnIndex)
+    .filter((turn): turn is number => turn !== null);
+  if (turns.length === 0) return "";
+  return ` — ${turns.length === 1 ? `turn ${turns[0]}` : `turns ${turns.join(" → ")}`}`;
+}
+
 function factLine(fact: EvidenceFact): string {
   switch (fact.id) {
     case "commits-from-sessions": {
@@ -334,15 +343,16 @@ function factLine(fact: EvidenceFact): string {
       // claim what the matcher proved, so no copy is added here. ✕ is
       // reserved for red-class facts (the ones that void the verdict).
       const mark = fact.status === "pass" ? "✓" : fact.class === "red" ? "✕" : "⚠";
-      const turns = fact.refs
-        .map((ref) => ref.turnIndex)
-        .filter((turn): turn is number => turn !== null);
-      const suffix =
-        turns.length === 0
-          ? ""
-          : ` — ${turns.length === 1 ? `turn ${turns[0]}` : `turns ${turns.join(" → ")}`}`;
-      return `${mark} **${fact.sentence}**${suffix}`;
+      return `${mark} **${fact.sentence}**${turnsSuffix(fact.refs)}`;
     }
+    case "custom": {
+      // A user-authored row: same shape as the built-ins, never ✕ — customs
+      // are amber by construction and cannot void the verdict.
+      const mark = fact.status === "pass" ? "✓" : "⚠";
+      return `${mark} **${fact.sentence}**${turnsSuffix(fact.refs)}`;
+    }
+    case "policy-error":
+      return `⚠ **The policy file has an error** — ${fact.message}`;
     default: {
       const exhaustive: never = fact;
       void exhaustive;
