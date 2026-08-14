@@ -13,6 +13,7 @@ import {
   hasBypassFlag,
   isTestFilePath,
   normalizeCommand,
+  splitCommandSegments,
 } from "../classify";
 
 describe("extractCommandText", () => {
@@ -117,5 +118,58 @@ describe("isTestFilePath", () => {
     expect(isTestFilePath("packages/cli/src/sync-cmd.test.ts")).toEqual(true);
     expect(isTestFilePath("apps/e2e/tests/signup.spec.ts")).toEqual(true);
     expect(isTestFilePath("src/lib/system/verdict/classify.ts")).toEqual(false);
+  });
+});
+
+describe("extractCommandText edge discipline", () => {
+  it("trims the extracted command and rejects whitespace-only ones", () => {
+    expect(extractCommandText('{"command":"  vitest run  "}')).toEqual("vitest run");
+    expect(extractCommandText('{"command":"   "}')).toEqual(null);
+  });
+
+  it("passes scalar-looking plain text through instead of JSON-parsing it", () => {
+    expect(extractCommandText("42")).toEqual("42");
+  });
+});
+
+describe("suite scope stays out of non-test kinds", () => {
+  it("never assigns a suite scope to lint or vcs commands", () => {
+    expect(classifyCommand("eslint src/lib")).toEqual({
+      normalized: "eslint src/lib",
+      kind: "lint",
+      suiteScope: "unknown",
+      bypass: false,
+    });
+    expect(classifyCommand("git add src/a.test.ts")).toEqual({
+      normalized: "git add src/a.test.ts",
+      kind: "vcs",
+      suiteScope: "unknown",
+      bypass: false,
+    });
+  });
+});
+
+describe("commandPairKey trims the split residue", () => {
+  it("leaves no trailing space when the pipe is cut without a redirect", () => {
+    expect(commandPairKey("vitest run | tail -5")).toEqual("vitest run");
+  });
+});
+
+describe("detectTestResult refuses to guess on rejection", () => {
+  it("returns undefined for a rejected run with no output", () => {
+    expect(detectTestResult("vitest run", "rejected", undefined)).toEqual(undefined);
+  });
+});
+
+describe("splitCommandSegments", () => {
+  it("splits on every statement separator and trims each segment", () => {
+    expect(splitCommandSegments("a &&  b ; c\nd")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("drops empty segments and heredoc bodies wholesale", () => {
+    expect(splitCommandSegments("a && ; b")).toEqual(["a", "b"]);
+    expect(
+      splitCommandSegments("python3 - <<'EOF'\nvitest run inside\nEOF\nyarn vitest run x"),
+    ).toEqual(["python3 -", "yarn vitest run x"]);
   });
 });

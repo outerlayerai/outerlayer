@@ -1529,4 +1529,91 @@ describe("refreshPrSessionComment", () => {
     expect(body).toContain("We can't verify this PR");
     expect(body).toContain("✕ **A git command skipped the repo's checks** — turn 88");
   });
+
+  // The files read is optional and degradable: a client without the method,
+  // and a client answering not_permitted, must both suppress red-then-green
+  // (no approximation) while the rest of the comment still renders.
+  it("suppresses red-then-green when the file list is unavailable, however that happens", async () => {
+    const spanRows = [
+      spanRow("t1", 61, { command: "vitest run", status: "error" }),
+      spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+      spanRow("t1", 63, { command: "vitest run" }),
+    ];
+
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const noMethod = fakeGithubClient();
+    // @ts-expect-error — exercising the "client fake omits the method" contract.
+    delete noMethod.listPullRequestFiles;
+    noMethod.createIssueComment.mockResolvedValue(okComment(111));
+    const result = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], spanRows), githubClient: noMethod },
+    );
+    expect(result).toEqual({ status: "created", commentId: 111 });
+    expect(noMethod.createIssueComment.mock.calls[0]![2]).not.toContain(
+      "New tests failed first, then passed",
+    );
+  });
+
+  it("suppresses red-then-green when the file list read is not permitted", async () => {
+    const spanRows = [
+      spanRow("t1", 61, { command: "vitest run", status: "error" }),
+      spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+      spanRow("t1", 63, { command: "vitest run" }),
+    ];
+
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const notPermitted = fakeGithubClient();
+    notPermitted.createIssueComment.mockResolvedValue(okComment(222));
+    notPermitted.listPullRequestFiles.mockResolvedValue({ status: "not_permitted" });
+    const permResult = await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      { chQuery: fakeChQuery([chRow({ TraceId: "t1" })], [], spanRows), githubClient: notPermitted },
+    );
+    expect(permResult).toEqual({ status: "created", commentId: 222 });
+    expect(notPermitted.createIssueComment.mock.calls[0]![2]).not.toContain(
+      "New tests failed first, then passed",
+    );
+  });
+
+  // A PR whose only "test" change is a DELETED test file adds no tests, so
+  // the fail→pass pair in the session stays unproven and produces no row.
+  it("does not count removed test files as the diff adding tests", async () => {
+    enableFeature();
+    seedPullRequestSessionMswState({
+      links: [link({ id: "l1", app_id: "app-1", trace_id: "t1", method: "pr_link", verification: "confirmed" })],
+    });
+    const githubClient = fakeGithubClient();
+    githubClient.createIssueComment.mockResolvedValue(okComment(333));
+    githubClient.listPullRequestFiles.mockResolvedValue({
+      status: "ok",
+      files: [{ filename: "src/lib/old.test.ts", changeStatus: "removed" }],
+    });
+
+    await refreshPrSessionComment(
+      { tenantId: TENANT, repository: REPO, prNumber: PR },
+      {
+        chQuery: fakeChQuery(
+          [chRow({ TraceId: "t1" })],
+          [],
+          [
+            spanRow("t1", 61, { command: "vitest run", status: "error" }),
+            spanRow("t1", 62, { file: "src/lib/system/verdict/evidence.ts" }),
+            spanRow("t1", 63, { command: "vitest run" }),
+          ],
+        ),
+        githubClient,
+      },
+    );
+
+    expect(githubClient.createIssueComment.mock.calls[0]![2]).not.toContain(
+      "New tests failed first, then passed",
+    );
+  });
 });
