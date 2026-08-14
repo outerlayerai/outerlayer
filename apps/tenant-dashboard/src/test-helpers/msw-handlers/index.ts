@@ -138,7 +138,6 @@ export {
 export {
   seedPrEvidenceEvaluationMswState,
   getPrEvidenceEvaluationRows,
-  type PrEvidenceEvaluationMswRow,
 } from './pr-evidence-evaluation';
 
 // MSW resolves handlers in registration order; the FIRST matching handler
