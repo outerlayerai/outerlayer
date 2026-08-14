@@ -33,16 +33,13 @@ export function artifactsWatermarkPath(home = homedir()): string {
  * coming back, and one dead record must not warn on every sync for good. */
 export const ARTIFACT_RETRY_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** Appends one spool record. Swallows all errors (makeSpoolWriter's
- * discipline): spool bookkeeping must never crash the emitting command. */
+/** Appends one spool record. Throws on failure: unlike hook telemetry, the
+ * spool record IS the deliverable here — a swallowed append would let the
+ * emitting command print success while the artifact never uploads. */
 export function appendArtifactRecord(record: ArtifactSpoolRecord, home = homedir()): void {
-  try {
-    const path = artifactsSpoolPath(home);
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(record) + "\n");
-  } catch {
-    // best effort — never crash the caller over spool bookkeeping
-  }
+  const path = artifactsSpoolPath(home);
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, JSON.stringify(record) + "\n");
 }
 
 export function readArtifactsWatermark(home = homedir()): number {
@@ -68,6 +65,38 @@ export function writeArtifactsWatermark(offset: number, home = homedir()): void 
     renameSync(tmp, path);
   } catch {
     // best effort — the checkpoint is an optimization, not a correctness gate
+  }
+}
+
+export function artifactsUploadedIdsPath(home = homedir()): string {
+  return join(home, ".outerlayer", "spool", "artifacts.uploaded.json");
+}
+
+/** Client artifact ids that already uploaded but whose spool records still
+ * sit at or above the watermark (an earlier record's failure held it back).
+ * The next sync must skip them — without this set it would re-read those
+ * records, find their blobs already cleaned up, and report an artifact that
+ * uploaded fine as lost. */
+export function readUploadedArtifactIds(home = homedir()): Set<string> {
+  try {
+    const raw = JSON.parse(readFileSync(artifactsUploadedIdsPath(home), "utf8")) as unknown;
+    return new Set(Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Atomic and best-effort, like the watermark: losing this file costs only
+ * an idempotent re-POST (clientArtifactId is stable per record). */
+export function writeUploadedArtifactIds(ids: ReadonlySet<string>, home = homedir()): void {
+  try {
+    const path = artifactsUploadedIdsPath(home);
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify([...ids]));
+    renameSync(tmp, path);
+  } catch {
+    // best effort — the set is an optimization, not a correctness gate
   }
 }
 
@@ -132,11 +161,15 @@ export function planArtifactUpload(opts: { home?: string } = {}): ArtifactUpload
 
 /**
  * The turn an artifact was emitted from, located by text: the tool call
- * that ran `emit artifact <filename>` mentions both. Lower capture tiers
- * strip tool input/output, so absence is expected — the artifact then binds
- * to the session root rather than guessing a wrong turn.
+ * that ran `emit artifact <filename>` mentions both. The LAST matching turn
+ * wins — a re-emit of the same filename binds to the run that produced this
+ * record, and an earlier turn that merely discussed the command cannot
+ * capture the binding. Lower capture tiers strip tool input/output, so
+ * absence is expected — the artifact then binds to the session root rather
+ * than guessing a wrong turn.
  */
 export function resolveArtifactTurnIndex(turns: ReadonlyArray<Turn>, filename: string): number | undefined {
+  let found: number | undefined;
   for (const turn of turns) {
     for (const call of turn.toolCalls ?? []) {
       const haystack = [
@@ -145,8 +178,8 @@ export function resolveArtifactTurnIndex(turns: ReadonlyArray<Turn>, filename: s
         typeof call.output === "string" ? call.output : call.output === undefined ? "" : JSON.stringify(call.output),
         call.file ?? "",
       ].join("\n");
-      if (haystack.includes("emit artifact") && haystack.includes(filename)) return turn.index;
+      if (haystack.includes("emit artifact") && haystack.includes(filename)) found = turn.index;
     }
   }
-  return undefined;
+  return found;
 }

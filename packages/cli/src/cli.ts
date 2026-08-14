@@ -298,7 +298,7 @@ export async function runCli(processArgv: string[]): Promise<void> {
     )
     .requiredOption("--caption <text>", "what this artifact shows/proves")
     .option("--for <criterion-id>", "acceptance-criterion id this artifact proves (e.g. AC-084-04)")
-    .option("--pr <number>", "pull request number to anchor to", (v) => parseInt(v, 10))
+    .option("--pr <number>", "pull request number to anchor to")
     .option("--json", "machine-readable JSON output")
     .option("--url <url>", "cloud base URL (or OUTERLAYER_URL / config)")
     .option("--api-key <key>", "API key (or OUTERLAYER_API_KEY / config)")
@@ -312,18 +312,28 @@ export async function runCli(processArgv: string[]): Promise<void> {
     )
     .action(async (file, opts) => {
       const { runEmitArtifact, EmitArtifactError } = await import("./emit-artifact-cmd.js");
+      // Strict digits-only parse: parseInt would read "7abc" as 7 and turn
+      // garbage into NaN, losing the operator's actual input in the error.
+      let pr: number | undefined;
+      if (opts.pr !== undefined) {
+        if (!/^\d+$/.test(String(opts.pr))) {
+          process.stderr.write(`${RED}✗${RESET} invalid --pr "${opts.pr}" — expected a positive integer\n`);
+          process.exitCode = 1;
+          return;
+        }
+        pr = parseInt(String(opts.pr), 10);
+      }
       try {
-        const result = await runEmitArtifact({
+        await runEmitArtifact({
           file,
           caption: opts.caption,
           criterionId: opts.for,
-          pr: opts.pr,
+          pr,
           json: opts.json,
           url: opts.url,
           apiKey: opts.apiKey,
           appId: opts.appId,
         });
-        if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (err) {
         if (err instanceof EmitArtifactError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);
@@ -531,8 +541,7 @@ function registerImportCommands(program: Command): void {
     .action(async (opts) => {
       const { runImportCapture, ImportCaptureError } = await import("./import-capture-cmd.js");
       try {
-        const result = runImportCapture({ cwd: opts.dir, json: opts.json });
-        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+        runImportCapture({ cwd: opts.dir, json: opts.json });
       } catch (err) {
         if (err instanceof ImportCaptureError) {
           process.stderr.write(`${RED}✗${RESET} ${err.message}\n`);

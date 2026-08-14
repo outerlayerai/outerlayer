@@ -68,9 +68,11 @@ interface SpoolEventRecord {
 
 /**
  * The active session's id, or undefined when there is none: CLAUDECODE must
- * be set AND the spool tail must hold a matching-cwd, non-SessionEnd record
- * younger than SESSION_DETECT_MAX_AGE_MS. The newest (last-appended) match
- * wins — the spool is append-only, so file order is time order.
+ * be set AND the spool tail must hold a matching-cwd record younger than
+ * SESSION_DETECT_MAX_AGE_MS from a session with no SessionEnd line — an
+ * ended session's EARLIER records cannot anchor either, even when they are
+ * the newest cwd match. The newest (last-appended) surviving match wins —
+ * the spool is append-only, so file order is time order.
  */
 export function detectActiveSession(opts: DetectActiveSessionOptions): string | undefined {
   if (!opts.env.CLAUDECODE) return undefined;
@@ -81,18 +83,28 @@ export function detectActiveSession(opts: DetectActiveSessionOptions): string | 
   let lines = tail.data.toString("utf8").split("\n");
   if (tail.truncated) lines = lines.slice(1);
 
-  let newest: string | undefined;
+  const records: SpoolEventRecord[] = [];
   for (const line of lines) {
     const text = line.trim();
     if (!text) continue;
-    let record: SpoolEventRecord;
     try {
-      record = JSON.parse(text) as SpoolEventRecord;
+      records.push(JSON.parse(text) as SpoolEventRecord);
     } catch {
       continue;
     }
+  }
+
+  const ended = new Set<string>();
+  for (const record of records) {
+    if (record.event === "SessionEnd" && typeof record.sessionId === "string" && record.sessionId !== "") {
+      ended.add(record.sessionId);
+    }
+  }
+
+  let newest: string | undefined;
+  for (const record of records) {
     if (typeof record.sessionId !== "string" || record.sessionId === "") continue;
-    if (record.event === "SessionEnd") continue;
+    if (record.event === "SessionEnd" || ended.has(record.sessionId)) continue;
     if (typeof record.cwd !== "string" || !opts.cwds.includes(record.cwd)) continue;
     if (typeof record.t !== "string") continue;
     const tMs = Date.parse(record.t);

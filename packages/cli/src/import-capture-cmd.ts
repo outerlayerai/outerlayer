@@ -10,14 +10,17 @@
  * each configured tool's native files.
  *
  * Write rules:
- *  - An existing skill is a hard refusal — nothing written, never a merge.
+ *  - An existing skill with LOCAL EDITS is a hard refusal — nothing written,
+ *    never a merge. A byte-identical skill is this command's own earlier
+ *    (possibly partial) install, so the run resumes: missing files install,
+ *    existing ones are left untouched.
  *  - `.outerlayer/AGENTS.md` gets the snippet APPENDED only when it already
  *    exists without the marker line. It is never created here: a fresh
  *    `.outerlayer/AGENTS.md` would make the next `outerlayer emit`
  *    overwrite a hand-written root CLAUDE.md/AGENTS.md (emit writes target
  *    files unconditionally).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const GREEN = "\x1b[32m";
@@ -40,7 +43,6 @@ export interface ImportCaptureCommandResult {
   files: string[];
   appendedAgentsMd: boolean;
   output: string;
-  exitCode: 0 | 1;
 }
 
 const SKILL_PATH = ".outerlayer/skills/emitting-evidence/SKILL.md";
@@ -152,19 +154,34 @@ function writeOutFile(repoRoot: string, relPath: string, content: string): void 
 
 export function runImportCapture(opts: ImportCaptureCommandOptions = {}): ImportCaptureCommandResult {
   const cwd = opts.cwd ?? process.cwd();
-  if (!existsSync(cwd)) throw new ImportCaptureError(`no such directory: ${cwd}`);
+  let cwdStat;
+  try {
+    cwdStat = statSync(cwd);
+  } catch {
+    throw new ImportCaptureError(`no such directory: ${cwd}`);
+  }
+  if (!cwdStat.isDirectory()) throw new ImportCaptureError(`not a directory: ${cwd}`);
 
-  // Hard refusal BEFORE any write: never overwrite an installed (possibly
-  // hand-tuned) skill — remove it first to reinstall.
-  if (existsSync(join(cwd, SKILL_PATH))) {
+  // Hard refusal BEFORE any write: never overwrite a hand-tuned skill —
+  // remove it first to reinstall. A byte-identical skill is our own earlier
+  // install (a partial one dies between writes), so the run resumes instead
+  // of wedging.
+  const skillAbs = join(cwd, SKILL_PATH);
+  if (existsSync(skillAbs) && readFileSync(skillAbs, "utf8") !== SKILL_CONTENT) {
     throw new ImportCaptureError(
-      `refusing to import — ${SKILL_PATH} already exists (never overwritten; remove it first to reinstall)`,
+      `refusing to import — ${SKILL_PATH} already exists with local edits (never overwritten; remove it first to reinstall)`,
     );
   }
 
-  writeOutFile(cwd, SKILL_PATH, SKILL_CONTENT);
-  writeOutFile(cwd, SNIPPET_PATH, AGENTS_SNIPPET_CONTENT);
-  const files = [SKILL_PATH, SNIPPET_PATH];
+  const files: string[] = [];
+  for (const [relPath, content] of [
+    [SKILL_PATH, SKILL_CONTENT],
+    [SNIPPET_PATH, AGENTS_SNIPPET_CONTENT],
+  ] as const) {
+    if (existsSync(join(cwd, relPath))) continue;
+    writeOutFile(cwd, relPath, content);
+    files.push(relPath);
+  }
 
   let appendedAgentsMd = false;
   const agentsMdAbs = join(cwd, AGENTS_MD_PATH);
@@ -182,6 +199,9 @@ export function runImportCapture(opts: ImportCaptureCommandOptions = {}): Import
   } else {
     const lines = files.map((f) => `${GREEN}✓${RESET} wrote ${f}`);
     if (appendedAgentsMd) lines.push(`${GREEN}✓${RESET} appended the evidence snippet to ${AGENTS_MD_PATH}`);
+    if (files.length === 0 && !appendedAgentsMd) {
+      lines.push(`${DIM}capture pack already installed — nothing to write${RESET}`);
+    }
     lines.push(`Run ${YELLOW}\`outerlayer emit\`${RESET} to compile the pack into your agent's native files.`);
     output = lines.join("\n");
   }
@@ -194,5 +214,5 @@ export function runImportCapture(opts: ImportCaptureCommandOptions = {}): Import
     }
   }
 
-  return { files, appendedAgentsMd, output, exitCode: 0 };
+  return { files, appendedAgentsMd, output };
 }

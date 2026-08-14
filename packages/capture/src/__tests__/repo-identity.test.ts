@@ -50,3 +50,40 @@ describe("resolveRepoIdentity — working-tree root", () => {
     expect(resolveRepoIdentity("/nonexistent/xyz").repoRoot).toBeUndefined();
   });
 });
+
+describe("resolveRepoIdentity — remote selection", () => {
+  function makeRepo(remotes: Array<[name: string, url: string]>): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ol-remote-")));
+    execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
+    for (const [name, url] of remotes) {
+      execFileSync("git", ["-C", dir, "remote", "add", name, url], { stdio: "ignore" });
+    }
+    return dir;
+  }
+
+  it("prefers origin when several remotes exist", () => {
+    const dir = makeRepo([
+      ["upstream", "git@github.com:acme/canonical.git"],
+      ["origin", "git@github.com:me/fork.git"],
+    ]);
+    expect(resolveRepoIdentity(dir).gitRepo).toBe("github.com/me/fork");
+  });
+
+  it("falls back to upstream when no remote is named origin", () => {
+    const dir = makeRepo([
+      ["fork", "git@github.com:me/fork.git"],
+      ["upstream", "git@github.com:acme/canonical.git"],
+    ]);
+    expect(resolveRepoIdentity(dir).gitRepo).toBe("github.com/acme/canonical");
+  });
+
+  it("falls back to the first listed remote when neither origin nor upstream exists", () => {
+    const dir = makeRepo([["fork", "git@github.com:me/fork.git"]]);
+    expect(resolveRepoIdentity(dir).gitRepo).toBe("github.com/me/fork");
+  });
+
+  it("resolves no gitRepo in a repo with zero remotes", () => {
+    const dir = makeRepo([]);
+    expect(resolveRepoIdentity(dir).gitRepo).toBeUndefined();
+  });
+});

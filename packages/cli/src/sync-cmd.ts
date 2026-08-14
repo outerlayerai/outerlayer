@@ -52,8 +52,11 @@ import {
   ARTIFACT_RETRY_MAX_AGE_MS,
   artifactBlobsDir,
   planArtifactUpload,
+  readArtifactRecordsSince,
+  readUploadedArtifactIds,
   resolveArtifactTurnIndex,
   writeArtifactsWatermark,
+  writeUploadedArtifactIds,
 } from "./artifact-spool.js";
 import { execFileSync } from "node:child_process";
 import { hostname, userInfo } from "node:os";
@@ -406,6 +409,15 @@ function fmtBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Spool-record strings (filename, session id) are attacker-influenceable —
+ * the schema allows any short string, and a hand-tampered spool line or a
+ * file deliberately named with ANSI escape bytes would otherwise inject
+ * terminal escape sequences into the operator's terminal on output. */
+function sanitizeTerminal(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+}
+
 /** Coarse age for pending-artifact rows — just enough to spot a stuck record. */
 function fmtAge(ms: number): string {
   if (!Number.isFinite(ms)) return "?";
@@ -730,7 +742,7 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
           lines.push(`  artifacts    ${artifactPlan.records.length} pending upload`);
           for (const { record } of artifactPlan.records.slice(0, 10)) {
             lines.push(
-              `    ${DIM}${record.sessionId.slice(0, 8)}${RESET}  ${inferArtifactKind(record.mediaType)}  ${record.filename}  ${DIM}${fmtAge(Date.now() - Date.parse(record.t))}${RESET}`,
+              `    ${DIM}${sanitizeTerminal(record.sessionId).slice(0, 8)}${RESET}  ${inferArtifactKind(record.mediaType)}  ${sanitizeTerminal(record.filename)}  ${DIM}${fmtAge(Date.now() - Date.parse(record.t))}${RESET}`,
             );
           }
           if (artifactPlan.records.length > 10) {
@@ -969,17 +981,39 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
     if (artifactPlan.records.length > 0) {
       const artifactEndpoint = new URL("/v1/artifacts", url).toString();
       const nowMs = Date.now();
+      const previouslyUploaded = readUploadedArtifactIds(home);
+      const uploadedIds = new Set<string>();
       const uploadedShas = new Set<string>();
+      const deadShas = new Set<string>();
       const heldShas = new Set<string>();
       const warn = (message: string): void => {
         if (!opts.quiet) process.stderr.write(`${YELLOW}!${RESET} ${message}\n`);
       };
+      // 401 short-circuits like the session loop's: a bad key fails every
+      // record identically, so the rest hold for the next sync and the run
+      // surfaces the same actionable auth error.
+      let unauthorized: SyncTransportError | undefined;
       for (const { record, offset } of artifactPlan.records) {
+        const name = sanitizeTerminal(record.filename);
+        if (unauthorized) {
+          heldShas.add(record.sha256);
+          artifactWatermarkOffset = Math.min(artifactWatermarkOffset, offset);
+          continue;
+        }
+        // A record whose upload already succeeded in an earlier run (its
+        // offset stayed above the watermark only because an EARLIER record
+        // failed) is re-read here, not re-uploaded — and its already-cleaned
+        // blob must not be reported as a lost artifact.
+        if (previouslyUploaded.has(record.artifactId)) {
+          uploadedIds.add(record.artifactId);
+          uploadedShas.add(record.sha256);
+          continue;
+        }
         let blobData: Buffer;
         try {
           blobData = readFileSync(join(artifactBlobsDir(home), record.sha256));
         } catch {
-          warn(`artifact ${record.filename}: blob missing from the spool — dropping the record`);
+          warn(`artifact ${name}: blob missing from the spool — dropping the record`);
           continue;
         }
         // The owning session, if it was part of THIS scan — its tool-call
@@ -1009,6 +1043,7 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
           blob: { data: blobData.toString("base64") },
         };
         let failure = "";
+        let status: number | undefined;
         try {
           const response = await fetchImpl(artifactEndpoint, {
             method: "POST",
@@ -1019,33 +1054,76 @@ async function runSyncInner(opts: SyncCommandOptions, stats: SyncRunStats): Prom
             },
             body: JSON.stringify(request),
           });
-          if (!response.ok) failure = `HTTP ${response.status}`;
+          if (!response.ok) {
+            failure = `HTTP ${response.status}`;
+            status = response.status;
+          }
         } catch (err) {
           failure = String(err);
         }
         if (!failure) {
+          uploadedIds.add(record.artifactId);
           uploadedShas.add(record.sha256);
+          continue;
+        }
+        if (status === 401) {
+          unauthorized = new SyncTransportError(
+            "not authorized — the API key is unknown, expired, or bound to a different app. Mint a fresh key: dashboard → Settings → API keys.",
+            401,
+          );
+          heldShas.add(record.sha256);
+          artifactWatermarkOffset = Math.min(artifactWatermarkOffset, offset);
+          continue;
+        }
+        // A schema-level reject cannot be fixed by re-sending identical
+        // bytes — mirror the session classification and mark the record
+        // dead instead of re-POSTing it on every sync for 14 days. 408 and
+        // 429 stay retryable: timeout and the monthly cap are transient.
+        if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+          warn(`artifact ${name} rejected permanently (${failure}) — dropping the record`);
+          deadShas.add(record.sha256);
           continue;
         }
         const emittedMs = Date.parse(record.t);
         if (Number.isFinite(emittedMs) && nowMs - emittedMs > ARTIFACT_RETRY_MAX_AGE_MS) {
-          warn(`artifact ${record.filename} (${failure}) is older than 14 days and still failing — dropping it`);
+          warn(`artifact ${name} (${failure}) is older than 14 days and still failing — dropping it`);
+          deadShas.add(record.sha256);
           continue;
         }
-        warn(`artifact ${record.filename} upload failed (${failure}) — will retry on the next sync`);
+        warn(`artifact ${name} upload failed (${failure}) — will retry on the next sync`);
         heldShas.add(record.sha256);
         artifactWatermarkOffset = Math.min(artifactWatermarkOffset, offset);
       }
-      // Blob cleanup, refcounted within the remaining spool: a sha that
-      // uploaded may still be referenced by a held record — its bytes must
-      // survive for that retry.
-      for (const sha of uploadedShas) {
-        if (heldShas.has(sha)) continue;
+      // Blob cleanup, refcounted within the whole spool as it exists NOW: a
+      // sha that uploaded may still be referenced by a held record, or by a
+      // record a concurrent emit appended past this run's snapshot — either
+      // one still needs the bytes, so the delete skips that sha and a later
+      // sync (which sees zero pending references) reclaims it.
+      const lateShas = new Set(
+        readArtifactRecordsSince(home, artifactPlan.fullyConsumedOffset).records.map((r) => r.record.sha256),
+      );
+      for (const sha of [...uploadedShas, ...deadShas]) {
+        if (heldShas.has(sha) || lateShas.has(sha)) continue;
         try {
           unlinkSync(join(artifactBlobsDir(home), sha));
         } catch {
           // already gone — content-addressed, nothing left to clean
         }
+      }
+      // Persist which uploads sit at or above the watermark being kept, so
+      // the next run's re-read skips them. Records the watermark passes
+      // never come back, so their ids age out of the set here.
+      const keep = new Set<string>();
+      for (const { record, offset } of artifactPlan.records) {
+        if (offset >= artifactWatermarkOffset && uploadedIds.has(record.artifactId)) keep.add(record.artifactId);
+      }
+      writeUploadedArtifactIds(keep, home);
+      if (unauthorized) {
+        // The held offset must survive the throw — the writes at the end of
+        // the run are never reached on this path.
+        writeArtifactsWatermark(artifactWatermarkOffset, home);
+        failureContext();
+        throw unauthorized;
       }
     }
 
