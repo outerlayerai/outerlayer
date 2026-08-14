@@ -150,7 +150,9 @@ describe("fetchPrProofCriteria", () => {
   });
 
   it("reads every changed test file while any test-proof id is uncited", async () => {
-    const getFileContent = vi.fn(async () => ({ content: "// AC-086-08 only" }));
+    const getFileContent = vi.fn(async (_repo: string, _path: string, _ref: string) => ({
+      content: "// AC-086-08 only",
+    }));
     const citations = await fetchCriterionTestCitations(
       { getFileContent },
       "acme/api",

@@ -22,8 +22,6 @@ import { canonicalPrCommentRepo } from "@repo/gateway-core/lib/pr-comment-repo-k
 import {
   evaluateEvidence,
   type CustomValidationFact,
-  type IssueAskErrorFact,
-  type IssueAskFact,
   type PolicyErrorFact,
   type VerificationFact,
 } from "./evaluate";
@@ -742,8 +740,10 @@ export async function refreshPrSessionComment(
       const issuesResult = await githubClient.getPullRequestClosingIssues(repository, prNumber);
       if (issuesResult.status === "ok") linkedIssues = issuesResult.issues;
     }
+    // An empty issue list builds an empty context, which scoped validators
+    // treat exactly like "no linked issue" — no special case needed.
     const issueContext: IssueScopeContext | null =
-      linkedIssues === null || linkedIssues.length === 0
+      linkedIssues === null
         ? null
         : {
             typeNames: linkedIssues
@@ -798,19 +798,17 @@ export async function refreshPrSessionComment(
 
     // The linked issues' "Validation required" asks, resolved against the
     // registry (built-ins plus the policy's customs) and evaluated against
-    // the same results the rows render.
-    let askFacts: IssueAskFact[] = [];
-    let askError: IssueAskErrorFact | null = null;
-    if (linkedIssues !== null && linkedIssues.length > 0) {
-      const knownIds = new Set<string>([
-        ...BUILTIN_VALIDATOR_IDS,
-        ...policyCustoms.map((custom) => custom.id),
-      ]);
-      const parsedAsks = parseIssueAsks(linkedIssues, knownIds, PROOF_KINDS);
-      const evaluated = issueAskFacts(parsedAsks, verification, customFacts, presenceArtifacts);
-      askFacts = evaluated.facts;
-      askError = evaluated.error;
-    }
+    // the same results the rows render. No issues parse to no asks.
+    const knownIds = new Set<string>([
+      ...BUILTIN_VALIDATOR_IDS,
+      ...policyCustoms.map((custom) => custom.id),
+    ]);
+    const { facts: askFacts, error: askError } = issueAskFacts(
+      parseIssueAsks(linkedIssues ?? [], knownIds, PROOF_KINDS),
+      verification,
+      customFacts,
+      presenceArtifacts,
+    );
 
     // Criterion proof requirements come from the PR's own changed acceptance
     // files (see criteria.ts) and are best-effort: a fetch failure degrades
@@ -832,11 +830,7 @@ export async function refreshPrSessionComment(
     // `proof: test` criteria bind spec to code: which changed test file at
     // the PR head cites each id. Best-effort like the criteria fetch.
     let testCitations: Map<string, string> | undefined;
-    if (
-      criteria.some((criterion) => criterion.proofKind === "test") &&
-      githubClient.getFileContent &&
-      prFiles !== null
-    ) {
+    if (githubClient.getFileContent && prFiles !== null) {
       try {
         testCitations = await fetchCriterionTestCitations(
           { getFileContent: githubClient.getFileContent.bind(githubClient) },
