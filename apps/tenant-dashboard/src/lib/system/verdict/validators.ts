@@ -42,16 +42,20 @@ interface FailThenPass {
   pass: CommandRun;
 }
 
-/** First failing run of a command followed by a later ok run of the same
- * command. The window between the two is where the interesting edits live. */
+/** EVERY failing run of a command paired with the next ok run of the same
+ * command. The window between the two is where the interesting edits live.
+ * All pairs, not just the first per command: an early flaky fail→pass with
+ * an empty window must not hide a later genuine fail→edit→pass — neither
+ * from red-then-green (a missed proof) nor from tampering (an evasion). */
 function failThenPassPairs(facts: Facts): FailThenPass[] {
   const pairs: FailThenPass[] = [];
   for (const runs of testRunsByCommand(facts).values()) {
-    // Anchors use the RELIABLE outcome, never a piped run's exit code.
-    const fail = runs.find((run) => run.testResult === "fail");
-    if (!fail) continue;
-    const pass = runs.find((run) => run.testResult === "pass" && run.seq > fail.seq);
-    if (pass) pairs.push({ fail, pass });
+    for (const fail of runs) {
+      // Anchors use the RELIABLE outcome, never a piped run's exit code.
+      if (fail.testResult !== "fail") continue;
+      const pass = runs.find((run) => run.testResult === "pass" && run.seq > fail.seq);
+      if (pass) pairs.push({ fail, pass });
+    }
   }
   return pairs;
 }
@@ -95,7 +99,10 @@ export const noTestTampering: Validator = {
       return notCheckable(this.id, "No tests changed to make them pass — not checkable for this session");
     }
 
-    const bypass = facts.runs.find((run) => run.bypass);
+    // A REJECTED bypass command never executed — the checks were not skipped,
+    // and this flag accuses, so it may only fire on a command that ran.
+    // (An errored run still ran with checks disabled; it stays flagged.)
+    const bypass = facts.runs.find((run) => run.bypass && run.status !== "rejected");
     if (bypass) {
       return {
         id: this.id,

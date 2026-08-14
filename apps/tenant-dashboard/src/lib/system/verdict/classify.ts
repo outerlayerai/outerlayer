@@ -31,7 +31,10 @@ export function extractCommandText(raw: string): string | null {
       }
       return null;
     } catch {
-      // Not JSON after all — fall through and treat it as a plain command.
+      // JSON-shaped but unparseable — almost always an envelope truncated by
+      // the ingest slice, not a shell brace-group. Yielding the blob would
+      // hand the classifier (and bypass detection) garbage, so yield nothing.
+      return null;
     }
   }
   return text;

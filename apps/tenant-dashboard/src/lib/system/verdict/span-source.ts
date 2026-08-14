@@ -68,6 +68,9 @@ function toTimelineSpan(row: Record<string, unknown>, sessionIndex: number): Tim
   const md = metadataOf(row.Metadata);
   const toolStatus =
     md["toolStatus"] === "error" || md["toolStatus"] === "rejected" ? md["toolStatus"] : "ok";
+  // Non-numeric metadata must degrade to null (no turn), never NaN — the
+  // renderer filters null but would print "turn NaN".
+  const turn = md["turnIndex"] !== undefined ? Number(md["turnIndex"]) : NaN;
   const input = stringOf(row.Input);
   const statusMessage = stringOf(row.StatusMessage);
   const output = stringOf(row.Output);
@@ -87,7 +90,7 @@ function toTimelineSpan(row: Record<string, unknown>, sessionIndex: number): Tim
   }
   return {
     sessionIndex,
-    turnIndex: md["turnIndex"] !== undefined ? Number(md["turnIndex"]) : null,
+    turnIndex: Number.isFinite(turn) ? turn : null,
     toolName: md["toolName"] ?? stringOf(row.SpanName).replace("agent.tool.", ""),
     status: toolStatus,
     isEdit: md["isEdit"] === "1",

@@ -141,6 +141,14 @@ describe("readVerificationSpans", () => {
     expect(spans.map((s) => s.command)).toEqual([undefined, undefined]);
   });
 
+  it("degrades a non-numeric turnIndex to null, never NaN", async () => {
+    const chQuery = chQueryOf([
+      bashRow({ Metadata: { turnIndex: "not-a-number", toolName: "Bash", toolStatus: "ok" } }),
+    ]);
+    const spans = await readVerificationSpans(chQuery, ["t1"]);
+    expect(spans[0]!.turnIndex).toEqual(null);
+  });
+
   it("drops rows whose trace id was not requested", async () => {
     const chQuery = chQueryOf([bashRow({ TraceId: "intruder" }), bashRow()]);
     const spans = await readVerificationSpans(chQuery, ["t1"]);

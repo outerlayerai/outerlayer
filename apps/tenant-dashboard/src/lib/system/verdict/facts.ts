@@ -48,12 +48,21 @@ export function extractFacts(spans: readonly TimelineSpan[]): Facts {
     coverage.add("commands");
     // Segment-aware: every statement in a compound classifies independently,
     // so a test run (or a bypassed git command) buried mid-chain is seen.
-    // Segments that classify `other` collapse to one run for the whole span.
+    // Segments that classify `other` collapse to one run for the whole span —
+    // classified from the heredoc-STRIPPED segments, never the raw text:
+    // heredoc content must not classify (or trip bypass detection) on the
+    // fallback path any more than on the segment path.
     const segments = splitCommandSegments(commandText);
     const classifiedSegments = segments
       .map((segment) => classifyCommand(segment))
       .filter((c) => c.kind !== "other");
-    const toEmit = classifiedSegments.length > 0 ? classifiedSegments : [classifyCommand(commandText)];
+    const strippedText = segments.join(" && ");
+    const toEmit =
+      classifiedSegments.length > 0
+        ? classifiedSegments
+        : strippedText
+          ? [classifyCommand(strippedText)]
+          : [];
     for (const classified of toEmit) {
       const testResult =
         classified.kind === "test"

@@ -630,3 +630,102 @@ describe("mutation-hardening: red-then-green ref identity", () => {
     });
   });
 });
+
+describe("heredoc content stays out of the fallback path", () => {
+  // AC-083-05: heredoc CONTENT never classifies — including when no segment
+  // classifies and the span falls back to a single collapsed run. A bypass
+  // string inside a script body must not accuse anyone.
+  it("classifies the stripped compound, not the raw text with its heredoc body", () => {
+    const compound = "cd repo && bash <<'EOF'\ngit push --no-verify\nEOF";
+    const facts = extractFacts([run(compound, "ok", 9)]);
+    expect(facts.runs).toStrictEqual([
+      {
+        seq: 0,
+        sessionIndex: 0,
+        turnIndex: 9,
+        status: "ok",
+        kind: "other",
+        normalized: "bash",
+        pairKey: "bash",
+        suiteScope: "unknown",
+        bypass: false,
+      },
+    ]);
+  });
+
+  it("emits no run at all when the whole command was heredoc", () => {
+    const facts = extractFacts([run("<<'EOF'\ngit push --no-verify\nEOF", "ok", 3)]);
+    expect(facts.runs).toEqual([]);
+    // The span still proves commands were captured — coverage is unchanged.
+    expect(facts.coverage.has("commands")).toEqual(true);
+  });
+});
+
+describe("bypass flag requires an executed command", () => {
+  it("does not red-flag a bypassed git command the user rejected", () => {
+    const rejected: TimelineSpan = {
+      sessionIndex: 0,
+      turnIndex: 88,
+      toolName: "Bash",
+      status: "rejected",
+      isEdit: false,
+      command: JSON.stringify({ command: "git push --no-verify" }),
+    };
+    const facts = extractFacts([edit("src/a.test.ts", 1), rejected]);
+    expect(noTestTampering.evaluate(facts, { diffAddsTests: true })).toEqual({
+      id: "no-test-tampering",
+      status: "pass",
+      summary: "No tests changed to make them pass",
+      refs: [],
+    });
+  });
+
+  it("still red-flags a bypassed command that ran and errored", () => {
+    const facts = extractFacts([edit("src/a.test.ts", 1), run("git push --no-verify", "error", 88)]);
+    expect(noTestTampering.evaluate(facts, { diffAddsTests: true })).toEqual({
+      id: "no-test-tampering",
+      status: "flag",
+      redClass: true,
+      summary: "A git command skipped the repo's checks",
+      refs: [{ sessionIndex: 0, turnIndex: 88 }],
+    });
+  });
+});
+
+describe("every fail→pass pair is examined, not just the first per command", () => {
+  const flakyThenReal = [
+    run("vitest run", "error", 1),
+    run("vitest run", "ok", 2),
+    run("vitest run", "error", 3),
+  ];
+
+  it("red-then-green sees a genuine pair behind an earlier flaky one", () => {
+    const facts = extractFacts([...flakyThenReal, edit("src/a.ts", 4), run("vitest run", "ok", 5)]);
+    expect(redThenGreen.evaluate(facts, { diffAddsTests: true })).toEqual({
+      id: "red-then-green",
+      status: "pass",
+      summary: "New tests failed first, then passed",
+      refs: [
+        { sessionIndex: 0, turnIndex: 3 },
+        { sessionIndex: 0, turnIndex: 5 },
+      ],
+    });
+  });
+
+  it("tampering hiding behind an earlier empty-window pair still flags", () => {
+    const facts = extractFacts([
+      ...flakyThenReal,
+      edit("src/a.test.ts", 4),
+      run("vitest run", "ok", 5),
+    ]);
+    expect(noTestTampering.evaluate(facts, { diffAddsTests: true })).toEqual({
+      id: "no-test-tampering",
+      status: "flag",
+      summary: "A failing test was made to pass by changing the test, not the code",
+      refs: [
+        { sessionIndex: 0, turnIndex: 3 },
+        { sessionIndex: 0, turnIndex: 4 },
+      ],
+    });
+  });
+});

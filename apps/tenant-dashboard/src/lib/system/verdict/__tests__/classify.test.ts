@@ -130,6 +130,12 @@ describe("extractCommandText edge discipline", () => {
   it("passes scalar-looking plain text through instead of JSON-parsing it", () => {
     expect(extractCommandText("42")).toEqual("42");
   });
+
+  it("yields no command for a JSON-shaped payload truncated mid-envelope", () => {
+    const envelope = JSON.stringify([{ role: "user", content: '{"command":"vitest run"}' }]);
+    expect(extractCommandText(envelope.slice(0, 40))).toEqual(null);
+    expect(extractCommandText('{"command":"vitest ru')).toEqual(null);
+  });
 });
 
 describe("suite scope stays out of non-test kinds", () => {
