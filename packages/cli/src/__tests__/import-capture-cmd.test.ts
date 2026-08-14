@@ -39,7 +39,6 @@ describe("runImportCapture", () => {
   it("writes the skill and the snippet reference into a fresh repo", () => {
     const result = runImportCapture({ cwd: root, quiet: true });
 
-    expect(result.exitCode).toBe(0);
     expect(result.files).toEqual([SKILL, SNIPPET]);
     expect(result.appendedAgentsMd).toBe(false);
 
@@ -83,7 +82,7 @@ describe("runImportCapture", () => {
     expect(existsSync(join(root, SKILL))).toBe(true);
   });
 
-  it("refuses when the skill already exists, writing nothing new", () => {
+  it("refuses when the skill exists with local edits, writing nothing new", () => {
     write(SKILL, "hand-tuned skill\n");
     write(AGENTS, "House rules.\n");
 
@@ -93,6 +92,37 @@ describe("runImportCapture", () => {
     expect(readFileSync(join(root, SKILL), "utf8")).toBe("hand-tuned skill\n");
     expect(existsSync(join(root, SNIPPET))).toBe(false);
     expect(readFileSync(join(root, AGENTS), "utf8")).toBe("House rules.\n");
+  });
+
+  it("resumes a partial install: an unedited skill with a missing snippet writes ONLY the snippet", () => {
+    // The state a crash between the two writes leaves behind.
+    runImportCapture({ cwd: root, quiet: true });
+    rmSync(join(root, SNIPPET));
+
+    const result = runImportCapture({ cwd: root, quiet: true });
+
+    expect(result.files).toEqual([SNIPPET]);
+    expect(readFileSync(join(root, SNIPPET), "utf8").startsWith(MARKER + "\n")).toBe(true);
+  });
+
+  it("a re-run over a complete unedited install is a no-op that says so", () => {
+    runImportCapture({ cwd: root, quiet: true });
+    const result = runImportCapture({ cwd: root, quiet: true });
+
+    expect(result.files).toEqual([]);
+    expect(result.appendedAgentsMd).toBe(false);
+    expect(result.output).toContain("already installed");
+  });
+
+  it("rejects --dir pointing at a regular file with its own error, not a raw fs throw", () => {
+    const filePath = join(root, "a-file.txt");
+    writeFileSync(filePath, "not a directory");
+    expect(() => runImportCapture({ cwd: filePath, quiet: true })).toThrow(ImportCaptureError);
+    expect(() => runImportCapture({ cwd: filePath, quiet: true })).toThrow(/not a directory: .*a-file\.txt/);
+  });
+
+  it("rejects a missing --dir with 'no such directory'", () => {
+    expect(() => runImportCapture({ cwd: join(root, "nope"), quiet: true })).toThrow(/no such directory/);
   });
 
   it("--json reports exactly {files, appendedAgentsMd}", () => {

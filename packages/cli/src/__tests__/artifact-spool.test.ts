@@ -10,12 +10,15 @@ import {
   appendArtifactRecord,
   artifactBlobsDir,
   artifactsSpoolPath,
+  artifactsUploadedIdsPath,
   artifactsWatermarkPath,
   planArtifactUpload,
   readArtifactRecordsSince,
   readArtifactsWatermark,
+  readUploadedArtifactIds,
   resolveArtifactTurnIndex,
   writeArtifactsWatermark,
+  writeUploadedArtifactIds,
   ARTIFACT_RETRY_MAX_AGE_MS,
 } from "../artifact-spool.js";
 
@@ -143,13 +146,11 @@ describe("appendArtifactRecord + readArtifactRecordsSince", () => {
     expect(readArtifactRecordsSince(home, 77)).toEqual({ records: [], fileLength: 77 });
   });
 
-  it("swallows append errors — spool bookkeeping must never crash the emitting command", () => {
+  it("throws when the append cannot be written — the record is the deliverable, not telemetry", () => {
     // A FILE where the home directory should be makes every mkdir fail.
     const notADir = join(home, "not-a-dir");
     writeFileSync(notADir, "x");
-    // A throw would fail the test on its own; the concrete contract is that
-    // nothing was recorded.
-    appendArtifactRecord(record(), notADir);
+    expect(() => appendArtifactRecord(record(), notADir)).toThrow(/ENOTDIR|EEXIST|ENOENT/);
     expect(readArtifactRecordsSince(notADir, 0)).toEqual({ records: [], fileLength: 0 });
   });
 });
@@ -173,6 +174,32 @@ describe("planArtifactUpload", () => {
     const length = readFileSync(artifactsSpoolPath(home)).length;
     writeArtifactsWatermark(length, home);
     expect(planArtifactUpload({ home })).toEqual({ records: [], fullyConsumedOffset: length });
+  });
+});
+
+describe("uploaded-artifact-id set", () => {
+  it("round-trips a set of ids through the sidecar file", () => {
+    writeUploadedArtifactIds(new Set(["id-a", "id-b"]), home);
+    expect([...readUploadedArtifactIds(home)].sort()).toEqual(["id-a", "id-b"]);
+  });
+
+  it("reads an empty set when the file is missing or corrupt", () => {
+    expect(readUploadedArtifactIds(home)).toEqual(new Set());
+    mkdirSync(join(home, ".outerlayer", "spool"), { recursive: true });
+    writeFileSync(artifactsUploadedIdsPath(home), "{ not json");
+    expect(readUploadedArtifactIds(home)).toEqual(new Set());
+  });
+
+  it("drops non-string entries instead of poisoning the set", () => {
+    mkdirSync(join(home, ".outerlayer", "spool"), { recursive: true });
+    writeFileSync(artifactsUploadedIdsPath(home), JSON.stringify(["id-a", 7, null]));
+    expect(readUploadedArtifactIds(home)).toEqual(new Set(["id-a"]));
+  });
+
+  it("writing replaces the previous set rather than merging into it", () => {
+    writeUploadedArtifactIds(new Set(["stale"]), home);
+    writeUploadedArtifactIds(new Set(["fresh"]), home);
+    expect(readUploadedArtifactIds(home)).toEqual(new Set(["fresh"]));
   });
 });
 
@@ -207,6 +234,23 @@ describe("resolveArtifactTurnIndex", () => {
       turn(7, [{ name: "Bash", status: "ok", isEdit: false, input: "outerlayer emit artifact shot.png" }]),
     ];
     expect(resolveArtifactTurnIndex(turns, "shot.png")).toBe(7);
+  });
+
+  it("binds to the LAST turn that ran the command when the same filename was emitted twice", () => {
+    const turns: Turn[] = [
+      turn(1, [{ name: "Bash", status: "ok", isEdit: false, input: "outerlayer emit artifact shot.png" }]),
+      turn(2, []),
+      turn(5, [{ name: "Bash", status: "ok", isEdit: false, input: "outerlayer emit artifact shot.png" }]),
+    ];
+    expect(resolveArtifactTurnIndex(turns, "shot.png")).toBe(5);
+  });
+
+  it("an earlier turn that merely mentions the command text cannot capture the binding", () => {
+    const turns: Turn[] = [
+      turn(0, [{ name: "Read", status: "ok", isEdit: false, output: 'plan: run `emit artifact shot.png` later' }]),
+      turn(3, [{ name: "Bash", status: "ok", isEdit: false, input: "outerlayer emit artifact shot.png --caption p" }]),
+    ];
+    expect(resolveArtifactTurnIndex(turns, "shot.png")).toBe(3);
   });
 
   it("requires BOTH the phrase and the filename — either alone is not the emitting call", () => {

@@ -4,7 +4,7 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runEmitArtifact, EmitArtifactError } from "../emit-artifact-cmd.js";
@@ -113,7 +113,6 @@ describe("runEmitArtifact — direct upload", () => {
     expect(payload.blob.data).toBe(PNG_BYTES.toString("base64"));
 
     expect(result.spooled).toBe(false);
-    expect(result.exitCode).toBe(0);
     expect(result.output).toContain("artifact accepted");
     expect(result.output).toContain("screenshot shot.png");
     expect(result.output).toContain("provenance local");
@@ -214,6 +213,25 @@ describe("runEmitArtifact — direct upload", () => {
     expect(calls).toEqual([]);
     expect(existsSync(artifactsSpoolPath(home))).toBe(false);
     expect(existsSync(artifactBlobsDir(home))).toBe(false);
+  });
+
+  it("a checkout with no resolvable remote refuses by naming the missing remote, not a missing repo", async () => {
+    // A real repo (rev-parse resolves) whose only failure is having no
+    // remote at all — the message must not claim "no git repo".
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), "ol-emitart-noremote-")));
+    execFileSync("git", ["-C", repo, "init", "-q", "-b", "main"]);
+    try {
+      writeArtifactFile(repo);
+      const err = await runEmitArtifact({
+        file: "shot.png", cwd: repo, home, quiet: true, env: {}, caption: "x", ...CREDS,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(EmitArtifactError);
+      expect((err as Error).message).toContain("no git remote");
+      expect((err as Error).message).toContain("--pr");
+      expect((err as Error).message).not.toContain("no git repo");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it("uploads an unknown extension as application/octet-stream and displays kind `file`", async () => {
@@ -346,7 +364,6 @@ describe("runEmitArtifact — spool path (inside a recorded session)", () => {
       expect(readFileSync(join(artifactBlobsDir(home), videoSha))).toEqual(video);
 
       expect(result.spooled).toBe(true);
-      expect(result.exitCode).toBe(0);
       expect(result.output).toContain("spooled");
       expect(result.output).toContain("video demo.webm");
       expect(result.output).toContain("session sess-abc");
@@ -354,6 +371,55 @@ describe("runEmitArtifact — spool path (inside a recorded session)", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it("a failed spool-record append is a command error and cleans up the freshly written blob", async () => {
+    writeArtifactFile(work);
+    writeSpoolEvent({ t: new Date().toISOString(), event: "PostToolUse", sessionId: "sess-fail", transcriptPath: null, cwd: work });
+    // A DIRECTORY where the spool file should be makes the append fail
+    // after the blob write already succeeded.
+    mkdirSync(artifactsSpoolPath(home), { recursive: true });
+
+    const err = await runEmitArtifact({
+      file: "shot.png",
+      cwd: work,
+      home,
+      quiet: true,
+      env: { CLAUDECODE: "1" },
+      caption: "must not report success",
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(EmitArtifactError);
+    expect((err as Error).message).toContain("failed to record the artifact in the spool");
+    expect((err as Error).message).toContain("NOT captured");
+    // The orphaned blob is cleaned up — nothing pretends the emit happened.
+    expect(existsSync(join(artifactBlobsDir(home), PNG_SHA))).toBe(false);
+  });
+
+  it("a failed append leaves a PRE-EXISTING blob alone — an earlier record may still reference it", async () => {
+    writeArtifactFile(work);
+    writeSpoolEvent({ t: new Date().toISOString(), event: "PostToolUse", sessionId: "sess-fail2", transcriptPath: null, cwd: work });
+    mkdirSync(artifactBlobsDir(home), { recursive: true });
+    writeFileSync(join(artifactBlobsDir(home), PNG_SHA), PNG_BYTES);
+    mkdirSync(artifactsSpoolPath(home), { recursive: true });
+
+    await expect(
+      runEmitArtifact({ file: "shot.png", cwd: work, home, quiet: true, env: { CLAUDECODE: "1" }, caption: "x" }),
+    ).rejects.toThrow(EmitArtifactError);
+    expect(readFileSync(join(artifactBlobsDir(home), PNG_SHA))).toEqual(PNG_BYTES);
+  });
+
+  it("skips the blob write when the content-addressed file already exists, and leaves no tmp files", async () => {
+    writeArtifactFile(work);
+    writeSpoolEvent({ t: new Date().toISOString(), event: "PostToolUse", sessionId: "sess-dedupe", transcriptPath: null, cwd: work });
+    // A sentinel at the sha path proves the second emit never rewrites it.
+    mkdirSync(artifactBlobsDir(home), { recursive: true });
+    writeFileSync(join(artifactBlobsDir(home), PNG_SHA), Buffer.from("sentinel-already-present"));
+
+    await runEmitArtifact({ file: "shot.png", cwd: work, home, quiet: true, env: { CLAUDECODE: "1" }, caption: "x" });
+
+    expect(readFileSync(join(artifactBlobsDir(home), PNG_SHA), "utf8")).toBe("sentinel-already-present");
+    expect(readdirSync(artifactBlobsDir(home))).toEqual([PNG_SHA]);
   });
 
   it("spool --json emits {spooled: true, record} with the record it wrote", async () => {
@@ -400,11 +466,11 @@ describe("runEmitArtifact — validation", () => {
     ).rejects.toThrow(/invalid --pr/);
   });
 
-  it("rejects a file over 8 MiB with the gateway-cap message", async () => {
+  it("rejects a file over 8 MiB with the gateway-cap message, sized in MiB throughout", async () => {
     writeArtifactFile(work, "huge.png", Buffer.alloc(8 * 1024 * 1024 + 1));
     await expect(
       runEmitArtifact({ file: "huge.png", cwd: work, home, quiet: true, env: {}, caption: "x", pr: 1, ...CREDS }),
-    ).rejects.toThrow(/artifact exceeds 8 MiB/);
+    ).rejects.toThrow(/artifact exceeds 8 MiB \(8\.0 MiB\)/);
   });
 
   it("accepts exactly 8 MiB — the cap is exclusive", async () => {
@@ -413,7 +479,7 @@ describe("runEmitArtifact — validation", () => {
     const result = await runEmitArtifact({
       file: "edge.png", cwd: work, home, quiet: true, env: {}, caption: "x", pr: 1, ...CREDS, fetchImpl: acceptingFetch(calls),
     });
-    expect(result.exitCode).toBe(0);
+    expect(result.spooled).toBe(false);
     expect(calls).toHaveLength(1);
   });
 
@@ -506,6 +572,30 @@ describe("detectActiveSession", () => {
     expect(
       detectActiveSession({ ...base, env: { CLAUDECODE: "1" }, readTailImpl: tailOf([event({ event: "SessionEnd" })]) }),
     ).toBeUndefined();
+  });
+
+  it("a SessionEnd invalidates the session's EARLIER records too — they cannot anchor after the end", () => {
+    expect(
+      detectActiveSession({
+        ...base,
+        env: { CLAUDECODE: "1" },
+        readTailImpl: tailOf([event(), event({ event: "SessionEnd" })]),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("an ended session's records do not shadow a still-live one in the same cwd", () => {
+    expect(
+      detectActiveSession({
+        ...base,
+        env: { CLAUDECODE: "1" },
+        readTailImpl: tailOf([
+          event({ sessionId: "sess-live" }),
+          event({ sessionId: "sess-done" }),
+          event({ sessionId: "sess-done", event: "SessionEnd" }),
+        ]),
+      }),
+    ).toBe("sess-live");
   });
 
   it("ignores records older than 24 hours", () => {

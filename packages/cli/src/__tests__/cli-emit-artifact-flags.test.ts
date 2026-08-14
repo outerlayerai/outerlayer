@@ -85,6 +85,45 @@ describe("emit artifact argv surface", () => {
     expect(err).not.toHaveBeenCalled();
   });
 
+  it("rejects a --pr with trailing garbage, echoing the operator's exact input", async () => {
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    writeFileSync(join(root, "shot.png"), Buffer.from("bytes"));
+
+    await runCli([
+      "node", "outerlayer", "emit", "artifact", join(root, "shot.png"),
+      "--caption", "x", "--pr", "7abc",
+    ]);
+
+    expect(process.exitCode).toBe(1);
+    const stderrText = err.mock.calls.map((c) => String(c[0])).join("");
+    // The message carries the raw input — never a silent 7, never "NaN".
+    expect(stderrText).toContain('invalid --pr "7abc"');
+    expect(stderrText).not.toContain("NaN");
+    expect(out).not.toHaveBeenCalled();
+  });
+
+  it("passes a strictly numeric --pr through to the command", async () => {
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    process.env.CLAUDECODE = "1";
+    mkdirSync(join(home, ".outerlayer", "spool"), { recursive: true });
+    appendFileSync(
+      join(home, ".outerlayer", "spool", "events.jsonl"),
+      JSON.stringify({ t: new Date().toISOString(), event: "PostToolUse", sessionId: "sess-pr", transcriptPath: null, cwd: process.cwd() }) + "\n",
+    );
+    writeFileSync(join(root, "shot.png"), Buffer.from("bytes"));
+
+    await runCli([
+      "node", "outerlayer", "emit", "artifact", join(root, "shot.png"),
+      "--caption", "x", "--pr", "42",
+    ]);
+
+    expect(process.exitCode).toBe(0);
+    const record = JSON.parse(readFileSync(artifactsSpoolPath(home), "utf8").trim()) as Record<string, unknown>;
+    expect(record.prNumber).toBe(42);
+  });
+
   it("plain `emit` still runs the flat compile action — the subcommand does not hijack the parent", async () => {
     const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
