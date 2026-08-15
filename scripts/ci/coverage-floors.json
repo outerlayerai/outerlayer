@@ -12,10 +12,10 @@
     "lines": 79.4
   },
   "packages/gateway-core": {
-    "statements": 87,
-    "branches": 81.2,
-    "functions": 83.1,
-    "lines": 87.3
+    "statements": 88.2,
+    "branches": 82.7,
+    "functions": 85.9,
+    "lines": 88.5
   },
   "packages/migration-validator": {
     "statements": 25,
@@ -25,7 +25,7 @@
   },
   "packages/observability-service": {
     "statements": 94.9,
-    "branches": 85.4,
+    "branches": 88.3,
     "functions": 92.7,
     "lines": 95.9
   },
