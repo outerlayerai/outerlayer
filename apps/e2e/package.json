@@ -16,7 +16,7 @@
     "codegen": "playwright codegen"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.112.0"
+    "@supabase/supabase-js": "2.112.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
