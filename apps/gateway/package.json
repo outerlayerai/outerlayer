@@ -47,7 +47,7 @@
     "@repo/tier-config": "workspace:*",
     "@repo/trace-topics": "*",
     "@sentry/cloudflare": "^10.69.0",
-    "@supabase/supabase-js": "2.112.0",
+    "@supabase/supabase-js": "2.112.2",
     "@unkey/api": "^2.3.2",
     "@unkey/cache": "^1.5.0",
     "hono": "^4.12.21",
