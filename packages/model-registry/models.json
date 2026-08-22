@@ -1,13 +1,13 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-08-14T02:12:19.009Z",
+  "generatedAt": "2026-08-22T01:24:06.766Z",
   "sources": {
     "litellm": {
-      "fetchedAt": "2026-08-14T02:12:19.009Z",
-      "modelCount": 1529
+      "fetchedAt": "2026-08-22T01:24:06.766Z",
+      "modelCount": 1584
     },
     "openrouter": {
-      "fetchedAt": "2026-08-14T02:12:19.009Z",
+      "fetchedAt": "2026-08-22T01:24:06.766Z",
       "modelCount": 186
     }
   },
@@ -35,7 +35,8 @@
       "provider": "openai",
       "displayName": "1024 X 1024/dall E 2",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "1024-x-1024/max-steps/stability.stable-diffusion-xl-v1": {
       "provider": "bedrock",
@@ -50,7 +51,8 @@
       "provider": "openai",
       "displayName": "256 X 256/dall E 2",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "512-x-512/50-steps/stability.stable-diffusion-xl-v0": {
       "provider": "bedrock",
@@ -65,7 +67,8 @@
       "provider": "openai",
       "displayName": "512 X 512/dall E 2",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "512-x-512/max-steps/stability.stable-diffusion-xl-v0": {
       "provider": "bedrock",
@@ -956,7 +959,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "eu/gpt-5.1-chat": {
       "provider": "azure",
@@ -1005,7 +1009,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "eu/gpt-5.1-codex-mini": {
       "provider": "azure",
@@ -1029,7 +1034,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "eu/gpt-5-nano-2025-08-07": {
       "provider": "azure",
@@ -1204,7 +1210,8 @@
         "functionCalling": true,
         "parallelFunctionCalling": true,
         "structuredOutput": true
-      }
+      },
+      "deprecationDate": "2027-04-14"
     },
     "global/gpt-4o-2024-08-06": {
       "provider": "azure",
@@ -1274,7 +1281,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "global/gpt-5.1-chat": {
       "provider": "azure",
@@ -1323,7 +1331,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "global/gpt-5.1-codex-mini": {
       "provider": "azure",
@@ -1347,7 +1356,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "gpt-3.5-turbo": {
       "provider": "openai",
@@ -3379,73 +3389,85 @@
       "provider": "openai",
       "displayName": "Hd/1024 X 1024/dall E 3",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "hd/1024-x-1792/dall-e-3": {
       "provider": "openai",
       "displayName": "Hd/1024 X 1792/dall E 3",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "hd/1792-x-1024/dall-e-3": {
       "provider": "openai",
       "displayName": "Hd/1792 X 1024/dall E 3",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "high/1024-x-1024/gpt-image-1": {
       "provider": "openai",
       "displayName": "High/1024 X 1024/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "high/1024-x-1536/gpt-image-1": {
       "provider": "openai",
       "displayName": "High/1024 X 1536/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "high/1536-x-1024/gpt-image-1": {
       "provider": "openai",
       "displayName": "High/1536 X 1024/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "low/1024-x-1024/gpt-image-1": {
       "provider": "openai",
       "displayName": "Low/1024 X 1024/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "low/1024-x-1536/gpt-image-1": {
       "provider": "openai",
       "displayName": "Low/1024 X 1536/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "low/1536-x-1024/gpt-image-1": {
       "provider": "openai",
       "displayName": "Low/1536 X 1024/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "medium/1024-x-1024/gpt-image-1": {
       "provider": "openai",
       "displayName": "Medium/1024 X 1024/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "medium/1024-x-1536/gpt-image-1": {
       "provider": "openai",
       "displayName": "Medium/1024 X 1536/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "medium/1536-x-1024/gpt-image-1": {
       "provider": "openai",
       "displayName": "Medium/1536 X 1024/gpt Image 1",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-10-23"
     },
     "gpt-image-1-mini": {
       "provider": "openai",
@@ -3520,55 +3542,64 @@
       "provider": "openai",
       "displayName": "Low/1024 X 1024/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-12-01"
     },
     "low/1024-x-1536/gpt-image-1-mini": {
       "provider": "openai",
       "displayName": "Low/1024 X 1536/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-12-01"
     },
     "low/1536-x-1024/gpt-image-1-mini": {
       "provider": "openai",
       "displayName": "Low/1536 X 1024/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-12-01"
     },
     "medium/1024-x-1024/gpt-image-1-mini": {
       "provider": "openai",
       "displayName": "Medium/1024 X 1024/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-12-01"
     },
     "medium/1024-x-1536/gpt-image-1-mini": {
       "provider": "openai",
       "displayName": "Medium/1024 X 1536/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-12-01"
     },
     "medium/1536-x-1024/gpt-image-1-mini": {
       "provider": "openai",
       "displayName": "Medium/1536 X 1024/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-12-01"
     },
     "high/1024-x-1024/gpt-image-1-mini": {
       "provider": "azure",
       "displayName": "High/1024 X 1024/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2027-04-07"
     },
     "high/1024-x-1536/gpt-image-1-mini": {
       "provider": "azure",
       "displayName": "High/1024 X 1536/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2027-04-07"
     },
     "high/1536-x-1024/gpt-image-1-mini": {
       "provider": "azure",
       "displayName": "High/1536 X 1024/gpt Image 1 Mini",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2027-04-07"
     },
     "mistral-large-2402": {
       "provider": "azure",
@@ -3991,19 +4022,22 @@
       "provider": "openai",
       "displayName": "Standard/1024 X 1024/dall E 3",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "standard/1024-x-1792/dall-e-3": {
       "provider": "openai",
       "displayName": "Standard/1024 X 1792/dall E 3",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "standard/1792-x-1024/dall-e-3": {
       "provider": "openai",
       "displayName": "Standard/1792 X 1024/dall E 3",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-05-12"
     },
     "text-embedding-3-large": {
       "provider": "openai",
@@ -4367,7 +4401,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "us/gpt-5.1-chat": {
       "provider": "azure",
@@ -4416,7 +4451,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "us/gpt-5.1-codex-mini": {
       "provider": "azure",
@@ -4440,7 +4476,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-15"
     },
     "us/o1-2024-12-17": {
       "provider": "azure",
@@ -6961,7 +6998,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-10-15"
     },
     "claude-haiku-4-5": {
       "provider": "anthropic",
@@ -6985,7 +7023,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-10-15"
     },
     "claude-3-7-sonnet-20250219": {
       "provider": "anthropic",
@@ -7132,7 +7171,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-09-29"
     },
     "claude-sonnet-4-5-20250929": {
       "provider": "anthropic",
@@ -7157,7 +7197,8 @@
         "reasoning": true,
         "pdfInput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-09-29"
     },
     "claude-sonnet-4-6": {
       "provider": "anthropic",
@@ -7172,7 +7213,7 @@
       },
       "context": {
         "maxInputTokens": 1000000,
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 128000
       },
       "capabilities": {
         "vision": true,
@@ -7181,7 +7222,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-02-17"
     },
     "claude-sonnet-4-5-20250929-v1:0": {
       "provider": "bedrock",
@@ -7304,7 +7346,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-11-24"
     },
     "claude-opus-4-5": {
       "provider": "anthropic",
@@ -7328,7 +7371,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-11-24"
     },
     "claude-opus-4-6": {
       "provider": "anthropic",
@@ -7352,7 +7396,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-02-05"
     },
     "claude-opus-4-6-20260205": {
       "provider": "anthropic",
@@ -7376,7 +7421,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-02-05"
     },
     "claude-opus-4-7": {
       "provider": "anthropic",
@@ -7400,7 +7446,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-04-16"
     },
     "claude-opus-4-7-20260416": {
       "provider": "anthropic",
@@ -7424,7 +7471,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-04-16"
     },
     "claude-sonnet-4-20250514": {
       "provider": "anthropic",
@@ -7612,7 +7660,8 @@
       "context": {
         "maxInputTokens": 4096,
         "maxOutputTokens": 4096
-      }
+      },
+      "deprecationDate": "2025-09-15"
     },
     "command-nightly": {
       "provider": "cohere",
@@ -7727,6 +7776,7 @@
       "capabilities": {
         "reasoning": true
       },
+      "deprecationDate": "2026-08-13",
       "supportedParameters": [
         "frequency_penalty",
         "max_tokens",
@@ -8833,7 +8883,8 @@
       "context": {
         "maxInputTokens": 4096,
         "maxOutputTokens": 4096
-      }
+      },
+      "deprecationDate": "2026-10-23"
     },
     "ft:gpt-3.5-turbo-1106": {
       "provider": "openai",
@@ -8847,7 +8898,8 @@
       "context": {
         "maxInputTokens": 16385,
         "maxOutputTokens": 4096
-      }
+      },
+      "deprecationDate": "2026-10-23"
     },
     "ft:gpt-4-0613": {
       "provider": "openai",
@@ -9148,6 +9200,7 @@
         "webSearch": true,
         "audioInput": true
       },
+      "deprecationDate": "2026-10-20",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -9178,6 +9231,7 @@
         "pdfInput": true,
         "webSearch": false
       },
+      "deprecationDate": "2026-10-02",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -9315,6 +9369,7 @@
         "webSearch": true,
         "audioInput": true
       },
+      "deprecationDate": "2026-10-20",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -9450,6 +9505,7 @@
         "pdfInput": true,
         "webSearch": true
       },
+      "deprecationDate": "2026-10-20",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -9651,7 +9707,8 @@
       },
       "context": {
         "maxInputTokens": 2048
-      }
+      },
+      "deprecationDate": "2028-05-20"
     },
     "gemini-embedding-2-preview": {
       "provider": "google",
@@ -9731,6 +9788,7 @@
         "functionCalling": true,
         "structuredOutput": true
       },
+      "deprecationDate": "2026-10-23",
       "supportedParameters": [
         "frequency_penalty",
         "max_tokens",
@@ -9774,6 +9832,7 @@
         "pdfInput": true,
         "structuredOutput": true
       },
+      "deprecationDate": "2026-03-26",
       "supportedParameters": [
         "frequency_penalty",
         "max_tokens",
@@ -9934,7 +9993,8 @@
         "reasoning": false,
         "audioInput": true,
         "audioOutput": true
-      }
+      },
+      "deprecationDate": "2027-01-20"
     },
     "gpt-4o-mini-audio-preview": {
       "provider": "openai",
@@ -10127,7 +10187,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "low/1024-x-1536/gpt-image-1.5": {
       "provider": "openai",
@@ -10137,7 +10198,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "low/1536-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10147,7 +10209,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "medium/1024-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10157,7 +10220,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "medium/1024-x-1536/gpt-image-1.5": {
       "provider": "openai",
@@ -10167,7 +10231,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "medium/1536-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10177,7 +10242,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "high/1024-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10187,7 +10253,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "high/1024-x-1536/gpt-image-1.5": {
       "provider": "openai",
@@ -10197,7 +10264,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "high/1536-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10207,7 +10275,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "standard/1024-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10217,7 +10286,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "standard/1024-x-1536/gpt-image-1.5": {
       "provider": "openai",
@@ -10227,7 +10297,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "standard/1536-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10237,7 +10308,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "1024-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10247,7 +10319,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "1024-x-1536/gpt-image-1.5": {
       "provider": "openai",
@@ -10257,7 +10330,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "1536-x-1024/gpt-image-1.5": {
       "provider": "openai",
@@ -10267,7 +10341,8 @@
       "capabilities": {
         "vision": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-01"
     },
     "low/1024-x-1024/gpt-image-1.5-2025-12-16": {
       "provider": "openai",
@@ -11147,8 +11222,8 @@
         "outputCostPerToken": 9e-7
       },
       "context": {
-        "maxInputTokens": 256000,
-        "maxOutputTokens": 256000
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 128000
       },
       "capabilities": {
         "functionCalling": true,
@@ -11161,14 +11236,15 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.000001,
-        "outputCostPerToken": 0.000003
+        "inputCostPerToken": 3e-7,
+        "outputCostPerToken": 9e-7
       },
       "context": {
-        "maxInputTokens": 32000,
-        "maxOutputTokens": 8191
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 128000
       },
       "capabilities": {
+        "functionCalling": true,
         "structuredOutput": true
       }
     },
@@ -11701,17 +11777,18 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 6e-8,
-        "outputCostPerToken": 1.8e-7
+        "inputCostPerToken": 1.5e-7,
+        "outputCostPerToken": 6e-7
       },
       "context": {
-        "maxInputTokens": 131072,
-        "maxOutputTokens": 131072
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 262144
       },
       "capabilities": {
         "vision": true,
         "functionCalling": true,
-        "structuredOutput": true
+        "structuredOutput": true,
+        "reasoning": true
       }
     },
     "mistral-small-3-2-2506": {
@@ -11997,7 +12074,8 @@
       },
       "context": {
         "maxInputTokens": 2048
-      }
+      },
+      "deprecationDate": "2027-04-01"
     },
     "o1-pro": {
       "provider": "openai",
@@ -12712,7 +12790,8 @@
       "context": {
         "maxInputTokens": 4096,
         "maxOutputTokens": 4096
-      }
+      },
+      "deprecationDate": "2025-04-30"
     },
     "rerank-english-v3.0": {
       "provider": "cohere",
@@ -12740,7 +12819,8 @@
       "context": {
         "maxInputTokens": 4096,
         "maxOutputTokens": 4096
-      }
+      },
+      "deprecationDate": "2025-04-30"
     },
     "rerank-multilingual-v3.0": {
       "provider": "cohere",
@@ -12966,7 +13046,8 @@
       },
       "context": {
         "maxInputTokens": 2048
-      }
+      },
+      "deprecationDate": "2027-04-01"
     },
     "text-embedding-ada-002-v2": {
       "provider": "openai",
@@ -13018,7 +13099,8 @@
       },
       "context": {
         "maxInputTokens": 32768
-      }
+      },
+      "deprecationDate": "2025-10-27"
     },
     "text-moderation-latest": {
       "provider": "openai",
@@ -13031,7 +13113,8 @@
       },
       "context": {
         "maxInputTokens": 32768
-      }
+      },
+      "deprecationDate": "2025-10-27"
     },
     "text-moderation-stable": {
       "provider": "openai",
@@ -13044,7 +13127,8 @@
       },
       "context": {
         "maxInputTokens": 32768
-      }
+      },
+      "deprecationDate": "2025-10-27"
     },
     "text-multilingual-embedding-002": {
       "provider": "google",
@@ -13057,7 +13141,8 @@
       },
       "context": {
         "maxInputTokens": 2048
-      }
+      },
+      "deprecationDate": "2027-04-01"
     },
     "text-unicorn": {
       "provider": "google",
@@ -13984,7 +14069,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-10-15"
     },
     "vertex_ai/claude-haiku-4-5@20251001": {
       "provider": "google",
@@ -14008,7 +14094,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-10-15"
     },
     "vertex_ai/claude-3-5-sonnet": {
       "provider": "google",
@@ -14203,7 +14290,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-05-14"
     },
     "vertex_ai/claude-opus-4-1": {
       "provider": "google",
@@ -14223,7 +14311,8 @@
       "capabilities": {
         "vision": true,
         "functionCalling": true
-      }
+      },
+      "deprecationDate": "2026-08-05"
     },
     "vertex_ai/claude-opus-4-1@20250805": {
       "provider": "google",
@@ -14243,7 +14332,8 @@
       "capabilities": {
         "vision": true,
         "functionCalling": true
-      }
+      },
+      "deprecationDate": "2026-08-05"
     },
     "vertex_ai/claude-opus-4-5": {
       "provider": "google",
@@ -14267,7 +14357,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-11-24"
     },
     "vertex_ai/claude-opus-4-5@20251101": {
       "provider": "google",
@@ -14291,7 +14382,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-11-24"
     },
     "vertex_ai/claude-opus-4-6": {
       "provider": "google",
@@ -14315,7 +14407,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-02-05"
     },
     "vertex_ai/claude-opus-4-6@default": {
       "provider": "google",
@@ -14339,7 +14432,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-02-05"
     },
     "vertex_ai/claude-opus-4-7": {
       "provider": "google",
@@ -14363,7 +14457,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-04-16"
     },
     "vertex_ai/claude-opus-4-7@default": {
       "provider": "google",
@@ -14387,7 +14482,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-04-16"
     },
     "vertex_ai/claude-sonnet-4-5": {
       "provider": "google",
@@ -14411,7 +14507,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-09-29"
     },
     "vertex_ai/claude-sonnet-4-6": {
       "provider": "google",
@@ -14459,7 +14556,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-09-29"
     },
     "vertex_ai/claude-opus-4@20250514": {
       "provider": "google",
@@ -14483,7 +14581,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-05-14"
     },
     "vertex_ai/claude-sonnet-4": {
       "provider": "google",
@@ -14507,7 +14606,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-05-14"
     },
     "vertex_ai/claude-sonnet-4@20250514": {
       "provider": "google",
@@ -14531,7 +14631,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-05-14"
     },
     "vertex_ai/mistralai/codestral-2@001": {
       "provider": "google",
@@ -14658,8 +14759,8 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.00000135,
-        "outputCostPerToken": 0.0000054
+        "inputCostPerToken": 6e-7,
+        "outputCostPerToken": 0.0000017
       },
       "context": {
         "maxInputTokens": 163840,
@@ -14733,7 +14834,8 @@
         "audioOutput": false,
         "pdfInput": true,
         "webSearch": false
-      }
+      },
+      "deprecationDate": "2026-10-02"
     },
     "vertex_ai/gemini-3-pro-image-preview": {
       "provider": "google",
@@ -15407,8 +15509,8 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 1.5e-7,
-        "outputCostPerToken": 6e-7
+        "inputCostPerToken": 9e-8,
+        "outputCostPerToken": 3.6e-7
       },
       "context": {
         "maxInputTokens": 131072,
@@ -15527,8 +15629,8 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 2.5e-7,
-        "outputCostPerToken": 0.000001
+        "inputCostPerToken": 2.2e-7,
+        "outputCostPerToken": 8.8e-7
       },
       "context": {
         "maxInputTokens": 262144,
@@ -15544,8 +15646,8 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.000001,
-        "outputCostPerToken": 0.000004
+        "inputCostPerToken": 2.2e-7,
+        "outputCostPerToken": 0.0000018
       },
       "context": {
         "maxInputTokens": 262144,
@@ -15596,7 +15698,8 @@
       "source": "litellm",
       "context": {
         "maxInputTokens": 1024
-      }
+      },
+      "deprecationDate": "2026-06-30"
     },
     "vertex_ai/veo-3.0-fast-generate-001": {
       "provider": "google",
@@ -15605,7 +15708,8 @@
       "source": "litellm",
       "context": {
         "maxInputTokens": 1024
-      }
+      },
+      "deprecationDate": "2026-06-30"
     },
     "vertex_ai/veo-3.0-generate-001": {
       "provider": "google",
@@ -15614,7 +15718,8 @@
       "source": "litellm",
       "context": {
         "maxInputTokens": 1024
-      }
+      },
+      "deprecationDate": "2026-06-30"
     },
     "vertex_ai/veo-3.1-generate-preview": {
       "provider": "google",
@@ -15641,7 +15746,8 @@
       "source": "litellm",
       "context": {
         "maxInputTokens": 1024
-      }
+      },
+      "deprecationDate": "2026-11-17"
     },
     "vertex_ai/veo-3.1-fast-generate-001": {
       "provider": "google",
@@ -15650,7 +15756,8 @@
       "source": "litellm",
       "context": {
         "maxInputTokens": 1024
-      }
+      },
+      "deprecationDate": "2026-11-17"
     },
     "grok-2": {
       "provider": "xai",
@@ -15781,7 +15888,8 @@
         "functionCalling": true,
         "structuredOutput": false,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-01"
     },
     "grok-3-beta": {
       "provider": "xai",
@@ -15865,7 +15973,8 @@
         "structuredOutput": false,
         "promptCaching": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-15"
     },
     "grok-3-mini": {
       "provider": "azure",
@@ -15885,7 +15994,8 @@
         "structuredOutput": false,
         "reasoning": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-01"
     },
     "grok-3-mini-beta": {
       "provider": "xai",
@@ -16034,7 +16144,8 @@
         "functionCalling": true,
         "structuredOutput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-01"
     },
     "grok-4-fast-non-reasoning": {
       "provider": "azure",
@@ -16053,7 +16164,8 @@
         "functionCalling": true,
         "structuredOutput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-01"
     },
     "grok-4-0709": {
       "provider": "xai",
@@ -16092,7 +16204,8 @@
         "functionCalling": true,
         "promptCaching": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-15"
     },
     "grok-4-1-fast": {
       "provider": "xai",
@@ -16298,7 +16411,7 @@
       }
     },
     "grok-4.3": {
-      "provider": "xai",
+      "provider": "azure",
       "displayName": "Grok 4.3",
       "mode": "chat",
       "source": "litellm",
@@ -16308,8 +16421,8 @@
         "cacheReadCostPerToken": 2e-7
       },
       "context": {
-        "maxInputTokens": 1000000,
-        "maxOutputTokens": 1000000
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 200000
       },
       "capabilities": {
         "vision": true,
@@ -16382,7 +16495,8 @@
         "structuredOutput": true,
         "promptCaching": true,
         "reasoning": true
-      }
+      },
+      "deprecationDate": "2026-05-15"
     },
     "grok-code-fast-1": {
       "provider": "azure",
@@ -16423,7 +16537,8 @@
         "structuredOutput": true,
         "promptCaching": true,
         "reasoning": true
-      }
+      },
+      "deprecationDate": "2026-05-15"
     },
     "grok-vision-beta": {
       "provider": "xai",
@@ -19791,7 +19906,8 @@
         "parallelFunctionCalling": true,
         "audioInput": true,
         "audioOutput": true
-      }
+      },
+      "deprecationDate": "2027-01-20"
     },
     "chatgpt-image-latest": {
       "provider": "openai",
@@ -19934,6 +20050,7 @@
         "pdfInput": true,
         "webSearch": true
       },
+      "deprecationDate": "2027-05-07",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -19964,18 +20081,18 @@
     },
     "deepseek-v4-pro": {
       "provider": "deepseek",
-      "displayName": "DeepSeek: DeepSeek V4 Pro",
+      "displayName": "DeepSeek: DeepSeek V4 Pro 0423",
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 4.35e-7,
-        "outputCostPerToken": 8.7e-7,
+        "inputCostPerToken": 0.00000132,
+        "outputCostPerToken": 0.00000396,
         "cacheCreationCostPerToken": 0,
-        "cacheReadCostPerToken": 3.625e-9
+        "cacheReadCostPerToken": 4.4e-8
       },
       "context": {
         "maxInputTokens": 1000000,
-        "maxOutputTokens": 8192
+        "maxOutputTokens": 393216
       },
       "capabilities": {
         "vision": false,
@@ -20000,14 +20117,14 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 1.4e-7,
-        "outputCostPerToken": 2.8e-7,
+        "inputCostPerToken": 4.4e-7,
+        "outputCostPerToken": 0.00000132,
         "cacheCreationCostPerToken": 0,
-        "cacheReadCostPerToken": 2.8e-9
+        "cacheReadCostPerToken": 1.4e-8
       },
       "context": {
         "maxInputTokens": 1000000,
-        "maxOutputTokens": 8192
+        "maxOutputTokens": 393216
       },
       "capabilities": {
         "vision": false,
@@ -20102,11 +20219,8 @@
       "mode": "chat",
       "source": "openrouter",
       "supportedParameters": [
-        "frequency_penalty",
         "max_tokens",
-        "presence_penalty",
         "temperature",
-        "top_k",
         "top_p"
       ],
       "pricing": {
@@ -20137,12 +20251,12 @@
         "top_p"
       ],
       "pricing": {
-        "inputCostPerToken": 1.2e-7,
-        "outputCostPerToken": 4e-7
+        "inputCostPerToken": 7e-8,
+        "outputCostPerToken": 3.4e-7
       },
       "context": {
         "maxInputTokens": 262144,
-        "maxOutputTokens": 262144
+        "maxOutputTokens": 16384
       },
       "capabilities": {
         "vision": true,
@@ -20539,7 +20653,7 @@
       ],
       "pricing": {
         "inputCostPerToken": 2.7e-7,
-        "outputCostPerToken": 9.5e-7
+        "outputCostPerToken": 0.000001
       },
       "context": {
         "maxInputTokens": 163840,
@@ -20564,12 +20678,12 @@
         "top_p"
       ],
       "pricing": {
-        "inputCostPerToken": 2.5e-7,
-        "outputCostPerToken": 9.5e-7
+        "inputCostPerToken": 5.5e-7,
+        "outputCostPerToken": 0.00000165
       },
       "context": {
         "maxInputTokens": 163840,
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 161000
       },
       "capabilities": {
         "functionCalling": true,
@@ -20651,7 +20765,8 @@
       "capabilities": {
         "functionCalling": true,
         "structuredOutput": true
-      }
+      },
+      "deprecationDate": "2026-08-22"
     },
     "gpt-oss-20b": {
       "provider": "fireworks_ai",
@@ -20889,12 +21004,12 @@
         "top_p"
       ],
       "pricing": {
-        "inputCostPerToken": 2.7e-7,
-        "outputCostPerToken": 0.00000112
+        "inputCostPerToken": 2.5e-7,
+        "outputCostPerToken": 0.000001
       },
       "context": {
         "maxInputTokens": 163840,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 163840
       },
       "capabilities": {
         "functionCalling": true,
@@ -23587,6 +23702,7 @@
         "pdfInput": true,
         "webSearch": true
       },
+      "deprecationDate": "2027-05-19",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -23679,7 +23795,8 @@
         "audioOutput": false,
         "pdfInput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2027-05-07"
     },
     "speech/azure-stt": {
       "provider": "azure",
@@ -23754,7 +23871,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-28"
     },
     "vertex_ai/claude-opus-4-8": {
       "provider": "google",
@@ -23778,7 +23896,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-28"
     },
     "vertex_ai/claude-opus-4-8@default": {
       "provider": "google",
@@ -23802,7 +23921,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-05-28"
     },
     "ministral-8b-latest": {
       "provider": "mistral",
@@ -23864,6 +23984,7 @@
         "reasoning": true,
         "pdfInput": true
       },
+      "deprecationDate": "2027-06-09",
       "supportedParameters": [
         "max_tokens"
       ]
@@ -23890,7 +24011,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-06-08"
     },
     "vertex_ai/claude-fable-5@default": {
       "provider": "google",
@@ -23914,7 +24036,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-06-08"
     },
     "us.writer.palmyra-x4-v1:0": {
       "provider": "bedrock",
@@ -25255,7 +25378,8 @@
       "capabilities": {
         "vision": true,
         "functionCalling": true
-      }
+      },
+      "deprecationDate": "2026-06-13"
     },
     "Llama-3.2-90B-Vision-Instruct": {
       "provider": "azure",
@@ -25273,7 +25397,8 @@
       "capabilities": {
         "vision": true,
         "functionCalling": true
-      }
+      },
+      "deprecationDate": "2026-06-13"
     },
     "Llama-3.3-70B-Instruct": {
       "provider": "azure",
@@ -25354,7 +25479,8 @@
       "context": {
         "maxInputTokens": 128000,
         "maxOutputTokens": 2048
-      }
+      },
+      "deprecationDate": "2026-06-13"
     },
     "Meta-Llama-3.1-70B-Instruct": {
       "provider": "azure",
@@ -25382,7 +25508,8 @@
       "context": {
         "maxInputTokens": 128000,
         "maxOutputTokens": 2048
-      }
+      },
+      "deprecationDate": "2026-06-13"
     },
     "Phi-3-medium-128k-instruct": {
       "provider": "azure",
@@ -25630,7 +25757,8 @@
       "provider": "azure",
       "displayName": "Mistral Document Ai 2505",
       "mode": "chat",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-07-20"
     },
     "mistral-document-ai-2512": {
       "provider": "azure",
@@ -25713,7 +25841,8 @@
       "context": {
         "maxInputTokens": 4096,
         "maxOutputTokens": 4096
-      }
+      },
+      "deprecationDate": "2026-05-14"
     },
     "cohere-rerank-v4.0-pro": {
       "provider": "azure",
@@ -25758,7 +25887,8 @@
       },
       "capabilities": {
         "functionCalling": true
-      }
+      },
+      "deprecationDate": "2026-07-13"
     },
     "embed-v-4-0": {
       "provider": "azure",
@@ -25790,7 +25920,8 @@
         "functionCalling": true,
         "structuredOutput": false,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-01"
     },
     "global/grok-3-mini": {
       "provider": "azure",
@@ -25810,7 +25941,8 @@
         "structuredOutput": false,
         "reasoning": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-05-01"
     },
     "jais-30b-chat": {
       "provider": "azure",
@@ -25856,7 +25988,8 @@
       "capabilities": {
         "vision": true,
         "functionCalling": true
-      }
+      },
+      "deprecationDate": "2027-01-26"
     },
     "kimi-k2.6": {
       "provider": "azure",
@@ -25875,7 +26008,8 @@
         "vision": true,
         "functionCalling": true,
         "reasoning": true
-      }
+      },
+      "deprecationDate": "2027-04-16"
     },
     "ministral-3b": {
       "provider": "azure",
@@ -27963,7 +28097,8 @@
       "provider": "azure",
       "displayName": "MAI Image 2e",
       "mode": "image_generation",
-      "source": "litellm"
+      "source": "litellm",
+      "deprecationDate": "2026-08-15"
     },
     "deepseek-v3.1": {
       "provider": "azure",
@@ -27981,7 +28116,8 @@
       "capabilities": {
         "functionCalling": true,
         "reasoning": true
-      }
+      },
+      "deprecationDate": "2026-07-13"
     },
     "accounts/fireworks/models/deepseek-v4-flash": {
       "provider": "fireworks_ai",
@@ -28443,6 +28579,7 @@
         "promptCaching": true,
         "webSearch": true
       },
+      "deprecationDate": "2027-05-28",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -28469,6 +28606,7 @@
         "promptCaching": true,
         "webSearch": true
       },
+      "deprecationDate": "2027-05-28",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -28555,7 +28693,8 @@
       },
       "capabilities": {
         "reasoning": false
-      }
+      },
+      "deprecationDate": "2027-05-28"
     },
     "vertex_ai/gemini-3.1-flash-image": {
       "provider": "google",
@@ -28572,7 +28711,8 @@
       },
       "capabilities": {
         "reasoning": false
-      }
+      },
+      "deprecationDate": "2027-05-28"
     },
     "anthropic.claude-sonnet-5": {
       "provider": "bedrock",
@@ -28741,6 +28881,7 @@
         "reasoning": true,
         "pdfInput": true
       },
+      "deprecationDate": "2027-06-30",
       "supportedParameters": [
         "max_tokens"
       ]
@@ -28767,7 +28908,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-24"
     },
     "vertex_ai/claude-sonnet-5@default": {
       "provider": "google",
@@ -28791,30 +28933,34 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2026-12-24"
     },
     "gemini-3.1-flash-lite-image": {
       "provider": "google",
       "displayName": "Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
-      "mode": "chat",
-      "source": "openrouter",
-      "supportedParameters": [
-        "max_tokens",
-        "temperature",
-        "top_p"
-      ],
+      "mode": "image_generation",
+      "source": "litellm",
       "pricing": {
         "inputCostPerToken": 2.5e-7,
         "outputCostPerToken": 0.0000015
       },
       "context": {
         "maxInputTokens": 65536,
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 4096
       },
       "capabilities": {
         "vision": true,
-        "structuredOutput": true
-      }
+        "functionCalling": false,
+        "structuredOutput": false,
+        "promptCaching": true,
+        "reasoning": true
+      },
+      "supportedParameters": [
+        "max_tokens",
+        "temperature",
+        "top_p"
+      ]
     },
     "us/gpt-5.4": {
       "provider": "azure",
@@ -28838,7 +28984,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-09-02"
     },
     "eu/gpt-5.4": {
       "provider": "azure",
@@ -28862,7 +29009,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-09-02"
     },
     "us/gpt-5.4-2026-03-05": {
       "provider": "azure",
@@ -28937,7 +29085,8 @@
         "reasoning": true,
         "pdfInput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2027-10-26"
     },
     "eu/gpt-5.5": {
       "provider": "azure",
@@ -28962,7 +29111,8 @@
         "reasoning": true,
         "pdfInput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2027-10-26"
     },
     "us/gpt-5.5-2026-04-23": {
       "provider": "azure",
@@ -29056,7 +29206,7 @@
         "cacheReadCostPerToken": 5e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29082,7 +29232,7 @@
         "cacheReadCostPerToken": 5e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29111,7 +29261,7 @@
         "cacheReadCostPerToken": 2e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29140,7 +29290,7 @@
         "cacheReadCostPerToken": 2e-8
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29168,7 +29318,7 @@
         "cacheReadCostPerToken": 5.5e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29193,7 +29343,7 @@
         "cacheReadCostPerToken": 5.5e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29219,7 +29369,7 @@
         "cacheReadCostPerToken": 2.2e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29245,7 +29395,7 @@
         "cacheReadCostPerToken": 2.2e-8
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29271,7 +29421,7 @@
         "cacheReadCostPerToken": 5.5e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29296,7 +29446,7 @@
         "cacheReadCostPerToken": 5.5e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29322,7 +29472,7 @@
         "cacheReadCostPerToken": 2.2e-7
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29348,7 +29498,7 @@
         "cacheReadCostPerToken": 2.2e-8
       },
       "context": {
-        "maxInputTokens": 1050000,
+        "maxInputTokens": 922000,
         "maxOutputTokens": 128000
       },
       "capabilities": {
@@ -29479,8 +29629,8 @@
         "max_tokens"
       ],
       "pricing": {
-        "inputCostPerToken": 1e-7,
-        "outputCostPerToken": 6e-7
+        "inputCostPerToken": 2e-7,
+        "outputCostPerToken": 0.0000012
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -29501,8 +29651,8 @@
         "max_tokens"
       ],
       "pricing": {
-        "inputCostPerToken": 0.000001,
-        "outputCostPerToken": 0.000006
+        "inputCostPerToken": 0.000002,
+        "outputCostPerToken": 0.000012
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -29523,8 +29673,8 @@
         "max_tokens"
       ],
       "pricing": {
-        "inputCostPerToken": 0.000005,
-        "outputCostPerToken": 0.00003
+        "inputCostPerToken": 0.000002,
+        "outputCostPerToken": 0.00001
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -29542,9 +29692,9 @@
       "mode": "chat",
       "source": "litellm",
       "pricing": {
-        "inputCostPerToken": 0.0000015,
-        "outputCostPerToken": 0.0000075,
-        "cacheReadCostPerToken": 1.5e-7
+        "inputCostPerToken": 7.5e-7,
+        "outputCostPerToken": 0.00000375,
+        "cacheReadCostPerToken": 7.5e-8
       },
       "context": {
         "maxInputTokens": 1048576,
@@ -29594,6 +29744,7 @@
         "pdfInput": true,
         "webSearch": true
       },
+      "deprecationDate": "2027-07-21",
       "supportedParameters": [
         "max_tokens",
         "temperature",
@@ -29625,7 +29776,8 @@
         "audioOutput": false,
         "pdfInput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2027-07-21"
     },
     "anthropic.claude-opus-5": {
       "provider": "bedrock",
@@ -29794,6 +29946,7 @@
         "reasoning": true,
         "pdfInput": true
       },
+      "deprecationDate": "2027-07-24",
       "supportedParameters": [
         "max_tokens",
         "temperature"
@@ -29821,7 +29974,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-01-24"
     },
     "vertex_ai/claude-opus-5@default": {
       "provider": "google",
@@ -29845,7 +29999,8 @@
         "promptCaching": true,
         "reasoning": true,
         "pdfInput": true
-      }
+      },
+      "deprecationDate": "2027-01-24"
     },
     "claude-opus-5-fast": {
       "provider": "anthropic",
@@ -30497,10 +30652,25 @@
       }
     },
     "deepseek-v4-flash-0731": {
-      "provider": "deepseek",
+      "provider": "fireworks_ai",
       "displayName": "DeepSeek: DeepSeek V4 Flash 0731",
       "mode": "chat",
-      "source": "openrouter",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 1.4e-7,
+        "outputCostPerToken": 2.8e-7,
+        "cacheReadCostPerToken": 2.8e-8
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      },
       "supportedParameters": [
         "frequency_penalty",
         "max_tokens",
@@ -30508,19 +30678,7 @@
         "temperature",
         "top_k",
         "top_p"
-      ],
-      "pricing": {
-        "inputCostPerToken": 1.4e-7,
-        "outputCostPerToken": 2.8e-7
-      },
-      "context": {
-        "maxInputTokens": 1048576,
-        "maxOutputTokens": 393216
-      },
-      "capabilities": {
-        "functionCalling": true,
-        "structuredOutput": true
-      }
+      ]
     },
     "gemini-robotics-er-2-preview": {
       "provider": "google",
@@ -30573,7 +30731,8 @@
         "audioOutput": false,
         "pdfInput": true,
         "webSearch": true
-      }
+      },
+      "deprecationDate": "2026-08-31"
     },
     "claude-opus-5:batch": {
       "provider": "anthropic",
@@ -30694,8 +30853,8 @@
         "max_tokens"
       ],
       "pricing": {
-        "inputCostPerToken": 0.0000025,
-        "outputCostPerToken": 0.000015
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.000005
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -30716,8 +30875,8 @@
         "max_tokens"
       ],
       "pricing": {
-        "inputCostPerToken": 0.0000025,
-        "outputCostPerToken": 0.000015
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.000005
       },
       "context": {
         "maxInputTokens": 1050000,
@@ -31388,6 +31547,7 @@
         "maxOutputTokens": 262144
       },
       "capabilities": {
+        "vision": true,
         "functionCalling": true,
         "structuredOutput": true,
         "reasoning": true
@@ -31465,12 +31625,11 @@
         "top_p"
       ],
       "pricing": {
-        "inputCostPerToken": 4.35e-7,
-        "outputCostPerToken": 8.7e-7
+        "inputCostPerToken": 0.000001188,
+        "outputCostPerToken": 0.000003564
       },
       "context": {
-        "maxInputTokens": 1048576,
-        "maxOutputTokens": 384000
+        "maxInputTokens": 1048576
       },
       "capabilities": {
         "functionCalling": true,
@@ -31596,6 +31755,1079 @@
       "capabilities": {
         "vision": true,
         "audioInput": true,
+        "functionCalling": true,
+        "structuredOutput": true
+      }
+    },
+    "FW-DeepSeek-V3.2": {
+      "provider": "azure",
+      "displayName": "FW DeepSeek V3.2",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 6.2e-7,
+        "outputCostPerToken": 0.00000185,
+        "cacheReadCostPerToken": 3.1e-7
+      },
+      "context": {
+        "maxInputTokens": 163840,
+        "maxOutputTokens": 163840
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      },
+      "deprecationDate": "2027-07-01"
+    },
+    "FW-DeepSeek-V4-Pro": {
+      "provider": "azure",
+      "displayName": "FW DeepSeek V4 Pro",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000001925,
+        "outputCostPerToken": 0.000003828,
+        "cacheReadCostPerToken": 1.65e-7
+      },
+      "context": {
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 384000
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-GLM-5": {
+      "provider": "azure",
+      "displayName": "FW GLM 5",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000011,
+        "outputCostPerToken": 0.00000352,
+        "cacheReadCostPerToken": 2.2e-7
+      },
+      "context": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      },
+      "deprecationDate": "2027-07-01"
+    },
+    "FW-GLM-5.1": {
+      "provider": "azure",
+      "displayName": "FW GLM 5.1",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.00000154,
+        "outputCostPerToken": 0.00000484,
+        "cacheReadCostPerToken": 2.86e-7
+      },
+      "context": {
+        "maxInputTokens": 202800,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      },
+      "deprecationDate": "2027-07-01"
+    },
+    "FW-GLM-5.2": {
+      "provider": "azure",
+      "displayName": "FW GLM 5.2",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.00000154,
+        "outputCostPerToken": 0.00000484,
+        "cacheReadCostPerToken": 1.5e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-GLM-5.2-Fast": {
+      "provider": "azure",
+      "displayName": "FW GLM 5.2 Fast",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000021,
+        "outputCostPerToken": 0.0000066,
+        "cacheReadCostPerToken": 2.1e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-Inkling": {
+      "provider": "azure",
+      "displayName": "FW Inkling",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.00000405,
+        "cacheReadCostPerToken": 1.7e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 1048576
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-Kimi-K2.5": {
+      "provider": "azure",
+      "displayName": "FW Kimi K2.5",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 6.6e-7,
+        "outputCostPerToken": 0.0000033,
+        "cacheReadCostPerToken": 1.1e-7
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 262144
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      },
+      "deprecationDate": "2027-07-01"
+    },
+    "FW-Kimi-K2.6": {
+      "provider": "azure",
+      "displayName": "FW Kimi K2.6",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000001045,
+        "outputCostPerToken": 0.0000044,
+        "cacheReadCostPerToken": 1.76e-7
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 262144
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-Kimi-K2.7-Code": {
+      "provider": "azure",
+      "displayName": "FW Kimi K2.7 Code",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.00000105,
+        "outputCostPerToken": 0.0000044,
+        "cacheReadCostPerToken": 2.1e-7
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 262144
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-Kimi-K3": {
+      "provider": "azure",
+      "displayName": "FW Kimi K3",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000033,
+        "outputCostPerToken": 0.0000165,
+        "cacheReadCostPerToken": 3.3e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-MiniMax-M2.5": {
+      "provider": "azure",
+      "displayName": "FW MiniMax M2.5",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 3.3e-7,
+        "outputCostPerToken": 0.00000132,
+        "cacheReadCostPerToken": 3.3e-8
+      },
+      "context": {
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 1000000
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      },
+      "deprecationDate": "2027-07-01"
+    },
+    "FW-MiniMax-M3": {
+      "provider": "azure",
+      "displayName": "FW MiniMax M3",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 3.3e-7,
+        "outputCostPerToken": 0.00000132,
+        "cacheReadCostPerToken": 6.6e-8
+      },
+      "context": {
+        "maxInputTokens": 512000,
+        "maxOutputTokens": 512000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "FW-Nemotron-3-Ultra-NVFP4": {
+      "provider": "azure",
+      "displayName": "FW Nemotron 3 Ultra NVFP4",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 6e-7,
+        "outputCostPerToken": 0.0000024,
+        "cacheReadCostPerToken": 1.19e-7
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 262144
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "guardrails": {
+      "provider": "bedrock",
+      "displayName": "Guardrails",
+      "mode": "chat",
+      "source": "litellm"
+    },
+    "vertex_ai/gemini-3.1-flash-lite-image": {
+      "provider": "google",
+      "displayName": "Vertex Ai/gemini 3.1 Flash Lite Image",
+      "mode": "image_generation",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 2.5e-7,
+        "outputCostPerToken": 0.0000015
+      },
+      "context": {
+        "maxInputTokens": 65536,
+        "maxOutputTokens": 4096
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": false,
+        "structuredOutput": false,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "gpt-5.6-cyber": {
+      "provider": "openai",
+      "displayName": "Gpt 5.6 Cyber",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000125,
+        "outputCostPerToken": 0.000075,
+        "cacheCreationCostPerToken": 0.000015625,
+        "cacheReadCostPerToken": 0.00000125
+      },
+      "context": {
+        "maxInputTokens": 400000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "parallelFunctionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "reasoning": true,
+        "pdfInput": true,
+        "webSearch": true
+      }
+    },
+    "daybreak-red-latest": {
+      "provider": "openai",
+      "displayName": "Daybreak Red Latest",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000125,
+        "outputCostPerToken": 0.000075,
+        "cacheCreationCostPerToken": 0.000015625,
+        "cacheReadCostPerToken": 0.00000125
+      },
+      "context": {
+        "maxInputTokens": 400000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "parallelFunctionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "reasoning": true,
+        "pdfInput": true,
+        "webSearch": true
+      }
+    },
+    "daybreak-blue-latest": {
+      "provider": "openai",
+      "displayName": "Daybreak Blue Latest",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000005,
+        "outputCostPerToken": 0.00003,
+        "cacheCreationCostPerToken": 0.00000625,
+        "cacheReadCostPerToken": 5e-7
+      },
+      "context": {
+        "maxInputTokens": 1050000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "parallelFunctionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "reasoning": true,
+        "pdfInput": true,
+        "webSearch": true
+      }
+    },
+    "chat-latest": {
+      "provider": "openai",
+      "displayName": "Chat Latest",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000005,
+        "outputCostPerToken": 0.00003,
+        "cacheReadCostPerToken": 5e-7
+      },
+      "context": {
+        "maxInputTokens": 400000,
+        "maxOutputTokens": 128000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "parallelFunctionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "pdfInput": true,
+        "webSearch": true
+      }
+    },
+    "zai-glm-5-2": {
+      "provider": "mistral",
+      "displayName": "Zai Glm 5 2",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000014,
+        "outputCostPerToken": 0.0000044,
+        "cacheReadCostPerToken": 1.4e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "glm-5-2": {
+      "provider": "mistral",
+      "displayName": "Glm 5 2",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000014,
+        "outputCostPerToken": 0.0000044,
+        "cacheReadCostPerToken": 1.4e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "mistral-ocr-4-1": {
+      "provider": "mistral",
+      "displayName": "Mistral Ocr 4 1",
+      "mode": "chat",
+      "source": "litellm"
+    },
+    "perplexity/deepseek-v4-flash-0731": {
+      "provider": "perplexity",
+      "displayName": "Perplexity/deepseek V4 Flash 0731",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 1.3e-7,
+        "outputCostPerToken": 2.6e-7,
+        "cacheReadCostPerToken": 2.8e-8
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "reasoning": true,
+        "webSearch": true
+      }
+    },
+    "perplexity/glm-5.2": {
+      "provider": "perplexity",
+      "displayName": "Perplexity/glm 5.2",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000014,
+        "outputCostPerToken": 0.0000044,
+        "cacheReadCostPerToken": 1.4e-7
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "reasoning": true,
+        "webSearch": true
+      }
+    },
+    "perplexity/kimi-k3": {
+      "provider": "perplexity",
+      "displayName": "Perplexity/kimi K3",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000003,
+        "outputCostPerToken": 0.000015,
+        "cacheReadCostPerToken": 3e-7
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "reasoning": true,
+        "webSearch": true
+      }
+    },
+    "perplexity/kimi-k2.7-code": {
+      "provider": "perplexity",
+      "displayName": "Perplexity/kimi K2.7 Code",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 9.5e-7,
+        "outputCostPerToken": 0.000004,
+        "cacheReadCostPerToken": 1.9e-7
+      },
+      "capabilities": {
+        "functionCalling": true,
+        "reasoning": false,
+        "webSearch": true
+      }
+    },
+    "grok-4.6": {
+      "provider": "xai",
+      "displayName": "Grok 4.6",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000002,
+        "outputCostPerToken": 0.000006,
+        "cacheReadCostPerToken": 5e-7
+      },
+      "context": {
+        "maxInputTokens": 500000,
+        "maxOutputTokens": 500000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "promptCaching": true,
+        "reasoning": true,
+        "webSearch": true
+      }
+    },
+    "gemini-3.1-flash-tts-preview": {
+      "provider": "google",
+      "displayName": "Gemini 3.1 Flash Tts Preview",
+      "mode": "audio_speech",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000001,
+        "outputCostPerToken": 0.00002
+      },
+      "context": {
+        "maxInputTokens": 8192,
+        "maxOutputTokens": 8192
+      }
+    },
+    "us.xai.grok-4.6": {
+      "provider": "bedrock",
+      "displayName": "Us.xai.grok 4.6",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000022,
+        "outputCostPerToken": 0.0000066,
+        "cacheReadCostPerToken": 5.5e-7
+      },
+      "context": {
+        "maxInputTokens": 500000,
+        "maxOutputTokens": 500000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "global.xai.grok-4.6": {
+      "provider": "bedrock",
+      "displayName": "Global.xai.grok 4.6",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000002,
+        "outputCostPerToken": 0.000006,
+        "cacheReadCostPerToken": 5e-7
+      },
+      "context": {
+        "maxInputTokens": 500000,
+        "maxOutputTokens": 500000
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "promptCaching": true,
+        "reasoning": true
+      }
+    },
+    "gemini-3.5-live-translate-preview": {
+      "provider": "google",
+      "displayName": "Gemini 3.5 Live Translate Preview",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000035,
+        "outputCostPerToken": 0.000021
+      },
+      "capabilities": {
+        "audioInput": true,
+        "audioOutput": true
+      }
+    },
+    "pplx-embed-context-v1-0.6b": {
+      "provider": "perplexity",
+      "displayName": "Pplx Embed Context V1 0.6b",
+      "mode": "embedding",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 8e-9,
+        "outputCostPerToken": 0
+      },
+      "context": {
+        "maxInputTokens": 32768
+      }
+    },
+    "pplx-embed-context-v1-4b": {
+      "provider": "perplexity",
+      "displayName": "Pplx Embed Context V1 4b",
+      "mode": "embedding",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 5e-8,
+        "outputCostPerToken": 0
+      },
+      "context": {
+        "maxInputTokens": 32768
+      }
+    },
+    "accounts/fireworks/models/deepseek-v4-flash-0731": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/models/deepseek V4 Flash 0731",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 1.4e-7,
+        "outputCostPerToken": 2.8e-7,
+        "cacheReadCostPerToken": 2.8e-8
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/models/kimi-k3": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/models/kimi K3",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000003,
+        "outputCostPerToken": 0.000015,
+        "cacheReadCostPerToken": 3e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "glm-5p2-fast": {
+      "provider": "fireworks_ai",
+      "displayName": "Glm 5p2 Fast",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000021,
+        "outputCostPerToken": 0.0000066,
+        "cacheReadCostPerToken": 2.1e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "glm-5p2-fast-us": {
+      "provider": "fireworks_ai",
+      "displayName": "Glm 5p2 Fast Us",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000021,
+        "outputCostPerToken": 0.0000066,
+        "cacheReadCostPerToken": 2.1e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "kimi-k3": {
+      "provider": "fireworks_ai",
+      "displayName": "Kimi K3",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000003,
+        "outputCostPerToken": 0.000015,
+        "cacheReadCostPerToken": 3e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "kimi-k3-fast": {
+      "provider": "fireworks_ai",
+      "displayName": "Kimi K3 Fast",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000045,
+        "outputCostPerToken": 0.0000225,
+        "cacheReadCostPerToken": 4.5e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "kimi-k3-us": {
+      "provider": "fireworks_ai",
+      "displayName": "Kimi K3 Us",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000033,
+        "outputCostPerToken": 0.0000165,
+        "cacheReadCostPerToken": 3.3e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "qwen3p8-max": {
+      "provider": "fireworks_ai",
+      "displayName": "Qwen3p8 Max",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000002,
+        "outputCostPerToken": 0.000006,
+        "cacheReadCostPerToken": 2.5e-7
+      },
+      "context": {
+        "maxInputTokens": 262144
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "muse-glimmer-30b": {
+      "provider": "fireworks_ai",
+      "displayName": "Muse Glimmer 30b",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 3.5e-7,
+        "outputCostPerToken": 0.0000015,
+        "cacheReadCostPerToken": 4e-8
+      },
+      "context": {
+        "maxInputTokens": 131072,
+        "maxOutputTokens": 16384
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "nemotron-lightning-3p5-30b-a3b": {
+      "provider": "fireworks_ai",
+      "displayName": "Nemotron Lightning 3p5 30b A3b",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 5e-8,
+        "outputCostPerToken": 2e-7,
+        "cacheReadCostPerToken": 1e-8
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 32768
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "nemotron-3-ultra-nvfp4": {
+      "provider": "fireworks_ai",
+      "displayName": "Nemotron 3 Ultra Nvfp4",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 6e-7,
+        "outputCostPerToken": 0.0000024,
+        "cacheReadCostPerToken": 1.2e-7
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 32768
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/models/muse-glimmer-30b": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/models/muse Glimmer 30b",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 3.5e-7,
+        "outputCostPerToken": 0.0000015,
+        "cacheReadCostPerToken": 4e-8
+      },
+      "context": {
+        "maxInputTokens": 131072,
+        "maxOutputTokens": 16384
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/models/nemotron Lightning 3p5 30b A3b",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 5e-8,
+        "outputCostPerToken": 2e-7,
+        "cacheReadCostPerToken": 1e-8
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 32768
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/models/nemotron-3-ultra-nvfp4": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/models/nemotron 3 Ultra Nvfp4",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 6e-7,
+        "outputCostPerToken": 0.0000024,
+        "cacheReadCostPerToken": 1.2e-7
+      },
+      "context": {
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 32768
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/models/qwen3p8-max": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/models/qwen3p8 Max",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.000002,
+        "outputCostPerToken": 0.000006,
+        "cacheReadCostPerToken": 2.5e-7
+      },
+      "context": {
+        "maxInputTokens": 262144
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/routers/glm-5p2-fast": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/routers/glm 5p2 Fast",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000021,
+        "outputCostPerToken": 0.0000066,
+        "cacheReadCostPerToken": 2.1e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/routers/glm-5p2-fast-us": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/routers/glm 5p2 Fast Us",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000021,
+        "outputCostPerToken": 0.0000066,
+        "cacheReadCostPerToken": 2.1e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": false,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/routers/kimi-k3-fast": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/routers/kimi K3 Fast",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000045,
+        "outputCostPerToken": 0.0000225,
+        "cacheReadCostPerToken": 4.5e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "accounts/fireworks/routers/kimi-k3-us": {
+      "provider": "fireworks_ai",
+      "displayName": "Accounts/fireworks/routers/kimi K3 Us",
+      "mode": "chat",
+      "source": "litellm",
+      "pricing": {
+        "inputCostPerToken": 0.0000033,
+        "outputCostPerToken": 0.0000165,
+        "cacheReadCostPerToken": 3.3e-7
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "capabilities": {
+        "vision": true,
+        "functionCalling": true,
+        "structuredOutput": true,
+        "reasoning": true
+      }
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "provider": "deepseek",
+      "displayName": "DeepSeek: DeepSeek V4 Flash Vision Exp",
+      "mode": "chat",
+      "source": "openrouter",
+      "supportedParameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "temperature",
+        "top_p"
+      ],
+      "pricing": {
+        "inputCostPerToken": 4.4e-7,
+        "outputCostPerToken": 0.00000132
+      },
+      "context": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 384000
+      },
+      "capabilities": {
+        "vision": true,
         "functionCalling": true,
         "structuredOutput": true
       }
